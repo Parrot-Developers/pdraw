@@ -90,6 +90,8 @@ Gles2Renderer::Gles2Renderer(AvcDecoder *decoder)
 
 Gles2Renderer::~Gles2Renderer()
 {
+    glClear(GL_COLOR_BUFFER_BIT);
+
     if (mGles2Video) delete mGles2Video;
     if (mGles2Hud) delete mGles2Hud;
 }

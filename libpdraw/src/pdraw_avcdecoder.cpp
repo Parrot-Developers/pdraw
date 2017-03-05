@@ -38,6 +38,7 @@
 
 #include "pdraw_avcdecoder.hpp"
 #include "pdraw_avcdecoder_ffmpeg.hpp"
+#include "pdraw_avcdecoder_videocoreomx.hpp"
 
 
 namespace Pdraw
@@ -45,7 +46,9 @@ namespace Pdraw
 
 AvcDecoder *AvcDecoder::create()
 {
-#if defined(USE_FFMPEG)
+#if defined(USE_VIDEOCOREOMX)
+    return new VideoCoreOmxAvcDecoder();
+#elif defined(USE_FFMPEG)
     return new FfmpegAvcDecoder();
 #else
     return NULL;

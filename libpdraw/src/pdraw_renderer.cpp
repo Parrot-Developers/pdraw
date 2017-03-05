@@ -39,6 +39,7 @@
 #include "pdraw_renderer.hpp"
 #include "pdraw_renderer_null.hpp"
 #include "pdraw_renderer_gles2.hpp"
+#include "pdraw_renderer_videocoreegl.hpp"
 
 
 namespace Pdraw
@@ -46,7 +47,9 @@ namespace Pdraw
 
 Renderer *Renderer::create(AvcDecoder *decoder)
 {
-#if defined(USE_GLES2)
+#if defined(USE_VIDEOCOREEGL)
+    return new VideoCoreEglRenderer(decoder);
+#elif defined(USE_GLES2)
     return new Gles2Renderer(decoder);
 #else
     return new NullRenderer(decoder);

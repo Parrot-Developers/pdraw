@@ -41,7 +41,7 @@
 
 #ifdef USE_GLES2
 
-#if 0
+#if defined(BCM_VIDEOCORE)
     #include <GLES2/gl2.h>
 #else
     #define GLFW_INCLUDE_ES2

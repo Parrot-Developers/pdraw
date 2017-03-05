@@ -370,7 +370,7 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
     {
         default:
         case GLES2_VIDEO_COLOR_CONVERSION_NONE:
-            glUniform1i(mUniformSamplers[colorConversion][0], (long int)framePlane[0]);
+            glUniform1i(mUniformSamplers[colorConversion][0], mFirstTexUnit + (long int)framePlane[0]);
             break;
         case GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB:
             for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++)
@@ -439,6 +439,21 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
 GLuint* Gles2Video::getTextures()
 {
     return mTextures;
+}
+
+int Gles2Video::allocTextures(unsigned int videoWidth, unsigned int videoHeight)
+{
+    int ret = 0, i;
+
+    for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++)
+    {
+        glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
+        glBindTexture(GL_TEXTURE_2D, mTextures[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, videoWidth, videoHeight, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    }
+
+    return ret;
 }
 
 }

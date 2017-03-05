@@ -516,10 +516,6 @@ void Gles2Hud::drawText(const char *str, float x, float y, float size, gles2_hud
         {
             break;
         }
-        else if (*c < 0)
-        {
-            continue;
-        }
         else
         {
             font_36::GlyphInfo &g = glyphInfos->glyphs[(int)(*c)];
@@ -567,10 +563,6 @@ void Gles2Hud::drawText(const char *str, float x, float y, float size, gles2_hud
         if (*c == '\n')
         {
             break;
-        }
-        else if (*c < 0)
-        {
-            continue;
         }
         else
         {

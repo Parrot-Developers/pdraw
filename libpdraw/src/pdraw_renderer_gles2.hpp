@@ -69,7 +69,7 @@ public:
 
     int render(int timeout);
 
-private:
+protected:
 
     AvcDecoder *mDecoder;
     int mWindowWidth;

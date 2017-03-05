@@ -1,7 +1,7 @@
 /**
- * @file pdraw_gles2_video.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 video rendering
- * @date 23/11/2016
+ * @file pdraw_renderer_videocoreegl.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - Broadcom VideoCore 4 EGL renderer
+ * @date 17/12/2016
  * @author aurelien.barre@akaaba.net
  *
  * Copyright (c) 2016 Aurelien Barre <aurelien.barre@akaaba.net>.
@@ -36,68 +36,66 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_GLES2_VIDEO_HPP_
-#define _PDRAW_GLES2_VIDEO_HPP_
+#ifndef _PDRAW_RENDERER_VIDEOCOREEGL_HPP_
+#define _PDRAW_RENDERER_VIDEOCOREEGL_HPP_
 
-#ifdef USE_GLES2
+#ifdef USE_VIDEOCOREEGL
 
-#if defined(BCM_VIDEOCORE)
-    #include <GLES2/gl2.h>
-#else
-    #define GLFW_INCLUDE_ES2
-    #include <GLFW/glfw3.h>
-#endif
+#include <pthread.h>
+#include "GLES2/gl2.h"
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
 
-
-#define GLES2_VIDEO_TEX_UNIT_COUNT 3
+#include "pdraw_renderer_gles2.hpp"
+#include "pdraw_gles2_video.hpp"
+#include "pdraw_gles2_hud.hpp"
+#include "pdraw_avcdecoder.hpp"
 
 
 namespace Pdraw
 {
 
 
-typedef enum
-{
-    GLES2_VIDEO_COLOR_CONVERSION_NONE = 0,
-    GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB,
-    GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB,
-    GLES2_VIDEO_COLOR_CONVERSION_MAX,
-
-} gles2_video_color_conversion_t;
-
-
-class Gles2Video
+class VideoCoreEglRenderer : public Gles2Renderer
 {
 public:
 
-    Gles2Video(unsigned int firstTexUnit);
+    VideoCoreEglRenderer(AvcDecoder *decoder);
 
-    ~Gles2Video();
+    ~VideoCoreEglRenderer();
 
-    static int getTexUnitCount() { return GLES2_VIDEO_TEX_UNIT_COUNT; }
+    int setRendererParams
+            (int windowWidth, int windowHeight,
+             int renderX, int renderY,
+             int renderWidth, int renderHeight,
+             void *uiHandler);
 
-    GLuint* getTextures();
+    int setVideoDimensions(unsigned int videoWidth, unsigned int videoHeight);
 
-    int allocTextures(unsigned int videoWidth, unsigned int videoHeight);
+    void* getVideoEglImage(int index);
 
-    int renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
-                    unsigned int frameWidth, unsigned int frameHeight,
-                    unsigned int sarWidth, unsigned int sarHeight,
-                    unsigned int windowWidth, unsigned int windowHeight,
-                    gles2_video_color_conversion_t colorConversion);
+    int swapDecoderEglImage();
+
+    int render(int timeout);
 
 private:
 
-    unsigned int mFirstTexUnit;
-    GLint mProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLuint mTextures[3];
-    GLint mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_MAX][3];
-    GLint mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLint mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+    int swapRendererEglImage();
+
+    int mVideoWidth;
+    int mVideoHeight;
+    EGLDisplay mDisplay;
+    EGLSurface mSurface;
+    EGLContext mContext;
+    void *mEglImage[3];
+    int mEglImageIdxReady;
+    int mEglImageIdxDecoderLocked;
+    int mEglImageIdxRendererLocked;
+    pthread_mutex_t mEglImageMutex;
 };
 
 }
 
-#endif /* USE_GLES2 */
+#endif /* USE_VIDEOCOREEGL */
 
-#endif /* !_PDRAW_GLES2_VIDEO_HPP_ */
+#endif /* !_PDRAW_RENDERER_VIDEOCOREEGL_HPP_ */
