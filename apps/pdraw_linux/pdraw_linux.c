@@ -1,0 +1,1215 @@
+/**
+ * @file pdraw_linux.c
+ * @brief Parrot Drones Awesome Video Viewer Linux Application
+ * @date 05/11/2016
+ * @author aurelien.barre@akaaba.net
+ *
+ * Copyright (c) 2016 Aurelien Barre <aurelien.barre@akaaba.net>.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are
+ * met:
+ *
+ *   * Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ * 
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in
+ *     the documentation and/or other materials provided with the
+ *     distribution.
+ * 
+ *   * Neither the name of the copyright holder nor the names of the
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+ * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#include "pdraw_linux.h"
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <getopt.h>
+
+#define ULOG_TAG pdraw_app
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_app);
+
+
+static const char short_options[] = "hf:k:K:i:s:c:S:C:n:m:";
+
+
+static const struct option long_options[] =
+{
+    { "help"            , no_argument        , NULL, 'h' },
+    { "file"            , required_argument  , NULL, 'f' },
+    { "arsdk"           , required_argument  , NULL, 'k' },
+    { "arsdk-start"     , required_argument  , NULL, 'K' },
+    { "ip"              , required_argument  , NULL, 'i' },
+    { "miface"          , required_argument  , NULL, 'm' },
+    { "srcstrmp"        , required_argument  , NULL, 's' },
+    { "srcctrlp"        , required_argument  , NULL, 'c' },
+    { "dststrmp"        , required_argument  , NULL, 'S' },
+    { "dstctrlp"        , required_argument  , NULL, 'C' },
+    { "screstream"      , required_argument  , NULL, 'n' },
+    { 0, 0, 0, 0 }
+};
+
+
+static ARNETWORK_IOBufferParam_t c2dParams[] =
+{
+    /* Non-acknowledged commands. */
+    {
+        .ID = PDRAW_ARSDK_CD_NONACK_ID,
+        .dataType = ARNETWORKAL_FRAME_TYPE_DATA,
+        .sendingWaitTimeMs = 20,
+        .ackTimeoutMs = ARNETWORK_IOBUFFERPARAM_INFINITE_NUMBER,
+        .numberOfRetry = ARNETWORK_IOBUFFERPARAM_INFINITE_NUMBER,
+        .numberOfCell = 2,
+        .dataCopyMaxSize = 128,
+        .isOverwriting = 1,
+    },
+    /* Acknowledged commands. */
+    {
+        .ID = PDRAW_ARSDK_CD_ACK_ID,
+        .dataType = ARNETWORKAL_FRAME_TYPE_DATA_WITH_ACK,
+        .sendingWaitTimeMs = 20,
+        .ackTimeoutMs = 500,
+        .numberOfRetry = 3,
+        .numberOfCell = 20,
+        .dataCopyMaxSize = 128,
+        .isOverwriting = 0,
+    },
+    /* Emergency commands. */
+    {
+        .ID = PDRAW_ARSDK_CD_EMERGENCY_ID,
+        .dataType = ARNETWORKAL_FRAME_TYPE_DATA_WITH_ACK,
+        .sendingWaitTimeMs = 10,
+        .ackTimeoutMs = 100,
+        .numberOfRetry = ARNETWORK_IOBUFFERPARAM_INFINITE_NUMBER,
+        .numberOfCell = 1,
+        .dataCopyMaxSize = 128,
+        .isOverwriting = 0,
+    },
+};
+
+static const size_t c2dParamsCount = sizeof(c2dParams) / sizeof(ARNETWORK_IOBufferParam_t);
+
+
+static ARNETWORK_IOBufferParam_t d2cParams[] =
+{
+    {
+        .ID = PDRAW_ARSDK_DC_NAVDATA_ID,
+        .dataType = ARNETWORKAL_FRAME_TYPE_DATA,
+        .sendingWaitTimeMs = 20,
+        .ackTimeoutMs = ARNETWORK_IOBUFFERPARAM_INFINITE_NUMBER,
+        .numberOfRetry = ARNETWORK_IOBUFFERPARAM_INFINITE_NUMBER,
+        .numberOfCell = 20,
+        .dataCopyMaxSize = 128,
+        .isOverwriting = 0,
+    },
+    {
+        .ID = PDRAW_ARSDK_DC_EVENT_ID,
+        .dataType = ARNETWORKAL_FRAME_TYPE_DATA_WITH_ACK,
+        .sendingWaitTimeMs = 20,
+        .ackTimeoutMs = 500,
+        .numberOfRetry = 3,
+        .numberOfCell = 20,
+        .dataCopyMaxSize = 128,
+        .isOverwriting = 0,
+    },
+};
+
+static const size_t d2cParamsCount = sizeof(d2cParams) / sizeof(ARNETWORK_IOBufferParam_t);
+
+
+static int commandBufferIds[] = {
+    PDRAW_ARSDK_DC_NAVDATA_ID,
+    PDRAW_ARSDK_DC_EVENT_ID,
+};
+
+static const size_t commandBufferIdsCount = sizeof(commandBufferIds) / sizeof(int);
+
+
+static int stopping = 0;
+
+
+static void sighandler(int signum)
+{
+    printf("Stoping PDrAW...\n");
+    ULOGI("Stopping...");
+    stopping = 1;
+    signal(SIGINT, SIG_DFL);
+}
+
+
+static void welcome()
+{
+    printf("  ___ ___       ___      __ \n");
+    printf(" | _ \\   \\ _ _ /_\\ \\    / / \n");
+    printf(" |  _/ |) | '_/ _ \\ \\/\\/ /  \n");
+    printf(" |_| |___/|_|/_/ \\_\\_/\\_/   \n");
+    printf("\nParrot Drones Awesome Video Viewer\n\n");
+}
+
+
+static void usage(int argc, char *argv[])
+{
+    printf("Usage: %s [options]\n"
+            "Options:\n"
+            "-h | --help                        Print this message\n"
+            "-f | --file <file_name>            Offline MP4 file playing\n"
+            "-k | --arsdk <ip_address>          ARSDK connection to drone with its IP address\n"
+            "-K | --arsdk-start <ip_address>    ARSDK connection to drone with its IP address (connect only, do not process the stream)\n"
+            "-i | --ip <ip_address>             Direct RTP/AVP H.264 reception with an IP address (ports must also be configured)\n"
+            "-m | --miface <ip_address>         Multicast interface address (only in case of multicast reception)\n"
+            "-s | --srcstrmp <port>             Source stream port for direct RTP/AVP reception\n"
+            "-c | --srcctrlp <port>             Source control port for direct RTP/AVP reception\n"
+            "-S | --dststrmp <port>             Destination stream port for direct RTP/AVP reception\n"
+            "-C | --dstctrlp <port>             Destination control port for direct RTP/AVP reception\n"
+            "-n | --screstream <ip_address>     Connexion to a RTP restream from a SkyController\n"
+            "\n",
+            argv[0]);
+}
+
+
+static void summary(struct pdraw_app* app)
+{
+    if (app->scRestream)
+    {
+        printf("Connection to a restream from SkyController (address %s)\n\n", app->ipAddr);
+    }
+    else if (app->arsdkConnect)
+    {
+        printf("ARSDK connection to address %s", app->ipAddr);
+        if (!app->receiveStream) printf(" (start stream only)");
+        printf("\n\n");
+    }
+    else if (app->receiveStream)
+    {
+        printf("Direct RTP/AVP H.264 reception from address %s\n", app->ipAddr);
+        printf("source ports: %d, %d | destination ports: %d, %d\n\n",
+               app->srcStreamPort, app->srcControlPort, app->dstStreamPort, app->dstControlPort);
+    }
+    else if (app->playRecord)
+    {
+        printf("Offline playing of MP4 file '%s'\n\n", app->url);
+    }
+    else
+    {
+        printf("Nothing to do...\n\n");
+    }
+}
+
+
+int main(int argc, char *argv[])
+{
+    int failed = 0;
+    int idx, c;
+    struct pdraw_app *app;
+
+    welcome();
+
+    if (argc < 2)
+    {
+        usage(argc, argv);
+        exit(-1);
+    }
+
+    app = (struct pdraw_app*)malloc(sizeof(struct pdraw_app));
+    if (app != NULL)
+    {
+        /* Initialize configuration */
+        memset(app, 0, sizeof(struct pdraw_app));
+        app->arsdkD2CPort = PDRAW_ARSDK_D2C_PORT;
+        app->arsdkC2DPort = 0; // Will be read from json
+        app->dstStreamPort = PDRAW_ARSDK_VIDEO_DST_STREAM_PORT;
+        app->dstControlPort = PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT;
+        app->run = 1;
+#ifdef USE_SDL
+        app->windowWidth = PDRAW_WINDOW_WIDTH;
+        app->windowHeight = PDRAW_WINDOW_HEIGHT;
+#endif /* USE_SDL */
+    }
+    else
+    {
+        failed = 1;
+        ULOGE("pdraw app alloc error!");
+    }
+
+    if (!failed)
+    {
+        /* Command-line parameters */
+        while ((c = getopt_long(argc, argv, short_options, long_options, &idx)) != -1)
+        {
+            switch (c)
+            {
+                case 0:
+                    break;
+
+                case 'h':
+                    usage(argc, argv);
+                    free(app);
+                    exit(0);
+                    break;
+
+                case 'n':
+                    strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
+                    app->scRestream = 1;
+                    app->receiveStream = 1;
+                    break;
+
+                case 'k':
+                    strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
+                    app->arsdkConnect = 1;
+                    app->arsdkStartStream = 1;
+                    app->receiveStream = 1;
+                    break;
+
+                case 'K':
+                    strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
+                    app->arsdkConnect = 1;
+                    app->arsdkStartStream = 1;
+                    break;
+
+                case 'i':
+                    strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
+                    app->receiveStream = 1;
+                    break;
+
+                case 'm':
+                    strncpy(app->ifaceAddr, optarg, sizeof(app->ifaceAddr));
+                    break;
+
+                case 'f':
+                    strncpy(app->url, optarg, sizeof(app->url));
+                    app->playRecord = 1;
+                    break;
+
+                case 's':
+                    sscanf(optarg, "%d", &app->srcStreamPort);
+                    break;
+
+                case 'c':
+                    sscanf(optarg, "%d", &app->srcControlPort);
+                    break;
+
+                case 'S':
+                    sscanf(optarg, "%d", &app->dstStreamPort);
+                    break;
+
+                case 'C':
+                    sscanf(optarg, "%d", &app->dstControlPort);
+                    break;
+
+                default:
+                    usage(argc, argv);
+                    free(app);
+                    exit(-1);
+                    break;
+            }
+        }
+    }
+
+    if (((!app->ipAddr) || (!strlen(app->ipAddr)))
+            && ((!app->url) || (!strlen(app->url))))
+    {
+        failed = 1;
+        fprintf(stderr, "Invalid address or file name\n\n");
+        usage(argc, argv);
+        ULOGE("invalid address or file name!");
+    }
+
+    if (!failed)
+    {
+        summary(app);
+
+        printf("Starting PDrAW...\n");
+        ULOGI("Starting...");
+
+        signal(SIGINT, sighandler);
+    }
+
+    if ((!failed) && (app->scRestream))
+    {
+        failed = skyControllerRestreamConnect(app);
+    }
+
+    if (app->arsdkConnect)
+    {
+        if (!failed)
+        {
+            failed = ardiscoveryConnect(app);
+        }
+
+        if (!failed)
+        {
+            failed = startArnetwork(app);
+        }
+    }
+
+    if (!failed)
+    {
+        failed = startUi(app);
+    }
+
+    if ((!failed) && ((app->receiveStream) || (app->playRecord)))
+    {
+        failed = startPdraw(app);
+    }
+
+    if (app->arsdkConnect)
+    {
+        if (!failed)
+        {
+            int cmdSend = 0;
+
+            cmdSend = sendDateAndTime(app);
+        }
+
+        if (!failed)
+        {
+            int cmdSend = 0;
+
+            cmdSend = sendAllStates(app);
+        }
+
+        if ((!failed) && (app->arsdkStartStream))
+        {
+            int cmdSend = 0;
+
+            cmdSend = sendStreamingVideoEnable(app);
+        }
+
+        if (!failed)
+        {
+            failed = startArcommand(app);
+        }
+    }
+
+    if (!failed)
+    {
+        printf("Rock'n'roll!\n");
+        ULOGI("Running...");
+    }
+
+    /* Run until interrupted */
+    while ((!failed) && (!stopping))
+    {
+#ifdef USE_SDL
+        SDL_Event event;
+        while ((!failed) && (!stopping) && (SDL_PollEvent(&event)))
+        {
+            switch(event.type)
+            {
+            case SDL_QUIT:
+                stopping = 1;
+                break;
+            case SDL_KEYDOWN:
+                switch(event.key.keysym.sym)
+                {
+                case SDLK_ESCAPE:
+                    stopping = 1;
+                    break;
+                case SDLK_SPACE:
+                    if (pdraw_is_paused(app->pdraw) == 0)
+                    {
+                        int ret = pdraw_pause(app->pdraw);
+                        if (ret != 0)
+                        {
+                            ULOGE("pdraw_pause() failed (%d)", ret);
+                        }
+                    }
+                    else
+                    {
+                        int ret = pdraw_start(app->pdraw);
+                        if (ret != 0)
+                        {
+                            ULOGE("pdraw_start() failed (%d)", ret);
+                        }
+                    }
+                    break;
+                case SDLK_HOME:
+                    break;
+                case SDLK_RETURN:
+                    /*options ^= SDL_FULLSCREEN;
+                    screen = SDL_SetVideoMode(width, height, 0, options);*/
+                    break;
+                default:
+                    break;
+                }
+                break;
+            }
+        }
+
+        if (app->pdraw)
+        {
+            int ret = pdraw_render(app->pdraw, 0);
+            if (ret != 0)
+            {
+                ULOGE("pdraw_render() failed (%d)", ret);
+                failed = 1;
+            }
+        }
+
+        SDL_GL_SwapBuffers();
+#else /* USE_SDL */
+        sleep(1);
+#endif /* USE_SDL */
+    }
+
+    printf("Terminating PDrAW...\n");
+    ULOGI("Terminating...");
+
+    if (app != NULL)
+    {
+        app->run = 0; // break threads loops
+
+        stopPdraw(app);
+        stopUi(app);
+        stopArcommand(app);
+        stopArnetwork(app);
+        free(app);
+    }
+
+    printf("Hasta la vista, PDrAW!\n");
+    ULOGI("Finished");
+
+    return 0;
+}
+
+
+int startUi(struct pdraw_app *app)
+{
+    int ret = 0;
+
+#ifdef USE_SDL
+    ULOGI("Start UI");
+
+    if (ret == 0)
+    {
+        ret = SDL_Init(SDL_INIT_VIDEO);
+        if (ret != 0)
+        {
+            ULOGE("SDL_Init() failed (%d): %s", ret, SDL_GetError());
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int flags = SDL_HWSURFACE | SDL_GL_DOUBLEBUFFER | SDL_OPENGL;
+
+        SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, 1);
+        SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+        SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+        SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+        app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, flags);
+        if (app->surface == NULL)
+        {
+            ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
+            ret = -1;
+        }
+        SDL_WM_SetCaption("PDrAW", "PDrAW");
+    }
+#endif /* USE_SDL */
+
+    return ret;
+}
+
+
+void stopUi(struct pdraw_app *app)
+{
+#ifdef USE_SDL
+    SDL_Quit();
+#endif /* USE_SDL */
+}
+
+
+int startPdraw(struct pdraw_app *app)
+{
+    int ret = 0;
+
+    ULOGI("Start libpdraw");
+
+    app->pdraw = pdraw_new();
+    if (app->pdraw == NULL)
+    {
+        ULOGE("pdraw_new() failed");
+        ret = -1;
+    }
+
+    if (ret == 0)
+    {
+        ret = pdraw_setup(app->pdraw, "PDrAW", "PDrAW", "PDrAW");
+        if (ret != 0)
+        {
+            ULOGE("pdraw_setup() failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
+    {
+        if (app->receiveStream)
+        {
+            ret = pdraw_open_single_stream(app->pdraw, app->ipAddr, app->ifaceAddr, app->srcStreamPort, app->srcControlPort,
+                                           app->dstStreamPort, app->dstControlPort, app->qosMode);
+        }
+        else if (app->playRecord)
+        {
+            ret = pdraw_open_url(app->pdraw, app->url);
+        }
+        if (ret != 0)
+        {
+            ULOGE("pdraw_open() failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
+    {
+        ret = pdraw_set_renderer_params(app->pdraw,
+                                        app->windowWidth, app->windowHeight, 0, 0,
+                                        app->windowWidth, app->windowHeight, NULL);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_renderer_params() failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
+    {
+        ret = pdraw_start(app->pdraw);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_start() failed (%d)", ret);
+        }
+    }
+
+    return ret;
+}
+
+
+void stopPdraw(struct pdraw_app *app)
+{
+    if (app->pdraw)
+    {
+        int ret;
+
+        ULOGI("Stop libpdraw");
+
+        ret = pdraw_destroy(app->pdraw);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_destroy() failed (%d)", ret);
+        }
+
+        app->pdraw = NULL;
+    }
+}
+
+
+int ardiscoveryConnect(struct pdraw_app *app)
+{
+    int failed = 0;
+    eARDISCOVERY_ERROR err = ARDISCOVERY_OK;
+    ARDISCOVERY_Connection_ConnectionData_t *discoveryData;
+
+    ULOGI("ARDiscovery connection");
+
+    discoveryData = ARDISCOVERY_Connection_New(ardiscoveryConnectionSendJsonCallback,
+                                               ardiscoveryConnectionReceiveJsonCallback, app, &err);
+    if (discoveryData == NULL || err != ARDISCOVERY_OK)
+    {
+        ULOGE("Error while creating discoveryData: %s", ARDISCOVERY_Error_ToString(err));
+        failed = 1;
+    }
+
+    if (!failed)
+    {
+        err = ARDISCOVERY_Connection_ControllerConnection(discoveryData, PDRAW_ARSDK_DISCOVERY_PORT, app->ipAddr);
+        if (err != ARDISCOVERY_OK)
+        {
+            ULOGE("Error while opening discovery connection: %s", ARDISCOVERY_Error_ToString(err));
+            failed = 1;
+        }
+    }
+
+    ARDISCOVERY_Connection_Delete(&discoveryData);
+
+    return failed;
+}
+
+
+eARDISCOVERY_ERROR ardiscoveryConnectionSendJsonCallback(uint8_t *dataTx, uint32_t *dataTxSize, void *customData)
+{
+    struct pdraw_app *app = (struct pdraw_app*)customData;
+    eARDISCOVERY_ERROR err = ARDISCOVERY_OK;
+
+    if ((dataTx != NULL) && (dataTxSize != NULL) && (app != NULL))
+    {
+        *dataTxSize = sprintf((char*)dataTx, "{ \"%s\": %d, \"%s\": \"%s\", \"%s\": \"%s\", \"%s\": %d, \"%s\": %d, \"%s\": %d, \"%s\": %d }",
+                              ARDISCOVERY_CONNECTION_JSON_D2CPORT_KEY, app->arsdkD2CPort,
+                              ARDISCOVERY_CONNECTION_JSON_CONTROLLER_NAME_KEY, "PDrAW",
+                              ARDISCOVERY_CONNECTION_JSON_CONTROLLER_TYPE_KEY, "Unix",
+                              ARDISCOVERY_CONNECTION_JSON_QOS_MODE_KEY, 1,
+                              ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_CLIENT_STREAM_PORT_KEY, app->dstStreamPort,
+                              ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_CLIENT_CONTROL_PORT_KEY, app->dstControlPort,
+                              ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SUPPORTED_METADATA_VERSION_KEY, 1) + 1;
+    }
+    else
+    {
+        err = ARDISCOVERY_ERROR;
+    }
+
+    return err;
+}
+
+
+eARDISCOVERY_ERROR ardiscoveryConnectionReceiveJsonCallback(uint8_t *dataRx, uint32_t dataRxSize, char *ip, void *customData)
+{
+    struct pdraw_app *app = (struct pdraw_app*)customData;
+    eARDISCOVERY_ERROR err = ARDISCOVERY_OK;
+
+    if ((dataRx != NULL) && (dataRxSize != 0) && (app != NULL))
+    {
+        char *json = (char*)malloc(dataRxSize + 1);
+        strncpy(json, (char*)dataRx, dataRxSize);
+        json[dataRxSize] = '\0';
+
+        ULOGD("Received JSON: %s", json);
+
+        free(json);
+
+        int error = 0;
+        json_object* jsonObj_All;
+        json_object* jsonObj_Item;
+        int value;
+
+        /* Parse the whole Rx buffer */
+        if (error == 0)
+        {
+            jsonObj_All = json_tokener_parse((const char*)dataRx);
+            if (jsonObj_All == NULL)
+            {
+                error = -1;
+            }
+        }
+
+        /* Find the c2dPort */
+        if (error == 0)
+        {
+            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_C2DPORT_KEY);
+            if (jsonObj_Item != NULL)
+            {
+                value = json_object_get_int(jsonObj_Item);
+                app->arsdkC2DPort = value;
+            }
+        }
+
+        /* Find the QoS mode */
+        if (error == 0)
+        {
+            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_QOS_MODE_KEY);
+            if (jsonObj_Item != NULL)
+            {
+                value = json_object_get_int(jsonObj_Item);
+                app->qosMode = value;
+            }
+        }
+
+        /* Find the srcStreamPort */
+        if (error == 0)
+        {
+            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_STREAM_PORT_KEY);
+            if (jsonObj_Item != NULL)
+            {
+                value = json_object_get_int(jsonObj_Item);
+                app->srcStreamPort = value;
+            }
+        }
+
+        /* Find the srcControlPort */
+        if (error == 0)
+        {
+            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_CONTROL_PORT_KEY);
+            if (jsonObj_Item != NULL)
+            {
+                value = json_object_get_int(jsonObj_Item);
+                app->srcControlPort = value;
+            }
+        }
+    }
+    else
+    {
+        err = ARDISCOVERY_ERROR;
+    }
+
+    return err;
+}
+
+
+int startArnetwork(struct pdraw_app *app)
+{
+    int failed = 0;
+    eARNETWORK_ERROR netError = ARNETWORK_OK;
+    eARNETWORKAL_ERROR netAlError = ARNETWORKAL_OK;
+    int pingDelay = 0; // 0 means default, -1 means no ping
+
+    ULOGI("Start ARNetwork");
+
+    app->arnetworkalManager = ARNETWORKAL_Manager_New(&netAlError);
+    if (netAlError != ARNETWORKAL_OK)
+    {
+        failed = 1;
+    }
+
+    if (!failed)
+    {
+        netAlError = ARNETWORKAL_Manager_InitWifiNetwork(app->arnetworkalManager, app->ipAddr, app->arsdkC2DPort, app->arsdkD2CPort, 1);
+        if (netAlError != ARNETWORKAL_OK)
+        {
+            failed = 1;
+        }
+    }
+
+    if (!failed)
+    {
+        if (app->qosMode == 1)
+        {
+            netAlError = ARNETWORKAL_Manager_SetSendClassSelector(app->arnetworkalManager, ARSAL_SOCKET_CLASS_SELECTOR_CS6);
+            if (netAlError != ARNETWORKAL_OK)
+            {
+                failed = 1;
+            }
+            netAlError = ARNETWORKAL_Manager_SetRecvClassSelector(app->arnetworkalManager, ARSAL_SOCKET_CLASS_SELECTOR_CS6);
+            if (netAlError != ARNETWORKAL_OK)
+            {
+                failed = 1;
+            }
+        }
+    }
+
+    if (!failed)
+    {
+        app->arnetworkManager = ARNETWORK_Manager_New(app->arnetworkalManager, c2dParamsCount, c2dParams, d2cParamsCount, d2cParams, pingDelay, arnetworkOnDisconnectCallback, app, &netError);
+        if (netError != ARNETWORK_OK)
+        {
+            failed = 1;
+        }
+    }
+
+    if (!failed)
+    {
+        if (pthread_create(&(app->arnetworkRxThread), NULL, ARNETWORK_Manager_ReceivingThreadRun, app->arnetworkManager) != 0)
+        {
+            ULOGE("Creation of rx thread failed");
+            failed = 1;
+        }
+        else
+        {
+            app->arnetworkRxThreadLaunched = 1;
+        }
+
+        if (pthread_create(&(app->arnetworkTxThread), NULL, ARNETWORK_Manager_SendingThreadRun, app->arnetworkManager) != 0)
+        {
+            ULOGE("Creation of tx thread failed");
+            failed = 1;
+        }
+        else
+        {
+            app->arnetworkTxThreadLaunched = 1;
+        }
+    }
+
+    if (failed)
+    {
+        if (netAlError != ARNETWORKAL_OK)
+        {
+            ULOGE("ARNetWorkAL Error: %s", ARNETWORKAL_Error_ToString(netAlError));
+        }
+
+        if (netError != ARNETWORK_OK)
+        {
+            ULOGE("ARNetWork Error: %s", ARNETWORK_Error_ToString(netError));
+        }
+    }
+
+    return failed;
+}
+
+
+void stopArnetwork(struct pdraw_app *app)
+{
+    ULOGI("Stop ARNetwork");
+
+    if (app->arnetworkManager != NULL)
+    {
+        ARNETWORK_Manager_Stop(app->arnetworkManager);
+        if (app->arnetworkRxThreadLaunched)
+        {
+            pthread_join(app->arnetworkRxThread, NULL);
+            app->arnetworkRxThreadLaunched = 0;
+        }
+
+        if (app->arnetworkTxThreadLaunched)
+        {
+            pthread_join(app->arnetworkTxThread, NULL);
+            app->arnetworkTxThreadLaunched = 0;
+        }
+    }
+
+    if (app->arnetworkalManager != NULL)
+    {
+        ARNETWORKAL_Manager_Unlock(app->arnetworkalManager);
+
+        ARNETWORKAL_Manager_CloseWifiNetwork(app->arnetworkalManager);
+    }
+
+    ARNETWORK_Manager_Delete(&(app->arnetworkManager));
+    ARNETWORKAL_Manager_Delete(&(app->arnetworkalManager));
+}
+
+
+void arnetworkOnDisconnectCallback(ARNETWORK_Manager_t *manager, ARNETWORKAL_Manager_t *alManager, void *customData)
+{
+    ULOGD("ARNetwork disconnection callback");
+}
+
+
+eARNETWORK_MANAGER_CALLBACK_RETURN arnetworkCmdCallback(int buffer_id, uint8_t *data, void *custom, eARNETWORK_MANAGER_CALLBACK_STATUS cause)
+{
+    eARNETWORK_MANAGER_CALLBACK_RETURN retval = ARNETWORK_MANAGER_CALLBACK_RETURN_DEFAULT;
+
+    ULOGD("ARNetwork command callback %d, cause:%d ", buffer_id, cause);
+
+    if (cause == ARNETWORK_MANAGER_CALLBACK_STATUS_TIMEOUT)
+    {
+        retval = ARNETWORK_MANAGER_CALLBACK_RETURN_DATA_POP;
+    }
+
+    return retval;
+}
+
+
+void *arnetworkCmdReaderRun(void* data)
+{
+    struct pdraw_app *app = NULL;
+    int bufferId = 0;
+    int failed = 0;
+    
+    const size_t maxLength = 128 * 1024;
+    void *readData = malloc(maxLength);
+    if (readData == NULL)
+    {
+        failed = 1;
+    }
+    
+    if (!failed)
+    {
+        if (data != NULL)
+        {
+            bufferId = ((struct arcmd_reader_data*)data)->readerBufferId;
+            app = ((struct arcmd_reader_data*)data)->app;
+            
+            if (app == NULL)
+            {
+                failed = 1;
+            }
+        }
+        else
+        {
+            failed = 1;
+        }
+    }
+    
+    if (!failed)
+    {
+        while (app->run)
+        {
+            eARNETWORK_ERROR netError = ARNETWORK_OK;
+            int length = 0;
+            int skip = 0;
+            
+            netError = ARNETWORK_Manager_ReadDataWithTimeout(app->arnetworkManager, bufferId, (uint8_t*)readData, maxLength, &length, 1000);
+            if (netError != ARNETWORK_OK)
+            {
+                if (netError != ARNETWORK_ERROR_BUFFER_EMPTY)
+                {
+                    ULOGE("ARNETWORK_Manager_ReadDataWithTimeout () failed: %s", ARNETWORK_Error_ToString(netError));
+                }
+                skip = 1;
+            }
+            
+            if (!skip)
+            {
+                eARCOMMANDS_DECODER_ERROR cmdError = ARCOMMANDS_DECODER_OK;
+                cmdError = ARCOMMANDS_Decoder_DecodeCommand(app->arcmdDecoder, (uint8_t*)readData, length);
+                if ((cmdError != ARCOMMANDS_DECODER_OK) && (cmdError != ARCOMMANDS_DECODER_ERROR_NO_CALLBACK))
+                {
+                    char msg[128];
+                    ARCOMMANDS_Decoder_DescribeBuffer((uint8_t*)readData, length, msg, sizeof(msg));
+                    ULOGE("ARCOMMANDS_Decoder_DecodeBuffer () failed: %d %s", cmdError, msg);
+                }
+            }
+        }
+    }
+    
+    if (readData != NULL)
+    {
+        free(readData);
+        readData = NULL;
+    }
+    
+    return NULL;
+}
+
+
+int startArcommand(struct pdraw_app *app)
+{
+    int failed = 0;
+
+    app->arcmdDecoder = ARCOMMANDS_Decoder_NewDecoder(NULL);
+    if (app->arcmdDecoder == NULL)
+    {
+        ULOGE("Failed to create decoder");
+        failed = 1;
+    }
+
+    app->arcmdReaderThreads = (pthread_t*)calloc(commandBufferIdsCount, sizeof(pthread_t));
+    if (app->arcmdReaderThreads == NULL)
+    {
+        ULOGE("Allocation of reader threads failed");
+        failed = 1;
+    }
+
+    app->arcmdReaderThreadsLaunched = (int*)calloc(commandBufferIdsCount, sizeof(int));
+    if (app->arcmdReaderThreadsLaunched == NULL)
+    {
+        ULOGE("Allocation of reader threads failed");
+        failed = 1;
+    }
+
+    if (!failed)
+    {
+        app->arcmdThreadData = (struct arcmd_reader_data*)calloc(commandBufferIdsCount, sizeof(struct arcmd_reader_data));
+        if (app->arcmdThreadData == NULL)
+        {
+            ULOGE("Allocation of reader threads data failed");
+            failed = 1;
+        }
+    }
+
+    if (!failed)
+    {
+        size_t readerThreadIndex = 0;
+        for (readerThreadIndex = 0 ; readerThreadIndex < commandBufferIdsCount ; readerThreadIndex++)
+        {
+            app->arcmdThreadData[readerThreadIndex].app = app;
+            app->arcmdThreadData[readerThreadIndex].readerBufferId = commandBufferIds[readerThreadIndex];
+
+            if (pthread_create(&(app->arcmdReaderThreads[readerThreadIndex]), NULL, arnetworkCmdReaderRun, &(app->arcmdThreadData[readerThreadIndex])) != 0)
+            {
+                ULOGE("Creation of reader thread failed");
+                failed = 1;
+            }
+            else
+            {
+                app->arcmdReaderThreadsLaunched[readerThreadIndex] = 1;
+            }
+        }
+    }
+
+    return failed;
+}
+
+
+void stopArcommand(struct pdraw_app *app)
+{
+    if ((app->arcmdReaderThreads != NULL) && (app->arcmdReaderThreadsLaunched != NULL))
+    {
+        size_t readerThreadIndex = 0;
+        for (readerThreadIndex = 0 ; readerThreadIndex < commandBufferIdsCount ; readerThreadIndex++)
+        {
+            if (app->arcmdReaderThreadsLaunched[readerThreadIndex])
+            {
+                pthread_join(app->arcmdReaderThreads[readerThreadIndex], NULL);
+                app->arcmdReaderThreadsLaunched[readerThreadIndex] = 0;
+            }
+        }
+        
+        free(app->arcmdReaderThreads);
+        app->arcmdReaderThreads = NULL;
+        free(app->arcmdReaderThreadsLaunched);
+        app->arcmdReaderThreadsLaunched = NULL;
+    }
+    
+    if (app->arcmdThreadData != NULL)
+    {
+        free(app->arcmdThreadData);
+        app->arcmdThreadData = NULL;
+    }
+
+    ARCOMMANDS_Decoder_DeleteDecoder(&app->arcmdDecoder);
+}
+
+
+int sendDateAndTime(struct pdraw_app *app)
+{
+    int sentStatus = 1;
+    u_int8_t cmdBuffer[128];
+    int32_t cmdSize = 0;
+    eARCOMMANDS_GENERATOR_ERROR cmdError;
+    eARNETWORK_ERROR netError = ARNETWORK_ERROR;
+
+    ULOGD("Send date and time commands");
+
+    char strDate[30];
+    char strTime[30];
+    time_t rawDate;
+    struct tm* tmDateTime;
+
+    time(&rawDate);
+    tmDateTime = localtime(&rawDate);
+    strftime(strDate, 30, "%F", tmDateTime);
+    strftime(strTime, 30, "T%H%M%S%z", tmDateTime);
+
+    /* Send date command */
+    cmdError = ARCOMMANDS_Generator_GenerateCommonCommonCurrentDate(cmdBuffer, sizeof(cmdBuffer), &cmdSize, strDate);
+    if (cmdError == ARCOMMANDS_GENERATOR_OK)
+    {
+        netError = ARNETWORK_Manager_SendData(app->arnetworkManager, PDRAW_ARSDK_CD_ACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
+    }
+
+    if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
+    {
+        ULOGW("Failed to send date command. cmdError:%d netError:%s", cmdError, ARNETWORK_Error_ToString(netError));
+        sentStatus = 0;
+    }
+
+    /* Send time command */
+    cmdError = ARCOMMANDS_Generator_GenerateCommonCommonCurrentTime(cmdBuffer, sizeof(cmdBuffer), &cmdSize, strTime);
+    if (cmdError == ARCOMMANDS_GENERATOR_OK)
+    {
+        netError = ARNETWORK_Manager_SendData(app->arnetworkManager, PDRAW_ARSDK_CD_ACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
+    }
+
+    if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
+    {
+        ULOGW("Failed to send time command. cmdError:%d netError:%s", cmdError, ARNETWORK_Error_ToString(netError));
+        sentStatus = 0;
+    }
+
+    return sentStatus;
+}
+
+
+int sendAllStates(struct pdraw_app *app)
+{
+    int sentStatus = 1;
+    u_int8_t cmdBuffer[128];
+    int32_t cmdSize = 0;
+    eARCOMMANDS_GENERATOR_ERROR cmdError;
+    eARNETWORK_ERROR netError = ARNETWORK_ERROR;
+
+    ULOGD("Send all states command");
+
+    /* Send all states command */
+    cmdError = ARCOMMANDS_Generator_GenerateCommonCommonAllStates(cmdBuffer, sizeof(cmdBuffer), &cmdSize);
+    if (cmdError == ARCOMMANDS_GENERATOR_OK)
+    {
+        netError = ARNETWORK_Manager_SendData(app->arnetworkManager, PDRAW_ARSDK_CD_ACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
+    }
+
+    if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
+    {
+        ULOGW("Failed to send all states command. cmdError:%d netError:%s", cmdError, ARNETWORK_Error_ToString(netError));
+        sentStatus = 0;
+    }
+
+    return sentStatus;
+}
+
+
+int sendStreamingVideoEnable(struct pdraw_app *app)
+{
+    int sentStatus = 1;
+    u_int8_t cmdBuffer[128];
+    int32_t cmdSize = 0;
+    eARCOMMANDS_GENERATOR_ERROR cmdError;
+    eARNETWORK_ERROR netError = ARNETWORK_ERROR;
+    
+    ULOGD("Send streaming video enable command");
+    
+    /* Send streaming begin command */
+    cmdError = ARCOMMANDS_Generator_GenerateARDrone3MediaStreamingVideoEnable(cmdBuffer, sizeof(cmdBuffer), &cmdSize, 1);
+    if (cmdError == ARCOMMANDS_GENERATOR_OK)
+    {
+        netError = ARNETWORK_Manager_SendData(app->arnetworkManager, PDRAW_ARSDK_CD_ACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
+    }
+    
+    if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
+    {
+        ULOGW("Failed to send streaming video enable command. cmdError:%d netError:%s", cmdError, ARNETWORK_Error_ToString(netError));
+        sentStatus = 0;
+    }
+    
+    return sentStatus;
+}
+
+
+int skyControllerRestreamConnect(struct pdraw_app *app)
+{
+    int failed = 0;
+    char url[100];
+    snprintf(url, sizeof(url), "http://%s:7711/video", app->ipAddr);
+
+    ULOGI("SkyController restream connection: %s", url);
+
+    CURL *curl;
+    CURLcode res;
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    curl = curl_easy_init();
+    if (curl)
+    {
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK)
+        {
+            ULOGE("curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            failed = 1;
+        }
+
+        curl_easy_cleanup(curl);
+    }
+
+    curl_global_cleanup();
+
+    app->srcStreamPort = 5004;
+    app->srcControlPort = 5005;
+    app->dstStreamPort = 55004;
+    app->dstControlPort = 55005;
+
+    return failed;
+}
