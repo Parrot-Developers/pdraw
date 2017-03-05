@@ -70,7 +70,7 @@ class Gles2Video
 {
 public:
 
-    Gles2Video(unsigned int width, unsigned int height, unsigned int firstTexUnit);
+    Gles2Video(unsigned int firstTexUnit);
 
     ~Gles2Video();
 
@@ -86,8 +86,6 @@ public:
 
 private:
 
-    unsigned int mWidth;
-    unsigned int mHeight;
     unsigned int mFirstTexUnit;
     GLint mProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
     GLuint mTextures[3];

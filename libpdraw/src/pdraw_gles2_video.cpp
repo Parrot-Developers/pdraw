@@ -119,15 +119,13 @@ static const GLchar *video420SemiplanarFragmentShader =
     "}\n";
 
 
-Gles2Video::Gles2Video(unsigned int width, unsigned int height, unsigned int firstTexUnit)
+Gles2Video::Gles2Video(unsigned int firstTexUnit)
 {
     GLint vertexShader, fragmentShaderNoconv, fragmentShaderYuvp, fragmentShaderYuvsp;
     GLint success = 0;
     unsigned int i;
     int ret = 0;
 
-    mWidth = width;
-    mHeight = height;
     mFirstTexUnit = firstTexUnit;
 
     if (ret == 0)
@@ -330,9 +328,6 @@ Gles2Video::Gles2Video(unsigned int width, unsigned int height, unsigned int fir
         {
             glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
             glBindTexture(GL_TEXTURE_2D, mTextures[i]);
-
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mWidth, mHeight, 0,
-                         GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

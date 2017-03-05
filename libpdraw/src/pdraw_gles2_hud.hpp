@@ -74,13 +74,13 @@ class Gles2Hud
 {
 public:
 
-    Gles2Hud(unsigned int width, unsigned int height, unsigned int firstTexUnit);
+    Gles2Hud(unsigned int firstTexUnit);
 
     ~Gles2Hud();
 
     static int getTexUnitCount() { return GLES2_HUD_TEX_UNIT_COUNT; }
 
-    int renderHud(const frame_metadata_t *metadata);
+    int renderHud(float aspectRatio, const frame_metadata_t *metadata);
 
 private:
 
@@ -102,8 +102,6 @@ private:
     void drawPositionPin(const euler_t *frame, double bearing, double elevation, const float color[4]);
 
     unsigned int mFirstTexUnit;
-    unsigned int mWidth;
-    unsigned int mHeight;
     float mAspectRatio;
     GLint mProgram[2];
     GLint mPositionHandle;

@@ -72,8 +72,6 @@ public:
 private:
 
     AvcDecoder *mDecoder;
-    int mVideoWidth;
-    int mVideoHeight;
     int mWindowWidth;
     int mWindowHeight;
     int mRenderX;

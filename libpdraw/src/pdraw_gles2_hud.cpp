@@ -101,16 +101,13 @@ static const float colorDarkGreen[4] = { 0.0f, 0.5f, 0.0f, 1.0f };
 static const float colorBlue[4] = { 0.0f, 0.0f, 0.9f, 1.0f };
 
 
-Gles2Hud::Gles2Hud(unsigned int width, unsigned int height, unsigned int firstTexUnit)
+Gles2Hud::Gles2Hud(unsigned int firstTexUnit)
 {
     GLint vertexShader, fragmentShader;
     GLint success = 0;
     int ret = 0;
 
     mFirstTexUnit = firstTexUnit;
-    mWidth = width;
-    mHeight = height;
-    mAspectRatio = (float)width / (float)height;
     mFovX = 80. * M_PI / 180.; //TODO
     mFovY = 50.5 * M_PI / 180.; //TODO
 
@@ -313,8 +310,14 @@ Gles2Hud::~Gles2Hud()
 }
 
 
-int Gles2Hud::renderHud(const frame_metadata_t *metadata)
+int Gles2Hud::renderHud(float aspectRatio, const frame_metadata_t *metadata)
 {
+    if ((aspectRatio <= 0.) || (!metadata))
+    {
+        return -1;
+    }
+    mAspectRatio = aspectRatio;
+
     float horizontalSpeed = sqrtf(metadata->groundSpeed.north * metadata->groundSpeed.north
                                   + metadata->groundSpeed.east * metadata->groundSpeed.east);
     float speedRho = sqrtf(metadata->groundSpeed.north * metadata->groundSpeed.north
