@@ -108,6 +108,7 @@ struct pdraw_app
     SDL_Surface *surface;
     int windowWidth;
     int windowHeight;
+    int sdlFlags;
 #endif /* USE_SDL */
 };
 

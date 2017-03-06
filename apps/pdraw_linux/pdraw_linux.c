@@ -416,43 +416,98 @@ int main(int argc, char *argv[])
         {
             switch(event.type)
             {
-            case SDL_QUIT:
-                stopping = 1;
-                break;
-            case SDL_KEYDOWN:
-                switch(event.key.keysym.sym)
-                {
-                case SDLK_ESCAPE:
+                case SDL_QUIT:
                     stopping = 1;
                     break;
-                case SDLK_SPACE:
-                    if (pdraw_is_paused(app->pdraw) == 0)
+                case SDL_VIDEORESIZE:
+                {
+                    app->windowWidth = event.resize.w;
+                    app->windowHeight = event.resize.h;
+                    app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
+                    if (app->surface == NULL)
                     {
-                        int ret = pdraw_pause(app->pdraw);
-                        if (ret != 0)
-                        {
-                            ULOGE("pdraw_pause() failed (%d)", ret);
-                        }
+                        ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
                     }
                     else
                     {
-                        int ret = pdraw_start(app->pdraw);
+                        int ret = pdraw_set_renderer_params(app->pdraw,
+                                                            app->windowWidth, app->windowHeight, 0, 0,
+                                                            app->windowWidth, app->windowHeight, NULL);
                         if (ret != 0)
                         {
-                            ULOGE("pdraw_start() failed (%d)", ret);
+                            ULOGE("pdraw_set_renderer_params() failed (%d)", ret);
                         }
                     }
                     break;
-                case SDLK_HOME:
-                    break;
-                case SDLK_RETURN:
-                    /*options ^= SDL_FULLSCREEN;
-                    screen = SDL_SetVideoMode(width, height, 0, options);*/
-                    break;
-                default:
-                    break;
                 }
-                break;
+                case SDL_KEYDOWN:
+                    switch(event.key.keysym.sym)
+                    {
+                    case SDLK_ESCAPE:
+                        stopping = 1;
+                        break;
+                    case SDLK_SPACE:
+                        if (pdraw_is_paused(app->pdraw) == 0)
+                        {
+                            int ret = pdraw_pause(app->pdraw);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_pause() failed (%d)", ret);
+                            }
+                        }
+                        else
+                        {
+                            int ret = pdraw_start(app->pdraw);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_start() failed (%d)", ret);
+                            }
+                        }
+                        break;
+                    case SDLK_RIGHT:
+                    {
+                        int ret = pdraw_seek_forward(app->pdraw, 10000000);
+                        if (ret != 0)
+                        {
+                            ULOGW("pdraw_seek_forward() failed (%d)", ret);
+                        }
+                        break;
+                    }
+                    case SDLK_LEFT:
+                    {
+                        int ret = pdraw_seek_back(app->pdraw, 10000000);
+                        if (ret != 0)
+                        {
+                            ULOGW("pdraw_seek_back() failed (%d)", ret);
+                        }
+                        break;
+                    }
+                    case SDLK_HOME:
+                    {
+                        int ret = pdraw_seek_to(app->pdraw, 0);
+                        if (ret != 0)
+                        {
+                            ULOGW("pdraw_seek_to() failed (%d)", ret);
+                        }
+                        break;
+                    }
+                    case SDLK_END:
+                    {
+                        int ret = pdraw_seek_to(app->pdraw, (uint64_t)-1);
+                        if (ret != 0)
+                        {
+                            ULOGW("pdraw_seek_to() failed (%d)", ret);
+                        }
+                        break;
+                    }
+                    case SDLK_RETURN:
+                        /*options ^= SDL_FULLSCREEN;
+                        screen = SDL_SetVideoMode(width, height, 0, options);*/
+                        break;
+                    default:
+                        break;
+                    }
+                    break;
             }
         }
 
@@ -512,7 +567,7 @@ int startUi(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        int flags = SDL_HWSURFACE | SDL_GL_DOUBLEBUFFER | SDL_OPENGL;
+        app->sdlFlags = SDL_HWSURFACE | SDL_GL_DOUBLEBUFFER | SDL_OPENGL | SDL_RESIZABLE;
 
         SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, 1);
         SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
@@ -523,7 +578,7 @@ int startUi(struct pdraw_app *app)
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
-        app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, flags);
+        app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
         if (app->surface == NULL)
         {
             ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
