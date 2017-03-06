@@ -43,6 +43,8 @@
 extern "C"  {
 #endif /* __cplusplus */
 
+#include <inttypes.h>
+
 
 struct pdraw;
 
@@ -97,6 +99,21 @@ int pdraw_is_paused
 
 int pdraw_stop
         (struct pdraw *pdraw);
+
+
+int pdraw_seek_to
+        (struct pdraw *pdraw,
+         uint64_t timestamp);
+
+
+int pdraw_seek_forward
+        (struct pdraw *pdraw,
+         uint64_t delta);
+
+
+int pdraw_seek_back
+        (struct pdraw *pdraw,
+         uint64_t delta);
 
 
 int pdraw_start_recorder

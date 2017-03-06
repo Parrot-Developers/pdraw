@@ -90,6 +90,15 @@ public:
 
     int stop();
 
+    int seekTo
+            (uint64_t timestamp);
+
+    int seekForward
+            (uint64_t delta);
+
+    int seekBack
+            (uint64_t delta);
+
     int startRecorder(const std::string &fileName);
 
     int stopRecorder();

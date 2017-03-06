@@ -392,6 +392,42 @@ int StreamDemuxer::stop()
 }
 
 
+int StreamDemuxer::seekTo(uint64_t timestamp)
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    return -1;
+}
+
+
+int StreamDemuxer::seekForward(uint64_t delta)
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    return -1;
+}
+
+
+int StreamDemuxer::seekBack(uint64_t delta)
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    return -1;
+}
+
+
 int StreamDemuxer::startRecorder(const std::string &fileName)
 {
     if (!mConfigured)

@@ -409,6 +409,87 @@ int PdrawImpl::stop()
 }
 
 
+int PdrawImpl::seekTo(uint64_t timestamp)
+{
+    if (!mSetup)
+    {
+        ULOGE("Pdraw is not set up");
+        return -1;
+    }
+
+    if (mDemux)
+    {
+        int ret = mDemux->seekTo(timestamp);
+        if (ret != 0)
+        {
+            ULOGE("Failed to seek with demuxer");
+            return -1;
+        }
+    }
+    else
+    {
+        ULOGE("Invalid demuxer");
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int PdrawImpl::seekForward(uint64_t delta)
+{
+    if (!mSetup)
+    {
+        ULOGE("Pdraw is not set up");
+        return -1;
+    }
+
+    if (mDemux)
+    {
+        int ret = mDemux->seekForward(delta);
+        if (ret != 0)
+        {
+            ULOGE("Failed to seek with demuxer");
+            return -1;
+        }
+    }
+    else
+    {
+        ULOGE("Invalid demuxer");
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int PdrawImpl::seekBack(uint64_t delta)
+{
+    if (!mSetup)
+    {
+        ULOGE("Pdraw is not set up");
+        return -1;
+    }
+
+    if (mDemux)
+    {
+        int ret = mDemux->seekBack(delta);
+        if (ret != 0)
+        {
+            ULOGE("Failed to seek with demuxer");
+            return -1;
+        }
+    }
+    else
+    {
+        ULOGE("Invalid demuxer");
+        return -1;
+    }
+
+    return 0;
+}
+
+
 int PdrawImpl::startRecorder(const std::string &fileName)
 {
     if (!mSetup)

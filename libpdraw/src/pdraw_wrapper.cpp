@@ -164,6 +164,36 @@ int pdraw_stop(struct pdraw *pdraw)
 }
 
 
+int pdraw_seek_to(struct pdraw *pdraw, uint64_t timestamp)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->seekTo(timestamp);
+}
+
+
+int pdraw_seek_forward(struct pdraw *pdraw, uint64_t delta)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->seekForward(delta);
+}
+
+
+int pdraw_seek_back(struct pdraw *pdraw, uint64_t delta)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->seekBack(delta);
+}
+
+
 int pdraw_start_recorder(struct pdraw *pdraw, const char *fileName)
 {
     if (pdraw == NULL)

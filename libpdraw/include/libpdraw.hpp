@@ -39,6 +39,7 @@
 #ifndef _LIBPDRAW_HPP_
 #define _LIBPDRAW_HPP_
 
+#include <inttypes.h>
 #include <string>
 
 namespace Pdraw
@@ -79,6 +80,15 @@ public:
     virtual bool isPaused() = 0;
 
     virtual int stop() = 0;
+
+    virtual int seekTo
+            (uint64_t timestamp) = 0;
+
+    virtual int seekForward
+            (uint64_t delta) = 0;
+
+    virtual int seekBack
+            (uint64_t delta) = 0;
 
     virtual int startRecorder
             (const std::string &fileName) = 0;

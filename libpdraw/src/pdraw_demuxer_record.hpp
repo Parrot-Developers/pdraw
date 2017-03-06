@@ -77,6 +77,15 @@ public:
 
     int stop();
 
+    int seekTo
+            (uint64_t timestamp);
+
+    int seekForward
+            (uint64_t delta);
+
+    int seekBack
+            (uint64_t delta);
+
 private:
 
     static void* runDemuxerThread(void *ptr);
@@ -84,9 +93,11 @@ private:
     std::string mFileName;
     AvcDecoder *mDecoder;
     pthread_t mDemuxerThread;
+    pthread_mutex_t mDemuxerMutex;
     int mRunning;
     int mThreadShouldStop;
     struct mp4_demux *mDemux;
+    uint64_t mDuration;
     int mVideoTrackCount;
     unsigned int mVideoTrackId;
     char *mMetadataMimeType;
@@ -95,7 +106,7 @@ private:
     uint8_t *mMetadataBuffer;
     uint64_t mLastFrameOutputTime;
     uint64_t mLastFrameTimestamp;
-    uint64_t mNextSeek;
+    int64_t mPendingSeekTs;
 };
 
 }

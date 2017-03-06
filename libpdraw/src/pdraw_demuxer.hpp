@@ -88,6 +88,15 @@ public:
 
     virtual int stop() = 0;
 
+    virtual int seekTo
+            (uint64_t timestamp) = 0;
+
+    virtual int seekForward
+            (uint64_t delta) = 0;
+
+    virtual int seekBack
+            (uint64_t delta) = 0;
+
 protected:
 
     bool mConfigured;

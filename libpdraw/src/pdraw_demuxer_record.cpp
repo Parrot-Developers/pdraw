@@ -66,12 +66,19 @@ RecordDemuxer::RecordDemuxer()
     mDecoder = NULL;
     mLastFrameOutputTime = 0;
     mLastFrameTimestamp = 0;
+    mPendingSeekTs = -1;
 
     mMetadataBufferSize = 1024;
     mMetadataBuffer = (uint8_t*)malloc(mMetadataBufferSize);
     if (mMetadataBuffer == NULL)
     {
         ULOGE("RecordDemuxer: allocation failed size %d", mMetadataBufferSize);
+    }
+
+    int ret = pthread_mutex_init(&mDemuxerMutex, NULL);
+    if (ret != 0)
+    {
+        ULOGE("RecordDemuxer: mutex creation failed (%d)", ret);
     }
 }
 
@@ -85,6 +92,8 @@ RecordDemuxer::~RecordDemuxer()
     {
         ULOGE("RecordDemuxer: pthread_join() failed (%d)", thErr);
     }
+
+    pthread_mutex_destroy(&mDemuxerMutex);
 
     if (mDemux) mp4_demux_close(mDemux);
     free(mMetadataBuffer);
@@ -113,13 +122,23 @@ int RecordDemuxer::configure(const std::string &url)
             ret = -1;
         }
 
+        int i, tkCount = 0, found = 0;
+        mp4_media_info_t info;
         mp4_track_info_t tk;
-        int i, count, found = 0;
 
-        count = mp4_demux_get_track_count(mDemux);
-        ULOGI("RecordDemuxer: track count: %d", count);
+        ret = mp4_demux_get_media_info(mDemux, &info);
+        if (ret == 0)
+        {
+            mDuration = info.duration;
+            tkCount = info.track_count;
+            ULOGI("RecordDemuxer: track count: %d", tkCount);
+            unsigned int hrs = (unsigned int)((info.duration + 500000) / 1000000 / 60 / 60);
+            unsigned int min = (unsigned int)((info.duration + 500000) / 1000000 / 60 - hrs * 60);
+            unsigned int sec = (unsigned int)((info.duration + 500000) / 1000000 - hrs * 60 * 60 - min * 60);
+            ULOGI("RecordDemuxer: duration: %02d:%02d:%02d", hrs, min, sec);
+        }
 
-        for (i = 0; i < count; i++)
+        for (i = 0; i < tkCount; i++)
         {
             ret = mp4_demux_get_track_info(mDemux, i, &tk);
             if ((ret == 0) && (tk.type == MP4_TRACK_TYPE_VIDEO))
@@ -261,6 +280,70 @@ int RecordDemuxer::stop()
 }
 
 
+int RecordDemuxer::seekTo(uint64_t timestamp)
+{
+    pthread_mutex_lock(&mDemuxerMutex);
+
+    if (!mConfigured)
+    {
+        pthread_mutex_unlock(&mDemuxerMutex);
+        ULOGE("RecordDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    if (timestamp > mDuration) timestamp = mDuration;
+    mPendingSeekTs = (int64_t)timestamp;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
+
+    return 0;
+}
+
+
+int RecordDemuxer::seekForward(uint64_t delta)
+{
+    pthread_mutex_lock(&mDemuxerMutex);
+
+    if (!mConfigured)
+    {
+        pthread_mutex_unlock(&mDemuxerMutex);
+        ULOGE("RecordDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    int64_t ts = (int64_t)mLastFrameTimestamp + (int64_t)delta;
+    if (ts < 0) ts = 0;
+    if (ts > (int64_t)mDuration) ts = mDuration;
+    mPendingSeekTs = ts;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
+
+    return 0;
+}
+
+
+int RecordDemuxer::seekBack(uint64_t delta)
+{
+    pthread_mutex_lock(&mDemuxerMutex);
+
+    if (!mConfigured)
+    {
+        pthread_mutex_unlock(&mDemuxerMutex);
+        ULOGE("RecordDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    int64_t ts = (int64_t)mLastFrameTimestamp - (int64_t)delta;
+    if (ts < 0) ts = 0;
+    if (ts > (int64_t)mDuration) ts = mDuration;
+    mPendingSeekTs = ts;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
+
+    return 0;
+}
+
+
 void* RecordDemuxer::runDemuxerThread(void *ptr)
 {
     RecordDemuxer *demuxer = (RecordDemuxer*)ptr;
@@ -339,9 +422,28 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     }
                     demuxer->mFirstFrame = false;
                 }
+
+                pthread_mutex_lock(&demuxer->mDemuxerMutex);
+                int64_t seekTs = demuxer->mPendingSeekTs;
+                demuxer->mPendingSeekTs = -1;
+                pthread_mutex_unlock(&demuxer->mDemuxerMutex);
+
+                if (seekTs >= 0)
+                {
+                    ret = mp4_demux_seek(demuxer->mDemux, (uint64_t)seekTs, 1);
+                    if (ret != 0)
+                    {
+                        ULOGW("RecordDemuxer: mp4_demux_seek() failed (%d)", ret);
+                    }
+                    else
+                    {
+                        demuxer->mLastFrameTimestamp = 0;
+                        outputTimeError = 0;
+                    }
+                }
+
                 ret = mp4_demux_get_track_next_sample(demuxer->mDemux, demuxer->mVideoTrackId,
-                                                       buf, bufSize,
-                                                       demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize, &sample);
+                                                      buf, bufSize, demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize, &sample);
                 if ((ret == 0) && (sample.sample_size))
                 {
                     outputBuffer->auSize = sample.sample_size;
@@ -383,7 +485,8 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     clock_gettime(CLOCK_MONOTONIC, &t1);
                     outputBuffer->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
                     outputBuffer->auNtpTimestampLocal = outputBuffer->demuxOutputTimestamp;
-                    outputTimeError = (int32_t)((int64_t)(sample.sample_dts - demuxer->mLastFrameTimestamp) - (int64_t)(outputBuffer->demuxOutputTimestamp - demuxer->mLastFrameOutputTime));
+                    outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp)) ?
+                                        (int32_t)((int64_t)(sample.sample_dts - demuxer->mLastFrameTimestamp) - (int64_t)(outputBuffer->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
 
                     ret = demuxer->mDecoder->queueInputBuffer(outputBuffer);
                     if (ret != 0)
