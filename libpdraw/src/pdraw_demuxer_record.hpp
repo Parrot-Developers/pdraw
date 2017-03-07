@@ -93,6 +93,7 @@ private:
     std::string mFileName;
     AvcDecoder *mDecoder;
     pthread_t mDemuxerThread;
+    bool mDemuxerThreadLaunched;
     pthread_mutex_t mDemuxerMutex;
     int mRunning;
     int mThreadShouldStop;

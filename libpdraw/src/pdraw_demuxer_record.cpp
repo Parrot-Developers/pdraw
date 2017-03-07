@@ -58,6 +58,7 @@ RecordDemuxer::RecordDemuxer()
     mConfigured = false;
     mDemux = NULL;
     mRunning = false;
+    mDemuxerThreadLaunched = false;
     mThreadShouldStop = false;
     mVideoTrackCount = 0;
     mVideoTrackId = 0;
@@ -87,10 +88,13 @@ RecordDemuxer::~RecordDemuxer()
 {
     mThreadShouldStop = true;
 
-    int thErr = pthread_join(mDemuxerThread, NULL);
-    if (thErr != 0)
+    if (mDemuxerThreadLaunched)
     {
-        ULOGE("RecordDemuxer: pthread_join() failed (%d)", thErr);
+        int thErr = pthread_join(mDemuxerThread, NULL);
+        if (thErr != 0)
+        {
+            ULOGE("RecordDemuxer: pthread_join() failed (%d)", thErr);
+        }
     }
 
     pthread_mutex_destroy(&mDemuxerMutex);
@@ -171,6 +175,10 @@ int RecordDemuxer::configure(const std::string &url)
         if (thErr != 0)
         {
             ULOGE("RecordDemuxer: demuxer thread creation failed (%d)", thErr);
+        }
+        else
+        {
+            mDemuxerThreadLaunched = true;
         }
     }
 
