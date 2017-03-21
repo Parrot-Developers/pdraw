@@ -92,8 +92,6 @@ private:
     bool mFirstFrame;
     ILCLIENT_T *mClient;
     COMPONENT_T *mVideoDecode;
-    //COMPONENT_T *mVideoScheduler;
-    //COMPONENT_T *mClock;
     COMPONENT_T *mEglRender;
     TUNNEL_T mTunnel[3];
     Renderer *mRenderer;

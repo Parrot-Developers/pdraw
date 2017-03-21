@@ -63,8 +63,6 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder()
     mBufferMetaPushQueue = new std::queue<avc_decoder_input_buffer_t*>();
     mClient = NULL;
     mVideoDecode = NULL;
-    //mVideoScheduler = NULL;
-    //mClock = NULL;
     mEglRender = NULL;
     mEglBuffer[0] = NULL;
     mEglBuffer[1] = NULL;
@@ -111,49 +109,7 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder()
         return;
     }
 
-    /*if (ilclient_create_component(mClient, &mClock, "clock", (ILCLIENT_CREATE_FLAGS_T)(ILCLIENT_DISABLE_ALL_PORTS)) != 0)
-    {
-        ULOGE("videoCoreOmx: ilclient_create_component() failed on clock");
-        ilclient_destroy(mClient);
-        return;
-    }*/
-
-    /*OMX_TIME_CONFIG_CLOCKSTATETYPE cstate;
-    memset(&cstate, 0, sizeof(OMX_TIME_CONFIG_CLOCKSTATETYPE));
-    cstate.nSize = sizeof(OMX_TIME_CONFIG_CLOCKSTATETYPE);
-    cstate.nVersion.nVersion = OMX_VERSION;
-    cstate.eState = OMX_TIME_ClockStateWaitingForStartTime;
-    cstate.nWaitMask = 1;
-    if (OMX_SetParameter(ILC_GET_HANDLE(mClock), OMX_IndexConfigTimeClockState, &cstate) != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: OMX_SetParameter() failed on clock");
-        return;
-    }*/
-
-    /*if (ilclient_create_component(mClient, &mVideoScheduler, "video_scheduler", (ILCLIENT_CREATE_FLAGS_T)(ILCLIENT_DISABLE_ALL_PORTS)) != 0)
-    {
-        ULOGE("videoCoreOmx: ilclient_create_component() failed on video_scheduler");
-        ilclient_destroy(mClient);
-        return;
-    }*/
-
     set_tunnel(mTunnel, mVideoDecode, 131, mEglRender, 220);
-    /*set_tunnel(mTunnel, mVideoDecode, 131, mVideoScheduler, 10);
-    set_tunnel(mTunnel + 1, mVideoScheduler, 11, mEglRender, 220);
-    set_tunnel(mTunnel + 2, mClock, 80, mVideoScheduler, 12);*/
-
-    /*if (ilclient_setup_tunnel(mTunnel + 2, 0, 0) != 0)
-    {
-        ULOGE("videoCoreOmx: ilclient_setup_tunnel() failed");
-        return;
-    }*/
-
-    /*if (ilclient_change_component_state(mClock, OMX_StateExecuting) != 0)
-    {
-        ULOGE("videoCoreOmx: failed to change OMX clock component state to 'executing'");
-        ilclient_destroy(mClient);
-        return;
-    }*/
 
     if (ilclient_change_component_state(mVideoDecode, OMX_StateIdle) != 0)
     {
@@ -258,10 +214,7 @@ VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder()
     COMPONENT_T *list[4] = { mVideoDecode, mEglRender }; //, mClock, mVideoScheduler };
     ilclient_flush_tunnels(mTunnel, 0);
     ilclient_disable_port_buffers(mVideoDecode, 130, NULL, NULL, NULL);
-    //ilclient_disable_port_buffers(mVideoDecode, 131, NULL, NULL, NULL);
     ilclient_disable_tunnel(mTunnel);
-    //ilclient_disable_tunnel(mTunnel + 1);
-    //ilclient_disable_tunnel(mTunnel + 2);
     ilclient_teardown_tunnels(mTunnel);
     ilclient_state_transition(list, OMX_StateIdle);
     ilclient_state_transition(list, OMX_StateLoaded);
@@ -414,24 +367,6 @@ int VideoCoreOmxAvcDecoder::portSettingsChanged()
             }
         }
 
-        /*if (ret == 0)
-        {
-            if (ilclient_change_component_state(mVideoScheduler, OMX_StateExecuting) != 0)
-            {
-                ULOGE("videoCoreOmx: failed to change video_scheduler OMX component state to 'executing'");
-                ret = -1;
-            }
-        }*/
-
-        /*if (ret == 0)
-        {
-            if (ilclient_setup_tunnel(mTunnel + 1, 0, 0) != 0)
-            {
-                ULOGE("videoCoreOmx: ilclient_setup_tunnel() failed");
-                ret = -1;
-            }
-        }*/
-
         if (ret == 0)
         {
             if (ilclient_change_component_state(mEglRender, OMX_StateIdle) != 0)
@@ -579,12 +514,6 @@ int VideoCoreOmxAvcDecoder::portSettingsChanged()
                 ret = -1;
             }
         }
-
-        /*if (ilclient_enable_port_buffers(mVideoDecode, 131, NULL, NULL, NULL) != 0)
-        {
-            ULOGE("videoCoreOmx: ilclient_enable_port_buffers() failed on output");
-            return -1;
-        }*/
 
         mConfigured2 = true;
     }
