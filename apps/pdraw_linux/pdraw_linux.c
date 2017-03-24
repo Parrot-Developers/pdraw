@@ -50,13 +50,14 @@
 ULOG_DECLARE_TAG(pdraw_app);
 
 
-static const char short_options[] = "hf:k:K:i:s:c:S:C:n:m:";
+static const char short_options[] = "hf:bk:K:i:m:s:c:S:C:n:";
 
 
 static const struct option long_options[] =
 {
     { "help"            , no_argument        , NULL, 'h' },
     { "file"            , required_argument  , NULL, 'f' },
+    { "arsdk-browse"    , no_argument        , NULL, 'b' },
     { "arsdk"           , required_argument  , NULL, 'k' },
     { "arsdk-start"     , required_argument  , NULL, 'K' },
     { "ip"              , required_argument  , NULL, 'i' },
@@ -173,6 +174,7 @@ static void usage(int argc, char *argv[])
             "Options:\n"
             "-h | --help                        Print this message\n"
             "-f | --file <file_name>            Offline MP4 file playing\n"
+            "-b | --arsdk-browse                Browse for ARSDK devices (discovery)\n"
             "-k | --arsdk <ip_address>          ARSDK connection to drone with its IP address\n"
             "-K | --arsdk-start <ip_address>    ARSDK connection to drone with its IP address (connect only, do not process the stream)\n"
             "-i | --ip <ip_address>             Direct RTP/AVP H.264 reception with an IP address (ports must also be configured)\n"
@@ -187,9 +189,13 @@ static void usage(int argc, char *argv[])
 }
 
 
-static void summary(struct pdraw_app* app)
+static void summary(struct pdraw_app* app, int afterBrowse)
 {
-    if (app->scRestream)
+    if ((app->arsdkBrowse) && (!afterBrowse))
+    {
+        printf("Browse for ARSDK devices (discovery)\n\n");
+    }
+    else if (app->scRestream)
     {
         printf("Connection to a restream from SkyController (address %s)\n\n", app->ipAddr);
     }
@@ -235,6 +241,7 @@ int main(int argc, char *argv[])
     {
         /* Initialize configuration */
         memset(app, 0, sizeof(struct pdraw_app));
+        app->arsdkDiscoveryPort = PDRAW_ARSDK_DISCOVERY_PORT;
         app->arsdkD2CPort = PDRAW_ARSDK_D2C_PORT;
         app->arsdkC2DPort = 0; // Will be read from json
         app->dstStreamPort = PDRAW_ARSDK_VIDEO_DST_STREAM_PORT;
@@ -271,6 +278,10 @@ int main(int argc, char *argv[])
                     strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
                     app->scRestream = 1;
                     app->receiveStream = 1;
+                    break;
+
+                case 'b':
+                    app->arsdkBrowse = 1;
                     break;
 
                 case 'k':
@@ -325,8 +336,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (((!app->ipAddr) || (!strlen(app->ipAddr)))
-            && ((!app->url) || (!strlen(app->url))))
+    if ((!app->arsdkBrowse) && (((!app->ipAddr) || (!strlen(app->ipAddr)))
+            && ((!app->url) || (!strlen(app->url)))))
     {
         failed = 1;
         fprintf(stderr, "Invalid address or file name\n\n");
@@ -336,12 +347,119 @@ int main(int argc, char *argv[])
 
     if (!failed)
     {
-        summary(app);
+        summary(app, 0);
 
         printf("Starting PDrAW...\n");
         ULOGI("Starting...");
 
         signal(SIGINT, sighandler);
+    }
+
+    if (!failed)
+    {
+        failed = startUi(app);
+    }
+
+    if ((!failed) && (app->arsdkBrowse))
+    {
+        failed = startArdiscoveryBrowse(app);
+
+        int selected = 0;
+
+        while ((!failed) && (!stopping) && (!selected))
+        {
+#ifdef USE_SDL
+            SDL_Event event;
+            while ((!failed) && (!stopping) && (!selected) && (SDL_PollEvent(&event)))
+            {
+                switch(event.type)
+                {
+                    case SDL_QUIT:
+                        stopping = 1;
+                        break;
+                    case SDL_VIDEORESIZE:
+                    {
+                        app->windowWidth = event.resize.w;
+                        app->windowHeight = event.resize.h;
+                        app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
+                        if (app->surface == NULL)
+                        {
+                            ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
+                        }
+                        break;
+                    }
+                    case SDL_KEYDOWN:
+                    {
+                        int idx = -1;
+                        if (event.key.keysym.sym == SDLK_ESCAPE)
+                        {
+                            stopping = 1;
+                        }
+                        else if ((event.key.keysym.sym >= SDLK_1) && (event.key.keysym.sym <= SDLK_9))
+                        {
+                            idx = event.key.keysym.sym - SDLK_1;
+                        }
+                        else if ((event.key.keysym.sym >= SDLK_KP1) && (event.key.keysym.sym <= SDLK_KP9))
+                        {
+                            idx = event.key.keysym.sym - SDLK_KP1;
+                        }
+
+                        pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+                        if ((idx >= 0) && (idx < app->ardiscoveryDeviceCount))
+                        {
+                            struct ardiscovery_browser_device *device;
+                            int i;
+                            for (device = app->ardiscoveryDeviceList, i = 0; device && i < idx; device = device->next, i++);
+
+                            if ((device) && (i == idx))
+                            {
+                                switch (device->product)
+                                {
+                                    case ARDISCOVERY_PRODUCT_ARDRONE:
+                                    case ARDISCOVERY_PRODUCT_BEBOP_2:
+                                    case ARDISCOVERY_PRODUCT_EVINRUDE:
+                                    case ARDISCOVERY_PRODUCT_SKYCONTROLLER:
+                                        strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
+                                        app->arsdkDiscoveryPort = device->port;
+                                        app->arsdkConnect = 1;
+                                        app->arsdkStartStream = 1;
+                                        app->receiveStream = 1;
+                                        selected = 1;
+                                        break;
+                                    case ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG:
+                                    case ARDISCOVERY_PRODUCT_SKYCONTROLLER_2:
+                                        strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
+                                        app->scRestream = 1;
+                                        app->receiveStream = 1;
+                                        selected = 1;
+                                        break;
+                                    default:
+                                        break;
+                                }
+                            }
+                        }
+
+                        pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+
+                        break;
+                    }
+                }
+            }
+#else /* USE_SDL */
+            sleep(1);
+#endif /* USE_SDL */
+        }
+
+        if (selected)
+        {
+            ARDISCOVERY_AvahiDiscovery_StopBrowsing(app->ardiscoveryBrowserData);
+            summary(app, 1);
+        }
+        else
+        {
+            failed = 1;
+        }
     }
 
     if ((!failed) && (app->scRestream))
@@ -360,11 +478,6 @@ int main(int argc, char *argv[])
         {
             failed = startArnetwork(app);
         }
-    }
-
-    if (!failed)
-    {
-        failed = startUi(app);
     }
 
     if ((!failed) && ((app->receiveStream) || (app->playRecord)))
@@ -443,69 +556,69 @@ int main(int argc, char *argv[])
                 case SDL_KEYDOWN:
                     switch(event.key.keysym.sym)
                     {
-                    case SDLK_ESCAPE:
-                        stopping = 1;
-                        break;
-                    case SDLK_SPACE:
-                        if (pdraw_is_paused(app->pdraw) == 0)
+                        case SDLK_ESCAPE:
+                            stopping = 1;
+                            break;
+                        case SDLK_SPACE:
+                            if (pdraw_is_paused(app->pdraw) == 0)
+                            {
+                                int ret = pdraw_pause(app->pdraw);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_pause() failed (%d)", ret);
+                                }
+                            }
+                            else
+                            {
+                                int ret = pdraw_start(app->pdraw);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_start() failed (%d)", ret);
+                                }
+                            }
+                            break;
+                        case SDLK_RIGHT:
                         {
-                            int ret = pdraw_pause(app->pdraw);
+                            int ret = pdraw_seek_forward(app->pdraw, 10000000);
                             if (ret != 0)
                             {
-                                ULOGW("pdraw_pause() failed (%d)", ret);
+                                ULOGW("pdraw_seek_forward() failed (%d)", ret);
                             }
+                            break;
                         }
-                        else
+                        case SDLK_LEFT:
                         {
-                            int ret = pdraw_start(app->pdraw);
+                            int ret = pdraw_seek_back(app->pdraw, 10000000);
                             if (ret != 0)
                             {
-                                ULOGW("pdraw_start() failed (%d)", ret);
+                                ULOGW("pdraw_seek_back() failed (%d)", ret);
                             }
+                            break;
                         }
-                        break;
-                    case SDLK_RIGHT:
-                    {
-                        int ret = pdraw_seek_forward(app->pdraw, 10000000);
-                        if (ret != 0)
+                        case SDLK_HOME:
                         {
-                            ULOGW("pdraw_seek_forward() failed (%d)", ret);
+                            int ret = pdraw_seek_to(app->pdraw, 0);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_seek_to() failed (%d)", ret);
+                            }
+                            break;
                         }
-                        break;
-                    }
-                    case SDLK_LEFT:
-                    {
-                        int ret = pdraw_seek_back(app->pdraw, 10000000);
-                        if (ret != 0)
+                        case SDLK_END:
                         {
-                            ULOGW("pdraw_seek_back() failed (%d)", ret);
+                            int ret = pdraw_seek_to(app->pdraw, (uint64_t)-1);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_seek_to() failed (%d)", ret);
+                            }
+                            break;
                         }
-                        break;
-                    }
-                    case SDLK_HOME:
-                    {
-                        int ret = pdraw_seek_to(app->pdraw, 0);
-                        if (ret != 0)
-                        {
-                            ULOGW("pdraw_seek_to() failed (%d)", ret);
-                        }
-                        break;
-                    }
-                    case SDLK_END:
-                    {
-                        int ret = pdraw_seek_to(app->pdraw, (uint64_t)-1);
-                        if (ret != 0)
-                        {
-                            ULOGW("pdraw_seek_to() failed (%d)", ret);
-                        }
-                        break;
-                    }
-                    case SDLK_RETURN:
-                        /*options ^= SDL_FULLSCREEN;
-                        screen = SDL_SetVideoMode(width, height, 0, options);*/
-                        break;
-                    default:
-                        break;
+                        case SDLK_RETURN:
+                            /*options ^= SDL_FULLSCREEN;
+                            screen = SDL_SetVideoMode(width, height, 0, options);*/
+                            break;
+                        default:
+                            break;
                     }
                     break;
             }
@@ -538,6 +651,7 @@ int main(int argc, char *argv[])
         stopUi(app);
         stopArcommand(app);
         stopArnetwork(app);
+        stopArdiscoveryBrowse(app);
         free(app);
     }
 
@@ -682,6 +796,196 @@ void stopPdraw(struct pdraw_app *app)
 }
 
 
+int startArdiscoveryBrowse(struct pdraw_app *app)
+{
+    int failed = 0;
+    eARDISCOVERY_ERROR err = ARDISCOVERY_OK;
+
+    ULOGI("Start ARDiscovery browsing");
+
+    if (!failed)
+    {
+        int ret = pthread_mutex_init(&app->ardiscoveryBrowserMutex, NULL);
+        if (ret != 0)
+        {
+            ULOGE("Mutex creation failed (%d)", ret);
+            failed = 1;
+        }
+    }
+
+    if (!failed)
+    {
+        char serviceTypes[6][128];
+        char *serviceTypesPtr[6];
+        uint8_t serviceTypesNb = 6, i;
+
+        snprintf(serviceTypes[0], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_ARDRONE));
+        snprintf(serviceTypes[1], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_BEBOP_2));
+        snprintf(serviceTypes[2], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_EVINRUDE));
+        snprintf(serviceTypes[3], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_SKYCONTROLLER));
+        snprintf(serviceTypes[4], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG));
+        snprintf(serviceTypes[5], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_SKYCONTROLLER_2));
+        for (i = 0; i < serviceTypesNb; i++)
+        {
+            serviceTypesPtr[i] = serviceTypes[i];
+        }
+
+        app->ardiscoveryBrowserData = ARDISCOVERY_AvahiDiscovery_Browser_New(ardiscoveryBrowserCallback, (void*)app, serviceTypesPtr, serviceTypesNb, &err);
+        if (!app->ardiscoveryBrowserData)
+        {
+            ULOGE("ARDISCOVERY_AvahiDiscovery_Browser_New() failed: %d", err);
+            failed = 1;
+        }
+    }
+
+    if (!failed)
+    {
+        if (pthread_create(&(app->ardiscoveryBrowserThread), NULL, (void*(*)(void *))ARDISCOVERY_AvahiDiscovery_Browse, app->ardiscoveryBrowserData) != 0)
+        {
+            ULOGE("Creation of discovery browser thread failed");
+            failed = 1;
+        }
+        else
+        {
+            app->ardiscoveryBrowserThreadLaunched = 1;
+        }
+    }
+
+    return failed;
+}
+
+
+void stopArdiscoveryBrowse(struct pdraw_app *app)
+{
+    ULOGI("Stop ARDiscovery browsing");
+
+    if (app->ardiscoveryBrowserData != NULL)
+    {
+        ARDISCOVERY_AvahiDiscovery_StopBrowsing(app->ardiscoveryBrowserData);
+        if (app->ardiscoveryBrowserThreadLaunched)
+        {
+            pthread_join(app->ardiscoveryBrowserThread, NULL);
+            app->ardiscoveryBrowserThreadLaunched = 0;
+        }
+    }
+
+    ARDISCOVERY_AvahiDiscovery_Browser_Delete(&app->ardiscoveryBrowserData);
+
+    struct ardiscovery_browser_device *device, *next;
+    for (device = app->ardiscoveryDeviceList; device; device = next)
+    {
+        next = device->next;
+        free(device->serviceName);
+        free(device->serviceType);
+        free(device->ipAddr);
+        free(device);
+    }
+    app->ardiscoveryDeviceList = NULL;
+
+    pthread_mutex_destroy(&app->ardiscoveryBrowserMutex);
+}
+
+
+eARDISCOVERY_ERROR ardiscoveryBrowserCallback(void *userdata, uint8_t state, const char *serviceName, const char *serviceType, const char *ipAddr, uint16_t port)
+{
+    struct pdraw_app *app = (struct pdraw_app*)userdata;
+    struct ardiscovery_browser_device *device = NULL;
+
+    if (state)
+    {
+        ULOGI("ARSDK device discovered: %s %s %s %d", serviceName, serviceType, ipAddr, port);
+        device = malloc(sizeof(*device));
+        if (!device)
+        {
+            ULOGE("Allocation failed");
+            return ARDISCOVERY_ERROR;
+        }
+        else
+        {
+            memset(device, 0, sizeof(*device));
+            device->serviceName = strdup(serviceName);
+            device->serviceType = strdup(serviceType);
+            device->ipAddr = strdup(ipAddr);
+            device->port = port;
+            unsigned int productId = 0;
+            sscanf(serviceType, "_arsdk-%04x", &productId);
+            device->product = ARDISCOVERY_getProductFromProductID(productId);
+
+            pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+            device->next = app->ardiscoveryDeviceList;
+            if (app->ardiscoveryDeviceList)
+            {
+                app->ardiscoveryDeviceList->prev = device;
+            }
+            app->ardiscoveryDeviceList = device;
+            app->ardiscoveryDeviceCount++;
+
+            pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+        }
+    }
+    else
+    {
+        ULOGI("ARSDK device removed: %s %s %s %d", serviceName, serviceType, ipAddr, port);
+        int found = 0;
+
+        pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+        for (device = app->ardiscoveryDeviceList; device; device = device->next)
+        {
+            if ((device->serviceName) && (!strcmp(device->serviceName, serviceName))
+                    && (device->serviceType) && (!strcmp(device->serviceType, serviceType))
+                    && (device->ipAddr) && (!strcmp(device->ipAddr, ipAddr))
+                    && (device->port == port))
+            {
+                found = 1;
+                break;
+            }
+        }
+        if (found)
+        {
+            free(device->serviceName);
+            free(device->serviceType);
+            free(device->ipAddr);
+            if (device->prev)
+            {
+                device->prev->next = device->next;
+            }
+            else
+            {
+                app->ardiscoveryDeviceList = device->next;
+            }
+            if (device->next)
+            {
+                device->next->prev = device->prev;
+            }
+            free(device);
+            app->ardiscoveryDeviceCount--;
+        }
+
+        pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+    }
+
+    pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+    printf("\nDevice discovery:\n");
+    int i;
+    for (device = app->ardiscoveryDeviceList, i = 1; device; device = device->next, i++)
+    {
+        printf("  - %d - %s (%s) %s:%d\n", i, device->serviceName, device->serviceType, device->ipAddr, device->port);
+    }
+
+    if (app->ardiscoveryDeviceCount == 0)
+    {
+        printf("  - none\n");
+    }
+
+    pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+
+    return ARDISCOVERY_OK;
+}
+
+
 int ardiscoveryConnect(struct pdraw_app *app)
 {
     int failed = 0;
@@ -700,7 +1004,7 @@ int ardiscoveryConnect(struct pdraw_app *app)
 
     if (!failed)
     {
-        err = ARDISCOVERY_Connection_ControllerConnection(discoveryData, PDRAW_ARSDK_DISCOVERY_PORT, app->ipAddr);
+        err = ARDISCOVERY_Connection_ControllerConnection(discoveryData, app->arsdkDiscoveryPort, app->ipAddr);
         if (err != ARDISCOVERY_OK)
         {
             ULOGE("Error while opening discovery connection: %s", ARDISCOVERY_Error_ToString(err));
@@ -1248,6 +1552,8 @@ int skyControllerRestreamConnect(struct pdraw_app *app)
     if (curl)
     {
         curl_easy_setopt(curl, CURLOPT_URL, url);
+        FILE *devnull = fopen("/dev/null", "w+");
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, devnull);
 
         res = curl_easy_perform(curl);
         if (res != CURLE_OK)
@@ -1257,6 +1563,7 @@ int skyControllerRestreamConnect(struct pdraw_app *app)
         }
 
         curl_easy_cleanup(curl);
+        fclose(devnull);
     }
 
     curl_global_cleanup();
