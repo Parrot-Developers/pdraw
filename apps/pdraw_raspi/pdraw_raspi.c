@@ -50,7 +50,7 @@
 ULOG_DECLARE_TAG(pdraw_app);
 
 
-static const char short_options[] = "hdf:k:K:i:s:c:S:C:n:m:";
+static const char short_options[] = "hdf:bk:K:i:m:s:c:S:C:n:";
 
 
 static const struct option long_options[] =
@@ -58,6 +58,7 @@ static const struct option long_options[] =
     { "help"            , no_argument        , NULL, 'h' },
     { "daemon"          , no_argument        , NULL, 'd' },
     { "file"            , required_argument  , NULL, 'f' },
+    { "arsdk-browse"    , no_argument        , NULL, 'b' },
     { "arsdk"           , required_argument  , NULL, 'k' },
     { "arsdk-start"     , required_argument  , NULL, 'K' },
     { "ip"              , required_argument  , NULL, 'i' },
@@ -175,6 +176,7 @@ static void usage(int argc, char *argv[])
             "-h | --help                        Print this message\n"
             "-d | --daemon                      Daemon mode (wait for available connection)\n"
             "-f | --file <file_name>            Offline MP4 file playing\n"
+            "-b | --arsdk-browse                Browse for ARSDK devices (discovery)\n"
             "-k | --arsdk <ip_address>          ARSDK connection to drone with its IP address\n"
             "-K | --arsdk-start <ip_address>    ARSDK connection to drone with its IP address (connect only, do not process the stream)\n"
             "-i | --ip <ip_address>             Direct RTP/AVP H.264 reception with an IP address (ports must also be configured)\n"
@@ -189,11 +191,15 @@ static void usage(int argc, char *argv[])
 }
 
 
-static void summary(struct pdraw_app* app)
+static void summary(struct pdraw_app* app, int afterBrowse)
 {
-    if (app->daemon)
+    if ((app->daemon) && (!afterBrowse))
     {
         printf("Daemon mode. Waiting for connection...\n\n");
+    }
+    else if ((app->arsdkBrowse) && (!afterBrowse))
+    {
+        printf("Browse for ARSDK devices (discovery)\n\n");
     }
     else if (app->scRestream)
     {
@@ -224,7 +230,7 @@ static void summary(struct pdraw_app* app)
 
 int main(int argc, char *argv[])
 {
-    int failed = 0;
+    int failed = 0, loop = 1;
     int idx, c;
     struct pdraw_app *app;
 
@@ -241,6 +247,7 @@ int main(int argc, char *argv[])
     {
         /* Initialize configuration */
         memset(app, 0, sizeof(struct pdraw_app));
+        app->arsdkDiscoveryPort = PDRAW_ARSDK_DISCOVERY_PORT;
         app->arsdkD2CPort = PDRAW_ARSDK_D2C_PORT;
         app->arsdkC2DPort = 0; // Will be read from json
         app->dstStreamPort = PDRAW_ARSDK_VIDEO_DST_STREAM_PORT;
@@ -271,13 +278,17 @@ int main(int argc, char *argv[])
 
                 case 'd':
                     app->daemon = 1;
-                    app->receiveStream = 1;
+                    app->arsdkBrowse = 1;
                     break;
 
                 case 'n':
                     strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
                     app->scRestream = 1;
                     app->receiveStream = 1;
+                    break;
+
+                case 'b':
+                    app->arsdkBrowse = 1;
                     break;
 
                 case 'k':
@@ -332,8 +343,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if ((!app->daemon) && ((!app->ipAddr) || (!strlen(app->ipAddr)))
-            && ((!app->url) || (!strlen(app->url))))
+    if ((!app->daemon) && (!app->arsdkBrowse) && (((!app->ipAddr) || (!strlen(app->ipAddr)))
+            && ((!app->url) || (!strlen(app->url)))))
     {
         failed = 1;
         fprintf(stderr, "Invalid address or file name\n\n");
@@ -343,7 +354,7 @@ int main(int argc, char *argv[])
 
     if (!failed)
     {
-        summary(app);
+        summary(app, 0);
 
         printf("Starting PDrAW...\n");
         ULOGI("Starting...");
@@ -351,124 +362,171 @@ int main(int argc, char *argv[])
         signal(SIGINT, sighandler);
     }
 
+    //TODO: fork in daemon mode
+
     if (!failed)
     {
         failed = startUi(app);
     }
 
-    if ((!failed) && (app->daemon))
+    while ((!failed) && (!stopping) && (loop))
     {
-        CURL *curl;
-        CURLcode res;
-        char url[100], ip[20];
-        curl = curl_easy_init();
-        if (curl)
+        if ((!failed) && (app->arsdkBrowse))
         {
-            while (!stopping)
+            failed = startArdiscoveryBrowse(app);
+
+            int selected = 0;
+
+            while ((!failed) && (!stopping) && (!selected))
             {
-                ip[0] = '\0';
-                if ((access("/var/lib/pdraw/peer", F_OK) == 0) && (access("/var/lib/pdraw/peer", R_OK) == 0))
+                int idx = -1;
+                //TODO: catch keyboard press
+
+                pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+                if (app->daemon)
                 {
-                    FILE *f = fopen("/var/lib/pdraw/peer", "r");
-                    if (f)
+                    idx = 0;
+                }
+
+                if ((idx >= 0) && (idx < app->ardiscoveryDeviceCount))
+                {
+                    struct ardiscovery_browser_device *device;
+                    int i;
+                    for (device = app->ardiscoveryDeviceList, i = 0; device && i < idx; device = device->next, i++);
+
+                    if ((device) && (i == idx))
                     {
-                        fscanf(f, "%s", ip);
-                        fclose(f);
+                        switch (device->product)
+                        {
+                            case ARDISCOVERY_PRODUCT_ARDRONE:
+                            case ARDISCOVERY_PRODUCT_BEBOP_2:
+                            case ARDISCOVERY_PRODUCT_EVINRUDE:
+                            case ARDISCOVERY_PRODUCT_SKYCONTROLLER:
+                                strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
+                                app->arsdkDiscoveryPort = device->port;
+                                app->arsdkConnect = 1;
+                                app->arsdkStartStream = 1;
+                                app->receiveStream = 1;
+                                selected = 1;
+                                break;
+                            case ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG:
+                            case ARDISCOVERY_PRODUCT_SKYCONTROLLER_2:
+                                strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
+                                app->scRestream = 1;
+                                app->receiveStream = 1;
+                                selected = 1;
+                                break;
+                            default:
+                                break;
+                        }
                     }
                 }
-                if (strlen(ip))
-                {
-                    ULOGI("Trying IP %s...", ip);
-                    snprintf(url, sizeof(url), "http://%s:7711/video", ip);
-                    curl_easy_setopt(curl, CURLOPT_URL, url);
-                    res = curl_easy_perform(curl);
-                    if (res == CURLE_OK)
-                    {
-                        strncpy(app->ipAddr, ip, sizeof(app->ipAddr));
-                        app->ipAddr[sizeof(app->ipAddr) - 1] = '\0';
-                        app->srcStreamPort = 5004;
-                        app->srcControlPort = 5005;
-                        app->dstStreamPort = 55004;
-                        app->dstControlPort = 55005;
-                        ULOGI("OK");
-                        break;
-                    }
-                }
-                sleep(2);
+
+                pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+
+                sleep(1);
             }
-            curl_easy_cleanup(curl);
-        }
-    }
 
-    if ((!failed) && (app->scRestream))
-    {
-        failed = skyControllerRestreamConnect(app);
-    }
-
-    if (app->arsdkConnect)
-    {
-        if (!failed)
-        {
-            failed = ardiscoveryConnect(app);
-        }
-
-        if (!failed)
-        {
-            failed = startArnetwork(app);
-        }
-    }
-
-    if ((!failed) && ((app->receiveStream) || (app->playRecord)))
-    {
-        failed = startPdraw(app);
-    }
-
-    if (app->arsdkConnect)
-    {
-        if (!failed)
-        {
-            int cmdSend = 0;
-
-            cmdSend = sendDateAndTime(app);
-        }
-
-        if (!failed)
-        {
-            int cmdSend = 0;
-
-            cmdSend = sendAllStates(app);
-        }
-
-        if ((!failed) && (app->arsdkStartStream))
-        {
-            int cmdSend = 0;
-
-            cmdSend = sendStreamingVideoEnable(app);
-        }
-
-        if (!failed)
-        {
-            failed = startArcommand(app);
-        }
-    }
-
-    if (!failed)
-    {
-        printf("Rock'n'roll!\n");
-        ULOGI("Running...");
-    }
-
-    /* Run until interrupted */
-    while ((!failed) && (!stopping))
-    {
-        if (app->pdraw)
-        {
-            int ret = pdraw_render(app->pdraw, 0);
-            if (ret != 0)
+            if (selected)
             {
-                ULOGE("pdraw_render() failed (%d)", ret);
+                ARDISCOVERY_AvahiDiscovery_StopBrowsing(app->ardiscoveryBrowserData);
+                summary(app, 1);
+            }
+            else
+            {
                 failed = 1;
             }
+        }
+
+        if ((!failed) && (app->scRestream))
+        {
+            failed = skyControllerRestreamConnect(app);
+        }
+
+        if (app->arsdkConnect)
+        {
+            if (!failed)
+            {
+                failed = ardiscoveryConnect(app);
+            }
+
+            if (!failed)
+            {
+                failed = startArnetwork(app);
+            }
+        }
+
+        if ((!failed) && ((app->receiveStream) || (app->playRecord)))
+        {
+            failed = startPdraw(app);
+        }
+
+        if (app->arsdkConnect)
+        {
+            if (!failed)
+            {
+                int cmdSend = 0;
+
+                cmdSend = sendDateAndTime(app);
+            }
+
+            if (!failed)
+            {
+                int cmdSend = 0;
+
+                cmdSend = sendAllStates(app);
+            }
+
+            if ((!failed) && (app->arsdkStartStream))
+            {
+                int cmdSend = 0;
+
+                cmdSend = sendStreamingVideoEnable(app);
+            }
+
+            if (!failed)
+            {
+                failed = startArcommand(app);
+            }
+        }
+
+        if (!failed)
+        {
+            printf("Rock'n'roll!\n");
+            ULOGI("Running...");
+        }
+
+        /* Run until interrupted */
+        while ((!failed) && (!stopping))
+        {
+            if (app->pdraw)
+            {
+                int ret = pdraw_render(app->pdraw, 0);
+                if (ret != 0)
+                {
+                    ULOGE("pdraw_render() failed (%d)", ret);
+                    failed = 1;
+                }
+            }
+        }
+
+        printf("Closing PDrAW...\n");
+        ULOGI("Closing...");
+
+        if (app != NULL)
+        {
+            app->run = 0; // break threads loops
+
+            stopPdraw(app);
+            stopArcommand(app);
+            stopArnetwork(app);
+            stopArdiscoveryBrowse(app);
+        }
+
+        if (!app->daemon)
+        {
+            loop = 0;
         }
     }
 
@@ -479,10 +537,7 @@ int main(int argc, char *argv[])
     {
         app->run = 0; // break threads loops
 
-        stopPdraw(app);
         stopUi(app);
-        stopArcommand(app);
-        stopArnetwork(app);
         free(app);
     }
 
@@ -770,6 +825,196 @@ void stopPdraw(struct pdraw_app *app)
 }
 
 
+int startArdiscoveryBrowse(struct pdraw_app *app)
+{
+    int failed = 0;
+    eARDISCOVERY_ERROR err = ARDISCOVERY_OK;
+
+    ULOGI("Start ARDiscovery browsing");
+
+    if (!failed)
+    {
+        int ret = pthread_mutex_init(&app->ardiscoveryBrowserMutex, NULL);
+        if (ret != 0)
+        {
+            ULOGE("Mutex creation failed (%d)", ret);
+            failed = 1;
+        }
+    }
+
+    if (!failed)
+    {
+        char serviceTypes[6][128];
+        char *serviceTypesPtr[6];
+        uint8_t serviceTypesNb = 6, i;
+
+        snprintf(serviceTypes[0], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_ARDRONE));
+        snprintf(serviceTypes[1], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_BEBOP_2));
+        snprintf(serviceTypes[2], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_EVINRUDE));
+        snprintf(serviceTypes[3], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_SKYCONTROLLER));
+        snprintf(serviceTypes[4], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG));
+        snprintf(serviceTypes[5], 128, ARDISCOVERY_SERVICE_NET_DEVICE_FORMAT, ARDISCOVERY_getProductID(ARDISCOVERY_PRODUCT_SKYCONTROLLER_2));
+        for (i = 0; i < serviceTypesNb; i++)
+        {
+            serviceTypesPtr[i] = serviceTypes[i];
+        }
+
+        app->ardiscoveryBrowserData = ARDISCOVERY_AvahiDiscovery_Browser_New(ardiscoveryBrowserCallback, (void*)app, serviceTypesPtr, serviceTypesNb, &err);
+        if (!app->ardiscoveryBrowserData)
+        {
+            ULOGE("ARDISCOVERY_AvahiDiscovery_Browser_New() failed: %d", err);
+            failed = 1;
+        }
+    }
+
+    if (!failed)
+    {
+        if (pthread_create(&(app->ardiscoveryBrowserThread), NULL, (void*(*)(void *))ARDISCOVERY_AvahiDiscovery_Browse, app->ardiscoveryBrowserData) != 0)
+        {
+            ULOGE("Creation of discovery browser thread failed");
+            failed = 1;
+        }
+        else
+        {
+            app->ardiscoveryBrowserThreadLaunched = 1;
+        }
+    }
+
+    return failed;
+}
+
+
+void stopArdiscoveryBrowse(struct pdraw_app *app)
+{
+    ULOGI("Stop ARDiscovery browsing");
+
+    if (app->ardiscoveryBrowserData != NULL)
+    {
+        ARDISCOVERY_AvahiDiscovery_StopBrowsing(app->ardiscoveryBrowserData);
+        if (app->ardiscoveryBrowserThreadLaunched)
+        {
+            pthread_join(app->ardiscoveryBrowserThread, NULL);
+            app->ardiscoveryBrowserThreadLaunched = 0;
+        }
+    }
+
+    ARDISCOVERY_AvahiDiscovery_Browser_Delete(&app->ardiscoveryBrowserData);
+
+    struct ardiscovery_browser_device *device, *next;
+    for (device = app->ardiscoveryDeviceList; device; device = next)
+    {
+        next = device->next;
+        free(device->serviceName);
+        free(device->serviceType);
+        free(device->ipAddr);
+        free(device);
+    }
+    app->ardiscoveryDeviceList = NULL;
+
+    pthread_mutex_destroy(&app->ardiscoveryBrowserMutex);
+}
+
+
+eARDISCOVERY_ERROR ardiscoveryBrowserCallback(void *userdata, uint8_t state, const char *serviceName, const char *serviceType, const char *ipAddr, uint16_t port)
+{
+    struct pdraw_app *app = (struct pdraw_app*)userdata;
+    struct ardiscovery_browser_device *device = NULL;
+
+    if (state)
+    {
+        ULOGI("ARSDK device discovered: %s %s %s %d", serviceName, serviceType, ipAddr, port);
+        device = malloc(sizeof(*device));
+        if (!device)
+        {
+            ULOGE("Allocation failed");
+            return ARDISCOVERY_ERROR;
+        }
+        else
+        {
+            memset(device, 0, sizeof(*device));
+            device->serviceName = strdup(serviceName);
+            device->serviceType = strdup(serviceType);
+            device->ipAddr = strdup(ipAddr);
+            device->port = port;
+            unsigned int productId = 0;
+            sscanf(serviceType, "_arsdk-%04x", &productId);
+            device->product = ARDISCOVERY_getProductFromProductID(productId);
+
+            pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+            device->next = app->ardiscoveryDeviceList;
+            if (app->ardiscoveryDeviceList)
+            {
+                app->ardiscoveryDeviceList->prev = device;
+            }
+            app->ardiscoveryDeviceList = device;
+            app->ardiscoveryDeviceCount++;
+
+            pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+        }
+    }
+    else
+    {
+        ULOGI("ARSDK device removed: %s %s %s %d", serviceName, serviceType, ipAddr, port);
+        int found = 0;
+
+        pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+        for (device = app->ardiscoveryDeviceList; device; device = device->next)
+        {
+            if ((device->serviceName) && (!strcmp(device->serviceName, serviceName))
+                    && (device->serviceType) && (!strcmp(device->serviceType, serviceType))
+                    && (device->ipAddr) && (!strcmp(device->ipAddr, ipAddr))
+                    && (device->port == port))
+            {
+                found = 1;
+                break;
+            }
+        }
+        if (found)
+        {
+            free(device->serviceName);
+            free(device->serviceType);
+            free(device->ipAddr);
+            if (device->prev)
+            {
+                device->prev->next = device->next;
+            }
+            else
+            {
+                app->ardiscoveryDeviceList = device->next;
+            }
+            if (device->next)
+            {
+                device->next->prev = device->prev;
+            }
+            free(device);
+            app->ardiscoveryDeviceCount--;
+        }
+
+        pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+    }
+
+    pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+    printf("\nDevice discovery:\n");
+    int i;
+    for (device = app->ardiscoveryDeviceList, i = 1; device; device = device->next, i++)
+    {
+        printf("  - %d - %s (%s) %s:%d\n", i, device->serviceName, device->serviceType, device->ipAddr, device->port);
+    }
+
+    if (app->ardiscoveryDeviceCount == 0)
+    {
+        printf("  - none\n");
+    }
+
+    pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+
+    return ARDISCOVERY_OK;
+}
+
+
 int ardiscoveryConnect(struct pdraw_app *app)
 {
     int failed = 0;
@@ -788,7 +1033,7 @@ int ardiscoveryConnect(struct pdraw_app *app)
 
     if (!failed)
     {
-        err = ARDISCOVERY_Connection_ControllerConnection(discoveryData, PDRAW_ARSDK_DISCOVERY_PORT, app->ipAddr);
+        err = ARDISCOVERY_Connection_ControllerConnection(discoveryData, app->arsdkDiscoveryPort, app->ipAddr);
         if (err != ARDISCOVERY_OK)
         {
             ULOGE("Error while opening discovery connection: %s", ARDISCOVERY_Error_ToString(err));
@@ -1336,6 +1581,8 @@ int skyControllerRestreamConnect(struct pdraw_app *app)
     if (curl)
     {
         curl_easy_setopt(curl, CURLOPT_URL, url);
+        FILE *devnull = fopen("/dev/null", "w+");
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, devnull);
 
         res = curl_easy_perform(curl);
         if (res != CURLE_OK)
@@ -1345,6 +1592,7 @@ int skyControllerRestreamConnect(struct pdraw_app *app)
         }
 
         curl_easy_cleanup(curl);
+        fclose(devnull);
     }
 
     curl_global_cleanup();

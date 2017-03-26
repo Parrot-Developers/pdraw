@@ -44,6 +44,7 @@
 #include <libARNetworkAL/ARNetworkAL.h>
 #include <libARCommands/ARCommands.h>
 #include <libARDiscovery/ARDiscovery.h>
+#include <libARDiscovery/ARDISCOVERY_AvahiDiscovery.h>
 #include <libpdraw.h>
 #include <json/json.h>
 #include <curl/curl.h>
@@ -68,6 +69,19 @@
 struct arcmd_reader_data;
 
 
+struct ardiscovery_browser_device
+{
+    char *serviceName;
+    char *serviceType;
+    char *ipAddr;
+    uint16_t port;
+    eARDISCOVERY_PRODUCT product;
+
+    struct ardiscovery_browser_device *prev;
+    struct ardiscovery_browser_device *next;
+};
+
+
 struct pdraw_app
 {
     struct pdraw *pdraw;
@@ -78,14 +92,19 @@ struct pdraw_app
     char ifaceAddr[16];
     int playRecord;
     int daemon;
+    int arsdkBrowse;
     int arsdkConnect;
     int arsdkStartStream;
     int scRestream;
     int receiveStream;
 
+    ARDISCOVERY_AvahiDiscovery_BrowserData_t *ardiscoveryBrowserData;
     ARNETWORKAL_Manager_t *arnetworkalManager;
     ARNETWORK_Manager_t *arnetworkManager;
     ARCOMMANDS_Decoder_t *arcmdDecoder;
+    pthread_mutex_t ardiscoveryBrowserMutex;
+    pthread_t ardiscoveryBrowserThread;
+    int ardiscoveryBrowserThreadLaunched;
     pthread_t arnetworkRxThread;
     int arnetworkRxThreadLaunched;
     pthread_t arnetworkTxThread;
@@ -93,8 +112,12 @@ struct pdraw_app
     pthread_t *arcmdReaderThreads;
     int *arcmdReaderThreadsLaunched;
     struct arcmd_reader_data *arcmdThreadData;
+    int arsdkDiscoveryPort;
     int arsdkD2CPort;
     int arsdkC2DPort;
+
+    struct ardiscovery_browser_device *ardiscoveryDeviceList;
+    int ardiscoveryDeviceCount;
 
     int srcStreamPort;
     int srcControlPort;
@@ -125,6 +148,9 @@ void stopUi(struct pdraw_app *app);
 int startPdraw(struct pdraw_app *app);
 void stopPdraw(struct pdraw_app *app);
 
+int startArdiscoveryBrowse(struct pdraw_app *app);
+void stopArdiscoveryBrowse(struct pdraw_app *app);
+eARDISCOVERY_ERROR ardiscoveryBrowserCallback(void* userdata, uint8_t state, const char* serviceName, const char* serviceType, const char* ipAddr, uint16_t port);
 int ardiscoveryConnect(struct pdraw_app *app);
 eARDISCOVERY_ERROR ardiscoveryConnectionSendJsonCallback(uint8_t *dataTx, uint32_t *dataTxSize, void *customData);
 eARDISCOVERY_ERROR ardiscoveryConnectionReceiveJsonCallback(uint8_t *dataRx, uint32_t dataRxSize, char *ip, void *customData);
