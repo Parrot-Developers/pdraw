@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
     if (argc < 2)
     {
         usage(argc, argv);
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
 
     app = (struct pdraw_app*)malloc(sizeof(struct pdraw_app));
@@ -273,7 +273,7 @@ int main(int argc, char *argv[])
                 case 'h':
                     usage(argc, argv);
                     free(app);
-                    exit(0);
+                    exit(EXIT_SUCCESS);
                     break;
 
                 case 'd':
@@ -337,7 +337,7 @@ int main(int argc, char *argv[])
                 default:
                     usage(argc, argv);
                     free(app);
-                    exit(-1);
+                    exit(EXIT_FAILURE);
                     break;
             }
         }
@@ -362,7 +362,25 @@ int main(int argc, char *argv[])
         signal(SIGINT, sighandler);
     }
 
-    //TODO: fork in daemon mode
+    if ((!failed) && (app->daemon))
+    {
+        pid_t pid = fork();
+        if (pid == 0)
+        {
+            ULOGI("successfully forked");
+        }
+        else if (pid > 0)
+        {
+            ULOGI("terminating parent process");
+            free(app);
+            exit(EXIT_SUCCESS);
+        }
+        else
+        {
+            ULOGE("fork() failed");
+            failed = 1;
+        }
+    }
 
     if (!failed)
     {
@@ -548,7 +566,7 @@ int main(int argc, char *argv[])
     printf("Hasta la vista, PDrAW!\n");
     ULOGI("Finished");
 
-    return 0;
+    exit(EXIT_SUCCESS);
 }
 
 
