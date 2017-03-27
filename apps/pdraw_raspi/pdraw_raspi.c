@@ -528,6 +528,10 @@ int main(int argc, char *argv[])
         {
             loop = 0;
         }
+        else
+        {
+            failed = 0;
+        }
     }
 
     printf("Terminating PDrAW...\n");
