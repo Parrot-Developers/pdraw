@@ -85,6 +85,13 @@ struct ardiscovery_browser_device
 };
 
 
+struct arcmd_reader_data
+{
+    struct pdraw_app *app;
+    int readerBufferId;
+};
+
+
 struct pdraw_app
 {
     struct pdraw *pdraw;
@@ -133,13 +140,6 @@ struct pdraw_app
     int windowHeight;
     int sdlFlags;
 #endif /* USE_SDL */
-};
-
-
-struct arcmd_reader_data
-{
-    struct pdraw_app *app;
-    int readerBufferId;
 };
 
 

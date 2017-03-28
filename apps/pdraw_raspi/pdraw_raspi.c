@@ -536,6 +536,7 @@ int main(int argc, char *argv[])
         {
             app->run = 0; // break threads loops
 
+            resetUi(app);
             stopPdraw(app);
             stopArcommand(app);
             stopArnetwork(app);
@@ -567,6 +568,174 @@ int main(int argc, char *argv[])
     ULOGI("Finished");
 
     exit(EXIT_SUCCESS);
+}
+
+
+int loadPngFile(const char *fileName, uint8_t **buffer, int *width, int *height, int *isRgba)
+{
+    int ret = 0;
+    png_byte header[8]; // 8 is the maximum size that can be checked
+    FILE *fp = NULL;
+    uint8_t *raw_image = NULL;
+    png_bytep *row_pointers = NULL;
+    int w = 0, h = 0;
+    png_structp png_ptr = NULL;
+    png_infop info_ptr = NULL;
+    int rgba = 0;
+
+    if ((!fileName) || (!buffer) || (!width) || (!height) || (!isRgba))
+    {
+        ULOGE("invalid pointer");
+        return -1;
+    }
+
+    /* open file and test for it being a png */
+    if (ret == 0)
+    {
+        fp = fopen(fileName, "rb");
+        if (!fp)
+        {
+            ULOGE("failed to open file '%s'", fileName);
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        fread(header, 1, 8, fp);
+        if (png_sig_cmp(header, 0, 8))
+        {
+            ULOGE("file '%s' is not recognized as a PNG file", fileName);
+            ret = -1;
+        }
+    }
+
+    /* initialize stuff */
+    if (ret == 0)
+    {
+        png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+        if (!png_ptr)
+        {
+            ULOGE("png_create_read_struct() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        info_ptr = png_create_info_struct(png_ptr);
+        if (!info_ptr)
+        {
+            ULOGE("png_create_info_struct() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        if (setjmp(png_jmpbuf(png_ptr)))
+        {
+            ULOGE("error during init_io()");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        png_init_io(png_ptr, fp);
+        png_set_sig_bytes(png_ptr, 8);
+
+        png_read_info(png_ptr, info_ptr);
+
+        w = png_get_image_width(png_ptr, info_ptr);
+        h = png_get_image_height(png_ptr, info_ptr);
+        png_byte color_type = png_get_color_type(png_ptr, info_ptr);
+        png_byte bit_depth = png_get_bit_depth(png_ptr, info_ptr);
+
+        if (color_type & PNG_COLOR_MASK_ALPHA)
+        {
+            rgba = 1;
+        }
+
+        if (color_type == PNG_COLOR_TYPE_PALETTE)
+        {
+            png_set_palette_to_rgb(png_ptr);
+        }
+        /* Expand grayscale images to the full 8 bits from 1, 2, or 4 bits/pixel */
+        if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
+        {
+            png_set_expand_gray_1_2_4_to_8(png_ptr);
+        }
+
+        /* Expand paletted or RGB images with transparency to full alpha channels
+         * so the data will be available as RGBA quartets. */
+        if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS))
+        {
+            png_set_tRNS_to_alpha(png_ptr);
+        }
+
+        /* Round to 8 bit */
+        if (bit_depth == 16)
+        {
+#ifdef PNG_READ_SCALE_16_TO_8_SUPPORTED
+            png_set_scale_16(png_ptr);
+#else
+            png_set_strip_16(png_ptr);
+#endif
+        }
+
+        png_read_update_info(png_ptr, info_ptr);
+
+        if (setjmp(png_jmpbuf(png_ptr)))
+        {
+            ULOGE("error during read_image()");
+        }
+    }
+
+    if (ret == 0)
+    {
+        raw_image = (uint8_t*)malloc(png_get_rowbytes(png_ptr, info_ptr) * h);
+        if (!raw_image)
+        {
+            ULOGE("allocation failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * h);
+        if (!row_pointers)
+        {
+            ULOGE("allocation failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int y;
+        for (y = 0; y < h; y++)
+        {
+            row_pointers[y] = (png_byte*)(raw_image + y * png_get_rowbytes(png_ptr,info_ptr));
+        }
+    }
+
+    /* read file */
+    if (ret == 0)
+    {
+        png_read_image(png_ptr, row_pointers);
+    }
+
+    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+    fclose(fp);
+    free(row_pointers);
+
+    *width = (int)w;
+    *height = (int)h;
+    *buffer = raw_image;
+    *isRgba = rgba;
+    return 0;
 }
 
 
@@ -673,6 +842,137 @@ int startUi(struct pdraw_app *app)
 
     if (ret == 0)
     {
+        // create the background layer
+        memset(&app->dispmanBackgroundLayer, 0, sizeof(struct ui_background_layer));
+        app->dispmanBackgroundLayer.layer = 0;
+        VC_IMAGE_TYPE_T type = VC_IMAGE_RGBA16;
+        uint16_t colour = 0x000F;
+        uint32_t vc_image_ptr;
+
+        app->dispmanBackgroundLayer.resource = vc_dispmanx_resource_create(type, 1, 1, &vc_image_ptr);
+        if (app->dispmanBackgroundLayer.resource == 0)
+        {
+            ULOGE("vc_dispmanx_resource_create() failed");
+            ret = -1;
+        }
+        else
+        {
+            VC_RECT_T dst_rect;
+            vc_dispmanx_rect_set(&dst_rect, 0, 0, 1, 1);
+            result = vc_dispmanx_resource_write_data(app->dispmanBackgroundLayer.resource,
+                                                     type, sizeof(colour), &colour, &dst_rect);
+            if (result != 0)
+            {
+                ULOGE("vc_dispmanx_resource_write_data() failed");
+                ret = -1;
+            }
+        }
+    }
+
+    if (ret == 0)
+    {
+        // create the splash layer
+        memset(&app->dispmanSplashLayer, 0, sizeof(struct ui_image_layer));
+
+        result = loadPngFile("pdraw_splash.png", &app->dispmanSplashLayer.buffer, &app->dispmanSplashLayer.width,
+                             &app->dispmanSplashLayer.height, &app->dispmanSplashLayer.isRgba);
+        if (result != 0)
+        {
+            ULOGE("loadPngFile() failed");
+            ret = -1;
+        }
+        else
+        {
+            app->dispmanSplashLayer.layer = 1;
+            VC_IMAGE_TYPE_T type = (app->dispmanSplashLayer.isRgba) ? VC_IMAGE_RGBA32 : VC_IMAGE_RGB888;
+            uint32_t vc_image_ptr;
+
+            app->dispmanSplashLayer.resource = vc_dispmanx_resource_create(type, app->dispmanSplashLayer.width,
+                                                                           app->dispmanSplashLayer.height, &vc_image_ptr);
+            if (app->dispmanSplashLayer.resource == 0)
+            {
+                ULOGE("vc_dispmanx_resource_create() failed");
+                ret = -1;
+            }
+            else
+            {
+                VC_RECT_T dst_rect;
+                vc_dispmanx_rect_set(&dst_rect, 0, 0, app->dispmanSplashLayer.width, app->dispmanSplashLayer.height);
+                result = vc_dispmanx_resource_write_data(app->dispmanSplashLayer.resource, type,
+                                                         app->dispmanSplashLayer.width * ((app->dispmanSplashLayer.isRgba) ? 4 : 3),
+                                                         app->dispmanSplashLayer.buffer, &dst_rect);
+                if (result != 0)
+                {
+                    ULOGE("vc_dispmanx_resource_write_data() failed");
+                    ret = -1;
+                }
+            }
+        }
+    }
+
+    if (ret == 0)
+    {
+        app->dispmanDisplay = vc_dispmanx_display_open(0 /* LCD */);
+        dispmanUpdate = vc_dispmanx_update_start(0);
+    }
+
+    if (ret == 0)
+    {
+        // display background layer
+        VC_DISPMANX_ALPHA_T alpha = { DISPMANX_FLAGS_ALPHA_FROM_SOURCE, 255, 0 };
+
+        VC_RECT_T src_rect;
+        vc_dispmanx_rect_set(&src_rect, 0, 0, 1, 1);
+
+        VC_RECT_T dst_rect;
+        vc_dispmanx_rect_set(&dst_rect, 0, 0, 0, 0);
+
+        app->dispmanBackgroundLayer.element = vc_dispmanx_element_add(dispmanUpdate, app->dispmanDisplay,
+                                                                      app->dispmanBackgroundLayer.layer,
+                                                                      &dst_rect,
+                                                                      app->dispmanBackgroundLayer.resource,
+                                                                      &src_rect,
+                                                                      DISPMANX_PROTECTION_NONE,
+                                                                      &alpha, NULL, DISPMANX_NO_ROTATE);
+        if (app->dispmanBackgroundLayer.element == 0)
+        {
+            ULOGE("vc_dispmanx_element_add() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        // display splash layer
+        VC_DISPMANX_ALPHA_T alpha = { DISPMANX_FLAGS_ALPHA_FROM_SOURCE, 255, 0 };
+
+        VC_RECT_T src_rect;
+        vc_dispmanx_rect_set(&src_rect, 0, 0, app->dispmanSplashLayer.width << 16, app->dispmanSplashLayer.height << 16);
+
+        VC_RECT_T dst_rect;
+        // logo dimensions are the smallest screen dimension / 2
+        int32_t dim = (app->screenHeight < app->screenWidth) ? app->screenHeight / 2 : app->screenWidth / 2;
+        dim = ((dim + 15) & ~15); // align to 16 pixels
+        int32_t xOffset = (app->screenWidth - dim) / 2;
+        int32_t yOffset = (app->screenHeight - dim) / 2;
+        vc_dispmanx_rect_set(&dst_rect, xOffset, yOffset, dim, dim);
+
+        app->dispmanSplashLayer.element = vc_dispmanx_element_add(dispmanUpdate, app->dispmanDisplay,
+                                                                  app->dispmanSplashLayer.layer,
+                                                                  &dst_rect,
+                                                                  app->dispmanSplashLayer.resource,
+                                                                  &src_rect,
+                                                                  DISPMANX_PROTECTION_NONE,
+                                                                  &alpha, NULL, DISPMANX_NO_ROTATE);
+        if (app->dispmanSplashLayer.element == 0)
+        {
+            ULOGE("vc_dispmanx_element_add() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
         // create an EGL window surface
         dstRect.x = 0;
         dstRect.y = 0;
@@ -684,18 +984,14 @@ int startUi(struct pdraw_app *app)
         srcRect.width = app->screenWidth << 16;
         srcRect.height = app->screenHeight << 16;
 
-        app->dispmanDisplay = vc_dispmanx_display_open(0 /* LCD */);
-        dispmanUpdate = vc_dispmanx_update_start(0);
+        app->dispmanPdrawElement = vc_dispmanx_element_add(dispmanUpdate, app->dispmanDisplay,
+                                                           2/*layer*/, &dstRect, 0/*src*/,
+                                                           &srcRect, DISPMANX_PROTECTION_NONE,
+                                                           0 /*alpha*/, 0/*clamp*/, (DISPMANX_TRANSFORM_T)0/*transform*/);
 
-        app->dispmanElement = vc_dispmanx_element_add(dispmanUpdate, app->dispmanDisplay,
-                                                      0/*layer*/, &dstRect, 0/*src*/,
-                                                      &srcRect, DISPMANX_PROTECTION_NONE,
-                                                      0 /*alpha*/, 0/*clamp*/, (DISPMANX_TRANSFORM_T)0/*transform*/);
-
-        nativeWindow.element = app->dispmanElement;
+        nativeWindow.element = app->dispmanPdrawElement;
         nativeWindow.width = app->screenWidth;
         nativeWindow.height = app->screenHeight;
-        vc_dispmanx_update_submit_sync(dispmanUpdate);
 
         app->surface = eglCreateWindowSurface(app->display, config, &nativeWindow, NULL);
         if (app->surface == EGL_NO_SURFACE)
@@ -703,6 +999,11 @@ int startUi(struct pdraw_app *app)
             ULOGE("VideoCoreEglRenderer: eglCreateWindowSurface() failed");
             ret = -1;
         }
+    }
+
+    if (ret == 0)
+    {
+        vc_dispmanx_update_submit_sync(dispmanUpdate);
     }
 
     if (ret == 0)
@@ -727,6 +1028,23 @@ int startUi(struct pdraw_app *app)
 }
 
 
+void resetUi(struct pdraw_app *app)
+{
+    DISPMANX_UPDATE_HANDLE_T dispmanUpdate;
+    int s;
+
+    dispmanUpdate = vc_dispmanx_update_start(0);
+
+    s = vc_dispmanx_element_remove(dispmanUpdate, app->dispmanPdrawElement);
+    if (s != 0)
+    {
+        ULOGE("vc_dispmanx_element_remove() failed");
+    }
+
+    vc_dispmanx_update_submit_sync(dispmanUpdate);
+}
+
+
 void stopUi(struct pdraw_app *app)
 {
     DISPMANX_UPDATE_HANDLE_T dispmanUpdate;
@@ -737,12 +1055,40 @@ void stopUi(struct pdraw_app *app)
     eglDestroySurface(app->display, app->surface);
 
     dispmanUpdate = vc_dispmanx_update_start(0);
-    s = vc_dispmanx_element_remove(dispmanUpdate, app->dispmanElement);
+
+    s = vc_dispmanx_element_remove(dispmanUpdate, app->dispmanPdrawElement);
     if (s != 0)
     {
         ULOGE("vc_dispmanx_element_remove() failed");
     }
+
+    s = vc_dispmanx_element_remove(dispmanUpdate, app->dispmanSplashLayer.element);
+    if (s != 0)
+    {
+        ULOGE("vc_dispmanx_element_remove() failed");
+    }
+
+    s = vc_dispmanx_element_remove(dispmanUpdate, app->dispmanBackgroundLayer.element);
+    if (s != 0)
+    {
+        ULOGE("vc_dispmanx_element_remove() failed");
+    }
+
     vc_dispmanx_update_submit_sync(dispmanUpdate);
+
+    s = vc_dispmanx_resource_delete(app->dispmanBackgroundLayer.resource);
+    if (s != 0)
+    {
+        ULOGE("vc_dispmanx_resource_delete() failed");
+    }
+
+    s = vc_dispmanx_resource_delete(app->dispmanSplashLayer.resource);
+    if (s != 0)
+    {
+        ULOGE("vc_dispmanx_resource_delete() failed");
+    }
+    free(app->dispmanSplashLayer.buffer);
+
     s = vc_dispmanx_display_close(app->dispmanDisplay);
     if (s != 0)
     {

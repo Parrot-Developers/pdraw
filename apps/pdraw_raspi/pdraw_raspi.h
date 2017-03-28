@@ -48,6 +48,7 @@
 #include <libpdraw.h>
 #include <json/json.h>
 #include <curl/curl.h>
+#include <png.h>
 #include <bcm_host.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -79,6 +80,33 @@ struct ardiscovery_browser_device
 
     struct ardiscovery_browser_device *prev;
     struct ardiscovery_browser_device *next;
+};
+
+
+struct arcmd_reader_data
+{
+    struct pdraw_app *app;
+    int readerBufferId;
+};
+
+
+struct ui_background_layer
+{
+    int32_t layer;
+    DISPMANX_RESOURCE_HANDLE_T resource;
+    DISPMANX_ELEMENT_HANDLE_T element;
+};
+
+
+struct ui_image_layer
+{
+    uint8_t *buffer;
+    int width;
+    int height;
+    int isRgba;
+    int32_t layer;
+    DISPMANX_RESOURCE_HANDLE_T resource;
+    DISPMANX_ELEMENT_HANDLE_T element;
 };
 
 
@@ -128,21 +156,18 @@ struct pdraw_app
     uint32_t screenWidth;
     uint32_t screenHeight;
     DISPMANX_DISPLAY_HANDLE_T dispmanDisplay;
-    DISPMANX_ELEMENT_HANDLE_T dispmanElement;
+    DISPMANX_ELEMENT_HANDLE_T dispmanPdrawElement;
+    struct ui_background_layer dispmanBackgroundLayer;
+    struct ui_image_layer dispmanSplashLayer;
     EGLDisplay display;
     EGLSurface surface;
     EGLContext context;
 };
 
 
-struct arcmd_reader_data
-{
-    struct pdraw_app *app;
-    int readerBufferId;
-};
-
-
+int loadPngFile(const char *fileName, uint8_t **buffer, int *width, int *height, int *isRgba);
 int startUi(struct pdraw_app *app);
+void resetUi(struct pdraw_app *app);
 void stopUi(struct pdraw_app *app);
 
 int startPdraw(struct pdraw_app *app);
