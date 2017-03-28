@@ -389,6 +389,8 @@ int main(int argc, char *argv[])
 
     while ((!failed) && (!stopping) && (loop))
     {
+        app->disconnected = 0;
+
         if ((!failed) && (app->arsdkBrowse))
         {
             failed = startArdiscoveryBrowse(app);
@@ -516,7 +518,7 @@ int main(int argc, char *argv[])
         }
 
         /* Run until interrupted */
-        while ((!failed) && (!stopping))
+        while ((!failed) && (!stopping) && (!app->disconnected))
         {
             if (app->pdraw)
             {
@@ -543,7 +545,7 @@ int main(int argc, char *argv[])
             stopArdiscoveryBrowse(app);
         }
 
-        if (!app->daemon)
+        if ((stopping) || (!app->daemon))
         {
             loop = 0;
         }
@@ -1648,6 +1650,15 @@ void stopArnetwork(struct pdraw_app *app)
 void arnetworkOnDisconnectCallback(ARNETWORK_Manager_t *manager, ARNETWORKAL_Manager_t *alManager, void *customData)
 {
     ULOGD("ARNetwork disconnection callback");
+
+    struct pdraw_app *app = (struct pdraw_app*)customData;
+
+    if (!app)
+    {
+        return;
+    }
+
+    app->disconnected = 1;
 }
 
 

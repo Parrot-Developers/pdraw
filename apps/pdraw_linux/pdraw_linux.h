@@ -133,6 +133,7 @@ struct pdraw_app
     int dstStreamPort;
     int dstControlPort;
     int qosMode;
+    int disconnected;
 
 #ifdef USE_SDL
     SDL_Surface *surface;

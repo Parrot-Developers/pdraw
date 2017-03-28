@@ -152,6 +152,7 @@ struct pdraw_app
     int dstStreamPort;
     int dstControlPort;
     int qosMode;
+    int disconnected;
 
     uint32_t screenWidth;
     uint32_t screenHeight;

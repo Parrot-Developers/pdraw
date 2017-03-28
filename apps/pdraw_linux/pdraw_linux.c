@@ -521,7 +521,7 @@ int main(int argc, char *argv[])
     }
 
     /* Run until interrupted */
-    while ((!failed) && (!stopping))
+    while ((!failed) && (!stopping) && (!app->disconnected))
     {
 #ifdef USE_SDL
         SDL_Event event;
@@ -1251,6 +1251,15 @@ void stopArnetwork(struct pdraw_app *app)
 void arnetworkOnDisconnectCallback(ARNETWORK_Manager_t *manager, ARNETWORKAL_Manager_t *alManager, void *customData)
 {
     ULOGD("ARNetwork disconnection callback");
+
+    struct pdraw_app *app = (struct pdraw_app*)customData;
+
+    if (!app)
+    {
+        return;
+    }
+
+    app->disconnected = 1;
 }
 
 
