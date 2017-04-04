@@ -40,6 +40,7 @@
 
 #ifdef USE_GLES2
 
+#include <string.h>
 #include <unistd.h>
 #include <time.h>
 
@@ -132,15 +133,26 @@ int Gles2Renderer::render(int timeout)
 
     if (mDecoder->isConfigured())
     {
-        avc_decoder_output_buffer_t buf;
-        avc_decoder_output_buffer_t *buffer = NULL;
+        avc_decoder_output_buffer_t buf, prevBuf;
+        avc_decoder_output_buffer_t *buffer = NULL, *prevBuffer = NULL;
+        int dequeueRet;
 
-        int dequeueRet = mDecoder->dequeueOutputBuffer(&buf, false);
-        if (dequeueRet == 0)
+        while ((dequeueRet = mDecoder->dequeueOutputBuffer(&buf, false)) == 0)
         {
             buffer = &buf;
+            if (prevBuffer)
+            {
+                int releaseRet = mDecoder->releaseOutputBuffer(prevBuffer);
+                if (releaseRet != 0)
+                {
+                    ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
+                }
+            }
+            memcpy(&prevBuf, &buf, sizeof(buf));
+            prevBuffer = &prevBuf;
         }
-        else
+
+        if (!buffer)
         {
             if (dequeueRet != -2)
             {

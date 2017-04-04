@@ -40,6 +40,7 @@
 
 #ifdef USE_VIDEOCOREEGL
 
+#include <string.h>
 #include <unistd.h>
 #include <time.h>
 
@@ -265,17 +266,31 @@ int VideoCoreEglRenderer::render(int timeout)
         return 0;
     }
 
-    avc_decoder_output_buffer_t buf;
-    avc_decoder_output_buffer_t *buffer = NULL;
+    avc_decoder_output_buffer_t buf, prevBuf;
+    avc_decoder_output_buffer_t *buffer = NULL, *prevBuffer = NULL;
+    int dequeueRet;
 
-    ret = mDecoder->dequeueOutputBuffer(&buf, false);
-    if (ret == 0)
+    while ((dequeueRet = mDecoder->dequeueOutputBuffer(&buf, false)) == 0)
     {
         buffer = &buf;
+        if (prevBuffer)
+        {
+            int releaseRet = mDecoder->releaseOutputBuffer(prevBuffer);
+            if (releaseRet != 0)
+            {
+                ULOGE("VideoCoreEglRenderer: failed to release buffer (%d)", releaseRet);
+            }
+        }
+        memcpy(&prevBuf, &buf, sizeof(buf));
+        prevBuffer = &prevBuf;
     }
-    else if (ret != -2)
+
+    if (!buffer)
     {
-        ULOGE("VideoCoreEglRenderer: failed to get buffer from queue (%d)", ret);
+        if (dequeueRet != -2)
+        {
+            ULOGE("VideoCoreEglRenderer: failed to get buffer from queue (%d)", dequeueRet);
+        }
         usleep(5000); //TODO
     }
 
