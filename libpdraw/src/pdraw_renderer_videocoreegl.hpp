@@ -49,7 +49,6 @@
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
-#include "pdraw_avcdecoder.hpp"
 
 
 namespace Pdraw
@@ -60,9 +59,11 @@ class VideoCoreEglRenderer : public Gles2Renderer
 {
 public:
 
-    VideoCoreEglRenderer(AvcDecoder *decoder);
+    VideoCoreEglRenderer();
 
     ~VideoCoreEglRenderer();
+
+    int addAvcDecoder(AvcDecoder *decoder);
 
     int setRendererParams
             (int windowWidth, int windowHeight,

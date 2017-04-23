@@ -52,7 +52,7 @@ namespace Pdraw
 {
 
 
-Gles2Renderer::Gles2Renderer(AvcDecoder *decoder)
+Gles2Renderer::Gles2Renderer()
 {
     mWindowWidth = 0;
     mWindowHeight = 0;
@@ -60,7 +60,7 @@ Gles2Renderer::Gles2Renderer(AvcDecoder *decoder)
     mRenderY = 0;
     mRenderWidth = 0;
     mRenderHeight = 0;
-    mDecoder = decoder;
+    mDecoder = NULL;
     mGles2Video = NULL;
     mGles2Hud = NULL;
     mGles2VideoFirstTexUnit = 1;
@@ -98,6 +98,20 @@ Gles2Renderer::~Gles2Renderer()
 }
 
 
+int Gles2Renderer::addAvcDecoder(AvcDecoder *decoder)
+{
+    if (mDecoder)
+    {
+        ULOGE("Gles2Renderer: multiple decoders are not supported");
+        return -1;
+    }
+
+    mDecoder = decoder;
+
+    return 0;
+}
+
+
 int Gles2Renderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
@@ -131,7 +145,7 @@ int Gles2Renderer::render(int timeout)
 {
     int ret = 0;
 
-    if (mDecoder->isConfigured())
+    if ((mDecoder) && (mDecoder->isConfigured()))
     {
         avc_decoder_output_buffer_t buf, prevBuf;
         avc_decoder_output_buffer_t *buffer = NULL, *prevBuffer = NULL;

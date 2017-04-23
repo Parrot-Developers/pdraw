@@ -46,7 +46,6 @@
 #include "pdraw_renderer.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
-#include "pdraw_avcdecoder.hpp"
 
 
 namespace Pdraw
@@ -57,9 +56,11 @@ class Gles2Renderer : public Renderer
 {
 public:
 
-    Gles2Renderer(AvcDecoder *decoder);
+    Gles2Renderer();
 
     ~Gles2Renderer();
+
+    int addAvcDecoder(AvcDecoder *decoder);
 
     int setRendererParams
             (int windowWidth, int windowHeight,

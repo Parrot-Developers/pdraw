@@ -45,14 +45,14 @@
 namespace Pdraw
 {
 
-Renderer *Renderer::create(AvcDecoder *decoder)
+Renderer *Renderer::create()
 {
 #if defined(USE_VIDEOCOREEGL)
-    return new VideoCoreEglRenderer(decoder);
+    return new VideoCoreEglRenderer();
 #elif defined(USE_GLES2)
-    return new Gles2Renderer(decoder);
+    return new Gles2Renderer();
 #else
-    return new NullRenderer(decoder);
+    return new NullRenderer();
 #endif
 }
 

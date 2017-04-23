@@ -39,6 +39,7 @@
 #ifndef _PDRAW_DEMUXER_HPP_
 #define _PDRAW_DEMUXER_HPP_
 
+#include "pdraw_media.hpp"
 #include "pdraw_decoder.hpp"
 #include <string>
 
@@ -49,19 +50,10 @@ namespace Pdraw
 
 typedef enum
 {
-    DEMUXER_TYPE_UNKNOWN = 0,
-    DEMUXER_TYPE_RECORD,
+    DEMUXER_TYPE_RECORD = 0,
     DEMUXER_TYPE_STREAM,
 
 } demuxer_type_t;
-
-
-typedef enum
-{
-    ELEMENTARY_STREAM_TYPE_UNKNOWN = 0,
-    ELEMENTARY_STREAM_TYPE_VIDEO_AVC,
-
-} elementary_stream_type_t;
 
 
 class Demuxer

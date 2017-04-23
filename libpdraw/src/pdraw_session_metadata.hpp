@@ -1,6 +1,6 @@
 /**
- * @file pdraw_renderer.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - renderer interface
+ * @file pdraw_session_metadata.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - session metadata
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,34 +36,45 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_HPP_
-#define _PDRAW_RENDERER_HPP_
+#ifndef _PDRAW_SESSION_METADATA_HPP_
+#define _PDRAW_SESSION_METADATA_HPP_
 
-#include "pdraw_avcdecoder.hpp"
+#include <inttypes.h>
+#include <string>
+#include <vector>
+
+
+using namespace std;
 
 
 namespace Pdraw
 {
 
-class Renderer
+
+class SessionSelfMetadata
 {
 public:
 
-    virtual ~Renderer() {};
+    SessionSelfMetadata();
 
-    virtual int addAvcDecoder(AvcDecoder *decoder) = 0;
+    ~SessionSelfMetadata();
 
-    virtual int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             void *uiHandler) = 0;
+    string& getFriendlyName(void);
+    void setFriendlyName(const string& friendlyName);
 
-    virtual int render(int timeout) = 0;
+    string& getSerialNumber(void);
+    void setSerialNumber(const string& serialNumber);
 
-    static Renderer *create();
+    string& getSoftwareVersion(void);
+    void setSoftwareVersion(const string& softwareVersion);
+
+private:
+
+    std::string mFriendlyName;
+    std::string mSerialNumber;
+    std::string mSoftwareVersion;
 };
 
 }
 
-#endif /* !_PDRAW_RENDERER_HPP_ */
+#endif /* !_PDRAW_SESSION_METADATA_HPP_ */

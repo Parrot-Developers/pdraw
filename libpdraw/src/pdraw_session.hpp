@@ -1,6 +1,6 @@
 /**
- * @file pdraw_renderer.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - renderer interface
+ * @file pdraw_session.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - session
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,34 +36,77 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_HPP_
-#define _PDRAW_RENDERER_HPP_
+#ifndef _PDRAW_SESSION_HPP_
+#define _PDRAW_SESSION_HPP_
 
-#include "pdraw_avcdecoder.hpp"
+#include <inttypes.h>
+#include <string>
+#include <vector>
+
+#include "pdraw_session_metadata.hpp"
+#include "pdraw_media.hpp"
+#include "pdraw_demuxer.hpp"
+#include "pdraw_renderer.hpp"
+
+
+using namespace std;
 
 
 namespace Pdraw
 {
 
-class Renderer
+
+class Session
 {
 public:
 
-    virtual ~Renderer() {};
+    Session();
 
-    virtual int addAvcDecoder(AvcDecoder *decoder) = 0;
+    ~Session();
 
-    virtual int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             void *uiHandler) = 0;
+    int setup(const std::string &selfFriendlyName,
+              const std::string &selfSerialNumber,
+              const std::string &selfSoftwareVersion);
 
-    virtual int render(int timeout) = 0;
+    int open(const std::string &url);
 
-    static Renderer *create();
+    int open(const std::string &sessionDescription, int qosMode);
+
+    int open(const std::string &srcAddr, const std::string &ifaceAddr,
+             int srcStreamPort, int srcControlPort,
+             int dstStreamPort, int dstControlPort, int qosMode);
+
+    Media *addMedia(elementary_stream_type_t esType);
+
+    Media *addMedia(elementary_stream_type_t esType, Demuxer *demuxer, int demuxEsIndex);
+
+    int removeMedia(Media *media);
+
+    int removeMedia(unsigned int index);
+
+    unsigned int getMediaCount();
+
+    Media *getMedia(unsigned int index);
+
+    int enableRenderer();
+    int disableRenderer();
+
+    Demuxer *getDemuxer();
+
+    Renderer *getRenderer();
+
+    SessionSelfMetadata& getSelfMetadata();
+
+private:
+
+    int addMediaFromDemuxer();
+
+    SessionSelfMetadata selfMetadata;
+    std::vector<Media*> mMedias;
+    Demuxer *mDemuxer;
+    Renderer *mRenderer;
 };
 
 }
 
-#endif /* !_PDRAW_RENDERER_HPP_ */
+#endif /* !_PDRAW_SESSION_HPP_ */

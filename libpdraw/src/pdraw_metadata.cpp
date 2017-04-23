@@ -1,6 +1,6 @@
 /**
  * @file pdraw_metadata.cpp
- * @brief Parrot Drones Awesome Video Viewer Library - Metadata
+ * @brief Parrot Drones Awesome Video Viewer Library - metadata
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *

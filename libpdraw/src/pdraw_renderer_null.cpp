@@ -49,10 +49,10 @@ namespace Pdraw
 {
 
 
-NullRenderer::NullRenderer(AvcDecoder *decoder)
+NullRenderer::NullRenderer()
 {
     int ret = 0;
-    mDecoder = decoder;
+    mDecoder = NULL;
     mRendererThreadLaunched = false;
     mThreadShouldStop = false;
 
@@ -86,6 +86,20 @@ NullRenderer::~NullRenderer()
 }
 
 
+int NullRenderer::addAvcDecoder(AvcDecoder *decoder)
+{
+    if (mDecoder)
+    {
+        ULOGE("NullRenderer: multiple decoders are not supported");
+        return -1;
+    }
+
+    mDecoder = decoder;
+
+    return 0;
+}
+
+
 int NullRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
@@ -109,7 +123,7 @@ void* NullRenderer::runRendererThread(void *ptr)
 
     while (!renderer->mThreadShouldStop)
     {
-        if (renderer->mDecoder->isConfigured())
+        if ((renderer->mDecoder) && (renderer->mDecoder->isConfigured()))
         {
             avc_decoder_output_buffer_t buffer;
 

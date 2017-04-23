@@ -42,7 +42,6 @@
 #include <pthread.h>
 
 #include "pdraw_renderer.hpp"
-#include "pdraw_avcdecoder.hpp"
 
 
 namespace Pdraw
@@ -53,9 +52,11 @@ class NullRenderer : public Renderer
 {
 public:
 
-    NullRenderer(AvcDecoder *decoder);
+    NullRenderer();
 
     ~NullRenderer();
+
+    int addAvcDecoder(AvcDecoder *decoder);
 
     int setRendererParams
             (int windowWidth, int windowHeight,

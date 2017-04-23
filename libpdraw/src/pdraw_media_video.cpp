@@ -1,6 +1,6 @@
 /**
- * @file pdraw_renderer.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - renderer interface
+ * @file pdraw_media.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - video media
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,34 +36,108 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_HPP_
-#define _PDRAW_RENDERER_HPP_
+#include <math.h>
+#include <string.h>
 
+#include "pdraw_media_video.hpp"
 #include "pdraw_avcdecoder.hpp"
+
+#define ULOG_TAG libpdraw
+#include <ulog.h>
 
 
 namespace Pdraw
 {
 
-class Renderer
+
+VideoMedia::VideoMedia(elementary_stream_type_t esType)
 {
-public:
-
-    virtual ~Renderer() {};
-
-    virtual int addAvcDecoder(AvcDecoder *decoder) = 0;
-
-    virtual int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             void *uiHandler) = 0;
-
-    virtual int render(int timeout) = 0;
-
-    static Renderer *create();
-};
-
+    mEsType = esType;
+    mDemux = NULL;
+    mDemuxEsIndex = -1;
+    mDecoder = NULL;
 }
 
-#endif /* !_PDRAW_RENDERER_HPP_ */
+
+VideoMedia::VideoMedia(elementary_stream_type_t esType, Demuxer *demux, int demuxEsIndex)
+{
+    mEsType = esType;
+    mDemux = demux;
+    mDemuxEsIndex = demuxEsIndex;
+    mDecoder = NULL;
+}
+
+
+VideoMedia::~VideoMedia()
+{
+    if (mDecoder)
+    {
+        disableDecoder();
+    }
+}
+
+
+int VideoMedia::enableDecoder()
+{
+    int ret = 0;
+
+    if (mDecoder)
+    {
+        ULOGE("VideoMedia: decoder is already enabled");
+        return -1;
+    }
+
+    mDecoder = AvcDecoder::create();
+    if (mDecoder)
+    {
+        if ((mDemuxEsIndex != -1) && (mDemux))
+        {
+            int _ret = mDemux->setElementaryStreamDecoder(mDemuxEsIndex, mDecoder);
+            if (_ret != 0)
+            {
+                ULOGE("VideoMedia: setElementaryStreamDecoder() failed (%d)", _ret);
+                ret = -1;
+            }
+        }
+    }
+    else
+    {
+        ULOGE("VideoMedia: failed to create AVC decoder");
+    }
+
+    return ret;
+}
+
+
+int VideoMedia::disableDecoder()
+{
+    int ret = 0;
+
+    if (!mDecoder)
+    {
+        ULOGE("VideoMedia: decoder is not enabled");
+        return -1;
+    }
+
+    int _ret = ((AvcDecoder*)mDecoder)->stop();
+    if (_ret != 0)
+    {
+        ULOGE("VideoMedia: failed to stop AVC decoder (%d)", _ret);
+        ret = -1;
+    }
+    else
+    {
+        delete mDecoder;
+        mDecoder = NULL;
+    }
+
+    return ret;
+}
+
+
+Decoder *VideoMedia::getDecoder()
+{
+    return mDecoder;
+}
+
+}

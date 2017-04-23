@@ -64,9 +64,6 @@ IPdraw *createPdraw()
 PdrawImpl::PdrawImpl()
 {
     mSetup = false;
-    mDemux = NULL;
-    mDecoder = new std::vector<Decoder*>();
-    mRenderer = NULL;
     mPaused = false;
     mGotRendererParams = false;
     mUiHandler = NULL;
@@ -75,18 +72,7 @@ PdrawImpl::PdrawImpl()
 
 PdrawImpl::~PdrawImpl()
 {
-    if (mDecoder)
-    {
-        std::vector<Decoder*>::iterator dec = mDecoder->begin();
-        while (dec != mDecoder->end())
-        {
-            delete *dec;
-            dec++;
-        }
-        delete mDecoder;
-    }
-    if (mDemux) delete mDemux;
-    if (mRenderer) delete mRenderer;
+
 }
 
 
@@ -102,9 +88,9 @@ int PdrawImpl::setup(const std::string &canonicalName,
         return -1;
     }
 
-    mCanonicalName = canonicalName;
-    mFriendlyName = friendlyName;
-    mApplicationName = applicationName;
+    //TODO: renaming
+    session.setup(friendlyName, canonicalName, applicationName);
+
     mSetup = true;
 
     return ret;
@@ -113,86 +99,25 @@ int PdrawImpl::setup(const std::string &canonicalName,
 
 int PdrawImpl::open(const std::string &url)
 {
-    int ret = 0;
-
     if (!mSetup)
     {
         ULOGE("Pdraw is not set up");
         return -1;
     }
 
-    std::string ext = url.substr(url.length() - 4, 4);
-    if ((url.front() == '/') && (ext == ".mp4"))
-    {
-        mDemux = new RecordDemuxer();
-        if (mDemux == NULL)
-        {
-            ULOGE("Failed to alloc demuxer");
-            ret = -1;
-        }
-    }
-    else if (((url.front() == '/') && (ext == ".sdp"))
-                || (url.substr(0, 7) == "http://"))
-    {
-        mDemux = new StreamDemuxer();
-        if (mDemux == NULL)
-        {
-            ULOGE("Failed to alloc demuxer");
-            ret = -1;
-        }
-    }
-    else
-    {
-        ULOGE("Unsupported URL");
-        ret = -1;
-    }
-
-    if (ret == 0)
-    {
-        ret = mDemux->configure(url);
-        if (ret != 0)
-        {
-            ULOGE("Failed to configure demuxer");
-            ret = -1;
-        }
-    }
-
-    return (ret == 0) ? openWithDemux() : ret;
+    return session.open(url);
 }
 
 
 int PdrawImpl::open(const std::string &sessionDescription, int qosMode)
 {
-    int ret = 0;
-
     if (!mSetup)
     {
         ULOGE("Pdraw is not set up");
         return -1;
     }
 
-    if (ret == 0)
-    {
-        mDemux = new StreamDemuxer();
-        if (mDemux == NULL)
-        {
-            ULOGE("Failed to alloc demuxer");
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        ret = ((StreamDemuxer*)mDemux)->configure(mCanonicalName, mFriendlyName, mApplicationName,
-                                                  sessionDescription, qosMode);
-        if (ret != 0)
-        {
-            ULOGE("Failed to configure demuxer");
-            ret = -1;
-        }
-    }
-
-    return (ret == 0) ? openWithDemux() : ret;
+    return session.open(sessionDescription, qosMode);
 }
 
 
@@ -200,113 +125,15 @@ int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
                     int srcStreamPort, int srcControlPort,
                     int dstStreamPort, int dstControlPort, int qosMode)
 {
-    int ret = 0;
-
     if (!mSetup)
     {
         ULOGE("Pdraw is not set up");
         return -1;
     }
 
-    if (ret == 0)
-    {
-        mDemux = new StreamDemuxer();
-        if (mDemux == NULL)
-        {
-            ULOGE("Failed to alloc demuxer");
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        ret = ((StreamDemuxer*)mDemux)->configure(mCanonicalName, mFriendlyName, mApplicationName,
-                                                  srcAddr, ifaceAddr, srcStreamPort, srcControlPort,
-                                                  dstStreamPort, dstControlPort, qosMode);
-        if (ret != 0)
-        {
-            ULOGE("Failed to configure demuxer");
-            ret = -1;
-        }
-    }
-
-    return (ret == 0) ? openWithDemux() : ret;
-}
-
-
-int PdrawImpl::openWithDemux()
-{
-    int ret = 0;
-    Decoder *firstDecoder = NULL; //TODO
-
-    if (ret == 0)
-    {
-        int esCount = mDemux->getElementaryStreamCount();
-        if (esCount < 0)
-        {
-            ULOGE("getElementaryStreamCount() failed (%d)", esCount);
-            ret = -1;
-        }
-        int i, _ret;
-        for (i = 0; i < ((esCount) && (ret == 0)); i++)
-        {
-            elementary_stream_type_t esType = mDemux->getElementaryStreamType(i);
-            if (esType < 0)
-            {
-                ULOGE("getElementaryStreamType() failed (%d)", esType);
-                continue;
-            }
-
-            switch (esType)
-            {
-                case ELEMENTARY_STREAM_TYPE_VIDEO_AVC:
-                {
-                    Decoder *decoder = AvcDecoder::create();
-                    if (decoder)
-                    {
-                        if (firstDecoder == NULL)
-                        {
-                            firstDecoder = decoder;
-                        }
-                        mDecoder->push_back(decoder);
-                        _ret = mDemux->setElementaryStreamDecoder(i, decoder);
-                        if (_ret != 0)
-                        {
-                            ULOGE("setElementaryStreamDecoder() failed (%d)", _ret);
-                            ret = -1;
-                        }
-                    }
-                    else
-                    {
-                        ULOGE("failed to create AVC decoder");
-                    }
-                    break;
-                }
-                default:
-                case ELEMENTARY_STREAM_TYPE_UNKNOWN:
-                    break;
-            }
-        }
-    }
-
-    if (ret == 0)
-    {
-        mRenderer = Renderer::create((AvcDecoder*)firstDecoder);
-        if (mRenderer == NULL)
-        {
-            ULOGE("Failed to alloc renderer");
-            ret = -1;
-        }
-        else if (mGotRendererParams)
-        {
-            mRenderer->setRendererParams(mWindowWidth, mWindowHeight,
-                                         mRenderX, mRenderY,
-                                         mRenderWidth, mRenderHeight,
-                                         mUiHandler);
-        }
-    }
-
-    return ret;
+    return session.open(srcAddr, ifaceAddr,
+                        srcStreamPort, srcControlPort,
+                        dstStreamPort, dstControlPort, qosMode);
 }
 
 
@@ -318,9 +145,9 @@ int PdrawImpl::start()
         return -1;
     }
 
-    if (mDemux)
+    if (session.getDemuxer())
     {
-        int ret = mDemux->start();
+        int ret = session.getDemuxer()->start();
         if (ret != 0)
         {
             ULOGE("Failed to start demuxer");
@@ -349,9 +176,9 @@ int PdrawImpl::pause()
         return -1;
     }
 
-    if (mDemux)
+    if (session.getDemuxer())
     {
-        int ret = mDemux->pause();
+        int ret = session.getDemuxer()->pause();
         if (ret != 0)
         {
             ULOGE("Failed to pause demuxer");
@@ -386,9 +213,9 @@ int PdrawImpl::stop()
         return -1;
     }
 
-    if (mDemux)
+    if (session.getDemuxer())
     {
-        int ret = mDemux->stop();
+        int ret = session.getDemuxer()->stop();
         if (ret != 0)
         {
             ULOGE("Failed to stop demuxer");
@@ -417,9 +244,9 @@ int PdrawImpl::seekTo(uint64_t timestamp)
         return -1;
     }
 
-    if (mDemux)
+    if (session.getDemuxer())
     {
-        int ret = mDemux->seekTo(timestamp);
+        int ret = session.getDemuxer()->seekTo(timestamp);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -444,9 +271,9 @@ int PdrawImpl::seekForward(uint64_t delta)
         return -1;
     }
 
-    if (mDemux)
+    if (session.getDemuxer())
     {
-        int ret = mDemux->seekForward(delta);
+        int ret = session.getDemuxer()->seekForward(delta);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -471,9 +298,9 @@ int PdrawImpl::seekBack(uint64_t delta)
         return -1;
     }
 
-    if (mDemux)
+    if (session.getDemuxer())
     {
-        int ret = mDemux->seekBack(delta);
+        int ret = session.getDemuxer()->seekBack(delta);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -498,9 +325,9 @@ int PdrawImpl::startRecorder(const std::string &fileName)
         return -1;
     }
 
-    if ((mDemux) && (mDemux->getType() == DEMUXER_TYPE_STREAM))
+    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)mDemux)->startRecorder(fileName);
+        return ((StreamDemuxer*)session.getDemuxer())->startRecorder(fileName);
     }
     else
     {
@@ -518,9 +345,9 @@ int PdrawImpl::stopRecorder()
         return -1;
     }
 
-    if ((mDemux) && (mDemux->getType() == DEMUXER_TYPE_STREAM))
+    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)mDemux)->stopRecorder();
+        return ((StreamDemuxer*)session.getDemuxer())->stopRecorder();
     }
     else
     {
@@ -540,9 +367,9 @@ int PdrawImpl::startResender(const std::string &dstAddr, const std::string &ifac
         return -1;
     }
 
-    if ((mDemux) && (mDemux->getType() == DEMUXER_TYPE_STREAM))
+    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)mDemux)->startResender(dstAddr, ifaceAddr,
+        return ((StreamDemuxer*)session.getDemuxer())->startResender(dstAddr, ifaceAddr,
                                                        srcStreamPort, srcControlPort,
                                                        dstStreamPort, dstControlPort);
     }
@@ -562,9 +389,9 @@ int PdrawImpl::stopResender()
         return -1;
     }
 
-    if ((mDemux) && (mDemux->getType() == DEMUXER_TYPE_STREAM))
+    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)mDemux)->stopResender();
+        return ((StreamDemuxer*)session.getDemuxer())->stopResender();
     }
     else
     {
@@ -593,9 +420,19 @@ int PdrawImpl::setRendererParams(int windowWidth, int windowHeight,
     mRenderY = renderY;
     mRenderWidth = renderWidth;
     mRenderHeight = renderHeight;
-    if (mRenderer)
+
+    if (!session.getRenderer())
     {
-        return mRenderer->setRendererParams(mWindowWidth, mWindowHeight,
+        int ret = session.enableRenderer();
+        if (ret != 0)
+        {
+            ULOGE("Failed to enable renderer");
+        }
+    }
+
+    if (session.getRenderer())
+    {
+        return session.getRenderer()->setRendererParams(mWindowWidth, mWindowHeight,
                                             mRenderX, mRenderY,
                                             mRenderWidth, mRenderHeight,
                                             mUiHandler);
@@ -616,9 +453,9 @@ int PdrawImpl::render(int timeout)
         return -1;
     }
 
-    if (mRenderer)
+    if (session.getRenderer())
     {
-        return mRenderer->render(timeout);
+        return session.getRenderer()->render(timeout);
     }
     else
     {

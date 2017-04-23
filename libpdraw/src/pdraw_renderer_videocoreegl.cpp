@@ -56,7 +56,7 @@ namespace Pdraw
 {
 
 
-VideoCoreEglRenderer::VideoCoreEglRenderer(AvcDecoder *decoder) : Gles2Renderer(decoder)
+VideoCoreEglRenderer::VideoCoreEglRenderer() : Gles2Renderer()
 {
     mVideoWidth = 0;
     mVideoHeight = 0;
@@ -88,6 +88,20 @@ VideoCoreEglRenderer::~VideoCoreEglRenderer()
 }
 
 
+int VideoCoreEglRenderer::addAvcDecoder(AvcDecoder *decoder)
+{
+    if (mDecoder)
+    {
+        ULOGE("VideoCoreEglRenderer: multiple decoders are not supported");
+        return -1;
+    }
+
+    mDecoder = decoder;
+
+    return 0;
+}
+
+
 int VideoCoreEglRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
@@ -110,7 +124,7 @@ int VideoCoreEglRenderer::setRendererParams
     mSurface = uiParams->surface;
     mContext = uiParams->context;
 
-    ((VideoCoreOmxAvcDecoder*)mDecoder)->setRenderer(this);
+    if (mDecoder) ((VideoCoreOmxAvcDecoder*)mDecoder)->setRenderer(this);
 
     return ret;
 }
@@ -244,7 +258,7 @@ int VideoCoreEglRenderer::render(int timeout)
     int ret = 0;
     uint64_t oldRenderTimestamp2 = 0;
 
-    if (!mDecoder->isConfigured())
+    if ((!mDecoder) || (!mDecoder->isConfigured()))
     {
         usleep(5000); //TODO
         return 0;

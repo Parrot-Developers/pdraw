@@ -1,6 +1,6 @@
 /**
- * @file pdraw_renderer.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - renderer interface
+ * @file pdraw_media.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - media
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,34 +36,50 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_HPP_
-#define _PDRAW_RENDERER_HPP_
+#ifndef _PDRAW_MEDIA_HPP_
+#define _PDRAW_MEDIA_HPP_
 
-#include "pdraw_avcdecoder.hpp"
+#include <inttypes.h>
+#include <string>
+
+#include "pdraw_decoder.hpp"
+
+using namespace std;
 
 
 namespace Pdraw
 {
 
-class Renderer
+
+typedef enum
+{
+    MEDIA_TYPE_VIDEO = 0,
+
+} media_type_t;
+
+
+typedef enum
+{
+    ELEMENTARY_STREAM_TYPE_UNKNOWN = 0,
+    ELEMENTARY_STREAM_TYPE_VIDEO_AVC,
+
+} elementary_stream_type_t;
+
+
+class Media
 {
 public:
 
-    virtual ~Renderer() {};
+    virtual ~Media() {};
 
-    virtual int addAvcDecoder(AvcDecoder *decoder) = 0;
+    virtual media_type_t getType() = 0;
 
-    virtual int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             void *uiHandler) = 0;
+    virtual int enableDecoder() = 0;
+    virtual int disableDecoder() = 0;
 
-    virtual int render(int timeout) = 0;
-
-    static Renderer *create();
+    virtual Decoder *getDecoder() = 0;
 };
 
 }
 
-#endif /* !_PDRAW_RENDERER_HPP_ */
+#endif /* !_PDRAW_MEDIA_HPP_ */

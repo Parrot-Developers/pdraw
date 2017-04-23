@@ -43,14 +43,11 @@
 
 #include <libpdraw.hpp>
 
+#include "pdraw_session.hpp"
+
 
 namespace Pdraw
 {
-
-
-class Demuxer;
-class Decoder;
-class Renderer;
 
 
 class PdrawImpl : public IPdraw
@@ -141,13 +138,8 @@ private:
 
     int openWithDemux();
 
+    Session session;
     bool mSetup;
-    std::string mCanonicalName;
-    std::string mFriendlyName;
-    std::string mApplicationName;
-    Demuxer *mDemux;
-    std::vector<Decoder*> *mDecoder;
-    Renderer *mRenderer;
     bool mPaused;
     bool mGotRendererParams;
     int mWindowWidth;

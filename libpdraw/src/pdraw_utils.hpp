@@ -1,6 +1,6 @@
 /**
  * @file pdraw_utils.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - Utilities
+ * @brief Parrot Drones Awesome Video Viewer Library - utilities
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
