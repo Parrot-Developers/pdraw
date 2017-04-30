@@ -63,8 +63,6 @@ public:
 
     ~VideoCoreEglRenderer();
 
-    int addAvcDecoder(AvcDecoder *decoder);
-
     int setRendererParams
             (int windowWidth, int windowHeight,
              int renderX, int renderY,

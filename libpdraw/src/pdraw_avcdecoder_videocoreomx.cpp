@@ -58,24 +58,23 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder()
     mConfigured2 = false;
     mFirstFrame = true;
     mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
-    mBufferMeta = new std::vector<avc_decoder_input_buffer_t>();
-    mBufferMetaFreeQueue = new std::queue<avc_decoder_input_buffer_t*>();
-    mBufferMetaPushQueue = new std::queue<avc_decoder_input_buffer_t*>();
+    mInputBufferPool = NULL;
+    mInputBufferQueue = NULL;
+    mOutputBufferPool = NULL;
     mClient = NULL;
     mVideoDecode = NULL;
     mEglRender = NULL;
-    mEglBuffer[0] = NULL;
-    mEglBuffer[1] = NULL;
-    mEglBuffer[2] = NULL;
-    mEglImage[0] = NULL;
-    mEglImage[1] = NULL;
-    mEglImage[2] = NULL;
+    int i;
+    for (i = 0; i < VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT; i++)
+    {
+        mEglBuffer[i] = NULL;
+        mEglImage[i] = NULL;
+    }
     mRenderer = NULL;
     mFrameWidth = 0;
     mFrameHeight = 0;
     mSliceHeight = 0;
     mStride = 0;
-    mBufferReady = false;
     memset(&mTunnel, 0, sizeof(mTunnel));
 
     if ((mClient = ilclient_init()) == NULL)
@@ -182,27 +181,32 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder()
                 ULOGI("videoCoreOmx: width=%d, height=%d, sliceHeight=%d, stride=%d, colorFormat=%d",
                       def.format.video.nFrameWidth, def.format.video.nFrameHeight, def.format.video.nSliceHeight,
                       def.format.video.nStride, def.format.video.eColorFormat);
-                mBufferMeta->resize(def.nBufferCountActual);
-                /* add all meta buffers in the free queue */
-                unsigned int i;
-                for (i = 0; i < def.nBufferCountActual; i++)
+
+                /* Input buffers pool allocation */
+                mInputBufferPool = new BufferPool(def.nBufferCountActual, 0,
+                                                  sizeof(avc_decoder_input_buffer_t),
+                                                  NULL, NULL);
+                if (mInputBufferPool == NULL)
                 {
-                    mBufferMetaFreeQueue->push(&(mBufferMeta->at(i)));
+                    ULOGE("videoCoreOmx: failed to allocate decoder input buffers pool");
+                }
+
+                /* Input buffers queue allocation */
+                mInputBufferQueue = new BufferQueue();
+                if (mInputBufferQueue == NULL)
+                {
+                    ULOGE("videoCoreOmx: failed to allocate decoder input buffers queue");
                 }
             }
         }
     }
 
-    int ret = pthread_mutex_init(&mMutex, NULL);
-    if (ret != 0)
+    /* Output buffers queue allocation */
+    mOutputBufferPool = new BufferPool(VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
+                                       sizeof(avc_decoder_output_buffer_t), NULL, NULL);
+    if (mOutputBufferPool == NULL)
     {
-        ULOGE("videoCoreOmx: mutex creation failed (%d)", ret);
-    }
-
-    ret = pthread_cond_init(&mCond, NULL);
-    if (ret != 0)
-    {
-        ULOGE("videoCoreOmx: cond creation failed (%d)", ret);
+        ULOGE("videoCoreOmx: failed to allocate decoder output buffers pool");
     }
 
     ULOGI("videoCoreOmx: initialization complete");
@@ -225,12 +229,16 @@ VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder()
 
     ilclient_destroy(mClient);
 
-    pthread_mutex_destroy(&mMutex);
-    pthread_cond_destroy(&mCond);
+    if (mInputBufferQueue) delete mInputBufferQueue;
+    if (mInputBufferPool) delete mInputBufferPool;
+    if (mOutputBufferPool) delete mOutputBufferPool;
 
-    if (mBufferMeta) delete mBufferMeta;
-    if (mBufferMetaFreeQueue) delete mBufferMetaFreeQueue;
-    if (mBufferMetaPushQueue) delete mBufferMetaPushQueue;
+    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    while (q != mOutputBufferQueues.end())
+    {
+        delete *q;
+        q++;
+    }
 }
 
 
@@ -439,60 +447,26 @@ int VideoCoreOmxAvcDecoder::portSettingsChanged()
             }
         }
 
-        if (ret == 0)
+        int i;
+        for (i = 0; i < VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT; i++)
         {
-            mEglImage[0] = ((VideoCoreEglRenderer*)mRenderer)->getVideoEglImage(0);
-            if (mEglImage[0] == EGL_NO_IMAGE_KHR)
+            if (ret == 0)
             {
-                ULOGE("videoCoreOmx: failed to get EGL image");
-                ret = -1;
+                mEglImage[i] = ((VideoCoreEglRenderer*)mRenderer)->getVideoEglImage(i);
+                if (mEglImage[i] == EGL_NO_IMAGE_KHR)
+                {
+                    ULOGE("videoCoreOmx: failed to get EGL image #%d", i);
+                    ret = -1;
+                }
             }
-        }
 
-        if (ret == 0)
-        {
-            mEglImage[1] = ((VideoCoreEglRenderer*)mRenderer)->getVideoEglImage(1);
-            if (mEglImage[1] == EGL_NO_IMAGE_KHR)
+            if (ret == 0)
             {
-                ULOGE("videoCoreOmx: failed to get EGL image");
-                ret = -1;
-            }
-        }
-
-        if (ret == 0)
-        {
-            mEglImage[2] = ((VideoCoreEglRenderer*)mRenderer)->getVideoEglImage(2);
-            if (mEglImage[2] == EGL_NO_IMAGE_KHR)
-            {
-                ULOGE("videoCoreOmx: failed to get EGL image");
-                ret = -1;
-            }
-        }
-
-        if (ret == 0)
-        {
-            if (OMX_UseEGLImage(ILC_GET_HANDLE(mEglRender), &mEglBuffer[0], 221, NULL, mEglImage[0]) != OMX_ErrorNone)
-            {
-                ULOGE("videoCoreOmx: OMX_UseEGLImage() failed 1");
-                ret = -1;
-            }
-        }
-
-        if (ret == 0)
-        {
-            if (OMX_UseEGLImage(ILC_GET_HANDLE(mEglRender), &mEglBuffer[1], 221, NULL, mEglImage[1]) != OMX_ErrorNone)
-            {
-                ULOGE("videoCoreOmx: OMX_UseEGLImage() failed 2");
-                ret = -1;
-            }
-        }
-
-        if (ret == 0)
-        {
-            if (OMX_UseEGLImage(ILC_GET_HANDLE(mEglRender), &mEglBuffer[2], 221, NULL, mEglImage[2]) != OMX_ErrorNone)
-            {
-                ULOGE("videoCoreOmx: OMX_UseEGLImage() failed 2");
-                ret = -1;
+                if (OMX_UseEGLImage(ILC_GET_HANDLE(mEglRender), &mEglBuffer[i], 221, NULL, mEglImage[i]) != OMX_ErrorNone)
+                {
+                    ULOGE("videoCoreOmx: OMX_UseEGLImage() failed on image #%d", i);
+                    ret = -1;
+                }
             }
         }
 
@@ -522,7 +496,7 @@ int VideoCoreOmxAvcDecoder::portSettingsChanged()
 }
 
 
-int VideoCoreOmxAvcDecoder::getInputBuffer(avc_decoder_input_buffer_t *buffer, bool blocking)
+int VideoCoreOmxAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 {
     if (!buffer)
     {
@@ -547,17 +521,34 @@ int VideoCoreOmxAvcDecoder::getInputBuffer(avc_decoder_input_buffer_t *buffer, b
         }
     }
 
-    OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(mVideoDecode, 130, (blocking) ? 1 : 0);
-    if (buf != NULL)
+    if (mInputBufferPool)
     {
-        memset(buffer, 0, sizeof(avc_decoder_input_buffer_t));
-        buffer->userPtr = (void*)buf;
-        buffer->auBuffer = buf->pBuffer;
-        buffer->auBufferSize = buf->nAllocLen;
+        Buffer *buf = mInputBufferPool->getBuffer(blocking);
+        if (buf != NULL)
+        {
+            OMX_BUFFERHEADERTYPE *omxBuf = ilclient_get_input_buffer(mVideoDecode, 130, (blocking) ? 1 : 0);
+            if (omxBuf == NULL)
+            {
+                buf->unref();
+                ULOGE("videoCoreOmx: failed to dequeue an input buffer");
+                return -2;
+            }
+
+            buf->setSize(0);
+            buf->setCapacity(omxBuf->nAllocLen);
+            buf->setPtr(omxBuf->pBuffer);
+            buf->setResPtr((void*)omxBuf);
+            *buffer = buf;
+        }
+        else
+        {
+            ULOGD("videoCoreOmx: failed to get an input buffer");
+            return -2;
+        }
     }
     else
     {
-        ULOGE("videoCoreOmx: failed to dequeue an input buffer");
+        ULOGE("videoCoreOmx: input buffer pool has not been created");
         return -1;
     }
 
@@ -565,7 +556,7 @@ int VideoCoreOmxAvcDecoder::getInputBuffer(avc_decoder_input_buffer_t *buffer, b
 }
 
 
-int VideoCoreOmxAvcDecoder::queueInputBuffer(avc_decoder_input_buffer_t *buffer)
+int VideoCoreOmxAvcDecoder::queueInputBuffer(Buffer *buffer)
 {
     if (!buffer)
     {
@@ -579,37 +570,44 @@ int VideoCoreOmxAvcDecoder::queueInputBuffer(avc_decoder_input_buffer_t *buffer)
         return -1;
     }
 
-    OMX_BUFFERHEADERTYPE *buf = (OMX_BUFFERHEADERTYPE*)buffer->userPtr;
-    buf->nFilledLen = buffer->auSize;
-    buf->nOffset = 0;
-    buf->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
-    if (mFirstFrame)
+    if (mInputBufferQueue)
     {
-        buf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
-        mFirstFrame = false;
-    }
-    buf->nTimeStamp.nHighPart = (uint32_t)(buffer->auNtpTimestampRaw >> 32);
-    buf->nTimeStamp.nLowPart = (uint32_t)(buffer->auNtpTimestampRaw & 0xFFFFFFFF);
+        OMX_BUFFERHEADERTYPE *omxBuf = (OMX_BUFFERHEADERTYPE*)buffer->getResPtr();
+        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)buffer->getMetadataPtr();
 
-    pthread_mutex_lock(&mMutex);
+        omxBuf->nFilledLen = buffer->getSize();
+        omxBuf->nOffset = 0;
+        omxBuf->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
+        if (mFirstFrame)
+        {
+            omxBuf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+            mFirstFrame = false;
+        }
 
-    if (mBufferMetaFreeQueue->size() != 0)
-    {
-        avc_decoder_input_buffer_t *internalMeta = mBufferMetaFreeQueue->front();
-        mBufferMetaFreeQueue->pop();
-        memcpy(internalMeta, buffer, sizeof(avc_decoder_input_buffer_t));
-        mBufferMetaPushQueue->push(internalMeta);
+        if (data)
+        {
+            omxBuf->nTimeStamp.nHighPart = (uint32_t)(data->auNtpTimestampRaw >> 32);
+            omxBuf->nTimeStamp.nLowPart = (uint32_t)(data->auNtpTimestampRaw & 0xFFFFFFFF);
+        }
+        else
+        {
+            ULOGW("videoCoreOmx: invalid buffer metadata");
+            omxBuf->nTimeStamp.nHighPart = 0;
+            omxBuf->nTimeStamp.nLowPart = 0;
+        }
+
+        buffer->ref();
+        mInputBufferQueue->pushBuffer(buffer);
+
+        if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(mVideoDecode), omxBuf) != OMX_ErrorNone)
+        {
+            ULOGE("videoCoreOmx: failed to release input buffer");
+            return -1;
+        }
     }
     else
     {
-        ULOGW("videoCoreOmx: failed to dequeue a free meta buffer");
-    }
-
-    pthread_mutex_unlock(&mMutex);
-
-    if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(mVideoDecode), buf) != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: failed to release input buffer");
+        ULOGE("videoCoreOmx: input queue has not been created");
         return -1;
     }
 
@@ -628,8 +626,79 @@ int VideoCoreOmxAvcDecoder::queueInputBuffer(avc_decoder_input_buffer_t *buffer)
 }
 
 
-int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(avc_decoder_output_buffer_t *buffer, bool blocking)
+BufferQueue *VideoCoreOmxAvcDecoder::addOutputQueue()
 {
+    BufferQueue *q = new BufferQueue();
+    if (q == NULL)
+    {
+        ULOGE("videoCoreOmx: queue allocation failed");
+        return NULL;
+    }
+
+    mOutputBufferQueues.push_back(q);
+    return q;
+}
+
+
+int VideoCoreOmxAvcDecoder::removeOutputQueue(BufferQueue *queue)
+{
+    if (!queue)
+    {
+        ULOGE("videoCoreOmx: invalid queue pointer");
+        return -1;
+    }
+
+    bool found = false;
+    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+
+    while (q != mOutputBufferQueues.end())
+    {
+        if (*q == queue)
+        {
+            mOutputBufferQueues.erase(q);
+            delete *q;
+            found = true;
+            break;
+        }
+        q++;
+    }
+
+    return (found) ? 0 : -1;
+}
+
+
+bool VideoCoreOmxAvcDecoder::isOutputQueueValid(BufferQueue *queue)
+{
+    if (!queue)
+    {
+        ULOGE("videoCoreOmx: invalid queue pointer");
+        return false;
+    }
+
+    bool found = false;
+    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+
+    while (q != mOutputBufferQueues.end())
+    {
+        if (*q == queue)
+        {
+            found = true;
+            break;
+        }
+        q++;
+    }
+
+    return found;
+}
+
+
+int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking)
+{
+    if (!queue)
+    {
+        ULOGE("videoCoreOmx: invalid queue pointer");
+        return -1;
+    }
     if (!buffer)
     {
         ULOGE("videoCoreOmx: invalid buffer pointer");
@@ -648,28 +717,34 @@ int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(avc_decoder_output_buffer_t *buf
         return -1;
     }
 
-    pthread_mutex_lock(&mMutex);
-    if (!mBufferReady)
+    if (isOutputQueueValid(queue))
     {
-        if (blocking)
+        Buffer *buf = queue->popBuffer(blocking);
+        if (buf != NULL)
         {
-            pthread_cond_wait(&mCond, &mMutex);
+            avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buf->getMetadataPtr();
+            struct timespec t1;
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            data->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+            *buffer = buf;
         }
         else
         {
-            pthread_mutex_unlock(&mMutex);
+            ULOGD("videoCoreOmx: failed to dequeue an output buffer");
             return -2;
         }
     }
-    memcpy(buffer, &mOutputBuffer, sizeof(avc_decoder_output_buffer_t));
-    mBufferReady = false;
-    pthread_mutex_unlock(&mMutex);
+    else
+    {
+        ULOGE("videoCoreOmx: invalid output queue");
+        return -1;
+    }
 
     return 0;
 }
 
 
-int VideoCoreOmxAvcDecoder::releaseOutputBuffer(avc_decoder_output_buffer_t *buffer)
+int VideoCoreOmxAvcDecoder::releaseOutputBuffer(Buffer *buffer)
 {
     if (!buffer)
     {
@@ -682,6 +757,8 @@ int VideoCoreOmxAvcDecoder::releaseOutputBuffer(avc_decoder_output_buffer_t *buf
         ULOGE("videoCoreOmx: decoder is not configured");
         return -1;
     }
+
+    buffer->unref();
 
     return 0;
 }
@@ -696,34 +773,38 @@ int VideoCoreOmxAvcDecoder::stop()
     }
 
     //TODO
+    if (mInputBufferPool) mInputBufferPool->signal();
+    if (mOutputBufferPool) mOutputBufferPool->signal();
+    if (mInputBufferQueue) mInputBufferQueue->signal();
 
     return 0;
 }
 
 
-void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *comp, OMX_BUFFERHEADERTYPE *buf)
+void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *comp, OMX_BUFFERHEADERTYPE *omxBuf)
 {
     VideoCoreOmxAvcDecoder *decoder = (VideoCoreOmxAvcDecoder*)data;
-    avc_decoder_input_buffer_t *internalMeta = NULL;
-    uint64_t ts = ((uint64_t)buf->nTimeStamp.nHighPart << 32) | ((uint64_t)buf->nTimeStamp.nLowPart & 0xFFFFFFFF);
+    Buffer *inputBuffer = NULL, *outputBuffer = NULL;
+    avc_decoder_input_buffer_t *inputData = NULL;
+    avc_decoder_output_buffer_t *outputData = NULL;
+    uint64_t ts = ((uint64_t)omxBuf->nTimeStamp.nHighPart << 32) | ((uint64_t)omxBuf->nTimeStamp.nLowPart & 0xFFFFFFFF);
 
-    pthread_mutex_lock(&decoder->mMutex);
-
-    if ((ts > 0) && (decoder->mBufferMetaPushQueue->size() != 0))
+    if (ts > 0)
     {
-        while (decoder->mBufferMetaPushQueue->size() != 0)
+        Buffer *b;
+        while ((b = decoder->mInputBufferQueue->peekBuffer(false)) != NULL)
         {
-            avc_decoder_input_buffer_t *b = decoder->mBufferMetaPushQueue->front();
+            avc_decoder_input_buffer_t *d = (avc_decoder_input_buffer_t*)b->getMetadataPtr();
 
-            if (ts > b->auNtpTimestampRaw)
+            if (ts > d->auNtpTimestampRaw)
             {
-                decoder->mBufferMetaPushQueue->pop();
-                decoder->mBufferMetaFreeQueue->push(b);
+                b = decoder->mInputBufferQueue->popBuffer(false);
+                b->unref();
             }
-            else if (ts == b->auNtpTimestampRaw)
+            else if (ts == d->auNtpTimestampRaw)
             {
-                decoder->mBufferMetaPushQueue->pop();
-                internalMeta = b;
+                inputBuffer = decoder->mInputBufferQueue->popBuffer(false);
+                inputData = d;
                 break;
             }
             else
@@ -731,54 +812,79 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
                 break;
             }
         }
-        if (internalMeta == NULL)
+
+        if ((inputBuffer == NULL) || (inputData == NULL))
         {
-            ULOGW("videoCoreOmx: failed to find metadata for TS %llu", ts);
+            ULOGW("videoCoreOmx: failed to find buffer for TS %llu", ts);
         }
     }
     else
     {
-        ULOGW("videoCoreOmx: failed to dequeue a queued meta buffer");
+        ULOGW("videoCoreOmx: invalid timestamp in buffer callback");
     }
 
-    memset(&decoder->mOutputBuffer, 0, sizeof(avc_decoder_output_buffer_t));
-    struct timespec t1;
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    decoder->mOutputBuffer.plane[0] = (uint8_t*)decoder->mCurrentEglImageIndex;
-    decoder->mOutputBuffer.decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-    decoder->mOutputBuffer.width = decoder->mFrameWidth;
-    decoder->mOutputBuffer.height = decoder->mFrameHeight;
-    decoder->mOutputBuffer.sarWidth = 1; //TODO
-    decoder->mOutputBuffer.sarHeight = 1; //TODO
-    decoder->mOutputBuffer.stride[0] = decoder->mStride;
-    decoder->mOutputBuffer.stride[1] = decoder->mStride / 2;
-    decoder->mOutputBuffer.stride[2] = decoder->mStride / 2;
-    decoder->mOutputBuffer.colorFormat = decoder->mOutputColorFormat;
-    if (internalMeta)
+    outputBuffer = decoder->mOutputBufferPool->getBuffer(false);
+    if (outputBuffer)
     {
-        decoder->mOutputBuffer.isComplete = internalMeta->isComplete;
-        decoder->mOutputBuffer.hasErrors = internalMeta->hasErrors;
-        decoder->mOutputBuffer.isRef = internalMeta->isRef;
-        decoder->mOutputBuffer.auNtpTimestamp = internalMeta->auNtpTimestamp;
-        decoder->mOutputBuffer.auNtpTimestampRaw = internalMeta->auNtpTimestampRaw;
-        decoder->mOutputBuffer.auNtpTimestampLocal = internalMeta->auNtpTimestampLocal;
-        decoder->mOutputBuffer.demuxOutputTimestamp = internalMeta->demuxOutputTimestamp;
-
-        if (internalMeta->hasMetadata)
+        outputData = (avc_decoder_output_buffer_t*)outputBuffer->getMetadataPtr();
+        if (outputData)
         {
-            memcpy(&decoder->mOutputBuffer.metadata, &internalMeta->metadata, sizeof(frame_metadata_t));
-            decoder->mOutputBuffer.hasMetadata = true;
+            struct timespec t1;
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            outputData->plane[0] = (uint8_t*)decoder->mCurrentEglImageIndex;
+            outputData->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+            outputData->width = decoder->mFrameWidth;
+            outputData->height = decoder->mFrameHeight;
+            outputData->sarWidth = 1; //TODO
+            outputData->sarHeight = 1; //TODO
+            outputData->stride[0] = decoder->mStride;
+            outputData->stride[1] = decoder->mStride / 2;
+            outputData->stride[2] = decoder->mStride / 2;
+            outputData->colorFormat = decoder->mOutputColorFormat;
+            if (inputData)
+            {
+                outputData->isComplete = inputData->isComplete;
+                outputData->hasErrors = inputData->hasErrors;
+                outputData->isRef = inputData->isRef;
+                outputData->auNtpTimestamp = inputData->auNtpTimestamp;
+                outputData->auNtpTimestampRaw = inputData->auNtpTimestampRaw;
+                outputData->auNtpTimestampLocal = inputData->auNtpTimestampLocal;
+                outputData->demuxOutputTimestamp = inputData->demuxOutputTimestamp;
+
+                if (inputData->hasMetadata)
+                {
+                    memcpy(&outputData->metadata, &inputData->metadata, sizeof(frame_metadata_t));
+                    outputData->hasMetadata = true;
+                }
+                else
+                {
+                    outputData->hasMetadata = false;
+                }
+            }
+
+            std::vector<BufferQueue*>::iterator q = decoder->mOutputBufferQueues.begin();
+            while (q != decoder->mOutputBufferQueues.end())
+            {
+                outputBuffer->ref();
+                (*q)->pushBuffer(outputBuffer);
+                q++;
+            }
         }
         else
         {
-            decoder->mOutputBuffer.hasMetadata = false;
+            ULOGE("videoCoreOmx: invalid output buffer");
         }
-        decoder->mBufferMetaFreeQueue->push(internalMeta);
+        outputBuffer->unref();
+    }
+    else
+    {
+        ULOGE("videoCoreOmx: failed to get an output buffer");
     }
 
-    decoder->mBufferReady = true;
-    pthread_cond_signal(&decoder->mCond);
-    pthread_mutex_unlock(&decoder->mMutex);
+    if (inputBuffer)
+    {
+        inputBuffer->unref();
+    }
 
     decoder->mCurrentEglImageIndex = ((VideoCoreEglRenderer*)decoder->mRenderer)->swapDecoderEglImage();
     if (OMX_FillThisBuffer(ILC_GET_HANDLE(decoder->mEglRender), decoder->mEglBuffer[decoder->mCurrentEglImageIndex]) != OMX_ErrorNone)

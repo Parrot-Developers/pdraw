@@ -88,20 +88,6 @@ VideoCoreEglRenderer::~VideoCoreEglRenderer()
 }
 
 
-int VideoCoreEglRenderer::addAvcDecoder(AvcDecoder *decoder)
-{
-    if (mDecoder)
-    {
-        ULOGE("VideoCoreEglRenderer: multiple decoders are not supported");
-        return -1;
-    }
-
-    mDecoder = decoder;
-
-    return 0;
-}
-
-
 int VideoCoreEglRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
@@ -280,13 +266,12 @@ int VideoCoreEglRenderer::render(int timeout)
         return 0;
     }
 
-    avc_decoder_output_buffer_t buf, prevBuf;
-    avc_decoder_output_buffer_t *buffer = NULL, *prevBuffer = NULL;
+    Buffer *buffer = NULL, *prevBuffer = NULL;
+    avc_decoder_output_buffer_t *data = NULL;
     int dequeueRet;
 
-    while ((dequeueRet = mDecoder->dequeueOutputBuffer(&buf, false)) == 0)
+    while ((dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false)) == 0)
     {
-        buffer = &buf;
         if (prevBuffer)
         {
             int releaseRet = mDecoder->releaseOutputBuffer(prevBuffer);
@@ -295,8 +280,7 @@ int VideoCoreEglRenderer::render(int timeout)
                 ULOGE("VideoCoreEglRenderer: failed to release buffer (%d)", releaseRet);
             }
         }
-        memcpy(&prevBuf, &buf, sizeof(buf));
-        prevBuffer = &prevBuf;
+        prevBuffer = buffer;
     }
 
     if (!buffer)
@@ -308,75 +292,63 @@ int VideoCoreEglRenderer::render(int timeout)
         usleep(5000); //TODO
     }
 
-    if ((buffer) && (ret == 0))
+    if (buffer)
     {
-        if (mGles2Video)
+        data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
+
+        if ((ret == 0) && (mGles2Video))
         {
             swapRendererEglImage();
 
-            ret = mGles2Video->renderFrame(buffer->plane, buffer->stride,
-                                                    buffer->width, buffer->height,
-                                                    buffer->sarWidth, buffer->sarHeight,
-                                                    mRenderWidth, mRenderHeight,
-                                                    GLES2_VIDEO_COLOR_CONVERSION_NONE);
+            ret = mGles2Video->renderFrame(data->plane, data->stride,
+                                           data->width, data->height,
+                                           data->sarWidth, data->sarHeight,
+                                           mRenderWidth, mRenderHeight,
+                                           GLES2_VIDEO_COLOR_CONVERSION_NONE);
             if (ret != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to render frame");
             }
         }
-        else
-        {
-            ret = -1;
-        }
-    }
 
-    if ((buffer) && (ret == 0))
-    {
-        if (mGles2Hud)
+        if ((ret == 0) && (mGles2Hud))
         {
-            ret = mGles2Hud->renderHud((float)buffer->width / (float)buffer->height, &buffer->metadata);
+            ret = mGles2Hud->renderHud((float)data->width / (float)data->height, &data->metadata);
             if (ret != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to render frame");
             }
         }
-        else
+
+        if (ret == 0)
         {
-            ret = -1;
-        }
-    }
+            struct timespec t1;
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 
-    if (ret == 0)
-    {
-        struct timespec t1;
-        clock_gettime(CLOCK_MONOTONIC, &t1);
-        uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+            eglSwapBuffers(mDisplay, mSurface);
 
-        eglSwapBuffers(mDisplay, mSurface);
+            clock_gettime(CLOCK_MONOTONIC, &t1);
+            uint64_t renderTimestamp2 = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 
-        clock_gettime(CLOCK_MONOTONIC, &t1);
-        uint64_t renderTimestamp2 = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+            if (data)
+            {
+                ULOGI("VideoCoreEglRenderer: %.2ffps - frame (decoding: %.2fms, rendering: %.2f + %.2fms, est. latency: %.2fms)",
+                      ((oldRenderTimestamp2 != 0) && (renderTimestamp2 != oldRenderTimestamp2)) ? 1000000. / (float)(renderTimestamp2 - oldRenderTimestamp2) : 0,
+                      (float)(data->decoderOutputTimestamp - data->demuxOutputTimestamp) / 1000.,
+                      (float)(renderTimestamp - data->decoderOutputTimestamp) / 1000.,
+                      (float)(renderTimestamp2 - renderTimestamp) / 1000.,
+                      (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp2 - data->auNtpTimestampLocal) / 1000. : 0.);
+            }
+            else
+            {
+                ULOGI("VideoCoreEglRenderer: %.2ffps",
+                      ((oldRenderTimestamp2 != 0) && (renderTimestamp2 != oldRenderTimestamp2)) ? 1000000. / (float)(renderTimestamp2 - oldRenderTimestamp2) : 0);
+            }
 
-        if (buffer)
-        {
-            ULOGI("VideoCoreEglRenderer: %.2ffps - frame (decoding: %.2fms, rendering: %.2f + %.2fms, est. latency: %.2fms)",
-                  ((oldRenderTimestamp2 != 0) && (renderTimestamp2 != oldRenderTimestamp2)) ? 1000000. / (float)(renderTimestamp2 - oldRenderTimestamp2) : 0,
-                  (float)(buffer->decoderOutputTimestamp - buffer->demuxOutputTimestamp) / 1000.,
-                  (float)(renderTimestamp - buffer->decoderOutputTimestamp) / 1000.,
-                  (float)(renderTimestamp2 - renderTimestamp) / 1000.,
-                  (buffer->auNtpTimestampLocal != 0) ? (float)(renderTimestamp2 - buffer->auNtpTimestampLocal) / 1000. : 0.);
-        }
-        else
-        {
-            ULOGI("VideoCoreEglRenderer: %.2ffps",
-                  ((oldRenderTimestamp2 != 0) && (renderTimestamp2 != oldRenderTimestamp2)) ? 1000000. / (float)(renderTimestamp2 - oldRenderTimestamp2) : 0);
+            oldRenderTimestamp2 = renderTimestamp2;
         }
 
-        oldRenderTimestamp2 = renderTimestamp2;
-    }
-
-    if (buffer)
-    {
         ret = mDecoder->releaseOutputBuffer(buffer);
         if (ret != 0)
         {

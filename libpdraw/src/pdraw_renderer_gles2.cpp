@@ -61,6 +61,7 @@ Gles2Renderer::Gles2Renderer()
     mRenderWidth = 0;
     mRenderHeight = 0;
     mDecoder = NULL;
+    mDecoderOutputBufferQueue = NULL;
     mGles2Video = NULL;
     mGles2Hud = NULL;
     mGles2VideoFirstTexUnit = 1;
@@ -100,13 +101,55 @@ Gles2Renderer::~Gles2Renderer()
 
 int Gles2Renderer::addAvcDecoder(AvcDecoder *decoder)
 {
+    if (!decoder)
+    {
+        ULOGE("Gles2Renderer: invalid decoder pointer");
+        return -1;
+    }
     if (mDecoder)
     {
         ULOGE("Gles2Renderer: multiple decoders are not supported");
         return -1;
     }
 
+    mDecoderOutputBufferQueue = decoder->addOutputQueue();
+    if (mDecoderOutputBufferQueue == NULL)
+    {
+        ULOGE("Gles2Renderer: failed to add output queue to decoder");
+        return -1;
+    }
+
     mDecoder = decoder;
+
+    return 0;
+}
+
+
+int Gles2Renderer::removeAvcDecoder(AvcDecoder *decoder)
+{
+    if (!decoder)
+    {
+        ULOGE("Gles2Renderer: invalid decoder pointer");
+        return -1;
+    }
+
+    if (decoder != mDecoder)
+    {
+        ULOGE("Gles2Renderer: invalid decoder");
+        return -1;
+    }
+
+    if (mDecoderOutputBufferQueue)
+    {
+        int ret = decoder->removeOutputQueue(mDecoderOutputBufferQueue);
+        if (ret != 0)
+        {
+            ULOGE("Gles2Renderer: failed to remove output queue from decoder");
+        }
+    }
+
+    mDecoder = NULL;
+    mDecoderOutputBufferQueue = NULL;
 
     return 0;
 }
@@ -147,13 +190,11 @@ int Gles2Renderer::render(int timeout)
 
     if ((mDecoder) && (mDecoder->isConfigured()))
     {
-        avc_decoder_output_buffer_t buf, prevBuf;
-        avc_decoder_output_buffer_t *buffer = NULL, *prevBuffer = NULL;
+        Buffer *buffer = NULL, *prevBuffer = NULL;
         int dequeueRet;
 
-        while ((dequeueRet = mDecoder->dequeueOutputBuffer(&buf, false)) == 0)
+        while ((dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false)) == 0)
         {
-            buffer = &buf;
             if (prevBuffer)
             {
                 int releaseRet = mDecoder->releaseOutputBuffer(prevBuffer);
@@ -162,8 +203,7 @@ int Gles2Renderer::render(int timeout)
                     ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
                 }
             }
-            memcpy(&prevBuf, &buf, sizeof(buf));
-            prevBuffer = &prevBuf;
+            prevBuffer = buffer;
         }
 
         if (!buffer)
@@ -177,14 +217,16 @@ int Gles2Renderer::render(int timeout)
 
         if ((buffer) && (ret == 0))
         {
-            if ((mRenderWidth) && (mRenderHeight))
+            avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
+
+            if ((data) && (mRenderWidth) && (mRenderHeight))
             {
                 if (ret == 0)
                 {
                     if (mGles2Video)
                     {
                         gles2_video_color_conversion_t colorConversion;
-                        switch (buffer->colorFormat)
+                        switch (data->colorFormat)
                         {
                             default:
                             case AVCDECODER_COLORFORMAT_YUV420PLANAR:
@@ -194,9 +236,9 @@ int Gles2Renderer::render(int timeout)
                                 colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB;
                                 break;
                         }
-                        ret = mGles2Video->renderFrame(buffer->plane, buffer->stride,
-                                                       buffer->width, buffer->height,
-                                                       buffer->sarWidth, buffer->sarHeight,
+                        ret = mGles2Video->renderFrame(data->plane, data->stride,
+                                                       data->width, data->height,
+                                                       data->sarWidth, data->sarHeight,
                                                        mRenderWidth, mRenderHeight,
                                                        colorConversion);
                         if (ret != 0)
@@ -210,7 +252,7 @@ int Gles2Renderer::render(int timeout)
                 {
                     if (mGles2Hud)
                     {
-                        ret = mGles2Hud->renderHud((float)buffer->width / (float)buffer->height, &buffer->metadata);
+                        ret = mGles2Hud->renderHud((float)data->width / (float)data->height, &data->metadata);
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render frame");
@@ -225,9 +267,9 @@ int Gles2Renderer::render(int timeout)
                     uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 
                     ULOGI("Gles2Renderer: frame (decoding: %.2fms, rendering: %.2fms, est. latency: %.2fms)",
-                          (float)(buffer->decoderOutputTimestamp - buffer->demuxOutputTimestamp) / 1000.,
-                          (float)(renderTimestamp - buffer->decoderOutputTimestamp) / 1000.,
-                          (buffer->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - buffer->auNtpTimestampLocal) / 1000. : 0.);
+                          (float)(data->decoderOutputTimestamp - data->demuxOutputTimestamp) / 1000.,
+                          (float)(renderTimestamp - data->decoderOutputTimestamp) / 1000.,
+                          (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.);
                 }
             }
 

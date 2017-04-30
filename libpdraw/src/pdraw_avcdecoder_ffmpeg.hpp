@@ -51,7 +51,6 @@ extern "C" {
 #include <pthread.h>
 
 #include "pdraw_avcdecoder.hpp"
-#include "pdraw_bufferqueue.hpp"
 
 
 #define FFMPEG_AVC_DECODER_INPUT_BUFFER_COUNT 5
@@ -61,70 +60,6 @@ extern "C" {
 
 namespace Pdraw
 {
-
-
-class FfmpegOutputBufferQueueBuffer
-{
-public:
-
-    FfmpegOutputBufferQueueBuffer(void *userPtr);
-    ~FfmpegOutputBufferQueueBuffer();
-    AVFrame *getFrame();
-    void *getUserPtr();
-    void getData(avc_decoder_output_buffer_t *data);
-    void setData(const avc_decoder_output_buffer_t *data);
-
-private:
-
-    void *mUserPtr;
-    AVFrame *mAvFrame;
-    avc_decoder_output_buffer_t mData;
-};
-
-
-class FfmpegOutputBufferQueue
-{
-public:
-
-    FfmpegOutputBufferQueue(unsigned int nbElement);
-    ~FfmpegOutputBufferQueue();
-    buffer_queue_status_t getInputBuffer(FfmpegOutputBufferQueueBuffer **buffer, bool blocking);
-    buffer_queue_status_t releaseInputBuffer(FfmpegOutputBufferQueueBuffer *buffer);
-    buffer_queue_status_t cancelInputBuffer(FfmpegOutputBufferQueueBuffer *buffer);
-    buffer_queue_status_t getOutputBuffer(FfmpegOutputBufferQueueBuffer **buffer, bool blocking);
-    buffer_queue_status_t releaseOutputBuffer(FfmpegOutputBufferQueueBuffer *buffer);
-    buffer_queue_status_t getBufferFromUserPtr(void *userPtr, FfmpegOutputBufferQueueBuffer **buffer);
-
-private:
-
-    class FfmpegOutputBufferQueueBufferInternal : public FfmpegOutputBufferQueueBuffer
-    {
-    public:
-
-        typedef enum
-        {
-            BUFFER_NOT_VALID = -1,
-            BUFFER_FREE = 0,
-            BUFFER_INPUT_LOCK = 1,
-            BUFFER_OUTPUT_LOCK = 2
-
-        } buffer_status_t;
-
-        buffer_status_t mStatus;
-        FfmpegOutputBufferQueueBufferInternal(void *userPtr);
-        ~FfmpegOutputBufferQueueBufferInternal();
-    };
-
-    bool bufferIsValid(FfmpegOutputBufferQueueBufferInternal *buffer);
-
-    vector<FfmpegOutputBufferQueueBufferInternal*> *mBuffers;
-    queue<FfmpegOutputBufferQueueBufferInternal*> *mInputQueue;
-    pthread_mutex_t mInputMutex;
-    pthread_cond_t mInputCond;
-    queue<FfmpegOutputBufferQueueBufferInternal*> *mOutputQueue;
-    pthread_mutex_t mOutputMutex;
-    pthread_cond_t mOutputCond;
-};
 
 
 class FfmpegAvcDecoder : public AvcDecoder
@@ -141,24 +76,36 @@ public:
 
     avc_decoder_color_format_t getOutputColorFormat() { return mOutputColorFormat; };
 
-    int getInputBuffer(avc_decoder_input_buffer_t *buffer, bool blocking);
+    int getInputBuffer(Buffer **buffer, bool blocking);
 
-    int queueInputBuffer(avc_decoder_input_buffer_t *buffer);
+    int queueInputBuffer(Buffer *buffer);
 
-    int dequeueOutputBuffer(avc_decoder_output_buffer_t *buffer, bool blocking);
+    BufferQueue *addOutputQueue();
 
-    int releaseOutputBuffer(avc_decoder_output_buffer_t *buffer);
+    int removeOutputQueue(BufferQueue *queue);
+
+    int dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking);
+
+    int releaseOutputBuffer(Buffer *buffer);
 
     int stop();
 
 private:
 
+    bool isOutputQueueValid(BufferQueue *queue);
+
+    static int outputBufferCreationCb(Buffer *buffer);
+
+    static int outputBufferDeletionCb(Buffer *buffer);
+
     static void* runDecoderThread(void *ptr);
 
-    int decode(avc_decoder_input_buffer_t *inputBuffer, avc_decoder_output_buffer_t *outputBuffer, AVFrame *frame);
+    int decode(Buffer *inputBuffer, Buffer *outputBuffer);
 
-    BufferQueue<avc_decoder_input_buffer_t> *mInputQueue;
-    FfmpegOutputBufferQueue *mOutputQueue;
+    BufferPool *mInputBufferPool;
+    BufferQueue *mInputBufferQueue;
+    BufferPool *mOutputBufferPool;
+    std::vector<BufferQueue*> mOutputBufferQueues;
     pthread_t mDecoderThread;
     bool mDecoderThreadLaunched;
     bool mThreadShouldStop;

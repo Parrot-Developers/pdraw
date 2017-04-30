@@ -41,6 +41,7 @@
 
 #include <inttypes.h>
 #include "pdraw_decoder.hpp"
+#include "pdraw_buffer.hpp"
 #include "pdraw_metadata.hpp"
 
 
@@ -59,10 +60,6 @@ typedef enum
 
 typedef struct
 {
-    void *userPtr;
-    uint8_t *auBuffer;
-    unsigned int auBufferSize;
-    unsigned int auSize;
     bool isComplete;
     bool hasErrors;
     bool isRef;
@@ -78,7 +75,6 @@ typedef struct
 
 typedef struct
 {
-    void *userPtr;
     uint8_t *plane[3];
     unsigned int stride[3];
     unsigned int width;
@@ -108,17 +104,24 @@ public:
 
     virtual avc_decoder_color_format_t getOutputColorFormat() = 0;
 
-    virtual int getInputBuffer(avc_decoder_input_buffer_t *buffer, bool blocking) = 0;
+    virtual int getInputBuffer(Buffer **buffer, bool blocking) = 0;
 
-    virtual int queueInputBuffer(avc_decoder_input_buffer_t *buffer) = 0;
+    virtual int queueInputBuffer(Buffer *buffer) = 0;
 
-    virtual int dequeueOutputBuffer(avc_decoder_output_buffer_t *buffer, bool blocking) = 0;
+    virtual BufferQueue *addOutputQueue() = 0;
 
-    virtual int releaseOutputBuffer(avc_decoder_output_buffer_t *buffer) = 0;
+    virtual int removeOutputQueue(BufferQueue *queue) = 0;
+
+    virtual int dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking) = 0;
+
+    virtual int releaseOutputBuffer(Buffer *buffer) = 0;
 
     virtual int stop() = 0;
 
     static AvcDecoder *create();
+
+private:
+    virtual bool isOutputQueueValid(BufferQueue *queue) = 0;
 };
 
 }

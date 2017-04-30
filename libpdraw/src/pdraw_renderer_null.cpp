@@ -53,6 +53,7 @@ NullRenderer::NullRenderer()
 {
     int ret = 0;
     mDecoder = NULL;
+    mDecoderOutputBufferQueue = NULL;
     mRendererThreadLaunched = false;
     mThreadShouldStop = false;
 
@@ -88,13 +89,55 @@ NullRenderer::~NullRenderer()
 
 int NullRenderer::addAvcDecoder(AvcDecoder *decoder)
 {
+    if (!decoder)
+    {
+        ULOGE("NullRenderer: invalid decoder pointer");
+        return -1;
+    }
     if (mDecoder)
     {
         ULOGE("NullRenderer: multiple decoders are not supported");
         return -1;
     }
 
+    mDecoderOutputBufferQueue = decoder->addOutputQueue();
+    if (mDecoderOutputBufferQueue == NULL)
+    {
+        ULOGE("NullRenderer: failed to add output queue to decoder");
+        return -1;
+    }
+
     mDecoder = decoder;
+
+    return 0;
+}
+
+
+int NullRenderer::removeAvcDecoder(AvcDecoder *decoder)
+{
+    if (!decoder)
+    {
+        ULOGE("NullRenderer: invalid decoder pointer");
+        return -1;
+    }
+
+    if (decoder != mDecoder)
+    {
+        ULOGE("NullRenderer: invalid decoder");
+        return -1;
+    }
+
+    if (mDecoderOutputBufferQueue)
+    {
+        int ret = decoder->removeOutputQueue(mDecoderOutputBufferQueue);
+        if (ret != 0)
+        {
+            ULOGE("NullRenderer: failed to remove output queue from decoder");
+        }
+    }
+
+    mDecoder = NULL;
+    mDecoderOutputBufferQueue = NULL;
 
     return 0;
 }
@@ -125,9 +168,9 @@ void* NullRenderer::runRendererThread(void *ptr)
     {
         if ((renderer->mDecoder) && (renderer->mDecoder->isConfigured()))
         {
-            avc_decoder_output_buffer_t buffer;
+            Buffer *buffer;
 
-            ret = renderer->mDecoder->dequeueOutputBuffer(&buffer, true);
+            ret = renderer->mDecoder->dequeueOutputBuffer(renderer->mDecoderOutputBufferQueue, &buffer, true);
             if (ret != 0)
             {
                 //ULOGE("NullRenderer: failed to get buffer from queue (%d)", ret);
@@ -135,16 +178,21 @@ void* NullRenderer::runRendererThread(void *ptr)
             }
             else
             {
+                avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
                 struct timespec t1;
                 clock_gettime(CLOCK_MONOTONIC, &t1);
                 uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 
                 ULOGI("NullRenderer: frame (decoding: %.2fms, rendering: %.2fms, est. latency: %.2fms)",
-                      (float)(buffer.decoderOutputTimestamp - buffer.demuxOutputTimestamp) / 1000.,
-                      (float)(renderTimestamp - buffer.decoderOutputTimestamp) / 1000.,
-                      (buffer.auNtpTimestampLocal != 0) ? (float)(renderTimestamp - buffer.auNtpTimestampLocal) / 1000. : 0.);
+                      (float)(data->decoderOutputTimestamp - data->demuxOutputTimestamp) / 1000.,
+                      (float)(renderTimestamp - data->decoderOutputTimestamp) / 1000.,
+                      (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.);
 
-                renderer->mDecoder->releaseOutputBuffer(&buffer);
+                ret = renderer->mDecoder->releaseOutputBuffer(buffer);
+                if (ret != 0)
+                {
+                    ULOGE("NullRenderer: failed to release buffer (%d)", ret);
+                }
             }
         }
         else

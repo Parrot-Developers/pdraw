@@ -405,6 +405,20 @@ int Session::disableRenderer()
         return -1;
     }
 
+    std::vector<Media*>::iterator m;
+
+    for (m = mMedias.begin(); m < mMedias.end(); m++)
+    {
+        if ((*m)->getType() == MEDIA_TYPE_VIDEO)
+        {
+            ret = mRenderer->removeAvcDecoder((AvcDecoder*)((*m)->getDecoder()));
+            if (ret != 0)
+            {
+                ULOGE("Session: failed remove decoder from renderer");
+            }
+        }
+    }
+
     delete mRenderer;
     mRenderer = NULL;
 

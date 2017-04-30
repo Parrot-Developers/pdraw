@@ -53,6 +53,8 @@ public:
 
     virtual int addAvcDecoder(AvcDecoder *decoder) = 0;
 
+    virtual int removeAvcDecoder(AvcDecoder *decoder) = 0;
+
     virtual int setRendererParams
             (int windowWidth, int windowHeight,
              int renderX, int renderY,

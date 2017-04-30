@@ -55,330 +55,13 @@ namespace Pdraw
 {
 
 
-FfmpegOutputBufferQueueBuffer::FfmpegOutputBufferQueueBuffer(void *userPtr)
-{
-    mUserPtr = userPtr;
-    mAvFrame = av_frame_alloc();
-    if (mAvFrame == NULL)
-    {
-        ULOGE("ffmpeg: frame allocation failed");
-    }
-}
-
-
-FfmpegOutputBufferQueueBuffer::~FfmpegOutputBufferQueueBuffer()
-{
-    av_frame_free(&mAvFrame);
-}
-
-
-AVFrame *FfmpegOutputBufferQueueBuffer::getFrame()
-{
-    return mAvFrame;
-}
-
-
-void *FfmpegOutputBufferQueueBuffer::getUserPtr()
-{
-    return mUserPtr;
-}
-
-
-void FfmpegOutputBufferQueueBuffer::getData(avc_decoder_output_buffer_t *data)
-{
-    if (data)
-        memcpy((void*)data, (void*)&mData, sizeof(avc_decoder_output_buffer_t));
-}
-
-
-void FfmpegOutputBufferQueueBuffer::setData(const avc_decoder_output_buffer_t *data)
-{
-    if (data)
-        memcpy((void*)&mData, (const void*)data, sizeof(avc_decoder_output_buffer_t));
-}
-
-
-FfmpegOutputBufferQueue::FfmpegOutputBufferQueueBufferInternal::FfmpegOutputBufferQueueBufferInternal(void *userPtr) :
-    FfmpegOutputBufferQueueBuffer(userPtr)
-{
-    mStatus = BUFFER_FREE;
-}
-
-
-FfmpegOutputBufferQueue::FfmpegOutputBufferQueueBufferInternal::~FfmpegOutputBufferQueueBufferInternal()
-{
-}
-
-
-FfmpegOutputBufferQueue::FfmpegOutputBufferQueue(unsigned int nbElement)
-{
-    int ret;
-
-    mBuffers = new vector<FfmpegOutputBufferQueueBufferInternal*>(nbElement);
-
-    /* Allocate all buffers */
-    unsigned int i;
-    uint8_t *usr;
-    for (i = 0, usr = NULL; i < mBuffers->size(); i++, usr++)
-    {
-        (*mBuffers)[i] = new FfmpegOutputBufferQueueBufferInternal((void*)usr);
-    }
-
-    mInputQueue = new queue<FfmpegOutputBufferQueueBufferInternal*>;
-    mOutputQueue = new queue<FfmpegOutputBufferQueueBufferInternal*>;
-
-    /* Add all buffers in the input queue */
-    for (i = 0; i < mBuffers->size(); i++)
-    {
-        mInputQueue->push(((*mBuffers)[i]));
-    }
-
-    ret = pthread_mutex_init(&mInputMutex, NULL);
-    if (ret != 0)
-    {
-        ULOGE("Mutex creation failed (%d)", ret);
-    }
-    ret = pthread_cond_init(&mInputCond, NULL);
-    if (ret != 0)
-    {
-        ULOGE("Cond creation failed (%d)", ret);
-    }
-    ret = pthread_mutex_init(&mOutputMutex, NULL);
-    if (ret != 0)
-    {
-        ULOGE("Mutex creation failed (%d)", ret);
-    }
-    ret = pthread_cond_init(&mOutputCond, NULL);
-    if (ret != 0)
-    {
-        ULOGE("Cond creation failed (%d)", ret);
-    }
-}
-
-
-FfmpegOutputBufferQueue::~FfmpegOutputBufferQueue()
-{
-    unsigned int i;
-
-    pthread_mutex_destroy(&mInputMutex);
-    pthread_cond_destroy(&mInputCond);
-    pthread_mutex_destroy(&mOutputMutex);
-    pthread_cond_destroy(&mOutputCond);
-
-    for (i = 0; i < mBuffers->size(); i++)
-    {
-        delete (*mBuffers)[i];
-    }
-
-    delete mBuffers;
-    delete mInputQueue;
-    delete mOutputQueue;
-}
-
-
-bool FfmpegOutputBufferQueue::bufferIsValid(FfmpegOutputBufferQueueBufferInternal* buffer)
-{
-    /* Find the buffer */
-    unsigned int i;
-    for (i = 0; i < mBuffers->size(); i++)
-    {
-        if (buffer == (*mBuffers)[i])
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-
-buffer_queue_status_t FfmpegOutputBufferQueue::getInputBuffer(FfmpegOutputBufferQueueBuffer **buffer, bool blocking)
-{
-    FfmpegOutputBufferQueueBufferInternal *lockedBuffer = NULL;
-
-    if (buffer == NULL)
-        return BUFFERQUEUE_INVALID_ARGUMENTS;
-
-    pthread_mutex_lock(&mInputMutex);
-
-    if (mInputQueue->size() == 0)
-    {
-        if (blocking)
-        {
-            /* Queue empty, wait for a new buffer */
-            pthread_cond_wait(&mInputCond, &mInputMutex);
-        }
-        else
-        {
-            pthread_mutex_unlock(&mInputMutex);
-            return BUFFERQUEUE_NO_INPUT_BUFFER_AVAILABLE;
-        }
-    }
-    if (mInputQueue->size() != 0)
-    {
-        lockedBuffer = mInputQueue->front();
-        mInputQueue->pop();
-        lockedBuffer->mStatus = FfmpegOutputBufferQueueBufferInternal::BUFFER_INPUT_LOCK;
-    }
-    else
-    {
-        pthread_mutex_unlock(&mInputMutex);
-        return BUFFERQUEUE_NO_INPUT_BUFFER_AVAILABLE;
-    }
-
-    pthread_mutex_unlock(&mInputMutex);
-
-    *buffer = (FfmpegOutputBufferQueueBuffer*)lockedBuffer;
-    return BUFFERQUEUE_OK;
-}
-
-
-buffer_queue_status_t FfmpegOutputBufferQueue::releaseInputBuffer(FfmpegOutputBufferQueueBuffer *buffer)
-{
-    if (buffer == NULL)
-        return BUFFERQUEUE_INVALID_ARGUMENTS;
-
-    /* Check this is one of our buffer and status is correct */
-    FfmpegOutputBufferQueueBufferInternal *bufferInternal = (FfmpegOutputBufferQueueBufferInternal*)buffer;
-    if ((!bufferIsValid(bufferInternal)) || (bufferInternal->mStatus != FfmpegOutputBufferQueueBufferInternal::BUFFER_INPUT_LOCK))
-        return BUFFERQUEUE_INVALID_BUFFER;
-
-    pthread_mutex_lock(&mOutputMutex);
-
-    /* Put input buffer in the ouput queue */
-    bufferInternal->mStatus = FfmpegOutputBufferQueueBufferInternal::BUFFER_FREE;
-    mOutputQueue->push(bufferInternal);
-    if (mOutputQueue->size() == 1)
-    {
-        /* The ouput queue was empty, someone might been waiting for a buffer */
-        pthread_cond_signal(&mOutputCond);
-    }
-
-    pthread_mutex_unlock(&mOutputMutex);
-
-    return BUFFERQUEUE_OK;
-}
-
-
-buffer_queue_status_t FfmpegOutputBufferQueue::cancelInputBuffer(FfmpegOutputBufferQueueBuffer *buffer)
-{
-    if (buffer == NULL)
-        return BUFFERQUEUE_INVALID_ARGUMENTS;
-
-    /* Check this is one of our buffer and status is correct */
-    FfmpegOutputBufferQueueBufferInternal *bufferInternal = (FfmpegOutputBufferQueueBufferInternal*)buffer;
-    if ((!bufferIsValid(bufferInternal)) || (bufferInternal->mStatus != FfmpegOutputBufferQueueBufferInternal::BUFFER_INPUT_LOCK))
-        return BUFFERQUEUE_INVALID_BUFFER;
-
-    pthread_mutex_lock(&mInputMutex);
-
-    /* Leave the input buffer in the input queue */
-    bufferInternal->mStatus = FfmpegOutputBufferQueueBufferInternal::BUFFER_FREE;
-    mInputQueue->push(bufferInternal);
-    if (mInputQueue->size() == 1)
-    {
-        /* The input queue was empty, someone might been waiting for a buffer */
-        pthread_cond_signal(&mInputCond);
-    }
-
-    pthread_mutex_unlock(&mInputMutex);
-
-    return BUFFERQUEUE_OK;
-}
-
-
-buffer_queue_status_t FfmpegOutputBufferQueue::getOutputBuffer(FfmpegOutputBufferQueueBuffer **buffer, bool blocking)
-{
-    FfmpegOutputBufferQueueBufferInternal *lockedBuffer=NULL;
-
-    if (buffer == NULL)
-        return BUFFERQUEUE_INVALID_ARGUMENTS;
-
-    pthread_mutex_lock(&mOutputMutex);
-
-    if (mOutputQueue->size() == 0)
-    {
-        if (blocking)
-        {
-            /* Queue empty, wait for a new buffer */
-            pthread_cond_wait(&mOutputCond, &mOutputMutex);
-        }
-        else
-        {
-            pthread_mutex_unlock(&mOutputMutex);
-            return BUFFERQUEUE_NO_OUTPUT_BUFFER_AVAILABLE;
-        }
-    }
-    if (mOutputQueue->size() != 0)
-    {
-        lockedBuffer = mOutputQueue->front();
-        mOutputQueue->pop();
-        lockedBuffer->mStatus = FfmpegOutputBufferQueueBufferInternal::BUFFER_OUTPUT_LOCK;
-    }
-    else
-    {
-        pthread_mutex_unlock(&mOutputMutex);
-        return BUFFERQUEUE_NO_OUTPUT_BUFFER_AVAILABLE;
-    }
-
-    pthread_mutex_unlock(&mOutputMutex);
-
-    *buffer = (FfmpegOutputBufferQueueBuffer*)lockedBuffer;
-    return BUFFERQUEUE_OK;
-}
-
-
-buffer_queue_status_t FfmpegOutputBufferQueue::releaseOutputBuffer(FfmpegOutputBufferQueueBuffer *buffer)
-{
-    if (buffer == NULL)
-        return BUFFERQUEUE_INVALID_ARGUMENTS;
-
-    /* Check this is one of our buffer and status is correct */
-    FfmpegOutputBufferQueueBufferInternal *bufferInternal = (FfmpegOutputBufferQueueBufferInternal*)buffer;
-    if ((!bufferIsValid(bufferInternal)) || (bufferInternal->mStatus != FfmpegOutputBufferQueueBufferInternal::BUFFER_OUTPUT_LOCK))
-        return BUFFERQUEUE_INVALID_BUFFER;
-
-    pthread_mutex_lock(&mInputMutex);
-
-    /* Put output buffer in the input queue */
-    bufferInternal->mStatus = FfmpegOutputBufferQueueBufferInternal::BUFFER_FREE;
-    mInputQueue->push(bufferInternal);
-    if (mInputQueue->size() == 1)
-    {
-        /* The ouput queue was empty, someone might been waiting for a buffer */
-        pthread_cond_signal(&mInputCond);
-    }
-
-    pthread_mutex_unlock(&mInputMutex);
-
-    return BUFFERQUEUE_OK;
-}
-
-
-buffer_queue_status_t FfmpegOutputBufferQueue::getBufferFromUserPtr(void *userPtr, FfmpegOutputBufferQueueBuffer **buffer)
-{
-    if (buffer == NULL)
-        return BUFFERQUEUE_INVALID_ARGUMENTS;
-
-    /* Find the buffer */
-    unsigned int i;
-    for (i = 0; i < mBuffers->size(); i++)
-    {
-        if (userPtr == (*mBuffers)[i]->getUserPtr())
-        {
-            *buffer = (*mBuffers)[i];
-            return BUFFERQUEUE_OK;
-        }
-    }
-    return BUFFERQUEUE_INVALID_ARGUMENTS;
-}
-
-
 FfmpegAvcDecoder::FfmpegAvcDecoder()
 {
     mConfigured = false;
     mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
-    mInputQueue = NULL;
-    mOutputQueue = NULL;
+    mInputBufferPool = NULL;
+    mInputBufferQueue = NULL;
+    mOutputBufferPool = NULL;
     mThreadShouldStop = false;
     mDecoderThreadLaunched = false;
 
@@ -442,8 +125,16 @@ FfmpegAvcDecoder::~FfmpegAvcDecoder()
         }
     }
 
-    if (mInputQueue) delete mInputQueue;
-    if (mOutputQueue) delete mOutputQueue;
+    if (mInputBufferQueue) delete mInputBufferQueue;
+    if (mInputBufferPool) delete mInputBufferPool;
+    if (mOutputBufferPool) delete mOutputBufferPool;
+
+    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    while (q != mOutputBufferQueues.end())
+    {
+        delete *q;
+        q++;
+    }
 
     avcodec_free_context(&mCodecCtxH264);
 }
@@ -461,11 +152,25 @@ int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const
 
     /* Nothing to decode here for ffmpeg: SPS/PPS will be decoded with the first picture */
 
+    /* Input buffers pool allocation */
+    if (ret == 0)
+    {
+        mInputBufferPool = new BufferPool(FFMPEG_AVC_DECODER_INPUT_BUFFER_COUNT,
+                                          FFMPEG_AVC_DECODER_INPUT_BUFFER_SIZE,
+                                          sizeof(avc_decoder_input_buffer_t),
+                                          NULL, NULL); //TODO: number of buffers and buffers size
+        if (mInputBufferPool == NULL)
+        {
+            ULOGE("ffmpeg: failed to allocate decoder input buffers pool");
+            ret = -1;
+        }
+    }
+
     /* Input buffers queue allocation */
     if (ret == 0)
     {
-        mInputQueue = new BufferQueue<avc_decoder_input_buffer_t>(FFMPEG_AVC_DECODER_INPUT_BUFFER_COUNT, FFMPEG_AVC_DECODER_INPUT_BUFFER_SIZE); //TODO: number of buffers and buffers size
-        if (mInputQueue == NULL)
+        mInputBufferQueue = new BufferQueue();
+        if (mInputBufferQueue == NULL)
         {
             ULOGE("ffmpeg: failed to allocate decoder input buffers queue");
             ret = -1;
@@ -475,10 +180,12 @@ int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const
     /* Output buffers queue allocation */
     if (ret == 0)
     {
-        mOutputQueue = new FfmpegOutputBufferQueue(FFMPEG_AVC_DECODER_OUTPUT_BUFFER_COUNT); //TODO: number of buffers and buffers size
-        if (mOutputQueue == NULL)
+        mOutputBufferPool = new BufferPool(FFMPEG_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
+                                           sizeof(avc_decoder_output_buffer_t),
+                                           outputBufferCreationCb, outputBufferDeletionCb); //TODO: number of buffers
+        if (mOutputBufferPool == NULL)
         {
-            ULOGE("ffmpeg: failed to allocate decoder output buffers queue");
+            ULOGE("ffmpeg: failed to allocate decoder output buffers pool");
             ret = -1;
         }
     }
@@ -487,14 +194,14 @@ int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const
 
     if (mConfigured)
     {
-        ULOGI("ffmpeg: decoder is configured");        
+        ULOGI("ffmpeg: decoder is configured");
     }
 
     return ret;
 }
 
 
-int FfmpegAvcDecoder::getInputBuffer(avc_decoder_input_buffer_t *buffer, bool blocking)
+int FfmpegAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 {
     if (!buffer)
     {
@@ -508,24 +215,48 @@ int FfmpegAvcDecoder::getInputBuffer(avc_decoder_input_buffer_t *buffer, bool bl
         return -1;
     }
 
-    if (mInputQueue)
+    if (mInputBufferPool)
     {
-        BufferQueueBuffer<avc_decoder_input_buffer_t> *buf = NULL;
-        buffer_queue_status_t status = mInputQueue->getInputBuffer(&buf, blocking);
-        if ((status == BUFFERQUEUE_OK) && (buf))
+        Buffer *buf = mInputBufferPool->getBuffer(blocking);
+        if (buf != NULL)
         {
-            buf->getData(buffer);
-            buffer->userPtr = buf->getUserPtr();
-            buffer->auBuffer = buf->getPtr();;
-            buffer->auBufferSize = buf->getCapacity();;
-            buffer->auSize = 0;
-            buffer->hasMetadata = false;
+            buf->setSize(0);
+            *buffer = buf;
         }
         else
         {
-            ULOGE("ffmpeg: failed to get an input buffer");
-            return -1;
+            ULOGD("ffmpeg: failed to get an input buffer");
+            return -2;
         }
+    }
+    else
+    {
+        ULOGE("ffmpeg: input buffer pool has not been created");
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int FfmpegAvcDecoder::queueInputBuffer(Buffer *buffer)
+{
+    if (!buffer)
+    {
+        ULOGE("ffmpeg: invalid buffer pointer");
+        return -1;
+    }
+
+    if (!mConfigured)
+    {
+        ULOGE("ffmpeg: decoder is not configured");
+        return -1;
+    }
+
+    if (mInputBufferQueue)
+    {
+        buffer->ref();
+        mInputBufferQueue->pushBuffer(buffer);
     }
     else
     {
@@ -537,52 +268,79 @@ int FfmpegAvcDecoder::getInputBuffer(avc_decoder_input_buffer_t *buffer, bool bl
 }
 
 
-int FfmpegAvcDecoder::queueInputBuffer(avc_decoder_input_buffer_t *buffer)
+BufferQueue *FfmpegAvcDecoder::addOutputQueue()
 {
-    if (!buffer)
+    BufferQueue *q = new BufferQueue();
+    if (q == NULL)
     {
-        ULOGE("ffmpeg: invalid buffer pointer");
-        return -1;
+        ULOGE("ffmpeg: queue allocation failed");
+        return NULL;
     }
 
-    if (!mConfigured)
-    {
-        ULOGE("ffmpeg: decoder is not configured");
-        return -1;
-    }
-
-    if (mInputQueue)
-    {
-        BufferQueueBuffer<avc_decoder_input_buffer_t> *buf = NULL;
-        buffer_queue_status_t status = mInputQueue->getBufferFromUserPtr(buffer->userPtr, &buf);
-        if ((status == BUFFERQUEUE_OK) && (buf))
-        {
-            buf->setData(buffer);
-            status = mInputQueue->releaseInputBuffer(buf);
-            if (status != BUFFERQUEUE_OK)
-            {
-                ULOGE("ffmpeg: failed to release the input buffer");
-                return -1;
-            }
-        }
-        else
-        {
-            ULOGE("ffmpeg: ailed to find the input buffer");
-            return -1;
-        }
-    }
-    else
-    {
-        ULOGE("ffmpeg: input queue has not been created");
-        return -1;
-    }
-
-    return 0;
+    mOutputBufferQueues.push_back(q);
+    return q;
 }
 
 
-int FfmpegAvcDecoder::dequeueOutputBuffer(avc_decoder_output_buffer_t *buffer, bool blocking)
+int FfmpegAvcDecoder::removeOutputQueue(BufferQueue *queue)
 {
+    if (!queue)
+    {
+        ULOGE("ffmpeg: invalid queue pointer");
+        return -1;
+    }
+
+    bool found = false;
+    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+
+    while (q != mOutputBufferQueues.end())
+    {
+        if (*q == queue)
+        {
+            mOutputBufferQueues.erase(q);
+            delete *q;
+            found = true;
+            break;
+        }
+        q++;
+    }
+
+    return (found) ? 0 : -1;
+}
+
+
+bool FfmpegAvcDecoder::isOutputQueueValid(BufferQueue *queue)
+{
+    if (!queue)
+    {
+        ULOGE("ffmpeg: invalid queue pointer");
+        return false;
+    }
+
+    bool found = false;
+    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+
+    while (q != mOutputBufferQueues.end())
+    {
+        if (*q == queue)
+        {
+            found = true;
+            break;
+        }
+        q++;
+    }
+
+    return found;
+}
+
+
+int FfmpegAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking)
+{
+    if (!queue)
+    {
+        ULOGE("ffmpeg: invalid queue pointer");
+        return -1;
+    }
     if (!buffer)
     {
         ULOGE("ffmpeg: invalid buffer pointer");
@@ -595,27 +353,26 @@ int FfmpegAvcDecoder::dequeueOutputBuffer(avc_decoder_output_buffer_t *buffer, b
         return -1;
     }
 
-    if (mOutputQueue)
+    if (isOutputQueueValid(queue))
     {
-        FfmpegOutputBufferQueueBuffer *buf = NULL;
-        buffer_queue_status_t status = mOutputQueue->getOutputBuffer(&buf, blocking);
-        if ((status == BUFFERQUEUE_OK) && (buf))
+        Buffer *buf = queue->popBuffer(blocking);
+        if (buf != NULL)
         {
-            buf->getData(buffer);
-            buffer->userPtr = buf->getUserPtr();
+            avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buf->getMetadataPtr();
             struct timespec t1;
             clock_gettime(CLOCK_MONOTONIC, &t1);
-            buffer->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+            data->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+            *buffer = buf;
         }
         else
         {
-            ULOGE("ffmpeg: failed to get an output buffer");
-            return -1;
+            ULOGD("ffmpeg: failed to dequeue an output buffer");
+            return -2;
         }
     }
     else
     {
-        ULOGE("ffmpeg: output queue has not been created");
+        ULOGE("ffmpeg: invalid output queue");
         return -1;
     }
 
@@ -623,7 +380,7 @@ int FfmpegAvcDecoder::dequeueOutputBuffer(avc_decoder_output_buffer_t *buffer, b
 }
 
 
-int FfmpegAvcDecoder::releaseOutputBuffer(avc_decoder_output_buffer_t *buffer)
+int FfmpegAvcDecoder::releaseOutputBuffer(Buffer *buffer)
 {
     if (!buffer)
     {
@@ -637,30 +394,7 @@ int FfmpegAvcDecoder::releaseOutputBuffer(avc_decoder_output_buffer_t *buffer)
         return -1;
     }
 
-    if (mOutputQueue)
-    {
-        FfmpegOutputBufferQueueBuffer *buf = NULL;
-        buffer_queue_status_t status = mOutputQueue->getBufferFromUserPtr(buffer->userPtr, &buf);
-        if ((status == BUFFERQUEUE_OK) && (buf))
-        {
-            status = mOutputQueue->releaseOutputBuffer(buf);
-            if (status != BUFFERQUEUE_OK)
-            {
-                ULOGE("ffmpeg: failed to release the output buffer");
-                return -1;
-            }
-        }
-        else
-        {
-            ULOGE("ffmpeg: failed to find the output buffer");
-            return -1;
-        }
-    }
-    else
-    {
-        ULOGE("ffmpeg: output queue has not been created");
-        return -1;
-    }
+    buffer->unref();
 
     return 0;
 }
@@ -675,7 +409,51 @@ int FfmpegAvcDecoder::stop()
     }
 
     mThreadShouldStop = true;
+    if (mInputBufferPool) mInputBufferPool->signal();
+    if (mOutputBufferPool) mOutputBufferPool->signal();
+    if (mInputBufferQueue) mInputBufferQueue->signal();
 
+    return 0;
+}
+
+
+int FfmpegAvcDecoder::outputBufferCreationCb(Buffer *buffer)
+{
+    if (buffer == NULL)
+    {
+        ULOGE("ffmpeg: invalid buffer");
+        return -1;
+    }
+
+    AVFrame *avFrame = av_frame_alloc();
+    if (avFrame == NULL)
+    {
+        ULOGE("ffmpeg: avFrame allocation failed");
+        return -1;
+    }
+
+    buffer->setResPtr((void*)avFrame);
+    return 0;
+}
+
+
+int FfmpegAvcDecoder::outputBufferDeletionCb(Buffer *buffer)
+{
+    if (buffer == NULL)
+    {
+        ULOGE("ffmpeg: invalid buffer");
+        return -1;
+    }
+
+    AVFrame *avFrame = (AVFrame*)buffer->getResPtr();
+    if (avFrame == NULL)
+    {
+        ULOGE("ffmpeg: invalid ressource pointer");
+        return -1;
+    }
+
+    av_frame_free(&avFrame);
+    buffer->setResPtr(NULL);
     return 0;
 }
 
@@ -688,65 +466,36 @@ void* FfmpegAvcDecoder::runDecoderThread(void *ptr)
     {
         if (decoder->mConfigured)
         {
-            BufferQueueBuffer<avc_decoder_input_buffer_t> *inputBuffer;
-            FfmpegOutputBufferQueueBuffer *outputBuffer;
-            avc_decoder_input_buffer_t inputData;
-            avc_decoder_output_buffer_t outputData;
-            buffer_queue_status_t status;
-            status = decoder->mInputQueue->getOutputBuffer(&inputBuffer, true);
-            if (status != BUFFERQUEUE_OK)
+            Buffer *inputBuffer;
+            Buffer *outputBuffer;
+            inputBuffer = decoder->mInputBufferQueue->popBuffer(true);
+            if (inputBuffer == NULL)
             {
-                ULOGW("ffmpeg: failed to get an input buffer");
+                ULOGW("ffmpeg: failed to dequeue an input buffer");
             }
             else
             {
-                if (decoder->mOutputQueue->getInputBuffer(&outputBuffer, false) == BUFFERQUEUE_OK)
+                outputBuffer = decoder->mOutputBufferPool->getBuffer(false);
+                if (outputBuffer != NULL)
                 {
-                    inputBuffer->getData(&inputData);
-                    outputBuffer->getData(&outputData);
-                    outputData.userPtr = outputBuffer->getUserPtr();
-
-                    outputData.isComplete = inputData.isComplete;
-                    outputData.hasErrors = inputData.hasErrors;
-                    outputData.isRef = inputData.isRef;
-                    outputData.auNtpTimestamp = inputData.auNtpTimestamp;
-                    outputData.auNtpTimestampRaw = inputData.auNtpTimestampRaw;
-                    outputData.auNtpTimestampLocal = inputData.auNtpTimestampLocal;
-                    outputData.demuxOutputTimestamp = inputData.demuxOutputTimestamp;
-
-                    if (inputData.hasMetadata)
-                    {
-                        memcpy(&outputData.metadata, &inputData.metadata, sizeof(frame_metadata_t));
-                        outputData.hasMetadata = true;
-                    }
-                    else
-                    {
-                        outputData.hasMetadata = false;
-                    }
-
-                    AVFrame *frame = outputBuffer->getFrame(); 
-                    int ret = decoder->decode(&inputData, &outputData, frame);
+                    int ret = decoder->decode(inputBuffer, outputBuffer);
                     if (ret == 0)
                     {
-                        outputBuffer->setData(&outputData);
-                        if (decoder->mOutputQueue->releaseInputBuffer(outputBuffer) != BUFFERQUEUE_OK)
+                        std::vector<BufferQueue*>::iterator q = decoder->mOutputBufferQueues.begin();
+                        while (q != decoder->mOutputBufferQueues.end())
                         {
-                            ULOGW("ffmpeg: failed to release the output buffer");
+                            outputBuffer->ref();
+                            (*q)->pushBuffer(outputBuffer);
+                            q++;
                         }
                     }
-                    else
-                    {
-                        if (decoder->mOutputQueue->cancelInputBuffer(outputBuffer) != BUFFERQUEUE_OK)
-                        {
-                            ULOGW("ffmpeg: failed to cancel the output buffer");
-                        }
-                    }
+                    outputBuffer->unref();
                 }
                 else
                 {
                     ULOGW("ffmpeg: failed to get an output buffer");
                 }
-                decoder->mInputQueue->releaseOutputBuffer(inputBuffer);
+                inputBuffer->unref();
             }
         }
         else
@@ -759,7 +508,7 @@ void* FfmpegAvcDecoder::runDecoderThread(void *ptr)
 }
 
 
-int FfmpegAvcDecoder::decode(avc_decoder_input_buffer_t *inputBuffer, avc_decoder_output_buffer_t *outputBuffer, AVFrame *frame)
+int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
 {
     if (!mConfigured)
     {
@@ -768,9 +517,17 @@ int FfmpegAvcDecoder::decode(avc_decoder_input_buffer_t *inputBuffer, avc_decode
     }
 
     int frameFinished = false;
+    avc_decoder_input_buffer_t *inputData = (avc_decoder_input_buffer_t*)inputBuffer->getMetadataPtr();
+    avc_decoder_output_buffer_t *outputData = (avc_decoder_output_buffer_t*)outputBuffer->getMetadataPtr();
+    AVFrame *frame = (AVFrame*)outputBuffer->getResPtr();
+    if ((!inputData) || (!outputData) || (!frame))
+    {
+        ULOGE("ffmpeg: invalid input or output buffer");
+        return -1;
+    }
 
-    mPacket.data = inputBuffer->auBuffer;
-    mPacket.size = inputBuffer->auSize;
+    mPacket.data = (uint8_t*)inputBuffer->getPtr();
+    mPacket.size = inputBuffer->getSize();
 
     avcodec_decode_video2(mCodecCtxH264, frame, &frameFinished, &mPacket);
 
@@ -784,17 +541,35 @@ int FfmpegAvcDecoder::decode(avc_decoder_input_buffer_t *inputBuffer, avc_decode
             mSarWidth = (mCodecCtxH264->sample_aspect_ratio.num > 0) ? mCodecCtxH264->sample_aspect_ratio.num : 1;
             mSarHeight = (mCodecCtxH264->sample_aspect_ratio.den > 0) ? mCodecCtxH264->sample_aspect_ratio.den : 1;
         }
-        outputBuffer->plane[0] = frame->data[0];
-        outputBuffer->plane[1] = frame->data[1];
-        outputBuffer->plane[2] = frame->data[2];
-        outputBuffer->stride[0] = frame->linesize[0];
-        outputBuffer->stride[1] = frame->linesize[1];
-        outputBuffer->stride[2] = frame->linesize[2];
-        outputBuffer->width = mFrameWidth;
-        outputBuffer->height = mFrameHeight;
-        outputBuffer->sarWidth = mSarWidth;
-        outputBuffer->sarHeight = mSarHeight;
-        outputBuffer->colorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+        outputData->plane[0] = frame->data[0];
+        outputData->plane[1] = frame->data[1];
+        outputData->plane[2] = frame->data[2];
+        outputData->stride[0] = frame->linesize[0];
+        outputData->stride[1] = frame->linesize[1];
+        outputData->stride[2] = frame->linesize[2];
+        outputData->width = mFrameWidth;
+        outputData->height = mFrameHeight;
+        outputData->sarWidth = mSarWidth;
+        outputData->sarHeight = mSarHeight;
+        outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+
+        outputData->isComplete = inputData->isComplete;
+        outputData->hasErrors = inputData->hasErrors;
+        outputData->isRef = inputData->isRef;
+        outputData->auNtpTimestamp = inputData->auNtpTimestamp;
+        outputData->auNtpTimestampRaw = inputData->auNtpTimestampRaw;
+        outputData->auNtpTimestampLocal = inputData->auNtpTimestampLocal;
+        outputData->demuxOutputTimestamp = inputData->demuxOutputTimestamp;
+
+        if (inputData->hasMetadata)
+        {
+            memcpy(&outputData->metadata, &inputData->metadata, sizeof(frame_metadata_t));
+            outputData->hasMetadata = true;
+        }
+        else
+        {
+            outputData->hasMetadata = false;
+        }
 
         return 0;
     }

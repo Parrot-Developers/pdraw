@@ -52,6 +52,9 @@ extern "C" {
 #include "pdraw_renderer.hpp"
 
 
+#define VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT 3
+
+
 namespace Pdraw
 {
 
@@ -70,13 +73,17 @@ public:
 
     avc_decoder_color_format_t getOutputColorFormat() { return mOutputColorFormat; };
 
-    int getInputBuffer(avc_decoder_input_buffer_t *buffer, bool blocking);
+    int getInputBuffer(Buffer **buffer, bool blocking);
 
-    int queueInputBuffer(avc_decoder_input_buffer_t *buffer);
+    int queueInputBuffer(Buffer *buffer);
 
-    int dequeueOutputBuffer(avc_decoder_output_buffer_t *buffer, bool blocking);
+    BufferQueue *addOutputQueue();
 
-    int releaseOutputBuffer(avc_decoder_output_buffer_t *buffer);
+    int removeOutputQueue(BufferQueue *queue);
+
+    int dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking);
+
+    int releaseOutputBuffer(Buffer *buffer);
 
     int stop();
 
@@ -84,9 +91,11 @@ public:
 
 private:
 
+    bool isOutputQueueValid(BufferQueue *queue);
+
     int portSettingsChanged();
 
-    static void fillBufferDoneCallback(void *data, COMPONENT_T *comp, OMX_BUFFERHEADERTYPE *buf);
+    static void fillBufferDoneCallback(void *data, COMPONENT_T *comp, OMX_BUFFERHEADERTYPE *omxBuf);
 
     bool mConfigured2;
     bool mFirstFrame;
@@ -95,21 +104,18 @@ private:
     COMPONENT_T *mEglRender;
     TUNNEL_T mTunnel[3];
     Renderer *mRenderer;
-    OMX_BUFFERHEADERTYPE *mEglBuffer[3];
+    OMX_BUFFERHEADERTYPE *mEglBuffer[VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT];
     int mCurrentEglImageIndex;
-    void *mEglImage[3];
+    void *mEglImage[VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT];
     avc_decoder_color_format_t mOutputColorFormat;
     int mFrameWidth;
     int mFrameHeight;
     int mSliceHeight;
     int mStride;
-    std::vector<avc_decoder_input_buffer_t> *mBufferMeta;
-    std::queue<avc_decoder_input_buffer_t*> *mBufferMetaFreeQueue;
-    std::queue<avc_decoder_input_buffer_t*> *mBufferMetaPushQueue;
-    pthread_mutex_t mMutex;
-    pthread_cond_t mCond;
-    bool mBufferReady;
-    avc_decoder_output_buffer_t mOutputBuffer;
+    BufferPool *mInputBufferPool;
+    BufferQueue *mInputBufferQueue;
+    BufferPool *mOutputBufferPool;
+    std::vector<BufferQueue*> mOutputBufferQueues;
 };
 
 }

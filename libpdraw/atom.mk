@@ -9,10 +9,10 @@ LOCAL_CATEGORY_PATH := libs
 LOCAL_SRC_FILES := \
 	src/pdraw.cpp \
 	src/pdraw_wrapper.cpp \
+	src/pdraw_buffer.cpp \
 	src/pdraw_session.cpp \
 	src/pdraw_session_metadata.cpp \
 	src/pdraw_media_video.cpp \
-	src/pdraw_bufferqueue.cpp \
 	src/pdraw_demuxer_stream.cpp \
 	src/pdraw_demuxer_record.cpp \
 	src/pdraw_utils.cpp \

@@ -58,6 +58,8 @@ public:
 
     int addAvcDecoder(AvcDecoder *decoder);
 
+    int removeAvcDecoder(AvcDecoder *decoder);
+
     int setRendererParams
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
@@ -71,6 +73,7 @@ private:
     static void* runRendererThread(void *ptr);
 
     AvcDecoder *mDecoder;
+    BufferQueue *mDecoderOutputBufferQueue;
     pthread_t mRendererThread;
     bool mRendererThreadLaunched;
     bool mThreadShouldStop;

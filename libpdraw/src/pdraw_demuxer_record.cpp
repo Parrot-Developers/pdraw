@@ -355,8 +355,7 @@ int RecordDemuxer::seekBack(uint64_t delta)
 void* RecordDemuxer::runDemuxerThread(void *ptr)
 {
     RecordDemuxer *demuxer = (RecordDemuxer*)ptr;
-    avc_decoder_input_buffer_t *outputBuffer = NULL;
-    avc_decoder_input_buffer_t outBuf;
+    Buffer *buffer = NULL;
     bool moreFrames = true;
     struct timespec t1;
     uint64_t curTime;
@@ -389,28 +388,19 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                 }
             }
 
-            if ((demuxer->mDecoder->isConfigured()) && (outputBuffer == NULL))
+            if ((demuxer->mDecoder->isConfigured()) && (buffer == NULL))
             {
-                /*clock_gettime(CLOCK_MONOTONIC, &t1);
-                uint64_t startTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;*/
-                ret = demuxer->mDecoder->getInputBuffer(&outBuf, true);
-                /*clock_gettime(CLOCK_MONOTONIC, &t1);
-                uint64_t endTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;*/
+                ret = demuxer->mDecoder->getInputBuffer(&buffer, true);
                 if (ret != 0)
                 {
                     ULOGW("RecordDemuxer: failed to get an output buffer (%d)", ret);
                 }
-                else
-                {
-                    outputBuffer = &outBuf;
-                    //ULOGI("RecordDemuxer: getInputBuffer time = %.2fms", (float)(endTime - startTime) / 1000.);
-                }
             }
 
-            if (outputBuffer)
+            if (buffer)
             {
-                uint8_t *buf = outputBuffer->auBuffer;
-                unsigned int bufSize = outputBuffer->auBufferSize;
+                uint8_t *buf = (uint8_t*)buffer->getPtr();
+                unsigned int bufSize = buffer->getCapacity();
 
                 if (demuxer->mFirstFrame)
                 {
@@ -454,7 +444,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                                                       buf, bufSize, demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize, &sample);
                 if ((ret == 0) && (sample.sample_size))
                 {
-                    outputBuffer->auSize = sample.sample_size;
+                    buffer->setSize(sample.sample_size);
 
                     /* Fix the H.264 bitstream: replace NALU size by byte stream start codes */
                     uint32_t offset = 0, naluSize, naluCount = 0;
@@ -468,16 +458,17 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         naluCount++;
                     }
 
-                    outputBuffer->isComplete = true; //TODO?
-                    outputBuffer->hasErrors = false; //TODO?
-                    outputBuffer->isRef = true; //TODO?
-                    outputBuffer->auNtpTimestamp = sample.sample_dts;
-                    outputBuffer->auNtpTimestampRaw = sample.sample_dts;
+                    avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)buffer->getMetadataPtr();
+                    data->isComplete = true; //TODO?
+                    data->hasErrors = false; //TODO?
+                    data->isRef = true; //TODO?
+                    data->auNtpTimestamp = sample.sample_dts;
+                    data->auNtpTimestampRaw = sample.sample_dts;
                     //TODO: auSyncType
 
                     /* Metadata */
-                    outputBuffer->hasMetadata = Metadata::decodeFrameMetadata(demuxer->mMetadataBuffer, sample.metadata_size,
-                                                                              FRAME_METADATA_SOURCE_RECORDING, demuxer->mMetadataMimeType, &outputBuffer->metadata);
+                    data->hasMetadata = Metadata::decodeFrameMetadata(demuxer->mMetadataBuffer, sample.metadata_size,
+                                                                              FRAME_METADATA_SOURCE_RECORDING, demuxer->mMetadataMimeType, &data->metadata);
 
                     if ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp))
                     {
@@ -491,21 +482,22 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     }
 
                     clock_gettime(CLOCK_MONOTONIC, &t1);
-                    outputBuffer->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-                    outputBuffer->auNtpTimestampLocal = outputBuffer->demuxOutputTimestamp;
+                    data->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+                    data->auNtpTimestampLocal = data->demuxOutputTimestamp;
                     outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp)) ?
-                                        (int32_t)((int64_t)(sample.sample_dts - demuxer->mLastFrameTimestamp) - (int64_t)(outputBuffer->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
+                                        (int32_t)((int64_t)(sample.sample_dts - demuxer->mLastFrameTimestamp) - (int64_t)(data->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
 
-                    ret = demuxer->mDecoder->queueInputBuffer(outputBuffer);
+                    ret = demuxer->mDecoder->queueInputBuffer(buffer);
                     if (ret != 0)
                     {
                         ULOGW("RecordDemuxer: failed to release the output buffer (%d)", ret);
                     }
                     else
                     {
-                        demuxer->mLastFrameOutputTime = outputBuffer->demuxOutputTimestamp;
+                        demuxer->mLastFrameOutputTime = data->demuxOutputTimestamp;
                         demuxer->mLastFrameTimestamp = sample.sample_dts;
-                        outputBuffer = NULL;
+                        buffer->unref();
+                        buffer = NULL;
                     }
                 }
             }

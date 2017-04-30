@@ -550,7 +550,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterGetAuBufferCallback(uint8_t **auBuffer
 {
     eARSTREAM2_ERROR ret = ARSTREAM2_ERROR_RESOURCE_UNAVAILABLE;
     StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
-    avc_decoder_input_buffer_t *buf = NULL;
+    Buffer *buffer = NULL;
     int err = 0;
 
     if ((!demuxer) || (!auBuffer) || (!auBufferSize))
@@ -567,22 +567,21 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterGetAuBufferCallback(uint8_t **auBuffer
 
     if (demuxer->mCurrentBuffer)
     {
-        buf = demuxer->mCurrentBuffer;
+        buffer = demuxer->mCurrentBuffer;
     }
-    else if ((err = demuxer->mDecoder->getInputBuffer(&demuxer->mCurrentBufferData, false)) == 0)
+    else if ((err = demuxer->mDecoder->getInputBuffer(&demuxer->mCurrentBuffer, false)) == 0)
     {
-        buf = demuxer->mCurrentBuffer = &demuxer->mCurrentBufferData;
+        buffer = demuxer->mCurrentBuffer;
     }
     else
     {
         ULOGW("StreamDemuxer: failed to get an input buffer (%d)", err);
     }
 
-    if (buf)
+    if (buffer)
     {
-        *auBuffer = buf->auBuffer;
-        *auBufferSize = buf->auBufferSize;
-        *auBufferUserPtr = buf->userPtr;
+        *auBuffer = (uint8_t*)buffer->getPtr();
+        *auBufferSize = buffer->getCapacity();
         ret = ARSTREAM2_OK;
     }
 
@@ -598,7 +597,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
 {
     eARSTREAM2_ERROR ret = ARSTREAM2_ERROR_RESYNC_REQUIRED;
     StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
-    avc_decoder_input_buffer_t* buf;
+    Buffer* buffer;
     int err = 0;
 
     if ((!demuxer) || (!auBuffer) || (!auSize))
@@ -631,37 +630,39 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
 
     if (demuxer->mCurrentBuffer)
     {
-        buf = demuxer->mCurrentBuffer;
+        buffer = demuxer->mCurrentBuffer;
+        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)buffer->getMetadataPtr();
         struct timespec t1;
 
-        buf->auSize = auSize;
-        buf->isComplete = (auMetadata->isComplete) ? true : false;
-        buf->hasErrors = (auMetadata->hasErrors) ? true : false;
-        buf->isRef = (auMetadata->isRef) ? true : false;
-        buf->auNtpTimestamp = auTimestamps->auNtpTimestamp;
-        buf->auNtpTimestampRaw = auTimestamps->auNtpTimestampRaw;
-        buf->auNtpTimestampLocal = auTimestamps->auNtpTimestampLocal;
+        buffer->setSize(auSize);
+        data->isComplete = (auMetadata->isComplete) ? true : false;
+        data->hasErrors = (auMetadata->hasErrors) ? true : false;
+        data->isRef = (auMetadata->isRef) ? true : false;
+        data->auNtpTimestamp = auTimestamps->auNtpTimestamp;
+        data->auNtpTimestampRaw = auTimestamps->auNtpTimestampRaw;
+        data->auNtpTimestampLocal = auTimestamps->auNtpTimestampLocal;
         //TODO: auSyncType
 
         /* Metadata */
-        buf->hasMetadata = Metadata::decodeFrameMetadata(auMetadata->auMetadata, auMetadata->auMetadataSize,
-                                                         FRAME_METADATA_SOURCE_STREAMING, NULL, &buf->metadata);
+        data->hasMetadata = Metadata::decodeFrameMetadata(auMetadata->auMetadata, auMetadata->auMetadataSize,
+                                                         FRAME_METADATA_SOURCE_STREAMING, NULL, &data->metadata);
 
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        buf->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+        data->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 
         /*ULOGI("StreamDemuxer: frame timestamps: NTP=%" PRIu64 " NTPRaw=%" PRIu64 " NTPLocal=%" PRIu64 " Cur=%" PRIu64 " Latency=%.1fms",
               auTimestamps->auNtpTimestamp, auTimestamps->auNtpTimestampRaw, auTimestamps->auNtpTimestampLocal,
-              buf->demuxOutputTimestamp, (auTimestamps->auNtpTimestampLocal != 0) ? (float)(buf->demuxOutputTimestamp - auTimestamps->auNtpTimestampLocal) / 1000. : 0.);*/
+              data->demuxOutputTimestamp, (auTimestamps->auNtpTimestampLocal != 0) ? (float)(data->demuxOutputTimestamp - auTimestamps->auNtpTimestampLocal) / 1000. : 0.);*/
 
         /* release buffer */
-        err = demuxer->mDecoder->queueInputBuffer(buf);
+        err = demuxer->mDecoder->queueInputBuffer(buffer);
         if (err != 0)
         {
             ULOGW("StreamDemuxer: failed to release the input buffer (%d)", ret);
         }
         else
         {
+            buffer->unref();
             demuxer->mCurrentBuffer = NULL;
         }
 

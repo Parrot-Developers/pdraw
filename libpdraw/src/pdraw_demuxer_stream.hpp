@@ -118,8 +118,7 @@ private:
     std::string mFriendlyName;
     std::string mApplicationName;
     AvcDecoder *mDecoder;
-    avc_decoder_input_buffer_t *mCurrentBuffer;
-    avc_decoder_input_buffer_t mCurrentBufferData;
+    Buffer *mCurrentBuffer;
     pthread_t mStreamNetworkThread;
     bool mStreamNetworkThreadLaunched;
     pthread_t mStreamOutputThread;

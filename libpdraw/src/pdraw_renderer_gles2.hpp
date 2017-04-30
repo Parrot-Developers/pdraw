@@ -62,6 +62,8 @@ public:
 
     int addAvcDecoder(AvcDecoder *decoder);
 
+    int removeAvcDecoder(AvcDecoder *decoder);
+
     int setRendererParams
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
@@ -73,6 +75,7 @@ public:
 protected:
 
     AvcDecoder *mDecoder;
+    BufferQueue *mDecoderOutputBufferQueue;
     int mWindowWidth;
     int mWindowHeight;
     int mRenderX;
