@@ -50,18 +50,20 @@ namespace Pdraw
 {
 
 
-VideoMedia::VideoMedia(elementary_stream_type_t esType)
+VideoMedia::VideoMedia(elementary_stream_type_t esType, unsigned int id)
 {
     mEsType = esType;
+    mId = id;
     mDemux = NULL;
     mDemuxEsIndex = -1;
     mDecoder = NULL;
 }
 
 
-VideoMedia::VideoMedia(elementary_stream_type_t esType, Demuxer *demux, int demuxEsIndex)
+VideoMedia::VideoMedia(elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex)
 {
     mEsType = esType;
+    mId = id;
     mDemux = demux;
     mDemuxEsIndex = demuxEsIndex;
     mDecoder = NULL;

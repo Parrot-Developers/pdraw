@@ -105,6 +105,7 @@ private:
     std::vector<Media*> mMedias;
     Demuxer *mDemuxer;
     Renderer *mRenderer;
+    unsigned int mMediaIdCounter;
 };
 
 }

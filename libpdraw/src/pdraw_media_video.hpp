@@ -56,13 +56,15 @@ class VideoMedia : public Media
 {
 public:
 
-    VideoMedia(elementary_stream_type_t esType);
+    VideoMedia(elementary_stream_type_t esType, unsigned int id);
 
-    VideoMedia(elementary_stream_type_t esType, Demuxer *demux, int demuxEsIndex);
+    VideoMedia(elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex);
 
     ~VideoMedia();
 
     media_type_t getType() { return MEDIA_TYPE_VIDEO; };
+
+    unsigned int getId() { return mId; };
 
     int enableDecoder();
     int disableDecoder();

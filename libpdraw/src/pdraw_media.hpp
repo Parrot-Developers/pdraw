@@ -74,10 +74,16 @@ public:
 
     virtual media_type_t getType() = 0;
 
+    virtual unsigned int getId() = 0;
+
     virtual int enableDecoder() = 0;
     virtual int disableDecoder() = 0;
 
     virtual Decoder *getDecoder() = 0;
+
+protected:
+
+    unsigned int mId;
 };
 
 }

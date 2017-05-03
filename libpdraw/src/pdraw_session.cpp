@@ -56,6 +56,7 @@ Session::Session()
 {
     mDemuxer = NULL;
     mRenderer = NULL;
+    mMediaIdCounter = 0;
 }
 
 
@@ -262,7 +263,7 @@ Media *Session::addMedia(elementary_stream_type_t esType)
         default:
             break;
         case ELEMENTARY_STREAM_TYPE_VIDEO_AVC:
-            m = new VideoMedia(esType);
+            m = new VideoMedia(esType, mMediaIdCounter++);
             m->enableDecoder();
             break;
     }
@@ -288,7 +289,7 @@ Media *Session::addMedia(elementary_stream_type_t esType, Demuxer *demuxer, int 
         default:
             break;
         case ELEMENTARY_STREAM_TYPE_VIDEO_AVC:
-            m = new VideoMedia(esType, demuxer, demuxEsIndex);
+            m = new VideoMedia(esType, mMediaIdCounter++, demuxer, demuxEsIndex);
             m->enableDecoder();
             break;
     }
