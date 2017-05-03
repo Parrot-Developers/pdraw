@@ -36,8 +36,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <libpdraw.h>
-#include "pdraw.hpp"
+#include <pdraw/pdraw.h>
+#include "pdraw_impl.hpp"
 
 #include <errno.h>
 

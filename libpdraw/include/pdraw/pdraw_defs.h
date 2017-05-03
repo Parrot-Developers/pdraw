@@ -1,5 +1,5 @@
 /**
- * @file libpdraw_defs.h
+ * @file pdraw_defs.h
  * @brief Parrot Drones Awesome Video Viewer Library - common definitions
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
@@ -36,8 +36,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _LIBPDRAW_DEFS_H_
-#define _LIBPDRAW_DEFS_H_
+#ifndef _PDRAW_DEFS_H_
+#define _PDRAW_DEFS_H_
 
 #include <inttypes.h>
 
@@ -58,4 +58,4 @@ typedef struct
 } pdraw_media_info_t;
 
 
-#endif /* !_LIBPDRAW_DEFS_H_ */
+#endif /* !_PDRAW_DEFS_H_ */

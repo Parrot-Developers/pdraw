@@ -1,6 +1,6 @@
 /**
- * @file pdraw.cpp
- * @brief Parrot Drones Awesome Video Viewer Library
+ * @file pdraw_impl.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - interface implementation
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,7 +36,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw.hpp"
+#include "pdraw_impl.hpp"
 #include "pdraw_demuxer_stream.hpp"
 #include "pdraw_demuxer_record.hpp"
 #include "pdraw_decoder.hpp"

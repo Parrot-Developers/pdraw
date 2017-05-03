@@ -45,7 +45,7 @@
 #include <libARCommands/ARCommands.h>
 #include <libARDiscovery/ARDiscovery.h>
 #include <libARDiscovery/ARDISCOVERY_AvahiDiscovery.h>
-#include <libpdraw.h>
+#include <pdraw/pdraw.h>
 #include <json/json.h>
 #include <curl/curl.h>
 #include <png.h>

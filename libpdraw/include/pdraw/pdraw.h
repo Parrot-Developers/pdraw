@@ -1,5 +1,5 @@
 /**
- * @file libpdraw.h
+ * @file pdraw.h
  * @brief Parrot Drones Awesome Video Viewer Library
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
@@ -36,15 +36,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _LIBPDRAW_H_
-#define _LIBPDRAW_H_
+#ifndef _PDRAW_H_
+#define _PDRAW_H_
 
 #ifdef __cplusplus
 extern "C"  {
 #endif /* __cplusplus */
 
 #include <inttypes.h>
-#include "libpdraw_defs.h"
+#include "pdraw_defs.h"
 
 
 struct pdraw;
@@ -173,4 +173,4 @@ int pdraw_get_media_info
 }
 #endif /* __cplusplus */
 
-#endif /* !_LIBPDRAW_H_ */
+#endif /* !_PDRAW_H_ */

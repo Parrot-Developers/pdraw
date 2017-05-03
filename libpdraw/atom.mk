@@ -7,7 +7,7 @@ LOCAL_MODULE := libpdraw
 LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer library
 LOCAL_CATEGORY_PATH := libs
 LOCAL_SRC_FILES := \
-	src/pdraw.cpp \
+	src/pdraw_impl.cpp \
 	src/pdraw_wrapper.cpp \
 	src/pdraw_buffer.cpp \
 	src/pdraw_session.cpp \
