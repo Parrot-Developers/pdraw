@@ -44,6 +44,7 @@ extern "C"  {
 #endif /* __cplusplus */
 
 #include <inttypes.h>
+#include "libpdraw_defs.h"
 
 
 struct pdraw;
@@ -157,6 +158,16 @@ int pdraw_stop_renderer
 int pdraw_render
         (struct pdraw *pdraw,
          int timeout);
+
+
+int pdraw_get_media_count
+        (struct pdraw *pdraw);
+
+
+int pdraw_get_media_info
+        (struct pdraw *pdraw,
+         unsigned int index,
+         pdraw_media_info_t *info);
 
 #ifdef __cplusplus
 }

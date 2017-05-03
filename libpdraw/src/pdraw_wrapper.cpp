@@ -274,5 +274,25 @@ int pdraw_render(struct pdraw *pdraw, int timeout)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->render(timeout);    
+    return toPdraw(pdraw)->render(timeout);
+}
+
+
+int pdraw_get_media_count(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->getMediaCount();
+}
+
+
+int pdraw_get_media_info(struct pdraw *pdraw, unsigned int index, pdraw_media_info_t *info)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->getMediaInfo(index, info);
 }

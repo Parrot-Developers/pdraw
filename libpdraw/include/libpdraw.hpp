@@ -41,6 +41,7 @@
 
 #include <inttypes.h>
 #include <string>
+#include "libpdraw_defs.h"
 
 namespace Pdraw
 {
@@ -118,6 +119,10 @@ public:
 
     virtual int render
             (int timeout) = 0;
+
+    virtual int getMediaCount() = 0;
+
+    virtual int getMediaInfo(unsigned int index, pdraw_media_info_t *info) = 0;
 };
 
 IPdraw *createPdraw();

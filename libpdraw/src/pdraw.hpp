@@ -125,6 +125,10 @@ public:
     int render
             (int timeout);
 
+    int getMediaCount();
+
+    int getMediaInfo(unsigned int index, pdraw_media_info_t *info);
+
     inline static IPdraw *create()
     {
         return new PdrawImpl();
@@ -140,7 +144,7 @@ private:
 
     int openWithDemux();
 
-    Session session;
+    Session mSession;
     bool mSetup;
     bool mPaused;
     bool mGotRendererParams;

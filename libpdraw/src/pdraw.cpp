@@ -89,7 +89,7 @@ int PdrawImpl::setup(const std::string &canonicalName,
     }
 
     //TODO: renaming
-    session.setup(friendlyName, canonicalName, applicationName);
+    mSession.setup(friendlyName, canonicalName, applicationName);
 
     mSetup = true;
 
@@ -105,7 +105,7 @@ int PdrawImpl::open(const std::string &url)
         return -1;
     }
 
-    return session.open(url);
+    return mSession.open(url);
 }
 
 
@@ -117,7 +117,7 @@ int PdrawImpl::open(const std::string &sessionDescription, int qosMode)
         return -1;
     }
 
-    return session.open(sessionDescription, qosMode);
+    return mSession.open(sessionDescription, qosMode);
 }
 
 
@@ -131,7 +131,7 @@ int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
         return -1;
     }
 
-    return session.open(srcAddr, ifaceAddr,
+    return mSession.open(srcAddr, ifaceAddr,
                         srcStreamPort, srcControlPort,
                         dstStreamPort, dstControlPort, qosMode);
 }
@@ -145,9 +145,9 @@ int PdrawImpl::start()
         return -1;
     }
 
-    if (session.getDemuxer())
+    if (mSession.getDemuxer())
     {
-        int ret = session.getDemuxer()->start();
+        int ret = mSession.getDemuxer()->start();
         if (ret != 0)
         {
             ULOGE("Failed to start demuxer");
@@ -176,9 +176,9 @@ int PdrawImpl::pause()
         return -1;
     }
 
-    if (session.getDemuxer())
+    if (mSession.getDemuxer())
     {
-        int ret = session.getDemuxer()->pause();
+        int ret = mSession.getDemuxer()->pause();
         if (ret != 0)
         {
             ULOGE("Failed to pause demuxer");
@@ -213,9 +213,9 @@ int PdrawImpl::stop()
         return -1;
     }
 
-    if (session.getDemuxer())
+    if (mSession.getDemuxer())
     {
-        int ret = session.getDemuxer()->stop();
+        int ret = mSession.getDemuxer()->stop();
         if (ret != 0)
         {
             ULOGE("Failed to stop demuxer");
@@ -244,9 +244,9 @@ int PdrawImpl::seekTo(uint64_t timestamp)
         return -1;
     }
 
-    if (session.getDemuxer())
+    if (mSession.getDemuxer())
     {
-        int ret = session.getDemuxer()->seekTo(timestamp);
+        int ret = mSession.getDemuxer()->seekTo(timestamp);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -271,9 +271,9 @@ int PdrawImpl::seekForward(uint64_t delta)
         return -1;
     }
 
-    if (session.getDemuxer())
+    if (mSession.getDemuxer())
     {
-        int ret = session.getDemuxer()->seekForward(delta);
+        int ret = mSession.getDemuxer()->seekForward(delta);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -298,9 +298,9 @@ int PdrawImpl::seekBack(uint64_t delta)
         return -1;
     }
 
-    if (session.getDemuxer())
+    if (mSession.getDemuxer())
     {
-        int ret = session.getDemuxer()->seekBack(delta);
+        int ret = mSession.getDemuxer()->seekBack(delta);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -325,9 +325,9 @@ int PdrawImpl::startRecorder(const std::string &fileName)
         return -1;
     }
 
-    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
+    if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)session.getDemuxer())->startRecorder(fileName);
+        return ((StreamDemuxer*)mSession.getDemuxer())->startRecorder(fileName);
     }
     else
     {
@@ -345,9 +345,9 @@ int PdrawImpl::stopRecorder()
         return -1;
     }
 
-    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
+    if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)session.getDemuxer())->stopRecorder();
+        return ((StreamDemuxer*)mSession.getDemuxer())->stopRecorder();
     }
     else
     {
@@ -367,9 +367,9 @@ int PdrawImpl::startResender(const std::string &dstAddr, const std::string &ifac
         return -1;
     }
 
-    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
+    if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)session.getDemuxer())->startResender(dstAddr, ifaceAddr,
+        return ((StreamDemuxer*)mSession.getDemuxer())->startResender(dstAddr, ifaceAddr,
                                                        srcStreamPort, srcControlPort,
                                                        dstStreamPort, dstControlPort);
     }
@@ -389,9 +389,9 @@ int PdrawImpl::stopResender()
         return -1;
     }
 
-    if ((session.getDemuxer()) && (session.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
+    if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
-        return ((StreamDemuxer*)session.getDemuxer())->stopResender();
+        return ((StreamDemuxer*)mSession.getDemuxer())->stopResender();
     }
     else
     {
@@ -421,18 +421,18 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
     mRenderWidth = renderWidth;
     mRenderHeight = renderHeight;
 
-    if (!session.getRenderer())
+    if (!mSession.getRenderer())
     {
-        int ret = session.enableRenderer();
+        int ret = mSession.enableRenderer();
         if (ret != 0)
         {
             ULOGE("Failed to enable renderer");
         }
     }
 
-    if (session.getRenderer())
+    if (mSession.getRenderer())
     {
-        return session.getRenderer()->setRendererParams(mWindowWidth, mWindowHeight,
+        return mSession.getRenderer()->setRendererParams(mWindowWidth, mWindowHeight,
                                             mRenderX, mRenderY,
                                             mRenderWidth, mRenderHeight,
                                             mUiHandler);
@@ -453,9 +453,9 @@ int PdrawImpl::stopRenderer()
         return -1;
     }
 
-    if (session.getRenderer())
+    if (mSession.getRenderer())
     {
-        int ret = session.disableRenderer();
+        int ret = mSession.disableRenderer();
         if (ret != 0)
         {
             ULOGE("Failed to disable renderer");
@@ -480,15 +480,49 @@ int PdrawImpl::render(int timeout)
         return -1;
     }
 
-    if (session.getRenderer())
+    if (mSession.getRenderer())
     {
-        return session.getRenderer()->render(timeout);
+        return mSession.getRenderer()->render(timeout);
     }
     else
     {
         ULOGE("Invalid renderer");
         return -1;
     }
+}
+
+
+int PdrawImpl::getMediaCount()
+{
+    return mSession.getMediaCount();
+}
+
+
+int PdrawImpl::getMediaInfo(unsigned int index, pdraw_media_info_t *info)
+{
+    if (!info)
+    {
+        ULOGE("Invalid info struct");
+        return -1;
+    }
+
+    Media *media = mSession.getMedia(index);
+
+    if (media)
+    {
+        switch (media->getType())
+        {
+            case MEDIA_TYPE_VIDEO:
+                info->type = PDRAW_MEDIA_TYPE_VIDEO;
+                break;
+            default:
+                info->type = PDRAW_MEDIA_TYPE_UNKNOWN;
+                break;
+        }
+        info->id = media->getId();
+    }
+
+    return 0;
 }
 
 }
