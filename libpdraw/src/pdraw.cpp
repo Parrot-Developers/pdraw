@@ -401,10 +401,10 @@ int PdrawImpl::stopResender()
 }
 
 
-int PdrawImpl::setRendererParams(int windowWidth, int windowHeight,
-                                 int renderX, int renderY,
-                                 int renderWidth, int renderHeight,
-                                 void *uiHandler)
+int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
+                             int renderX, int renderY,
+                             int renderWidth, int renderHeight,
+                             void *uiHandler)
 {
     if (!mSetup)
     {
@@ -442,6 +442,33 @@ int PdrawImpl::setRendererParams(int windowWidth, int windowHeight,
         ULOGE("Invalid renderer");
         return -1;
     }
+}
+
+
+int PdrawImpl::stopRenderer()
+{
+    if (!mSetup)
+    {
+        ULOGE("Pdraw is not set up");
+        return -1;
+    }
+
+    if (session.getRenderer())
+    {
+        int ret = session.disableRenderer();
+        if (ret != 0)
+        {
+            ULOGE("Failed to disable renderer");
+            return -1;
+        }
+    }
+    else
+    {
+        ULOGE("Invalid renderer");
+        return -1;
+    }
+
+    return 0;
 }
 
 

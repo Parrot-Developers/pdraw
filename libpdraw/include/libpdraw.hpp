@@ -105,7 +105,7 @@ public:
 
     virtual int stopResender() = 0;
 
-    virtual int setRendererParams
+    virtual int startRenderer
             (int windowWidth,
              int windowHeight,
              int renderX,
@@ -113,6 +113,8 @@ public:
              int renderWidth,
              int renderHeight,
              void *uiHandler) = 0;
+
+    virtual int stopRenderer() = 0;
 
     virtual int render
             (int timeout) = 0;

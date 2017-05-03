@@ -543,12 +543,12 @@ int main(int argc, char *argv[])
                     }
                     else
                     {
-                        int ret = pdraw_set_renderer_params(app->pdraw,
-                                                            app->windowWidth, app->windowHeight, 0, 0,
-                                                            app->windowWidth, app->windowHeight, NULL);
+                        int ret = pdraw_start_renderer(app->pdraw,
+                                                       app->windowWidth, app->windowHeight, 0, 0,
+                                                       app->windowWidth, app->windowHeight, NULL);
                         if (ret != 0)
                         {
-                            ULOGE("pdraw_set_renderer_params() failed (%d)", ret);
+                            ULOGE("pdraw_start_renderer() failed (%d)", ret);
                         }
                     }
                     break;
@@ -755,12 +755,12 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        ret = pdraw_set_renderer_params(app->pdraw,
-                                        app->windowWidth, app->windowHeight, 0, 0,
-                                        app->windowWidth, app->windowHeight, NULL);
+        ret = pdraw_start_renderer(app->pdraw,
+                                   app->windowWidth, app->windowHeight, 0, 0,
+                                   app->windowWidth, app->windowHeight, NULL);
         if (ret != 0)
         {
-            ULOGE("pdraw_set_renderer_params() failed (%d)", ret);
+            ULOGE("pdraw_start_renderer() failed (%d)", ret);
         }
     }
 

@@ -139,7 +139,7 @@ int pdraw_stop_resender
         (struct pdraw *pdraw);
 
 
-int pdraw_set_renderer_params
+int pdraw_start_renderer
         (struct pdraw *pdraw,
          int windowWidth,
          int windowHeight,
@@ -148,6 +148,10 @@ int pdraw_set_renderer_params
          int renderWidth,
          int renderHeight,
          void *uiHandler);
+
+
+int pdraw_stop_renderer
+        (struct pdraw *pdraw);
 
 
 int pdraw_render

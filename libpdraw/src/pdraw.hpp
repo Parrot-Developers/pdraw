@@ -111,7 +111,7 @@ public:
 
     int stopResender();
 
-    int setRendererParams
+    int startRenderer
             (int windowWidth,
              int windowHeight,
              int renderX,
@@ -119,6 +119,8 @@ public:
              int renderWidth,
              int renderHeight,
              void *uiHandler);
+
+    int stopRenderer();
 
     int render
             (int timeout);

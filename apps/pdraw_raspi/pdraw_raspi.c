@@ -1152,12 +1152,12 @@ int startPdraw(struct pdraw_app *app)
         };
         struct uiParams_s uiParams = { app->display, app->surface, app->context };
 
-        ret = pdraw_set_renderer_params(app->pdraw,
-                                        app->screenWidth, app->screenHeight, 0, 0,
-                                        app->screenWidth, app->screenHeight, (void*)&uiParams);
+        ret = pdraw_start_renderer(app->pdraw,
+                                   app->screenWidth, app->screenHeight, 0, 0,
+                                   app->screenWidth, app->screenHeight, (void*)&uiParams);
         if (ret != 0)
         {
-            ULOGE("pdraw_set_renderer_params() failed (%d)", ret);
+            ULOGE("pdraw_start_renderer() failed (%d)", ret);
         }
 
         eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);

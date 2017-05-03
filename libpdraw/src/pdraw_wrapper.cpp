@@ -241,20 +241,30 @@ int pdraw_stop_resender(struct pdraw *pdraw)
 }
 
 
-int pdraw_set_renderer_params(struct pdraw *pdraw,
-                              int windowWidth, int windowHeight,
-                              int renderX, int renderY,
-                              int renderWidth, int renderHeight,
-                              void *uiHandler)
+int pdraw_start_renderer(struct pdraw *pdraw,
+                         int windowWidth, int windowHeight,
+                         int renderX, int renderY,
+                         int renderWidth, int renderHeight,
+                         void *uiHandler)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->setRendererParams(windowWidth, windowHeight,
-                                             renderX, renderY,
-                                             renderWidth, renderHeight,
-                                             uiHandler);
+    return toPdraw(pdraw)->startRenderer(windowWidth, windowHeight,
+                                         renderX, renderY,
+                                         renderWidth, renderHeight,
+                                         uiHandler);
+}
+
+
+int pdraw_stop_renderer(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->stopRenderer();
 }
 
 
