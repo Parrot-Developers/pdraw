@@ -296,3 +296,54 @@ int pdraw_get_media_info(struct pdraw *pdraw, unsigned int index, pdraw_media_in
     }
     return toPdraw(pdraw)->getMediaInfo(index, info);
 }
+
+
+void *pdraw_add_video_frame_filter_callback(struct pdraw *pdraw, unsigned int mediaId,
+                                            pdraw_video_frame_filter_callback_t cb, void *userPtr)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->addVideoFrameFilterCallback(mediaId, cb, userPtr);
+}
+
+
+int pdraw_remove_video_frame_filter_callback(struct pdraw *pdraw, unsigned int mediaId, void *filterCtx)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->removeVideoFrameFilterCallback(mediaId, filterCtx);
+}
+
+
+void *pdraw_add_video_frame_producer(struct pdraw *pdraw, unsigned int mediaId)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->addVideoFrameProducer(mediaId);
+}
+
+
+int pdraw_remove_video_frame_producer(struct pdraw *pdraw, void *producerCtx)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->removeVideoFrameProducer(producerCtx);
+}
+
+
+int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, pdraw_video_frame_t *frame)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->getProducerLastFrame(producerCtx, frame);
+}

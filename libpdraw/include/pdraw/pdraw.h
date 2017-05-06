@@ -169,6 +169,35 @@ int pdraw_get_media_info
          unsigned int index,
          pdraw_media_info_t *info);
 
+
+void *pdraw_add_video_frame_filter_callback
+        (struct pdraw *pdraw,
+         unsigned int mediaId,
+         pdraw_video_frame_filter_callback_t cb,
+         void *userPtr);
+
+
+int pdraw_remove_video_frame_filter_callback
+        (struct pdraw *pdraw,
+         unsigned int mediaId,
+         void *filterCtx);
+
+
+void *pdraw_add_video_frame_producer
+        (struct pdraw *pdraw,
+         unsigned int mediaId);
+
+
+int pdraw_remove_video_frame_producer
+        (struct pdraw *pdraw,
+         void *producerCtx);
+
+
+int pdraw_get_producer_last_frame
+        (struct pdraw *pdraw,
+         void *producerCtx,
+         pdraw_video_frame_t *frame);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

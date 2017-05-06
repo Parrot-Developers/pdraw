@@ -42,6 +42,8 @@
 #include "pdraw_decoder.hpp"
 #include "pdraw_avcdecoder.hpp"
 #include "pdraw_renderer.hpp"
+#include "pdraw_media_video.hpp"
+#include "pdraw_filter_videoframe.hpp"
 
 #include <unistd.h>
 #include <sched.h>
@@ -508,21 +510,145 @@ int PdrawImpl::getMediaInfo(unsigned int index, pdraw_media_info_t *info)
 
     Media *media = mSession.getMedia(index);
 
-    if (media)
+    if (!media)
     {
-        switch (media->getType())
-        {
-            case MEDIA_TYPE_VIDEO:
-                info->type = PDRAW_MEDIA_TYPE_VIDEO;
-                break;
-            default:
-                info->type = PDRAW_MEDIA_TYPE_UNKNOWN;
-                break;
-        }
-        info->id = media->getId();
+        ULOGE("Invalid media index");
+        return -1;
     }
 
+    switch (media->getType())
+    {
+        case MEDIA_TYPE_VIDEO:
+            info->type = PDRAW_MEDIA_TYPE_VIDEO;
+            break;
+        default:
+            info->type = PDRAW_MEDIA_TYPE_UNKNOWN;
+            break;
+    }
+    info->id = media->getId();
+
     return 0;
+}
+
+
+void *PdrawImpl::addVideoFrameFilterCallback(unsigned int mediaId, pdraw_video_frame_filter_callback_t cb, void *userPtr)
+{
+    Media *media = mSession.getMediaById(mediaId);
+
+    if (!media)
+    {
+        ULOGE("Invalid media id");
+        return NULL;
+    }
+
+    if (media->getType() != MEDIA_TYPE_VIDEO)
+    {
+        ULOGE("Invalid media type");
+        return NULL;
+    }
+
+    VideoFrameFilter *filter = ((VideoMedia*)media)->addVideoFrameFilter(cb, userPtr);
+    if (!filter)
+    {
+        ULOGE("Failed to create video frame filter");
+        return NULL;
+    }
+
+    return (void*)filter;
+}
+
+
+int PdrawImpl::removeVideoFrameFilterCallback(unsigned int mediaId, void *filterCtx)
+{
+    Media *media = mSession.getMediaById(mediaId);
+
+    if (!media)
+    {
+        ULOGE("Invalid media id");
+        return -1;
+    }
+
+    if (media->getType() != MEDIA_TYPE_VIDEO)
+    {
+        ULOGE("Invalid media type");
+        return -1;
+    }
+
+    if (!filterCtx)
+    {
+        ULOGE("Invalid context pointer");
+        return -1;
+    }
+
+    VideoFrameFilter *filter = (VideoFrameFilter*)filterCtx;
+    return ((VideoMedia*)media)->removeVideoFrameFilter(filter);
+}
+
+
+void *PdrawImpl::addVideoFrameProducer(unsigned int mediaId)
+{
+    Media *media = mSession.getMediaById(mediaId);
+
+    if (!media)
+    {
+        ULOGE("Invalid media id");
+        return NULL;
+    }
+
+    if (media->getType() != MEDIA_TYPE_VIDEO)
+    {
+        ULOGE("Invalid media type");
+        return NULL;
+    }
+
+    VideoFrameFilter *filter = ((VideoMedia*)media)->addVideoFrameFilter();
+    if (!filter)
+    {
+        ULOGE("Failed to create video frame filter");
+        return NULL;
+    }
+
+    return (void*)filter;
+}
+
+
+int PdrawImpl::removeVideoFrameProducer(void *producerCtx)
+{
+    if (!producerCtx)
+    {
+        ULOGE("Invalid context pointer");
+        return -1;
+    }
+
+    VideoFrameFilter *filter = (VideoFrameFilter*)producerCtx;
+    VideoMedia *media = filter->getMedia();
+
+    if (!media)
+    {
+        ULOGE("Invalid media");
+        return -1;
+    }
+
+    return media->removeVideoFrameFilter(filter);
+}
+
+
+int PdrawImpl::getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame)
+{
+    if (!producerCtx)
+    {
+        ULOGE("Invalid context pointer");
+        return -1;
+    }
+    if (!frame)
+    {
+        ULOGE("Invalid frame structure pointer");
+        return -1;
+    }
+
+    VideoFrameFilter *filter = (VideoFrameFilter*)producerCtx;
+
+    return filter->getLastFrame(frame);
 }
 
 }

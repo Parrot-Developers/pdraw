@@ -88,14 +88,16 @@ public:
 
     Media *getMedia(unsigned int index);
 
+    Media *getMediaById(unsigned int id);
+
     int enableRenderer();
     int disableRenderer();
 
-    Demuxer *getDemuxer();
+    Demuxer *getDemuxer() { return mDemuxer; };
 
-    Renderer *getRenderer();
+    Renderer *getRenderer() { return mRenderer; };
 
-    SessionSelfMetadata& getSelfMetadata();
+    SessionSelfMetadata& getSelfMetadata() { return selfMetadata; };
 
 private:
 

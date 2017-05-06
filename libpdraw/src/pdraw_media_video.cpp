@@ -72,6 +72,13 @@ VideoMedia::VideoMedia(elementary_stream_type_t esType, unsigned int id, Demuxer
 
 VideoMedia::~VideoMedia()
 {
+    std::vector<VideoFrameFilter*>::iterator p = mVideoFrameFilters.begin();
+    while (p != mVideoFrameFilters.end())
+    {
+        delete *p;
+        p++;
+    }
+
     if (mDecoder)
     {
         disableDecoder();
@@ -137,9 +144,100 @@ int VideoMedia::disableDecoder()
 }
 
 
-Decoder *VideoMedia::getDecoder()
+VideoFrameFilter *VideoMedia::addVideoFrameFilter()
 {
-    return mDecoder;
+    if (!mDecoder)
+    {
+        ULOGE("VideoMedia: decoder is not enabled");
+        return NULL;
+    }
+
+    VideoFrameFilter *p = new VideoFrameFilter(this, (AvcDecoder*)mDecoder);
+    if (p == NULL)
+    {
+        ULOGE("VideoMedia: video frame filter allocation failed");
+        return NULL;
+    }
+
+    mVideoFrameFilters.push_back(p);
+    return p;
+}
+
+
+VideoFrameFilter *VideoMedia::addVideoFrameFilter(pdraw_video_frame_filter_callback_t cb, void *userPtr)
+{
+    if (!mDecoder)
+    {
+        ULOGE("VideoMedia: decoder is not enabled");
+        return NULL;
+    }
+    if (!cb)
+    {
+        ULOGE("VideoMedia: invalid callback function");
+        return NULL;
+    }
+
+    VideoFrameFilter *p = new VideoFrameFilter(this, (AvcDecoder*)mDecoder, cb, userPtr);
+    if (p == NULL)
+    {
+        ULOGE("VideoMedia: video frame filter allocation failed");
+        return NULL;
+    }
+
+    mVideoFrameFilters.push_back(p);
+    return p;
+}
+
+
+int VideoMedia::removeVideoFrameFilter(VideoFrameFilter *filter)
+{
+    if (!filter)
+    {
+        ULOGE("VideoMedia: invalid video frame filter pointer");
+        return -1;
+    }
+
+    bool found = false;
+    std::vector<VideoFrameFilter*>::iterator p = mVideoFrameFilters.begin();
+
+    while (p != mVideoFrameFilters.end())
+    {
+        if (*p == filter)
+        {
+            mVideoFrameFilters.erase(p);
+            delete *p;
+            found = true;
+            break;
+        }
+        p++;
+    }
+
+    return (found) ? 0 : -1;
+}
+
+
+bool VideoMedia::isVideoFrameFilterValid(VideoFrameFilter *filter)
+{
+    if (!filter)
+    {
+        ULOGE("VideoMedia: invalid video frame filter pointer");
+        return false;
+    }
+
+    bool found = false;
+    std::vector<VideoFrameFilter*>::iterator p = mVideoFrameFilters.begin();
+
+    while (p != mVideoFrameFilters.end())
+    {
+        if (*p == filter)
+        {
+            found = true;
+            break;
+        }
+        p++;
+    }
+
+    return found;
 }
 
 }

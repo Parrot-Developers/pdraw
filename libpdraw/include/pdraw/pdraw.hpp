@@ -123,6 +123,16 @@ public:
     virtual int getMediaCount() = 0;
 
     virtual int getMediaInfo(unsigned int index, pdraw_media_info_t *info) = 0;
+
+    virtual void *addVideoFrameFilterCallback(unsigned int mediaId, pdraw_video_frame_filter_callback_t cb, void *userPtr) = 0;
+
+    virtual int removeVideoFrameFilterCallback(unsigned int mediaId, void *filterCtx) = 0;
+
+    virtual void *addVideoFrameProducer(unsigned int mediaId) = 0;
+
+    virtual int removeVideoFrameProducer(void *producerCtx) = 0;
+
+    virtual int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame) = 0;
 };
 
 IPdraw *createPdraw();

@@ -41,44 +41,13 @@
 
 #include <inttypes.h>
 
-
-typedef struct
-{
-    bool isValid;
-    double latitude;
-    double longitude;
-    double altitude;
-    uint8_t svCount;
-
-} location_t;
+#include <pdraw/pdraw_defs.h>
 
 
-typedef struct
-{
-    float w;
-    float x;
-    float y;
-    float z;
-
-} quaternion_t;
-
-
-typedef struct
-{
-    float phi;      // roll
-    float theta;    // pitch
-    float psi;      // yaw
-
-} euler_t;
-
-
-typedef struct
-{
-    float north;
-    float east;
-    float down;
-
-} speed_t;
+#define location_t pdraw_location_t
+#define quaternion_t pdraw_quaternion_t
+#define euler_t pdraw_euler_t
+#define speed_t pdraw_speed_t
 
 
 void pdraw_euler2quat(const euler_t *euler, quaternion_t *quat);

@@ -1,7 +1,7 @@
 /**
- * @file pdraw_media_video.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - video media
- * @date 05/11/2016
+ * @file pdraw_filter_videoframe.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - video frame filter
+ * @date 03/05/2017
  * @author aurelien.barre@akaaba.net
  *
  * Copyright (c) 2016 Aurelien Barre <aurelien.barre@akaaba.net>.
@@ -36,60 +36,59 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_VIDEO_MEDIA_HPP_
-#define _PDRAW_VIDEO_MEDIA_HPP_
+#ifndef _PDRAW_FILTER_VIDEOFRAME_HPP_
+#define _PDRAW_FILTER_VIDEOFRAME_HPP_
 
-#include <inttypes.h>
-#include <string>
-#include <vector>
+#include <pthread.h>
 
 #include <pdraw/pdraw_defs.h>
 
-#include "pdraw_media.hpp"
-#include "pdraw_demuxer.hpp"
-#include "pdraw_filter_videoframe.hpp"
-
-using namespace std;
+#include "pdraw_avcdecoder.hpp"
 
 
 namespace Pdraw
 {
 
 
-class VideoMedia : public Media
+class VideoMedia;
+
+
+class VideoFrameFilter
 {
 public:
 
-    VideoMedia(elementary_stream_type_t esType, unsigned int id);
+    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder);
 
-    VideoMedia(elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex);
+    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw_video_frame_filter_callback_t cb, void *userPtr);
 
-    ~VideoMedia();
+    ~VideoFrameFilter();
 
-    media_type_t getType() { return MEDIA_TYPE_VIDEO; };
+    VideoMedia *getMedia() { return mMedia; };
 
-    unsigned int getId() { return mId; };
-
-    int enableDecoder();
-    int disableDecoder();
-
-    Decoder *getDecoder() { return mDecoder; };
-
-    VideoFrameFilter *addVideoFrameFilter();
-    VideoFrameFilter *addVideoFrameFilter(pdraw_video_frame_filter_callback_t cb, void *userPtr);
-    int removeVideoFrameFilter(VideoFrameFilter *filter);
+    int getLastFrame(pdraw_video_frame_t *frame);
 
 private:
 
-    bool isVideoFrameFilterValid(VideoFrameFilter *filter);
+    static void* runThread(void *ptr);
 
-    elementary_stream_type_t mEsType;
-    Demuxer *mDemux;
-    int mDemuxEsIndex;
-    Decoder *mDecoder;
-    std::vector<VideoFrameFilter*> mVideoFrameFilters;
+    VideoMedia *mMedia;
+    AvcDecoder *mDecoder;
+    BufferQueue *mDecoderOutputBufferQueue;
+    pthread_mutex_t mMutex;
+    pthread_t mThread;
+    bool mThreadLaunched;
+    bool mThreadShouldStop;
+    pdraw_video_frame_filter_callback_t mCb;
+    void *mUserPtr;
+    uint8_t *mBuffer[2];
+    pdraw_video_frame_t mBufferData[2];
+    unsigned int mBufferIndex;
+    pdraw_color_format_t mColorFormat;
+    unsigned int mWidth;
+    unsigned int mHeight;
+    bool mFrameAvailable;
 };
 
 }
 
-#endif /* !_PDRAW_VIDEO_MEDIA_HPP_ */
+#endif /* !_PDRAW_FILTER_VIDEOFRAME_HPP_ */

@@ -129,6 +129,16 @@ public:
 
     int getMediaInfo(unsigned int index, pdraw_media_info_t *info);
 
+    void *addVideoFrameFilterCallback(unsigned int mediaId, pdraw_video_frame_filter_callback_t cb, void *userPtr);
+
+    int removeVideoFrameFilterCallback(unsigned int mediaId, void *filterCtx);
+
+    void *addVideoFrameProducer(unsigned int mediaId);
+
+    int removeVideoFrameProducer(void *producerCtx);
+
+    int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame);
+
     inline static IPdraw *create()
     {
         return new PdrawImpl();

@@ -359,6 +359,24 @@ Media *Session::getMedia(unsigned int index)
 }
 
 
+Media *Session::getMediaById(unsigned int id)
+{
+    std::vector<Media*>::iterator m = mMedias.begin();
+
+    while (m != mMedias.end())
+    {
+        if ((*m)->getId() == id)
+        {
+            return *m;
+        }
+        m++;
+    }
+
+    ULOGE("Session: unable to find media by id");
+    return NULL;
+}
+
+
 int Session::enableRenderer()
 {
     int ret = 0;
@@ -424,24 +442,6 @@ int Session::disableRenderer()
     mRenderer = NULL;
 
     return ret;
-}
-
-
-Demuxer *Session::getDemuxer()
-{
-    return mDemuxer;
-}
-
-
-Renderer *Session::getRenderer()
-{
-    return mRenderer;
-}
-
-
-SessionSelfMetadata& Session::getSelfMetadata()
-{
-    return selfMetadata;
 }
 
 }

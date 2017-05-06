@@ -25,7 +25,8 @@ LOCAL_SRC_FILES := \
 	src/pdraw_renderer.cpp \
 	src/pdraw_renderer_null.cpp \
 	src/pdraw_renderer_videocoreegl.cpp \
-	src/pdraw_renderer_gles2.cpp
+	src/pdraw_renderer_gles2.cpp \
+	src/pdraw_filter_videoframe.cpp
 LOCAL_EXPORT_CXXFLAGS := -Wextra -std=c++0x
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_LIBRARIES := libulog libpomp libvideo-metadata libARStream2 libmp4

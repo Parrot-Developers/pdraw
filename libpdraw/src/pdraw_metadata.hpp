@@ -42,6 +42,8 @@
 #include <inttypes.h>
 #include <string>
 
+#include <pdraw/pdraw_defs.h>
+
 #include "pdraw_utils.hpp"
 
 using namespace std;
@@ -59,28 +61,7 @@ typedef enum
 } frame_metadata_source_t;
 
 
-typedef struct
-{
-    location_t location;
-    float groundDistance;
-    speed_t groundSpeed;
-    float airSpeed;
-    quaternion_t droneQuat;
-    euler_t droneAttitude;
-    quaternion_t frameQuat;
-    euler_t frameOrientation;
-    float cameraPan;
-    float cameraTilt;
-    float exposureTime;
-    int gain;
-    int flyingState;
-    int binning;
-    int pilotingMode;
-    int animation;
-    int wifiRssi;
-    int batteryPercentage;
-
-} frame_metadata_t;
+#define frame_metadata_t pdraw_frame_metadata_t
 
 
 class Metadata
