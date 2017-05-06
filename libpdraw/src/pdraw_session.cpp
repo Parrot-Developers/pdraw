@@ -147,39 +147,6 @@ int Session::open(const std::string &url)
 }
 
 
-int Session::open(const std::string &sessionDescription, int qosMode)
-{
-    int ret = 0;
-
-    if (ret == 0)
-    {
-        mDemuxer = new StreamDemuxer();
-        if (mDemuxer == NULL)
-        {
-            ULOGE("Session: failed to alloc demuxer");
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        ret = ((StreamDemuxer*)mDemuxer)->configure(selfMetadata.getSerialNumber(),
-                                                  selfMetadata.getFriendlyName(),
-                                                  selfMetadata.getSoftwareVersion(),
-                                                  sessionDescription, qosMode);
-        if (ret != 0)
-        {
-            ULOGE("Session: failed to configure demuxer");
-            delete mDemuxer;
-            mDemuxer = NULL;
-            ret = -1;
-        }
-    }
-
-    return (ret == 0) ? addMediaFromDemuxer() : ret;
-}
-
-
 int Session::open(const std::string &srcAddr, const std::string &ifaceAddr,
                   int srcStreamPort, int srcControlPort,
                   int dstStreamPort, int dstControlPort, int qosMode)

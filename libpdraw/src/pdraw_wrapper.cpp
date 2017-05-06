@@ -98,17 +98,6 @@ int pdraw_open_url(struct pdraw *pdraw, const char *url)
 }
 
 
-int pdraw_open_session_description(struct pdraw *pdraw, const char *sessionDescription, int qosMode)
-{
-    if ((pdraw == NULL) || (sessionDescription == NULL))
-    {
-        return -EINVAL;
-    }
-    std::string sdp(sessionDescription);
-    return toPdraw(pdraw)->open(sdp, qosMode);
-}
-
-
 int pdraw_open_single_stream(struct pdraw *pdraw, const char *srcAddr, const char *ifaceAddr,
                              int srcStreamPort, int srcControlPort,
                              int dstStreamPort, int dstControlPort, int qosMode)

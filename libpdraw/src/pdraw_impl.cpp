@@ -111,18 +111,6 @@ int PdrawImpl::open(const std::string &url)
 }
 
 
-int PdrawImpl::open(const std::string &sessionDescription, int qosMode)
-{
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
-    return mSession.open(sessionDescription, qosMode);
-}
-
-
 int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
                     int srcStreamPort, int srcControlPort,
                     int dstStreamPort, int dstControlPort, int qosMode)

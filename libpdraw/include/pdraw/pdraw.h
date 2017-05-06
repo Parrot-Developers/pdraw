@@ -69,12 +69,6 @@ int pdraw_open_url
          const char *url);
 
 
-int pdraw_open_session_description
-        (struct pdraw *pdraw,
-         const char *sessionDescription,
-         int qosMode);
-
-
 int pdraw_open_single_stream
         (struct pdraw *pdraw,
          const char *srcAddr,

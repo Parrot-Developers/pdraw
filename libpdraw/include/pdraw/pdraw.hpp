@@ -62,10 +62,6 @@ public:
             (const std::string &url) = 0;
 
     virtual int open
-            (const std::string &sessionDescription,
-             int qosMode) = 0;
-
-    virtual int open
             (const std::string &srcAddr,
              const std::string &ifaceAddr,
              int srcStreamPort,

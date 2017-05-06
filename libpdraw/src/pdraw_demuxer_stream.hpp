@@ -68,11 +68,6 @@ public:
     int configure(const std::string &canonicalName,
                   const std::string &friendlyName,
                   const std::string &applicationName,
-                  const std::string &sessionDescription, int qosMode);
-
-    int configure(const std::string &canonicalName,
-                  const std::string &friendlyName,
-                  const std::string &applicationName,
                   const std::string &srcAddr,
                   const std::string &ifaceAddr,
                   int srcStreamPort, int srcControlPort,

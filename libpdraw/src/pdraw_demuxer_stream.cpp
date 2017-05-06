@@ -196,85 +196,6 @@ int StreamDemuxer::configure(const std::string &canonicalName,
 }
 
 
-int StreamDemuxer::configure(const std::string &canonicalName,
-              const std::string &friendlyName,
-              const std::string &applicationName,
-              const std::string &sessionDescription, int qosMode)
-{
-    if (mConfigured)
-    {
-        ULOGE("StreamDemuxer: demuxer is already configured");
-        return -1;
-    }
-
-    mCanonicalName = canonicalName;
-    mFriendlyName = friendlyName;
-    mApplicationName = applicationName;
-    mQosMode = qosMode;
-    int ret = 0;
-
-    if (ret == 0)
-    {
-        eARSTREAM2_ERROR err;
-        ARSTREAM2_StreamReceiver_Config_t streamReceiverConfig;
-        ARSTREAM2_StreamReceiver_NetConfig_t streamReceiverNetConfig;
-        memset(&streamReceiverConfig, 0, sizeof(streamReceiverConfig));
-        memset(&streamReceiverNetConfig, 0, sizeof(streamReceiverNetConfig));
-        streamReceiverNetConfig.sessionDescription = sessionDescription.c_str();
-        streamReceiverNetConfig.classSelector = (qosMode == 1) ? ARSAL_SOCKET_CLASS_SELECTOR_CS4 : ARSAL_SOCKET_CLASS_SELECTOR_UNSPECIFIED;
-        streamReceiverConfig.canonicalName = mCanonicalName.c_str();
-        streamReceiverConfig.friendlyName = mFriendlyName.c_str();
-        streamReceiverConfig.applicationName = mApplicationName.c_str();
-        streamReceiverConfig.maxPacketSize = mMaxPacketSize;
-        streamReceiverConfig.generateReceiverReports = 1;
-        streamReceiverConfig.waitForSync = 1;
-        streamReceiverConfig.outputIncompleteAu = 0;
-        streamReceiverConfig.filterOutSpsPps = 0;
-        streamReceiverConfig.filterOutSei = 1;
-        streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
-        streamReceiverConfig.generateSkippedPSlices = 1;
-        streamReceiverConfig.generateFirstGrayIFrame = 1;
-        streamReceiverConfig.debugPath = "./streamdebug";
-
-        err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver, &streamReceiverConfig, &streamReceiverNetConfig, NULL);
-        if (err != ARSTREAM2_OK)
-        {
-            ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Init() failed: %s", ARSTREAM2_Error_ToString(err));
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        int thErr = pthread_create(&mStreamNetworkThread, NULL, ARSTREAM2_StreamReceiver_RunNetworkThread, (void*)mStreamReceiver);
-        if (thErr != 0)
-        {
-            ULOGE("StreamDemuxer: stream network thread creation failed (%d)", thErr);
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        int thErr = pthread_create(&mStreamOutputThread, NULL, ARSTREAM2_StreamReceiver_RunAppOutputThread, (void*)mStreamReceiver);
-        if (thErr != 0)
-        {
-            ULOGE("StreamDemuxer: stream output thread creation failed (%d)", thErr);
-            ret = -1;
-        }
-    }
-
-    mConfigured = (ret == 0) ? true : false;
-
-    if (mConfigured)
-    {
-        ULOGI("StreamDemuxer: demuxer is configured");        
-    }
-
-    return ret;
-}
-
-
 int StreamDemuxer::getElementaryStreamCount()
 {
     if (!mConfigured)
@@ -488,7 +409,6 @@ int StreamDemuxer::startResender(const std::string &dstAddr, const std::string &
     resenderConfig.clientStreamPort = dstStreamPort;
     resenderConfig.clientControlPort = dstControlPort;
     resenderConfig.classSelector = (mQosMode == 1) ? ARSAL_SOCKET_CLASS_SELECTOR_CS4 : ARSAL_SOCKET_CLASS_SELECTOR_UNSPECIFIED;
-    resenderConfig.sessionAnnouncement = 1;
     resenderConfig.streamSocketBufferSize = 0;
     resenderConfig.maxNetworkLatencyMs = 200;
     eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StartResender(mStreamReceiver, &mResender, &resenderConfig);

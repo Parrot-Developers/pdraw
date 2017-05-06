@@ -67,10 +67,6 @@ public:
             (const std::string &url);
 
     int open
-            (const std::string &sessionDescription,
-             int qosMode);
-
-    int open
             (const std::string &srcAddr,
              const std::string &ifaceAddr,
              int srcStreamPort,

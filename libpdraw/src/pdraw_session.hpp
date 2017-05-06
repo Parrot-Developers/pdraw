@@ -70,8 +70,6 @@ public:
 
     int open(const std::string &url);
 
-    int open(const std::string &sessionDescription, int qosMode);
-
     int open(const std::string &srcAddr, const std::string &ifaceAddr,
              int srcStreamPort, int srcControlPort,
              int dstStreamPort, int dstControlPort, int qosMode);
