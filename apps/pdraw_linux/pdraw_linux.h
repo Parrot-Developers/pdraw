@@ -46,7 +46,7 @@
 #include <libARDiscovery/ARDiscovery.h>
 #include <libARDiscovery/ARDISCOVERY_AvahiDiscovery.h>
 #include <pdraw/pdraw.h>
-#include <json/json.h>
+#include <json-c/json.h>
 #include <curl/curl.h>
 #ifdef USE_SDL
 #include <SDL.h>
