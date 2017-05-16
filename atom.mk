@@ -16,3 +16,5 @@ ifeq ("$(TARGET_OS)","linux")
 		endif
 	endif
 endif
+
+include $(PDRAW_LOCAL_PATH)/python/atom.mk
