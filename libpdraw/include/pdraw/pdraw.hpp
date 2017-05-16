@@ -128,7 +128,15 @@ public:
 
     virtual int removeVideoFrameProducer(void *producerCtx) = 0;
 
-    virtual int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame) = 0;
+    /*
+     * get last frame
+     *
+     * waitUs : time in microseconds to wait a frame
+     *  0: don't wait
+     * -1: wait forever
+     * >0: wait time
+     */
+    virtual int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, long waitUs = 0) = 0;
 };
 
 IPdraw *createPdraw();

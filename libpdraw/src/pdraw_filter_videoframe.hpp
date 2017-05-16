@@ -65,7 +65,13 @@ public:
 
     VideoMedia *getMedia() { return mMedia; };
 
-    int getLastFrame(pdraw_video_frame_t *frame);
+    /*
+     * waitUs : wait a frame, time in microseconds.
+     *  0: don't wait
+     * -1: wait forever
+     * >0: wait time
+     */
+    int getLastFrame(pdraw_video_frame_t *frame, long waitUs = 0);
 
 private:
 
@@ -76,6 +82,7 @@ private:
     BufferQueue *mDecoderOutputBufferQueue;
     pthread_mutex_t mMutex;
     pthread_t mThread;
+    pthread_cond_t mCondition;
     bool mThreadLaunched;
     bool mThreadShouldStop;
     pdraw_video_frame_filter_callback_t mCb;

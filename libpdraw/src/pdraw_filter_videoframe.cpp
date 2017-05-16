@@ -38,6 +38,7 @@
 
 #include "pdraw_filter_videoframe.hpp"
 
+#include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
 
@@ -71,6 +72,7 @@ VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw
     mWidth = 0;
     mHeight = 0;
     mFrameAvailable = false;
+    mCondition = PTHREAD_COND_INITIALIZER;
 
     if (!media)
     {
@@ -138,6 +140,16 @@ VideoFrameFilter::~VideoFrameFilter()
         }
     }
 
+    /*
+     * this won't be sufficiant if another thread get last frame with
+     * wait condition ; let's assume the client won't stop while
+     * getting a frame
+     */
+    pthread_mutex_lock(&mMutex);
+    mFrameAvailable = false;
+    pthread_cond_broadcast(&mCondition);
+    pthread_mutex_unlock(&mMutex);
+
     if (mDecoder)
     {
         if (mDecoderOutputBufferQueue)
@@ -157,7 +169,19 @@ VideoFrameFilter::~VideoFrameFilter()
 }
 
 
-int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame)
+static void getTimeWithUsDelay(struct timespec* ts, long waitUs)
+{
+    struct timeval tp;
+    gettimeofday(&tp, NULL);
+
+    ts->tv_sec = tp.tv_sec;
+    ts->tv_nsec = tp.tv_usec * 1000 + waitUs * 1000;
+    ts->tv_sec += ts->tv_nsec / 1000000000L;
+    ts->tv_nsec = ts->tv_nsec % 1000000000L;
+}
+
+
+int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame, long waitUs)
 {
     if (!frame)
     {
@@ -172,6 +196,16 @@ int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame)
 
     pthread_mutex_lock(&mMutex);
 
+    if (waitUs && !mFrameAvailable) {
+        if (waitUs == -1) {
+            pthread_cond_wait(&mCondition, &mMutex);
+        } else {
+            struct timespec ts;
+            getTimeWithUsDelay(&ts, waitUs);
+            pthread_cond_timedwait(&mCondition, &mMutex, &ts);
+        }
+    }
+
     if (!mFrameAvailable)
     {
         pthread_mutex_unlock(&mMutex);
@@ -183,6 +217,7 @@ int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame)
     mBufferIndex ^= 1;
 
     pthread_mutex_unlock(&mMutex);
+    mFrameAvailable = false;
 
     return 0;
 }
@@ -335,6 +370,7 @@ void* VideoFrameFilter::runThread(void *ptr)
 
                         memcpy(&filter->mBufferData[filter->mBufferIndex ^ 1], &frame, sizeof(frame));
                         filter->mFrameAvailable = true;
+                        pthread_cond_signal(&filter->mCondition);
 
                         pthread_mutex_unlock(&filter->mMutex);
                     }

@@ -621,7 +621,7 @@ int PdrawImpl::removeVideoFrameProducer(void *producerCtx)
 }
 
 
-int PdrawImpl::getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame)
+int PdrawImpl::getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, long waitUs)
 {
     if (!producerCtx)
     {
@@ -636,7 +636,7 @@ int PdrawImpl::getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *fram
 
     VideoFrameFilter *filter = (VideoFrameFilter*)producerCtx;
 
-    return filter->getLastFrame(frame);
+    return filter->getLastFrame(frame, waitUs);
 }
 
 }

@@ -133,7 +133,15 @@ public:
 
     int removeVideoFrameProducer(void *producerCtx);
 
-    int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame);
+    /*
+     * get last frame
+     *
+     * waitUs : time in microseconds to wait a frame
+     *  0: don't wait
+     * -1: wait forever
+     * >0: wait time
+     */
+    int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, long waitUs = 0);
 
     inline static IPdraw *create()
     {
