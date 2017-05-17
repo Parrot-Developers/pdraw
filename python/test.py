@@ -21,8 +21,8 @@ portStreamSrc = 55004
 portCtrlSrc = 55005
 
 # set 2 next ports from sdk log
-portStreamDst = 38620
-portCtrlDst = 60504
+portStreamDst = 55004
+portCtrlDst = 55005
 
 mypdraw = pdraw.createPdraw()
 mypdraw.setup("python test", "python Test", "python tEst")

@@ -62,10 +62,10 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
 }
 
 %newobject pdraw_video_frame_t;
+%newobject pdraw_media_info_t;
 
-%typemap(newfree) pdraw_video_frame_t * {
-    delete $1;
-}
+%typemap(newfree) pdraw_video_frame_t * { delete $1; }
+%typemap(newfree) pdraw_media_info_t * { delete $1; }
 
 %extend Pdraw::IPdraw {
     /*
@@ -92,6 +92,12 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
             dstStreamPort, dstControlPort, qosMode);
     }
 
+    int open (char* url)
+    {
+        std::string url_ = url;
+        return self->open(url_);
+    }
+
     pdraw_video_frame_t* getProducerLastFrame(void *producerCtx, int waitUs = 0)
     {
         pdraw_video_frame_t* frame = new pdraw_video_frame_t();
@@ -102,6 +108,18 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
             return nullptr;
         } else {
             return frame;
+        }
+    }
+
+    pdraw_media_info_t* getMediaInfo(unsigned int index)
+    {
+        pdraw_media_info_t* info = new pdraw_media_info_t();
+        int ret = self->getMediaInfo(index, info);
+        if (ret) {
+            delete info;
+            return nullptr;
+        } else {
+            return info;
         }
     }
 }
