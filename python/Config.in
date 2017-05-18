@@ -1,0 +1,10 @@
+menu "Options"
+
+config PDRAW_PYTHON_PYTHON3
+  bool "Compile for python3"
+  default n
+  help
+    If set, the binding will be compatible with python3 only.
+    If not set (default), the binding will be compatible with python2 only.
+
+endmenu

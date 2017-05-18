@@ -40,6 +40,9 @@
 
 %typemap(in) (std::string &) (std::string str)
 {
-    str = PyString_AsString($input);
+    // compatible with python3
+    char *b = SWIG_Python_str_AsChar($input);
+    str = b;
+    SWIG_Python_str_DelForPy3(b);
     $1 = &str;
 }

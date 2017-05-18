@@ -10,6 +10,8 @@ LOCAL_DESCRIPTION := Pdraw wrapper to python using swig
 LOCAL_CATEGORY_PATH := multimedia
 
 LOCAL_LIBRARIES := libpdraw
+LOCAL_CONFIG_FILES := Config.in
+$(call load-config)
 
 PDRAW_PYTHON_BUILD_DIR := $(call local-get-build-dir)
 PDRAW_PYTHON_SWIG_WRAPPER := _pdraw_python.cpp
@@ -25,10 +27,16 @@ LOCAL_DESTDIR := usr/lib/python
 
 PDRAW_PYTHON_DESTDIR := $(TARGET_OUT_STAGING)/usr/lib/python
 
-LOCAL_CXXFLAGS := -std=c++11
-LOCAL_CXXFLAGS += $(shell python-config --includes)
+ifeq ($(CONFIG_PDRAW_PYTHON_PYTHON3),y)
+PDRAW_PYTHON_PYTHONCONFIG := python3-config
+else
+PDRAW_PYTHON_PYTHONCONFIG := python-config
+endif
 
-LOCAL_LDLIBS := $(shell python-config --ldflags)
+LOCAL_CXXFLAGS := -std=c++11
+LOCAL_CXXFLAGS += $(shell $(PDRAW_PYTHON_PYTHONCONFIG) --includes)
+
+LOCAL_LDLIBS := $(shell $(PDRAW_PYTHON_PYTHONCONFIG) --ldflags)
 
 PDRAW_PYTHON_SWIG_SOURCE := $(LOCAL_MODULE).i
 PDRAW_PYTHON_NAME := $(LOCAL_MODULE)
