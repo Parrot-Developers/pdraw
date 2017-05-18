@@ -137,6 +137,42 @@ public:
     void setSelfPilot
             (bool isPilot);
 
+    std::string& getPeerFriendlyName(void);
+
+    std::string& getPeerMaker(void);
+
+    std::string& getPeerModel(void);
+
+    std::string& getPeerModelId(void);
+
+    std::string& getPeerSerialNumber(void);
+
+    std::string& getPeerSoftwareVersion(void);
+
+    std::string& getPeerBuildId(void);
+
+    std::string& getPeerTitle(void);
+
+    std::string& getPeerComment(void);
+
+    std::string& getPeerCopyright(void);
+
+    std::string& getPeerRunDate(void);
+
+    std::string& getPeerRunUuid(void);
+
+    std::string& getPeerMediaDate(void);
+
+    void getPeerTakeoffLocation
+            (pdraw_location_t *loc);
+    void setPeerTakeoffLocation
+            (const pdraw_location_t *loc);
+
+    void getPeerHomeLocation
+            (pdraw_location_t *loc);
+    void setPeerHomeLocation
+            (const pdraw_location_t *loc);
+
     int getMediaCount();
 
     int getMediaInfo(unsigned int index, pdraw_media_info_t *info);

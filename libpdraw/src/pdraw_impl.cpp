@@ -436,6 +436,108 @@ void PdrawImpl::setSelfPilot
 }
 
 
+std::string& PdrawImpl::getPeerFriendlyName(void)
+{
+    return mSession.getPeerMetadata().getFriendlyName();
+}
+
+
+std::string& PdrawImpl::getPeerMaker(void)
+{
+    return mSession.getPeerMetadata().getMaker();
+}
+
+
+std::string& PdrawImpl::getPeerModel(void)
+{
+    return mSession.getPeerMetadata().getModel();
+}
+
+
+std::string& PdrawImpl::getPeerModelId(void)
+{
+    return mSession.getPeerMetadata().getModelId();
+}
+
+
+std::string& PdrawImpl::getPeerSerialNumber(void)
+{
+    return mSession.getPeerMetadata().getSerialNumber();
+}
+
+
+std::string& PdrawImpl::getPeerSoftwareVersion(void)
+{
+    return mSession.getPeerMetadata().getSoftwareVersion();
+}
+
+
+std::string& PdrawImpl::getPeerBuildId(void)
+{
+    return mSession.getPeerMetadata().getBuildId();
+}
+
+
+std::string& PdrawImpl::getPeerTitle(void)
+{
+    return mSession.getPeerMetadata().getTitle();
+}
+
+
+std::string& PdrawImpl::getPeerComment(void)
+{
+    return mSession.getPeerMetadata().getComment();
+}
+
+
+std::string& PdrawImpl::getPeerCopyright(void)
+{
+    return mSession.getPeerMetadata().getCopyright();
+}
+
+
+std::string& PdrawImpl::getPeerRunDate(void)
+{
+    return mSession.getPeerMetadata().getRunDate();
+}
+
+
+std::string& PdrawImpl::getPeerRunUuid(void)
+{
+    return mSession.getPeerMetadata().getRunUuid();
+}
+
+
+std::string& PdrawImpl::getPeerMediaDate(void)
+{
+    return mSession.getPeerMetadata().getMediaDate();
+}
+
+
+void PdrawImpl::getPeerTakeoffLocation(pdraw_location_t *loc)
+{
+    mSession.getPeerMetadata().getTakeoffLocation(loc);
+}
+
+
+void PdrawImpl::setPeerTakeoffLocation(const pdraw_location_t *loc)
+{
+    mSession.getPeerMetadata().setTakeoffLocation(loc);
+}
+
+
+void PdrawImpl::getPeerHomeLocation(pdraw_location_t *loc)
+{
+    mSession.getPeerMetadata().getHomeLocation(loc);
+}
+
+
+void PdrawImpl::setPeerHomeLocation(const pdraw_location_t *loc)
+{
+    mSession.getPeerMetadata().setHomeLocation(loc);
+}
+
+
 int PdrawImpl::getMediaCount()
 {
     return mSession.getMediaCount();

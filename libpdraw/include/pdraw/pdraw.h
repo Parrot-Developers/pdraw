@@ -193,6 +193,78 @@ int pdraw_set_self_pilot
          int isPilot);
 
 
+const char *pdraw_get_peer_friendly_name
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_maker
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_model
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_model_id
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_serial_number
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_software_version
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_build_id
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_title
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_comment
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_copyright
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_run_date
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_run_uuid
+        (struct pdraw *pdraw);
+
+
+const char *pdraw_get_peer_media_date
+        (struct pdraw *pdraw);
+
+
+int pdraw_get_peer_takeoff_location
+        (struct pdraw *pdraw,
+         pdraw_location_t *loc);
+
+
+int pdraw_set_peer_takeoff_location
+        (struct pdraw *pdraw,
+         const pdraw_location_t *loc);
+
+
+int pdraw_get_peer_home_location
+        (struct pdraw *pdraw,
+         pdraw_location_t *loc);
+
+
+int pdraw_set_peer_home_location
+        (struct pdraw *pdraw,
+         const pdraw_location_t *loc);
+
+
 int pdraw_get_media_count
         (struct pdraw *pdraw);
 

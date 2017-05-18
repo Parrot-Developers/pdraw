@@ -362,6 +362,180 @@ int pdraw_set_self_pilot(struct pdraw *pdraw, int isPilot)
 }
 
 
+const char *pdraw_get_peer_friendly_name(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerFriendlyName().c_str();
+}
+
+
+const char *pdraw_get_peer_maker(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerMaker().c_str();
+}
+
+
+const char *pdraw_get_peer_model(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerModel().c_str();
+}
+
+
+const char *pdraw_get_peer_model_id(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerModelId().c_str();
+}
+
+
+const char *pdraw_get_peer_serial_number(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerSerialNumber().c_str();
+}
+
+
+const char *pdraw_get_peer_software_version(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerSoftwareVersion().c_str();
+}
+
+
+const char *pdraw_get_peer_build_id(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerBuildId().c_str();
+}
+
+
+const char *pdraw_get_peer_title(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerTitle().c_str();
+}
+
+
+const char *pdraw_get_peer_comment(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerComment().c_str();
+}
+
+
+const char *pdraw_get_peer_copyright(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerCopyright().c_str();
+}
+
+
+const char *pdraw_get_peer_run_date(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerRunDate().c_str();
+}
+
+
+const char *pdraw_get_peer_run_uuid(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerRunUuid().c_str();
+}
+
+
+const char *pdraw_get_peer_media_date(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getPeerMediaDate().c_str();
+}
+
+
+int pdraw_get_peer_takeoff_location(struct pdraw *pdraw, pdraw_location_t *loc)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getPeerTakeoffLocation(loc);
+    return 0;
+}
+
+
+int pdraw_set_peer_takeoff_location(struct pdraw *pdraw, const pdraw_location_t *loc)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setPeerTakeoffLocation(loc);
+    return 0;
+}
+
+
+int pdraw_get_peer_home_location(struct pdraw *pdraw, pdraw_location_t *loc)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getPeerHomeLocation(loc);
+    return 0;
+}
+
+
+int pdraw_set_peer_home_location(struct pdraw *pdraw, const pdraw_location_t *loc)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setPeerHomeLocation(loc);
+    return 0;
+}
+
+
 int pdraw_get_media_count(struct pdraw *pdraw)
 {
     if (pdraw == NULL)
