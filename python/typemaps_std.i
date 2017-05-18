@@ -36,6 +36,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+%include "stdint.i"
 
 
 %typemap(in) (std::string &) (std::string str)
