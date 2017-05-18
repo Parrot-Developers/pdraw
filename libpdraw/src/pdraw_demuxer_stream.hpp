@@ -65,10 +65,7 @@ public:
 
     int configure(const std::string &url);
 
-    int configure(const std::string &canonicalName,
-                  const std::string &friendlyName,
-                  const std::string &applicationName,
-                  const std::string &srcAddr,
+    int configure(const std::string &srcAddr,
                   const std::string &ifaceAddr,
                   int srcStreamPort, int srcControlPort,
                   int dstStreamPort, int dstControlPort, int qosMode);
@@ -135,9 +132,6 @@ private:
     uint32_t mCurrentAuSize;
     int mMaxPacketSize;
     int mQosMode;
-    std::string mCanonicalName;
-    std::string mFriendlyName;
-    std::string mApplicationName;
     AvcDecoder *mDecoder;
     Buffer *mCurrentBuffer;
     pthread_t mStreamNetworkThread;

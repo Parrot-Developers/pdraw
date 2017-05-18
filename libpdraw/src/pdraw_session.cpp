@@ -89,18 +89,6 @@ Session::~Session()
 }
 
 
-int Session::setup(const std::string &selfFriendlyName,
-                   const std::string &selfSerialNumber,
-                   const std::string &selfSoftwareVersion)
-{
-    mSelfMetadata.setFriendlyName(selfFriendlyName);
-    mSelfMetadata.setSerialNumber(selfSerialNumber);
-    mSelfMetadata.setSoftwareVersion(selfSoftwareVersion);
-
-    return 0;
-}
-
-
 int Session::open(const std::string &url)
 {
     int ret = 0;
@@ -165,11 +153,8 @@ int Session::open(const std::string &srcAddr, const std::string &ifaceAddr,
 
     if (ret == 0)
     {
-        ret = ((StreamDemuxer*)mDemuxer)->configure(mSelfMetadata.getSerialNumber(),
-                                                  mSelfMetadata.getFriendlyName(),
-                                                  mSelfMetadata.getSoftwareVersion(),
-                                                  srcAddr, ifaceAddr, srcStreamPort, srcControlPort,
-                                                  dstStreamPort, dstControlPort, qosMode);
+        ret = ((StreamDemuxer*)mDemuxer)->configure(srcAddr, ifaceAddr, srcStreamPort, srcControlPort,
+                                                    dstStreamPort, dstControlPort, qosMode);
         if (ret != 0)
         {
             ULOGE("Session: failed to configure demuxer");

@@ -1118,10 +1118,28 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        ret = pdraw_setup(app->pdraw, "PDrAW", "PDrAW", "PDrAW");
+        ret = pdraw_set_self_friendly_name(app->pdraw, "PDrAW-RasPi"); //TODO
         if (ret != 0)
         {
-            ULOGE("pdraw_setup() failed (%d)", ret);
+            ULOGE("pdraw_set_self_friendly_name() failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
+    {
+        ret = pdraw_set_self_serial_number(app->pdraw, "00000000"); //TODO
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_self_serial_number() failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
+    {
+        ret = pdraw_set_self_software_version(app->pdraw, "PDrAW"); //TODO
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_self_software_version() failed (%d)", ret);
         }
     }
 

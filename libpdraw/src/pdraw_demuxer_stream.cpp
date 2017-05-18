@@ -179,10 +179,7 @@ int StreamDemuxer::configure(const std::string &url)
 }
 
 
-int StreamDemuxer::configure(const std::string &canonicalName,
-              const std::string &friendlyName,
-              const std::string &applicationName,
-              const std::string &srcAddr,
+int StreamDemuxer::configure(const std::string &srcAddr,
               const std::string &ifaceAddr,
               int srcStreamPort, int srcControlPort,
               int dstStreamPort, int dstControlPort, int qosMode)
@@ -192,11 +189,14 @@ int StreamDemuxer::configure(const std::string &canonicalName,
         ULOGE("StreamDemuxer: demuxer is already configured");
         return -1;
     }
+    if (!mSession)
+    {
+        ULOGE("StreamDemuxer: invalid session");
+        return -1;
+    }
 
-    mCanonicalName = canonicalName;
-    mFriendlyName = friendlyName;
-    mApplicationName = applicationName;
     mQosMode = qosMode;
+    SessionSelfMetadata selfMeta = mSession->getSelfMetadata();
     int ret = 0;
 
     if (ret == 0)
@@ -215,9 +215,9 @@ int StreamDemuxer::configure(const std::string &canonicalName,
         streamReceiverNetConfig.clientStreamPort = dstStreamPort;
         streamReceiverNetConfig.clientControlPort = dstControlPort;
         streamReceiverNetConfig.classSelector = (qosMode == 1) ? ARSAL_SOCKET_CLASS_SELECTOR_CS4 : ARSAL_SOCKET_CLASS_SELECTOR_UNSPECIFIED;
-        streamReceiverConfig.canonicalName = mCanonicalName.c_str();
-        streamReceiverConfig.friendlyName = mFriendlyName.c_str();
-        streamReceiverConfig.applicationName = mApplicationName.c_str();
+        streamReceiverConfig.canonicalName = selfMeta.getSerialNumber().c_str();
+        streamReceiverConfig.friendlyName = selfMeta.getFriendlyName().c_str();
+        streamReceiverConfig.applicationName = selfMeta.getSoftwareVersion().c_str();
         streamReceiverConfig.maxPacketSize = mMaxPacketSize;
         streamReceiverConfig.generateReceiverReports = 1;
         streamReceiverConfig.waitForSync = 1;
@@ -537,12 +537,19 @@ int StreamDemuxer::startResender(const std::string &dstAddr, const std::string &
         ULOGE("StreamDemuxer: demuxer is not configured");
         return -1;
     }
+    if (!mSession)
+    {
+        ULOGE("StreamDemuxer: invalid session");
+        return -1;
+    }
+
+    SessionSelfMetadata selfMeta = mSession->getSelfMetadata();
 
     ARSTREAM2_StreamReceiver_ResenderConfig_t resenderConfig;
     memset(&resenderConfig, 0, sizeof(resenderConfig));
-    resenderConfig.canonicalName = mCanonicalName.c_str();
-    resenderConfig.friendlyName = mFriendlyName.c_str();
-    resenderConfig.applicationName = mApplicationName.c_str();
+    resenderConfig.canonicalName = selfMeta.getSerialNumber().c_str();
+    resenderConfig.friendlyName = selfMeta.getFriendlyName().c_str();
+    resenderConfig.applicationName = selfMeta.getSoftwareVersion().c_str();
     resenderConfig.clientAddr = dstAddr.c_str();
     int addrFirst = atoi(dstAddr.c_str());
     resenderConfig.mcastAddr = ((addrFirst >= 224) && (addrFirst <= 239)) ? dstAddr.c_str() : NULL;

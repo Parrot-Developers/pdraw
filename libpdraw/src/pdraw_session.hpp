@@ -64,10 +64,6 @@ public:
 
     ~Session();
 
-    int setup(const std::string &selfFriendlyName,
-              const std::string &selfSerialNumber,
-              const std::string &selfSoftwareVersion);
-
     int open(const std::string &url);
 
     int open(const std::string &srcAddr, const std::string &ifaceAddr,

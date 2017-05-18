@@ -57,13 +57,6 @@ int pdraw_destroy
         (struct pdraw *pdraw);
 
 
-int pdraw_setup
-        (struct pdraw *pdraw,
-         const char *canonicalName,
-         const char *friendlyName,
-         const char *applicationName);
-
-
 int pdraw_open_url
         (struct pdraw *pdraw,
          const char *url);
@@ -152,6 +145,52 @@ int pdraw_stop_renderer
 int pdraw_render
         (struct pdraw *pdraw,
          int timeout);
+
+
+const char *pdraw_get_self_friendly_name
+        (struct pdraw *pdraw);
+
+
+int pdraw_set_self_friendly_name
+        (struct pdraw *pdraw,
+         const char *friendlyName);
+
+
+const char *pdraw_get_self_serial_number
+        (struct pdraw *pdraw);
+
+
+int pdraw_set_self_serial_number
+        (struct pdraw *pdraw,
+         const char *serialNumber);
+
+
+const char *pdraw_get_self_software_version
+        (struct pdraw *pdraw);
+
+
+int pdraw_set_self_software_version
+        (struct pdraw *pdraw,
+         const char *softwareVersion);
+
+
+int pdraw_get_self_location
+        (struct pdraw *pdraw,
+         pdraw_location_t *loc);
+
+
+int pdraw_set_self_location
+        (struct pdraw *pdraw,
+         const pdraw_location_t *loc);
+
+
+int pdraw_is_self_pilot
+        (struct pdraw *pdraw);
+
+
+int pdraw_set_self_pilot
+        (struct pdraw *pdraw,
+         int isPilot);
 
 
 int pdraw_get_media_count

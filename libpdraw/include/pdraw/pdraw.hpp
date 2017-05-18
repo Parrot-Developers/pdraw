@@ -51,12 +51,7 @@ class IPdraw
 {
 public:
 
-    virtual ~IPdraw() {};
-
-    virtual int setup
-            (const std::string &canonicalName,
-             const std::string &friendlyName,
-             const std::string &applicationName) = 0;
+    virtual ~IPdraw(void) {};
 
     virtual int open
             (const std::string &url) = 0;
@@ -70,13 +65,13 @@ public:
              int dstControlPort,
              int qosMode) = 0;
 
-    virtual int start() = 0;
+    virtual int start(void) = 0;
 
-    virtual int pause() = 0;
+    virtual int pause(void) = 0;
 
-    virtual bool isPaused() = 0;
+    virtual bool isPaused(void) = 0;
 
-    virtual int stop() = 0;
+    virtual int stop(void) = 0;
 
     virtual int seekTo
             (uint64_t timestamp) = 0;
@@ -90,7 +85,7 @@ public:
     virtual int startRecorder
             (const std::string &fileName) = 0;
 
-    virtual int stopRecorder() = 0;
+    virtual int stopRecorder(void) = 0;
 
     virtual int startResender
             (const std::string &dstAddr,
@@ -100,7 +95,7 @@ public:
              int dstStreamPort,
              int dstControlPort) = 0;
 
-    virtual int stopResender() = 0;
+    virtual int stopResender(void) = 0;
 
     virtual int startRenderer
             (int windowWidth,
@@ -111,12 +106,33 @@ public:
              int renderHeight,
              void *uiHandler) = 0;
 
-    virtual int stopRenderer() = 0;
+    virtual int stopRenderer(void) = 0;
 
     virtual int render
             (int timeout) = 0;
 
-    virtual int getMediaCount() = 0;
+    virtual std::string& getSelfFriendlyName(void) = 0;
+    virtual void setSelfFriendlyName
+            (const std::string &friendlyName) = 0;
+
+    virtual std::string& getSelfSerialNumber(void) = 0;
+    virtual void setSelfSerialNumber
+            (const std::string &serialNumber) = 0;
+
+    virtual std::string& getSelfSoftwareVersion(void) = 0;
+    virtual void setSelfSoftwareVersion
+            (const std::string &softwareVersion) = 0;
+
+    virtual void getSelfLocation
+            (pdraw_location_t *loc) = 0;
+    virtual void setSelfLocation
+            (const pdraw_location_t *loc) = 0;
+
+    virtual bool isSelfPilot(void) = 0;
+    virtual void setSelfPilot
+            (bool isPilot) = 0;
+
+    virtual int getMediaCount(void) = 0;
 
     virtual int getMediaInfo(unsigned int index, pdraw_media_info_t *info) = 0;
 

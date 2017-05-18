@@ -65,7 +65,6 @@ IPdraw *createPdraw()
 
 PdrawImpl::PdrawImpl()
 {
-    mSetup = false;
     mPaused = false;
     mGotRendererParams = false;
     mUiHandler = NULL;
@@ -78,35 +77,8 @@ PdrawImpl::~PdrawImpl()
 }
 
 
-int PdrawImpl::setup(const std::string &canonicalName,
-                     const std::string &friendlyName,
-                     const std::string &applicationName)
-{
-    int ret = 0;
-
-    if (mSetup)
-    {
-        ULOGE("Pdraw is already set up");
-        return -1;
-    }
-
-    //TODO: renaming
-    mSession.setup(friendlyName, canonicalName, applicationName);
-
-    mSetup = true;
-
-    return ret;
-}
-
-
 int PdrawImpl::open(const std::string &url)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     return mSession.open(url);
 }
 
@@ -115,12 +87,6 @@ int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
                     int srcStreamPort, int srcControlPort,
                     int dstStreamPort, int dstControlPort, int qosMode)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     return mSession.open(srcAddr, ifaceAddr,
                         srcStreamPort, srcControlPort,
                         dstStreamPort, dstControlPort, qosMode);
@@ -129,12 +95,6 @@ int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
 
 int PdrawImpl::start()
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getDemuxer())
     {
         int ret = mSession.getDemuxer()->start();
@@ -160,12 +120,6 @@ int PdrawImpl::start()
 
 int PdrawImpl::pause()
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getDemuxer())
     {
         int ret = mSession.getDemuxer()->pause();
@@ -197,12 +151,6 @@ bool PdrawImpl::isPaused()
 
 int PdrawImpl::stop()
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getDemuxer())
     {
         int ret = mSession.getDemuxer()->stop();
@@ -228,12 +176,6 @@ int PdrawImpl::stop()
 
 int PdrawImpl::seekTo(uint64_t timestamp)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getDemuxer())
     {
         int ret = mSession.getDemuxer()->seekTo(timestamp);
@@ -255,12 +197,6 @@ int PdrawImpl::seekTo(uint64_t timestamp)
 
 int PdrawImpl::seekForward(uint64_t delta)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getDemuxer())
     {
         int ret = mSession.getDemuxer()->seekForward(delta);
@@ -282,12 +218,6 @@ int PdrawImpl::seekForward(uint64_t delta)
 
 int PdrawImpl::seekBack(uint64_t delta)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getDemuxer())
     {
         int ret = mSession.getDemuxer()->seekBack(delta);
@@ -309,12 +239,6 @@ int PdrawImpl::seekBack(uint64_t delta)
 
 int PdrawImpl::startRecorder(const std::string &fileName)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
         return ((StreamDemuxer*)mSession.getDemuxer())->startRecorder(fileName);
@@ -329,12 +253,6 @@ int PdrawImpl::startRecorder(const std::string &fileName)
 
 int PdrawImpl::stopRecorder()
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
         return ((StreamDemuxer*)mSession.getDemuxer())->stopRecorder();
@@ -351,12 +269,6 @@ int PdrawImpl::startResender(const std::string &dstAddr, const std::string &ifac
                              int srcStreamPort, int srcControlPort,
                              int dstStreamPort, int dstControlPort)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
         return ((StreamDemuxer*)mSession.getDemuxer())->startResender(dstAddr, ifaceAddr,
@@ -373,12 +285,6 @@ int PdrawImpl::startResender(const std::string &dstAddr, const std::string &ifac
 
 int PdrawImpl::stopResender()
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
     {
         return ((StreamDemuxer*)mSession.getDemuxer())->stopResender();
@@ -396,12 +302,6 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
                              int renderWidth, int renderHeight,
                              void *uiHandler)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     mGotRendererParams = true;
     mUiHandler = uiHandler;
     mWindowWidth = windowWidth;
@@ -437,12 +337,6 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
 
 int PdrawImpl::stopRenderer()
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getRenderer())
     {
         int ret = mSession.disableRenderer();
@@ -464,12 +358,6 @@ int PdrawImpl::stopRenderer()
 
 int PdrawImpl::render(int timeout)
 {
-    if (!mSetup)
-    {
-        ULOGE("Pdraw is not set up");
-        return -1;
-    }
-
     if (mSession.getRenderer())
     {
         return mSession.getRenderer()->render(timeout);
@@ -479,6 +367,72 @@ int PdrawImpl::render(int timeout)
         ULOGE("Invalid renderer");
         return -1;
     }
+}
+
+
+std::string& PdrawImpl::getSelfFriendlyName(void)
+{
+    return mSession.getSelfMetadata().getFriendlyName();
+}
+
+
+void PdrawImpl::setSelfFriendlyName
+        (const std::string &friendlyName)
+{
+    mSession.getSelfMetadata().setFriendlyName(friendlyName);
+}
+
+
+std::string& PdrawImpl::getSelfSerialNumber(void)
+{
+    return mSession.getSelfMetadata().getSerialNumber();
+}
+
+
+void PdrawImpl::setSelfSerialNumber
+        (const std::string &serialNumber)
+{
+    mSession.getSelfMetadata().setSerialNumber(serialNumber);
+}
+
+
+std::string& PdrawImpl::getSelfSoftwareVersion(void)
+{
+    return mSession.getSelfMetadata().getSoftwareVersion();
+}
+
+
+void PdrawImpl::setSelfSoftwareVersion
+        (const std::string &softwareVersion)
+{
+    mSession.getSelfMetadata().setSoftwareVersion(softwareVersion);
+}
+
+
+void PdrawImpl::getSelfLocation
+        (location_t *loc)
+{
+    mSession.getSelfMetadata().getLocation(loc);
+}
+
+
+void PdrawImpl::setSelfLocation
+        (const location_t *loc)
+{
+    mSession.getSelfMetadata().setLocation(loc);
+}
+
+
+bool PdrawImpl::isSelfPilot(void)
+{
+    return mSession.getSelfMetadata().isPilot();
+}
+
+
+void PdrawImpl::setSelfPilot
+        (bool isPilot)
+{
+    mSession.getSelfMetadata().setPilot(isPilot);
 }
 
 

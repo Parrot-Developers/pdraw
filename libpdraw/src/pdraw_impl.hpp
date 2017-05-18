@@ -54,14 +54,9 @@ class PdrawImpl : public IPdraw
 {
 public:
 
-    PdrawImpl();
+    PdrawImpl(void);
 
-    ~PdrawImpl();
-
-    int setup
-            (const std::string &canonicalName,
-             const std::string &friendlyName,
-             const std::string &applicationName);
+    ~PdrawImpl(void);
 
     int open
             (const std::string &url);
@@ -75,13 +70,13 @@ public:
              int dstControlPort,
              int qosMode);
 
-    int start();
+    int start(void);
 
-    int pause();
+    int pause(void);
 
-    bool isPaused();
+    bool isPaused(void);
 
-    int stop();
+    int stop(void);
 
     int seekTo
             (uint64_t timestamp);
@@ -95,7 +90,7 @@ public:
     int startRecorder
             (const std::string &fileName);
 
-    int stopRecorder();
+    int stopRecorder(void);
 
     int startResender
             (const std::string &dstAddr,
@@ -105,7 +100,7 @@ public:
              int dstStreamPort,
              int dstControlPort);
 
-    int stopResender();
+    int stopResender(void);
 
     int startRenderer
             (int windowWidth,
@@ -116,10 +111,31 @@ public:
              int renderHeight,
              void *uiHandler);
 
-    int stopRenderer();
+    int stopRenderer(void);
 
     int render
             (int timeout);
+
+    std::string& getSelfFriendlyName(void);
+    void setSelfFriendlyName
+            (const std::string &friendlyName);
+
+    std::string& getSelfSerialNumber(void);
+    void setSelfSerialNumber
+            (const std::string &serialNumber);
+
+    std::string& getSelfSoftwareVersion(void);
+    void setSelfSoftwareVersion
+            (const std::string &softwareVersion);
+
+    void getSelfLocation
+            (location_t *loc);
+    void setSelfLocation
+            (const location_t *loc);
+
+    bool isSelfPilot(void);
+    void setSelfPilot
+            (bool isPilot);
 
     int getMediaCount();
 
@@ -143,7 +159,7 @@ public:
      */
     int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, long waitUs = 0);
 
-    inline static IPdraw *create()
+    inline static IPdraw *create(void)
     {
         return new PdrawImpl();
     }
@@ -159,7 +175,6 @@ private:
     int openWithDemux();
 
     Session mSession;
-    bool mSetup;
     bool mPaused;
     bool mGotRendererParams;
     int mWindowWidth;

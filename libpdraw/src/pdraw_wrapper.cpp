@@ -73,20 +73,6 @@ int pdraw_destroy(struct pdraw *pdraw)
 }
 
 
-int pdraw_setup(struct pdraw *pdraw, const char *canonicalName,
-                const char *friendlyName, const char *applicationName)
-{
-    if ((pdraw == NULL) || (canonicalName == NULL))
-    {
-        return -EINVAL;
-    }
-    std::string cn(canonicalName);
-    std::string fn(friendlyName);
-    std::string an(applicationName);
-    return toPdraw(pdraw)->setup(cn, fn, an);
-}
-
-
 int pdraw_open_url(struct pdraw *pdraw, const char *url)
 {
     if ((pdraw == NULL) || (url == NULL))
@@ -264,6 +250,115 @@ int pdraw_render(struct pdraw *pdraw, int timeout)
         return -EINVAL;
     }
     return toPdraw(pdraw)->render(timeout);
+}
+
+
+const char *pdraw_get_self_friendly_name(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getSelfFriendlyName().c_str();
+}
+
+
+int pdraw_set_self_friendly_name(struct pdraw *pdraw, const char *friendlyName)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    std::string fn(friendlyName);
+    toPdraw(pdraw)->setSelfFriendlyName(fn);
+    return 0;
+}
+
+
+const char *pdraw_get_self_serial_number(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getSelfSerialNumber().c_str();
+}
+
+
+int pdraw_set_self_serial_number(struct pdraw *pdraw, const char *serialNumber)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    std::string sn(serialNumber);
+    toPdraw(pdraw)->setSelfSerialNumber(sn);
+    return 0;
+}
+
+
+const char *pdraw_get_self_software_version(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return NULL;
+    }
+    return toPdraw(pdraw)->getSelfSoftwareVersion().c_str();
+}
+
+
+int pdraw_set_self_software_version(struct pdraw *pdraw, const char *softwareVersion)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    std::string sv(softwareVersion);
+    toPdraw(pdraw)->setSelfSoftwareVersion(sv);
+    return 0;
+}
+
+
+int pdraw_get_self_location(struct pdraw *pdraw, pdraw_location_t *loc)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getSelfLocation(loc);
+    return 0;
+}
+
+
+int pdraw_set_self_location(struct pdraw *pdraw, const pdraw_location_t *loc)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfLocation(loc);
+    return 0;
+}
+
+
+int pdraw_is_self_pilot(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return (toPdraw(pdraw)->isSelfPilot()) ? 1 : 0;
+}
+
+
+int pdraw_set_self_pilot(struct pdraw *pdraw, int isPilot)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfPilot((isPilot) ? true : false);
+    return 0;
 }
 
 
