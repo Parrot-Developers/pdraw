@@ -56,6 +56,9 @@ typedef enum
 } demuxer_type_t;
 
 
+class Session;
+
+
 class Demuxer
 {
 public:
@@ -71,6 +74,14 @@ public:
     virtual int getElementaryStreamCount() = 0;
 
     virtual elementary_stream_type_t getElementaryStreamType(int esIndex) = 0;
+
+    virtual int getElementaryStreamVideoDimensions(int esIndex,
+        unsigned int *width, unsigned int *height,
+        unsigned int *cropLeft, unsigned int *cropRight,
+        unsigned int *cropTop, unsigned int *cropBottom,
+        unsigned int *sarWidth, unsigned int *sarHeight) = 0;
+
+    virtual int getElementaryStreamVideoFov(int esIndex, float *hfov, float *vfov) = 0;
 
     virtual int setElementaryStreamDecoder(int esIndex, Decoder *decoder) = 0;
 
@@ -89,9 +100,16 @@ public:
     virtual int seekBack
             (uint64_t delta) = 0;
 
+    virtual uint64_t getDuration() = 0;
+
+    virtual uint64_t getCurrentTime() = 0;
+
+    virtual Session *getSession() = 0;
+
 protected:
 
     bool mConfigured;
+    Session *mSession;
 };
 
 }

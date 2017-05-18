@@ -50,20 +50,32 @@ namespace Pdraw
 {
 
 
-VideoMedia::VideoMedia(elementary_stream_type_t esType, unsigned int id)
+VideoMedia::VideoMedia(Session *session, elementary_stream_type_t esType, unsigned int id)
 {
+    mSession = session;
     mEsType = esType;
     mId = id;
+    mVideoType = VIDEO_TYPE_DEFAULT_CAMERA;
+    mWidth = mHeight = 0;
+    mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
+    mSarWidth = mSarHeight = 0;
+    mHfov = mVfov = 0.;
     mDemux = NULL;
     mDemuxEsIndex = -1;
     mDecoder = NULL;
 }
 
 
-VideoMedia::VideoMedia(elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex)
+VideoMedia::VideoMedia(Session *session, elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex)
 {
+    mSession = session;
     mEsType = esType;
     mId = id;
+    mVideoType = VIDEO_TYPE_DEFAULT_CAMERA;
+    mWidth = mHeight = 0;
+    mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
+    mSarWidth = mSarHeight = 0;
+    mHfov = mVfov = 0.;
     mDemux = demux;
     mDemuxEsIndex = demuxEsIndex;
     mDecoder = NULL;
@@ -86,6 +98,67 @@ VideoMedia::~VideoMedia()
 }
 
 
+void VideoMedia::getDimensions(unsigned int *width, unsigned int *height,
+    unsigned int *cropLeft, unsigned int *cropRight,
+    unsigned int *cropTop, unsigned int *cropBottom,
+    unsigned int *croppedWidth, unsigned int *croppedHeight,
+    unsigned int *sarWidth, unsigned int *sarHeight)
+{
+    if (width)
+        *width = mWidth;
+    if (height)
+        *height = mHeight;
+    if (cropLeft)
+        *cropLeft = mCropLeft;
+    if (cropRight)
+        *cropRight = mCropRight;
+    if (cropTop)
+        *cropTop = mCropTop;
+    if (cropBottom)
+        *cropBottom = mCropBottom;
+    if (croppedWidth)
+        *croppedWidth = mWidth - mCropLeft - mCropRight;
+    if (croppedHeight)
+        *croppedHeight = mHeight - mCropTop - mCropBottom;
+    if (sarWidth)
+        *sarWidth = mSarWidth;
+    if (sarHeight)
+        *sarHeight = mSarHeight;
+}
+
+
+void VideoMedia::setDimensions(unsigned int width, unsigned int height,
+    unsigned int cropLeft, unsigned int cropRight,
+    unsigned int cropTop, unsigned int cropBottom,
+    unsigned int sarWidth, unsigned int sarHeight)
+{
+    mWidth = width;
+    mHeight = height;
+    mCropLeft = cropLeft;
+    mCropRight = cropRight;
+    mCropTop = cropTop;
+    mCropBottom = cropBottom;
+    mSarWidth = sarWidth;
+    mSarHeight = sarHeight;
+}
+
+
+void VideoMedia::getFov(float *hfov, float *vfov)
+{
+    if (hfov)
+        *hfov = mHfov;
+    if (vfov)
+        *vfov = mVfov;
+}
+
+
+void VideoMedia::setFov(float hfov, float vfov)
+{
+    mHfov = hfov;
+    mVfov = vfov;
+}
+
+
 int VideoMedia::enableDecoder()
 {
     int ret = 0;
@@ -96,7 +169,7 @@ int VideoMedia::enableDecoder()
         return -1;
     }
 
-    mDecoder = AvcDecoder::create();
+    mDecoder = AvcDecoder::create(this);
     if (mDecoder)
     {
         if ((mDemuxEsIndex != -1) && (mDemux))

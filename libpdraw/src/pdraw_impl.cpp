@@ -609,7 +609,7 @@ int PdrawImpl::removeVideoFrameProducer(void *producerCtx)
     }
 
     VideoFrameFilter *filter = (VideoFrameFilter*)producerCtx;
-    VideoMedia *media = filter->getMedia();
+    VideoMedia *media = filter->getVideoMedia();
 
     if (!media)
     {

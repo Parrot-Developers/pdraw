@@ -93,9 +93,9 @@ int Session::setup(const std::string &selfFriendlyName,
                    const std::string &selfSerialNumber,
                    const std::string &selfSoftwareVersion)
 {
-    selfMetadata.setFriendlyName(selfFriendlyName);
-    selfMetadata.setSerialNumber(selfSerialNumber);
-    selfMetadata.setSoftwareVersion(selfSoftwareVersion);
+    mSelfMetadata.setFriendlyName(selfFriendlyName);
+    mSelfMetadata.setSerialNumber(selfSerialNumber);
+    mSelfMetadata.setSoftwareVersion(selfSoftwareVersion);
 
     return 0;
 }
@@ -108,7 +108,7 @@ int Session::open(const std::string &url)
     std::string ext = url.substr(url.length() - 4, 4);
     if ((url.front() == '/') && (ext == ".mp4"))
     {
-        mDemuxer = new RecordDemuxer();
+        mDemuxer = new RecordDemuxer(this);
         if (mDemuxer == NULL)
         {
             ULOGE("Session: failed to alloc demuxer");
@@ -118,7 +118,7 @@ int Session::open(const std::string &url)
     else if (((url.front() == '/') && (ext == ".sdp"))
                 || (url.substr(0, 7) == "http://"))
     {
-        mDemuxer = new StreamDemuxer();
+        mDemuxer = new StreamDemuxer(this);
         if (mDemuxer == NULL)
         {
             ULOGE("Session: failed to alloc demuxer");
@@ -155,7 +155,7 @@ int Session::open(const std::string &srcAddr, const std::string &ifaceAddr,
 
     if (ret == 0)
     {
-        mDemuxer = new StreamDemuxer();
+        mDemuxer = new StreamDemuxer(this);
         if (mDemuxer == NULL)
         {
             ULOGE("Session: failed to alloc demuxer");
@@ -165,9 +165,9 @@ int Session::open(const std::string &srcAddr, const std::string &ifaceAddr,
 
     if (ret == 0)
     {
-        ret = ((StreamDemuxer*)mDemuxer)->configure(selfMetadata.getSerialNumber(),
-                                                  selfMetadata.getFriendlyName(),
-                                                  selfMetadata.getSoftwareVersion(),
+        ret = ((StreamDemuxer*)mDemuxer)->configure(mSelfMetadata.getSerialNumber(),
+                                                  mSelfMetadata.getFriendlyName(),
+                                                  mSelfMetadata.getSoftwareVersion(),
                                                   srcAddr, ifaceAddr, srcStreamPort, srcControlPort,
                                                   dstStreamPort, dstControlPort, qosMode);
         if (ret != 0)
@@ -230,7 +230,7 @@ Media *Session::addMedia(elementary_stream_type_t esType)
         default:
             break;
         case ELEMENTARY_STREAM_TYPE_VIDEO_AVC:
-            m = new VideoMedia(esType, mMediaIdCounter++);
+            m = new VideoMedia(this, esType, mMediaIdCounter++);
             m->enableDecoder();
             break;
     }
@@ -256,7 +256,20 @@ Media *Session::addMedia(elementary_stream_type_t esType, Demuxer *demuxer, int 
         default:
             break;
         case ELEMENTARY_STREAM_TYPE_VIDEO_AVC:
-            m = new VideoMedia(esType, mMediaIdCounter++, demuxer, demuxEsIndex);
+            m = new VideoMedia(this, esType, mMediaIdCounter++, demuxer, demuxEsIndex);
+            if (demuxer)
+            {
+                unsigned int width, height, sarWidth, sarHeight;
+                unsigned int cropLeft, cropRight, cropTop, cropBottom;
+                float hfov, vfov;
+                demuxer->getElementaryStreamVideoDimensions(demuxEsIndex,
+                    &width, &height, &cropLeft, &cropRight,
+                    &cropTop, &cropBottom, &sarWidth, &sarHeight);
+                ((VideoMedia*)m)->setDimensions(width, height, cropLeft, cropRight,
+                    cropTop, cropBottom, sarWidth, sarHeight);
+                demuxer->getElementaryStreamVideoFov(demuxEsIndex, &hfov, &vfov);
+                ((VideoMedia*)m)->setFov(hfov, vfov);
+            }
             m->enableDecoder();
             break;
     }
@@ -354,7 +367,7 @@ int Session::enableRenderer()
         return -1;
     }
 
-    mRenderer = Renderer::create();
+    mRenderer = Renderer::create(this);
     if (mRenderer == NULL)
     {
         ULOGE("Session: failed to alloc renderer");
@@ -409,6 +422,18 @@ int Session::disableRenderer()
     mRenderer = NULL;
 
     return ret;
+}
+
+
+uint64_t Session::getDuration()
+{
+    return (mDemuxer) ? mDemuxer->getDuration() : 0;
+}
+
+
+uint64_t Session::getCurrentTime()
+{
+    return (mDemuxer) ? mDemuxer->getCurrentTime() : 0;
 }
 
 }

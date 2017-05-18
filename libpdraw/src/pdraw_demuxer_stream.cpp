@@ -37,6 +37,8 @@
  */
 
 #include "pdraw_demuxer_stream.hpp"
+#include "pdraw_session.hpp"
+#include "pdraw_media_video.hpp"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -47,15 +49,16 @@
 #define ULOG_TAG libpdraw
 #include <ulog.h>
 
-#define FRAMEBUFFER_MALLOC_CHUNK_SIZE 4096
+#define STREAM_DEMUXER_SESSION_METADATA_FETCH_INTERVAL 1000000
 
 
 namespace Pdraw
 {
 
 
-StreamDemuxer::StreamDemuxer()
+StreamDemuxer::StreamDemuxer(Session *session)
 {
+    mSession = session;
     mConfigured = false;
     mStreamReceiver = NULL;
     mStreamNetworkThreadLaunched = false;
@@ -66,6 +69,12 @@ StreamDemuxer::StreamDemuxer()
     mQosMode = 0;
     mCurrentBuffer = NULL;
     mDecoder = NULL;
+    mStartTime = mCurrentTime = 0;
+    mLastSessionMetadataFetchTime = 0;
+    mWidth = mHeight = 0;
+    mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
+    mSarWidth = mSarHeight = 0;
+    mHfov = mVfov = 0.;
 }
 
 
@@ -89,6 +98,77 @@ StreamDemuxer::~StreamDemuxer()
     }
 
     ARSTREAM2_StreamReceiver_Free(&mStreamReceiver);
+}
+
+
+void StreamDemuxer::fetchSessionMetadata(StreamDemuxer *demuxer)
+{
+    if (!demuxer)
+    {
+        ULOGE("StreamDemuxer: invalid pointer");
+        return;
+    }
+    if (!demuxer->mSession)
+    {
+        ULOGE("StreamDemuxer: invalid session");
+        return;
+    }
+
+    SessionPeerMetadata peerMeta = demuxer->mSession->getPeerMetadata();
+    ARSTREAM2_Stream_UntimedMetadata_t metadata;
+    memset(&metadata, 0, sizeof(metadata));
+    eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_GetPeerUntimedMetadata(demuxer->mStreamReceiver, &metadata);
+    if (ret != ARSTREAM2_OK)
+    {
+        ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_GetPeerUntimedMetadata() failed: %s", ARSTREAM2_Error_ToString(ret));
+        return;
+    }
+
+    if (metadata.friendlyName)
+        peerMeta.setFriendlyName(metadata.friendlyName);
+    if (metadata.title)
+        peerMeta.setTitle(metadata.title);
+    if (metadata.maker)
+        peerMeta.setMaker(metadata.maker);
+    if (metadata.model)
+        peerMeta.setModel(metadata.model);
+    if (metadata.softwareVersion)
+        peerMeta.setSoftwareVersion(metadata.softwareVersion);
+    if (metadata.serialNumber)
+        peerMeta.setSerialNumber(metadata.serialNumber);
+    if (metadata.modelId)
+        peerMeta.setModelId(metadata.modelId);
+    if (metadata.buildId)
+        peerMeta.setBuildId(metadata.buildId);
+    if (metadata.runUuid)
+        peerMeta.setRunUuid(metadata.runUuid);
+    if (metadata.runDate)
+        peerMeta.setRunDate(metadata.runDate);
+    if (metadata.comment)
+        peerMeta.setComment(metadata.comment);
+    if (metadata.copyright)
+        peerMeta.setCopyright(metadata.copyright);
+    if ((metadata.pictureHFov != 0.) && (metadata.pictureVFov != 0.) &&
+        ((demuxer->mHfov != metadata.pictureHFov) || (demuxer->mVfov != metadata.pictureVFov)))
+    {
+        demuxer->mHfov = metadata.pictureHFov;
+        demuxer->mVfov = metadata.pictureVFov;
+        if (demuxer->mDecoder)
+        {
+            VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
+            if (vm)
+                vm->setFov(metadata.pictureHFov, metadata.pictureVFov);
+        }
+    }
+    if ((metadata.takeoffLatitude != 500.) && (metadata.takeoffLongitude != 500.))
+    {
+        location_t takeoffLoc;
+        memset(&takeoffLoc, 0, sizeof(takeoffLoc));
+        takeoffLoc.latitude = metadata.takeoffLatitude;
+        takeoffLoc.longitude = metadata.takeoffLongitude;
+        takeoffLoc.altitude = metadata.takeoffAltitude;
+        takeoffLoc.isValid = 1;
+    }
 }
 
 
@@ -204,7 +284,7 @@ int StreamDemuxer::getElementaryStreamCount()
         return -1;
     }
 
-    //TODO
+    //TODO: handle multiple streams
     return 1;
 }
 
@@ -216,15 +296,77 @@ elementary_stream_type_t StreamDemuxer::getElementaryStreamType(int esIndex)
         ULOGE("StreamDemuxer: demuxer is not configured");
         return (elementary_stream_type_t)-1;
     }
-    if ((esIndex < 0) || (esIndex >= 1)) //TODO
+    if ((esIndex < 0) || (esIndex >= 1))
     {
         ULOGE("StreamDemuxer: invalid ES index");
         return (elementary_stream_type_t)-1;
     }
 
-    //TODO
+    //TODO: handle multiple streams
     return ELEMENTARY_STREAM_TYPE_VIDEO_AVC;
 
+}
+
+
+int StreamDemuxer::getElementaryStreamVideoDimensions(int esIndex,
+    unsigned int *width, unsigned int *height,
+    unsigned int *cropLeft, unsigned int *cropRight,
+    unsigned int *cropTop, unsigned int *cropBottom,
+    unsigned int *sarWidth, unsigned int *sarHeight)
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return -1;
+    }
+    if ((esIndex < 0) || (esIndex >= 1))
+    {
+        ULOGE("StreamDemuxer: invalid ES index");
+        return -1;
+    }
+
+    //TODO: handle multiple streams
+    if (width)
+        *width = mWidth;
+    if (height)
+        *height = mHeight;
+    if (cropLeft)
+        *cropLeft = mCropLeft;
+    if (cropRight)
+        *cropRight = mCropRight;
+    if (cropTop)
+        *cropTop = mCropTop;
+    if (cropBottom)
+        *cropBottom = mCropBottom;
+    if (sarWidth)
+        *sarWidth = mSarWidth;
+    if (sarHeight)
+        *sarHeight = mSarHeight;
+
+    return 0;
+}
+
+
+int StreamDemuxer::getElementaryStreamVideoFov(int esIndex, float *hfov, float *vfov)
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return -1;
+    }
+    if ((esIndex < 0) || (esIndex >= 1))
+    {
+        ULOGE("StreamDemuxer: invalid ES index");
+        return -1;
+    }
+
+    //TODO: handle multiple streams
+    if (hfov)
+        *hfov = mHfov;
+    if (vfov)
+        *vfov = mVfov;
+
+    return 0;
 }
 
 
@@ -240,12 +382,13 @@ int StreamDemuxer::setElementaryStreamDecoder(int esIndex, Decoder *decoder)
         ULOGE("StreamDemuxer: invalid decoder");
         return -1;
     }
-    if ((esIndex < 0) || (esIndex >= 1)) //TODO
+    if ((esIndex < 0) || (esIndex >= 1))
     {
         ULOGE("StreamDemuxer: invalid ES index");
         return -1;
     }
 
+    //TODO: handle multiple streams
     mDecoder = (AvcDecoder*)decoder;
 
     return 0;
@@ -439,9 +582,16 @@ int StreamDemuxer::stopResender()
 }
 
 
+uint64_t StreamDemuxer::getCurrentTime()
+{
+    return (mStartTime != 0) ? mCurrentTime - mStartTime : 0;
+}
+
+
 eARSTREAM2_ERROR StreamDemuxer::h264FilterSpsPpsCallback(uint8_t *spsBuffer, int spsSize, uint8_t *ppsBuffer, int ppsSize, void *userPtr)
 {
     StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
+    int ret;
 
     if ((!demuxer) || (!spsBuffer) || (!spsSize) || (!ppsBuffer) || (!ppsSize))
     {
@@ -456,7 +606,26 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterSpsPpsCallback(uint8_t *spsBuffer, int
     }
 
     ULOGD("StreamDemuxer: received SPS/PPS");
-    int ret = demuxer->mDecoder->configure(spsBuffer, (unsigned int)spsSize, ppsBuffer, (unsigned int)ppsSize);
+
+    if (spsSize > 4)
+    {
+        ret = pdraw_videoDimensionsFromH264Sps(spsBuffer + 4, spsSize -4,
+            &demuxer->mWidth, &demuxer->mHeight, &demuxer->mCropLeft, &demuxer->mCropRight,
+            &demuxer->mCropTop, &demuxer->mCropBottom, &demuxer->mSarWidth, &demuxer->mSarHeight);
+        if (ret != 0)
+        {
+            ULOGW("StreamDemuxer: pdraw_videoDimensionsFromH264Sps() failed (%d)", ret);
+        }
+        else if (demuxer->mDecoder)
+        {
+            VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
+            if (vm)
+                vm->setDimensions(demuxer->mWidth, demuxer->mHeight, demuxer->mCropLeft, demuxer->mCropRight,
+                    demuxer->mCropTop, demuxer->mCropBottom, demuxer->mSarWidth, demuxer->mSarHeight);
+        }
+    }
+
+    ret = demuxer->mDecoder->configure(spsBuffer, (unsigned int)spsSize, ppsBuffer, (unsigned int)ppsSize);
     if (ret != 0)
     {
         ULOGE("StreamDemuxer: decoder configuration failed (%d)", ret);
@@ -564,11 +733,23 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
         //TODO: auSyncType
 
         /* Metadata */
-        data->hasMetadata = Metadata::decodeFrameMetadata(auMetadata->auMetadata, auMetadata->auMetadataSize,
-                                                         FRAME_METADATA_SOURCE_STREAMING, NULL, &data->metadata);
+        data->hasMetadata = VideoFrameMetadata::decodeMetadata(auMetadata->auMetadata, auMetadata->auMetadataSize,
+            FRAME_METADATA_SOURCE_STREAMING, NULL, &data->metadata);
 
         clock_gettime(CLOCK_MONOTONIC, &t1);
-        data->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+        uint64_t curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+        data->demuxOutputTimestamp = curTime;
+
+        //TODO: use auNtpTimestamp
+        demuxer->mCurrentTime = auTimestamps->auNtpTimestampRaw;
+        if (demuxer->mStartTime == 0)
+            demuxer->mStartTime = auTimestamps->auNtpTimestampRaw;
+
+        if (curTime >= demuxer->mLastSessionMetadataFetchTime + STREAM_DEMUXER_SESSION_METADATA_FETCH_INTERVAL)
+        {
+            fetchSessionMetadata(demuxer);
+            demuxer->mLastSessionMetadataFetchTime = curTime;
+        }
 
         /*ULOGI("StreamDemuxer: frame timestamps: NTP=%" PRIu64 " NTPRaw=%" PRIu64 " NTPLocal=%" PRIu64 " Cur=%" PRIu64 " Latency=%.1fms",
               auTimestamps->auNtpTimestamp, auTimestamps->auNtpTimestampRaw, auTimestamps->auNtpTimestampLocal,

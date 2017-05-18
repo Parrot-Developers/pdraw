@@ -48,7 +48,7 @@
     #include <GLFW/glfw3.h>
 #endif
 
-#include "pdraw_metadata.hpp"
+#include "pdraw_metadata_videoframe.hpp"
 
 
 #define GLES2_HUD_TEX_UNIT_COUNT 3
@@ -80,7 +80,7 @@ public:
 
     static int getTexUnitCount() { return GLES2_HUD_TEX_UNIT_COUNT; }
 
-    int renderHud(float aspectRatio, const frame_metadata_t *metadata);
+    int renderHud(float aspectRatio, const video_frame_metadata_t *metadata);
 
 private:
 

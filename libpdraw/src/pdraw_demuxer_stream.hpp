@@ -55,7 +55,7 @@ class StreamDemuxer : public Demuxer
 {
 public:
 
-    StreamDemuxer();
+    StreamDemuxer(Session *session);
 
     ~StreamDemuxer();
 
@@ -76,6 +76,14 @@ public:
     int getElementaryStreamCount();
 
     elementary_stream_type_t getElementaryStreamType(int esIndex);
+
+    int getElementaryStreamVideoDimensions(int esIndex,
+        unsigned int *width, unsigned int *height,
+        unsigned int *cropLeft, unsigned int *cropRight,
+        unsigned int *cropTop, unsigned int *cropBottom,
+        unsigned int *sarWidth, unsigned int *sarHeight);
+
+    int getElementaryStreamVideoFov(int esIndex, float *hfov, float *vfov);
 
     int setElementaryStreamDecoder(int esIndex, Decoder *decoder);
 
@@ -104,7 +112,25 @@ public:
 
     int stopResender();
 
+    uint64_t getDuration() { return (uint64_t)-1; };
+
+    uint64_t getCurrentTime();
+
+    Session *getSession() { return mSession; };
+
 private:
+
+    static void fetchSessionMetadata(StreamDemuxer *demuxer);
+
+    static eARSTREAM2_ERROR h264FilterSpsPpsCallback(uint8_t *spsBuffer, int spsSize, uint8_t *ppsBuffer, int ppsSize, void *userPtr);
+
+    static eARSTREAM2_ERROR h264FilterGetAuBufferCallback(uint8_t **auBuffer, int *auBufferSize, void **auBufferUserPtr, void *userPtr);
+
+    static eARSTREAM2_ERROR h264FilterAuReadyCallback(uint8_t *auBuffer, int auSize,
+                                                      ARSTREAM2_StreamReceiver_AuReadyCallbackTimestamps_t *auTimestamps,
+                                                      eARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE auSyncType,
+                                                      ARSTREAM2_StreamReceiver_AuReadyCallbackMetadata_t *auMetadata,
+                                                      void *auBufferUserPtr, void *userPtr);
 
     uint32_t mCurrentAuSize;
     int mMaxPacketSize;
@@ -120,16 +146,19 @@ private:
     bool mStreamOutputThreadLaunched;
     ARSTREAM2_StreamReceiver_Handle mStreamReceiver;
     ARSTREAM2_StreamReceiver_ResenderHandle mResender;
-
-    static eARSTREAM2_ERROR h264FilterSpsPpsCallback(uint8_t *spsBuffer, int spsSize, uint8_t *ppsBuffer, int ppsSize, void *userPtr);
-
-    static eARSTREAM2_ERROR h264FilterGetAuBufferCallback(uint8_t **auBuffer, int *auBufferSize, void **auBufferUserPtr, void *userPtr);
-
-    static eARSTREAM2_ERROR h264FilterAuReadyCallback(uint8_t *auBuffer, int auSize,
-                                                      ARSTREAM2_StreamReceiver_AuReadyCallbackTimestamps_t *auTimestamps,
-                                                      eARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE auSyncType,
-                                                      ARSTREAM2_StreamReceiver_AuReadyCallbackMetadata_t *auMetadata,
-                                                      void *auBufferUserPtr, void *userPtr);
+    uint64_t mStartTime;
+    uint64_t mCurrentTime;
+    uint64_t mLastSessionMetadataFetchTime;
+    unsigned int mWidth;
+    unsigned int mHeight;
+    unsigned int mCropLeft;
+    unsigned int mCropRight;
+    unsigned int mCropTop;
+    unsigned int mCropBottom;
+    unsigned int mSarWidth;
+    unsigned int mSarHeight;
+    float mHfov;
+    float mVfov;
 };
 
 }

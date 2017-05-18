@@ -45,14 +45,14 @@
 namespace Pdraw
 {
 
-Renderer *Renderer::create()
+Renderer *Renderer::create(Session *session)
 {
 #if defined(USE_VIDEOCOREEGL)
-    return new VideoCoreEglRenderer();
+    return new VideoCoreEglRenderer(session);
 #elif defined(USE_GLES2)
-    return new Gles2Renderer();
+    return new Gles2Renderer(session);
 #else
-    return new NullRenderer();
+    return new NullRenderer(session);
 #endif
 }
 

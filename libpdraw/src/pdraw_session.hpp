@@ -43,7 +43,7 @@
 #include <string>
 #include <vector>
 
-#include "pdraw_session_metadata.hpp"
+#include "pdraw_metadata_session.hpp"
 #include "pdraw_media.hpp"
 #include "pdraw_demuxer.hpp"
 #include "pdraw_renderer.hpp"
@@ -91,17 +91,24 @@ public:
     int enableRenderer();
     int disableRenderer();
 
+    uint64_t getDuration();
+
+    uint64_t getCurrentTime();
+
     Demuxer *getDemuxer() { return mDemuxer; };
 
     Renderer *getRenderer() { return mRenderer; };
 
-    SessionSelfMetadata& getSelfMetadata() { return selfMetadata; };
+    SessionSelfMetadata& getSelfMetadata() { return mSelfMetadata; };
+
+    SessionPeerMetadata& getPeerMetadata() { return mPeerMetadata; };
 
 private:
 
     int addMediaFromDemuxer();
 
-    SessionSelfMetadata selfMetadata;
+    SessionSelfMetadata mSelfMetadata;
+    SessionPeerMetadata mPeerMetadata;
     std::vector<Media*> mMedias;
     Demuxer *mDemuxer;
     Renderer *mRenderer;

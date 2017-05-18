@@ -38,11 +38,36 @@
 
 #include <math.h>
 #include <string.h>
+#include <h264/h264.h>
 
 #include "pdraw_utils.hpp"
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
+
+#define UTILS_H264_EXTENDED_SAR 255
+
+
+static const unsigned int pdraw_h264Sar[17][2] =
+{
+    { 1, 1 },
+    { 1, 1 },
+    { 12, 11 },
+    { 10, 11 },
+    { 16, 11 },
+    { 40, 33 },
+    { 24, 11 },
+    { 20, 11 },
+    { 32, 11 },
+    { 80, 33 },
+    { 18, 11 },
+    { 15, 11 },
+    { 64, 33 },
+    { 160, 99 },
+    { 4, 3 },
+    { 3, 2 },
+    { 2, 1 },
+};
 
 
 void pdraw_euler2quat(const euler_t *euler, quaternion_t *quat)
@@ -123,4 +148,122 @@ void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,
     b = atan2(x, y);
     if (distance) *distance = d;
     if (bearing) *bearing = b;
+}
+
+
+void pdraw_parseLocationString(char *locationStr, location_t *location)
+{
+    if ((!locationStr) || (!location))
+        return;
+
+    memset(location, 0, sizeof(*location));
+
+    /* ISO 6709 Annex H string expression */
+    char *v = locationStr, *v2 = NULL;
+    if (v)
+    {
+        location->latitude = strtod(v, &v2);
+        v = v2;
+    }
+    if (v)
+    {
+        location->longitude = strtod(v, &v2);
+        v = v2;
+    }
+    if (v)
+    {
+        location->altitude = strtod(v, &v2);
+        v = v2;
+    }
+
+    if ((location->latitude != 500.) && (location->longitude != 500.))
+    {
+        location->isValid = 1;
+    }
+}
+
+
+void pdraw_friendlyTimeFromUs(uint64_t time, unsigned int *hrs, unsigned int *min, unsigned int *sec, unsigned int *msec)
+{
+    unsigned int _hrs = (unsigned int)((time + 500) / 1000 / 60 / 60) / 1000;
+    unsigned int _min = (unsigned int)((time + 500) / 1000 / 60 - _hrs * 60000) / 1000;
+    unsigned int _sec = (unsigned int)((time + 500) / 1000 - _hrs * 60 * 60000 - _min * 60000) / 1000;
+    unsigned int _msec = (unsigned int)((time + 500) / 1000 - _hrs * 60 * 60000 - _min * 60000 - _sec * 1000);
+    if (hrs)
+        *hrs = _hrs;
+    if (min)
+        *min = _min;
+    if (sec)
+        *sec = _sec;
+    if (msec)
+        *msec = _msec;
+}
+
+
+int pdraw_videoDimensionsFromH264Sps(uint8_t *pSps, unsigned int spsSize,
+    unsigned int *width, unsigned int *height,
+    unsigned int *cropLeft, unsigned int *cropRight,
+    unsigned int *cropTop, unsigned int *cropBottom,
+    unsigned int *sarWidth, unsigned int *sarHeight)
+{
+    struct h264_sps sps;
+    int ret = h264_parse_sps(pSps, spsSize, &sps);
+    if (ret != 0)
+    {
+        ULOGE("Utils: h264_parse_sps() failed: %d(%s)", ret, strerror(-ret));
+        return -1;
+    }
+
+    struct h264_sps_derived sps_derived;
+    ret = h264_get_sps_derived(&sps, &sps_derived);
+    if (ret != 0)
+    {
+        ULOGE("Utils: h264_get_sps_derived() failed: %d(%s)", ret, strerror(-ret));
+        return -1;
+    }
+
+    unsigned int _width = sps_derived.PicWidthInSamplesLuma;
+    unsigned int _height = sps_derived.FrameHeightInMbs * 16;
+    unsigned int _cropLeft = 0, _cropRight = 0, _cropTop = 0, _cropBottom = 0;
+    if (sps.frame_cropping_flag)
+    {
+        _cropLeft = sps.frame_crop_left_offset * sps_derived.CropUnitX;
+        _cropRight = sps.frame_crop_right_offset * sps_derived.CropUnitX;
+        _cropTop = sps.frame_crop_top_offset * sps_derived.CropUnitY;
+        _cropBottom = sps.frame_crop_bottom_offset * sps_derived.CropUnitY;
+    }
+
+    unsigned int _sarWidth = 1, _sarHeight = 1;
+    if (sps.vui.aspect_ratio_info_present_flag)
+    {
+        if (sps.vui.aspect_ratio_idc == UTILS_H264_EXTENDED_SAR)
+        {
+            _sarWidth = sps.vui.sar_width;
+            _sarHeight = sps.vui.sar_height;
+        }
+        else if (sps.vui.aspect_ratio_idc <= 16)
+        {
+            _sarWidth = pdraw_h264Sar[sps.vui.aspect_ratio_idc][0];
+            _sarHeight = pdraw_h264Sar[sps.vui.aspect_ratio_idc][1];
+        }
+    }
+
+    if (width)
+        *width = _width;
+    if (height)
+        *height = _height;
+    if (cropLeft)
+        *cropLeft = _cropLeft;
+    if (cropRight)
+        *cropRight = _cropRight;
+    if (cropTop)
+        *cropTop = _cropTop;
+    if (cropBottom)
+        *cropBottom = _cropBottom;
+    if (sarWidth)
+        *sarWidth = _sarWidth;
+    if (sarHeight)
+        *sarHeight = _sarHeight;
+
+    return 0;
 }

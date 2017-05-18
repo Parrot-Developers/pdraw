@@ -58,6 +58,7 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder()
     mConfigured2 = false;
     mFirstFrame = true;
     mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
+    mMedia = (Media*)media;
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
     mOutputBufferPool = NULL;
@@ -853,7 +854,7 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
 
                 if (inputData->hasMetadata)
                 {
-                    memcpy(&outputData->metadata, &inputData->metadata, sizeof(frame_metadata_t));
+                    memcpy(&outputData->metadata, &inputData->metadata, sizeof(video_frame_metadata_t));
                     outputData->hasMetadata = true;
                 }
                 else

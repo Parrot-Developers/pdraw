@@ -61,4 +61,17 @@ void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,
                                     double *distance, double *bearing);
 
 
+void pdraw_parseLocationString(char *locationStr, location_t *location);
+
+
+void pdraw_friendlyTimeFromUs(uint64_t time, unsigned int *hrs, unsigned int *min,
+                              unsigned int *sec, unsigned int *msec);
+
+
+int pdraw_videoDimensionsFromH264Sps(uint8_t *pSps, unsigned int spsSize,
+    unsigned int *width, unsigned int *height,
+    unsigned int *cropLeft, unsigned int *cropRight,
+    unsigned int *cropTop, unsigned int *cropBottom,
+    unsigned int *sarWidth, unsigned int *sarHeight);
+
 #endif /* !_PDRAW_UTILS_HPP_ */

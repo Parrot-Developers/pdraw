@@ -56,13 +56,22 @@ namespace Pdraw
 {
 
 
+typedef enum
+{
+    VIDEO_TYPE_DEFAULT_CAMERA = 0,
+    VIDEO_TYPE_FRONT_CAMERA = 0,
+    VIDEO_TYPE_VERTICAL_CAMERA,
+
+} video_type_t;
+
+
 class VideoMedia : public Media
 {
 public:
 
-    VideoMedia(elementary_stream_type_t esType, unsigned int id);
+    VideoMedia(Session *session, elementary_stream_type_t esType, unsigned int id);
 
-    VideoMedia(elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex);
+    VideoMedia(Session *session, elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex);
 
     ~VideoMedia();
 
@@ -70,8 +79,26 @@ public:
 
     unsigned int getId() { return mId; };
 
+    video_type_t getVideoType() { return mVideoType; };
+    void setVideoType(video_type_t type) { mVideoType = type; };
+
+    void getDimensions(unsigned int *width, unsigned int *height,
+        unsigned int *cropLeft, unsigned int *cropRight,
+        unsigned int *cropTop, unsigned int *cropBottom,
+        unsigned int *croppedWidth, unsigned int *croppedHeight,
+        unsigned int *sarWidth, unsigned int *sarHeight);
+    void setDimensions(unsigned int width, unsigned int height,
+        unsigned int cropLeft, unsigned int cropRight,
+        unsigned int cropTop, unsigned int cropBottom,
+        unsigned int sarWidth, unsigned int sarHeight);
+
+    void getFov(float *hfov, float *vfov);
+    void setFov(float hfov, float vfov);
+
     int enableDecoder();
     int disableDecoder();
+
+    Session *getSession() { return mSession; };
 
     Decoder *getDecoder() { return mDecoder; };
 
@@ -84,6 +111,17 @@ private:
     bool isVideoFrameFilterValid(VideoFrameFilter *filter);
 
     elementary_stream_type_t mEsType;
+    video_type_t mVideoType;
+    unsigned int mWidth;
+    unsigned int mHeight;
+    unsigned int mCropLeft;
+    unsigned int mCropRight;
+    unsigned int mCropTop;
+    unsigned int mCropBottom;
+    unsigned int mSarWidth;
+    unsigned int mSarHeight;
+    float mHfov;
+    float mVfov;
     Demuxer *mDemux;
     int mDemuxEsIndex;
     Decoder *mDecoder;

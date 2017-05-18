@@ -56,7 +56,7 @@ class Gles2Renderer : public Renderer
 {
 public:
 
-    Gles2Renderer();
+    Gles2Renderer(Session *session);
 
     ~Gles2Renderer();
 
@@ -71,6 +71,8 @@ public:
              void *uiHandler);
 
     int render(int timeout);
+
+    Session *getSession() { return mSession; };
 
 protected:
 

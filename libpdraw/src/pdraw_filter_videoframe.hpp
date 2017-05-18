@@ -50,6 +50,7 @@ namespace Pdraw
 {
 
 
+class Media;
 class VideoMedia;
 
 
@@ -63,8 +64,6 @@ public:
 
     ~VideoFrameFilter();
 
-    VideoMedia *getMedia() { return mMedia; };
-
     /*
      * waitUs : wait a frame, time in microseconds.
      *  0: don't wait
@@ -73,11 +72,15 @@ public:
      */
     int getLastFrame(pdraw_video_frame_t *frame, long waitUs = 0);
 
+    Media *getMedia() { return mMedia; };
+
+    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+
 private:
 
     static void* runThread(void *ptr);
 
-    VideoMedia *mMedia;
+    Media *mMedia;
     AvcDecoder *mDecoder;
     BufferQueue *mDecoderOutputBufferQueue;
     pthread_mutex_t mMutex;

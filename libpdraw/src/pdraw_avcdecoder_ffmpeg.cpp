@@ -55,10 +55,11 @@ namespace Pdraw
 {
 
 
-FfmpegAvcDecoder::FfmpegAvcDecoder()
+FfmpegAvcDecoder::FfmpegAvcDecoder(VideoMedia *media)
 {
     mConfigured = false;
     mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+    mMedia = (Media*)media;
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
     mOutputBufferPool = NULL;
@@ -563,7 +564,7 @@ int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
 
         if (inputData->hasMetadata)
         {
-            memcpy(&outputData->metadata, &inputData->metadata, sizeof(frame_metadata_t));
+            memcpy(&outputData->metadata, &inputData->metadata, sizeof(video_frame_metadata_t));
             outputData->hasMetadata = true;
         }
         else

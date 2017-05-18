@@ -127,7 +127,7 @@ typedef struct
     int wifiRssi;
     int batteryPercentage;
 
-} pdraw_frame_metadata_t;
+} pdraw_video_frame_metadata_t;
 
 
 typedef struct
@@ -146,7 +146,7 @@ typedef struct
     uint64_t auNtpTimestampRaw;
     uint64_t auNtpTimestampLocal;
     int hasMetadata;
-    pdraw_frame_metadata_t metadata;
+    pdraw_video_frame_metadata_t metadata;
 
 } pdraw_video_frame_t;
 

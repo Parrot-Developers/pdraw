@@ -66,7 +66,7 @@ class FfmpegAvcDecoder : public AvcDecoder
 {
 public:
 
-    FfmpegAvcDecoder();
+    FfmpegAvcDecoder(VideoMedia *media);
 
     ~FfmpegAvcDecoder();
 
@@ -89,6 +89,10 @@ public:
     int releaseOutputBuffer(Buffer *buffer);
 
     int stop();
+
+    Media *getMedia() { return mMedia; };
+
+    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
 
 private:
 

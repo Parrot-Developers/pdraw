@@ -45,6 +45,10 @@
 namespace Pdraw
 {
 
+
+class Session;
+
+
 class Renderer
 {
 public:
@@ -63,7 +67,13 @@ public:
 
     virtual int render(int timeout) = 0;
 
-    static Renderer *create();
+    virtual Session *getSession() = 0;
+
+    static Renderer *create(Session *session);
+
+protected:
+
+    Session *mSession;
 };
 
 }

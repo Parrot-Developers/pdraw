@@ -43,6 +43,10 @@
 namespace Pdraw
 {
 
+
+class Media;
+
+
 class Decoder
 {
 public:
@@ -51,9 +55,12 @@ public:
 
     virtual bool isConfigured() = 0;
 
+    virtual Media *getMedia() = 0;
+
 protected:
 
     bool mConfigured;
+    Media *mMedia;
 };
 
 }

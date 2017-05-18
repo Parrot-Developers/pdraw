@@ -66,6 +66,9 @@ typedef enum
 } elementary_stream_type_t;
 
 
+class Session;
+
+
 class Media
 {
 public:
@@ -79,11 +82,14 @@ public:
     virtual int enableDecoder() = 0;
     virtual int disableDecoder() = 0;
 
+    virtual Session *getSession() = 0;
+
     virtual Decoder *getDecoder() = 0;
 
 protected:
 
     unsigned int mId;
+    Session *mSession;
 };
 
 }

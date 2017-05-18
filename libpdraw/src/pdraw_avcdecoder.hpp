@@ -42,7 +42,7 @@
 #include <inttypes.h>
 #include "pdraw_decoder.hpp"
 #include "pdraw_buffer.hpp"
-#include "pdraw_metadata.hpp"
+#include "pdraw_metadata_videoframe.hpp"
 
 
 namespace Pdraw
@@ -67,7 +67,7 @@ typedef struct
     uint64_t auNtpTimestampRaw;
     uint64_t auNtpTimestampLocal;
     bool hasMetadata;
-    frame_metadata_t metadata;
+    video_frame_metadata_t metadata;
     uint64_t demuxOutputTimestamp;
 
 } avc_decoder_input_buffer_t;
@@ -89,11 +89,14 @@ typedef struct
     uint64_t auNtpTimestampRaw;
     uint64_t auNtpTimestampLocal;
     bool hasMetadata;
-    frame_metadata_t metadata;
+    video_frame_metadata_t metadata;
     uint64_t demuxOutputTimestamp;
     uint64_t decoderOutputTimestamp;
 
 } avc_decoder_output_buffer_t;
+
+
+class VideoMedia;
 
 
 class AvcDecoder : public Decoder
@@ -118,9 +121,12 @@ public:
 
     virtual int stop() = 0;
 
-    static AvcDecoder *create();
+    virtual VideoMedia *getVideoMedia() = 0;
 
-private:
+    static AvcDecoder *create(VideoMedia *media);
+
+protected:
+
     virtual bool isOutputQueueValid(BufferQueue *queue) = 0;
 };
 

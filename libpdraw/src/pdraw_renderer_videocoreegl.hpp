@@ -59,7 +59,7 @@ class VideoCoreEglRenderer : public Gles2Renderer
 {
 public:
 
-    VideoCoreEglRenderer();
+    VideoCoreEglRenderer(Session *session);
 
     ~VideoCoreEglRenderer();
 

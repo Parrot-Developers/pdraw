@@ -49,9 +49,10 @@ namespace Pdraw
 {
 
 
-NullRenderer::NullRenderer()
+NullRenderer::NullRenderer(Session *session)
 {
     int ret = 0;
+    mSession = session;
     mDecoder = NULL;
     mDecoderOutputBufferQueue = NULL;
     mRendererThreadLaunched = false;

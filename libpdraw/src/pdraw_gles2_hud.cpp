@@ -310,7 +310,7 @@ Gles2Hud::~Gles2Hud()
 }
 
 
-int Gles2Hud::renderHud(float aspectRatio, const frame_metadata_t *metadata)
+int Gles2Hud::renderHud(float aspectRatio, const video_frame_metadata_t *metadata)
 {
     if ((aspectRatio <= 0.) || (!metadata))
     {

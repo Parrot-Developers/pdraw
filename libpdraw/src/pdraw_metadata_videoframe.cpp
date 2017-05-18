@@ -1,6 +1,6 @@
 /**
- * @file pdraw_metadata.cpp
- * @brief Parrot Drones Awesome Video Viewer Library - metadata
+ * @file pdraw_metadata_videoframe.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - video frame metadata
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -41,7 +41,7 @@
 
 #include <video-metadata/vmeta.h>
 
-#include "pdraw_metadata.hpp"
+#include "pdraw_metadata_videoframe.hpp"
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
@@ -51,225 +51,7 @@ namespace Pdraw
 {
 
 
-Metadata::Metadata()
-{
-
-}
-
-
-Metadata::~Metadata()
-{
-
-}
-
-
-string Metadata::getTitle(void)
-{
-    return mTitle;
-}
-
-
-void Metadata::setTitle(const string& title)
-{
-    mTitle = title;
-}
-
-
-string Metadata::getMaker(void)
-{
-    return mMaker;
-}
-
-
-void Metadata::setMaker(const string& maker)
-{
-    mMaker = maker;
-}
-
-
-string Metadata::getModel(void)
-{
-    return mModel;
-}
-
-
-void Metadata::setModel(const string& model)
-{
-    mModel = model;
-}
-
-
-string Metadata::getVersion(void)
-{
-    return mVersion;
-}
-
-
-void Metadata::setVersion(const string& version)
-{
-    mVersion = version;
-}
-
-
-string Metadata::getSerial(void)
-{
-    return mSerial;
-}
-
-
-void Metadata::setSerial(const string& serial)
-{
-    mSerial = serial;
-}
-
-
-string Metadata::getCopyright(void)
-{
-    return mCopyright;
-}
-
-
-void Metadata::setCopyright(const string& copyright)
-{
-    mCopyright = copyright;
-}
-
-
-string Metadata::getComment(void)
-{
-    return mComment;
-}
-
-
-void Metadata::setComment(const string& comment)
-{
-    mComment = comment;
-}
-
-
-string Metadata::getMediaDate(void)
-{
-    return mMediaDate;
-}
-
-
-void Metadata::setMediaDate(const string& mediaDate)
-{
-    mMediaDate = mediaDate;
-}
-
-
-string Metadata::getRunDate(void)
-{
-    return mRunDate;
-}
-
-
-void Metadata::setRunDate(const string& runDate)
-{
-    mRunDate = runDate;
-}
-
-
-string Metadata::getRunUuid(void)
-{
-    return mRunUuid;
-}
-
-
-void Metadata::setRunUuid(const string& runUuid)
-{
-    mRunUuid = runUuid;
-}
-
-
-void Metadata::getTakeoffLocation(location_t *takeoff)
-{
-    if (!takeoff)
-        return;
-    takeoff->isValid = mTakeoffLocation.isValid;
-    takeoff->latitude = mTakeoffLocation.latitude;
-    takeoff->longitude = mTakeoffLocation.longitude;
-    takeoff->altitude = mTakeoffLocation.altitude;
-    takeoff->svCount = mTakeoffLocation.svCount;
-}
-
-
-void Metadata::setTakeoffLocation(const location_t *takeoff)
-{
-    if (!takeoff)
-        return;
-    mTakeoffLocation.isValid = takeoff->isValid;
-    mTakeoffLocation.latitude = takeoff->latitude;
-    mTakeoffLocation.longitude = takeoff->longitude;
-    mTakeoffLocation.altitude = takeoff->altitude;
-    mTakeoffLocation.svCount = takeoff->svCount;
-}
-
-
-void Metadata::getHomeLocation(location_t *home)
-{
-    if (!home)
-        return;
-    home->isValid = mHomeLocation.isValid;
-    home->latitude = mHomeLocation.latitude;
-    home->longitude = mHomeLocation.longitude;
-    home->altitude = mHomeLocation.altitude;
-    home->svCount = mHomeLocation.svCount;
-}
-
-
-void Metadata::setHomeLocation(const location_t *home)
-{
-    if (!home)
-        return;
-    mHomeLocation.isValid = home->isValid;
-    mHomeLocation.latitude = home->latitude;
-    mHomeLocation.longitude = home->longitude;
-    mHomeLocation.altitude = home->altitude;
-    mHomeLocation.svCount = home->svCount;
-}
-
-
-void Metadata::getPilotLocation(location_t *pilot)
-{
-    if (!pilot)
-        return;
-    pilot->isValid = mPilotLocation.isValid;
-    pilot->latitude = mPilotLocation.latitude;
-    pilot->longitude = mPilotLocation.longitude;
-    pilot->altitude = mPilotLocation.altitude;
-    pilot->svCount = mPilotLocation.svCount;
-}
-
-
-void Metadata::setPilotLocation(const location_t *pilot)
-{
-    if (!pilot)
-        return;
-    mPilotLocation.isValid = pilot->isValid;
-    mPilotLocation.latitude = pilot->latitude;
-    mPilotLocation.longitude = pilot->longitude;
-    mPilotLocation.altitude = pilot->altitude;
-    mPilotLocation.svCount = pilot->svCount;
-}
-
-
-void Metadata::getPictureFov(float *pictureHFov, float *pictureVFov)
-{
-    if (pictureHFov) *pictureHFov = mPictureHFov;
-    if (pictureVFov) *pictureVFov = mPictureVFov;
-}
-
-
-void Metadata::setPictureFov(float pictureHFov, float pictureVFov)
-{
-    mPictureHFov = pictureHFov;
-    mPictureVFov = pictureVFov;
-}
-
-
-static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, frame_metadata_t *metadata)
+static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->altitude;
     metadata->location.isValid = (meta->location.valid) ? true : false;
@@ -280,7 +62,6 @@ static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, frame_m
         metadata->location.altitude = meta->location.altitude;
         metadata->location.svCount = meta->location.svCount;
     }
-    //TODO speed xyz to NED?
     metadata->groundSpeed.north = meta->speed.x;
     metadata->groundSpeed.east = meta->speed.y;
     metadata->groundSpeed.down = meta->speed.z;
@@ -307,7 +88,7 @@ static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, frame_m
 }
 
 
-static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *meta, frame_metadata_t *metadata)
+static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->altitude;
     metadata->location.isValid = (meta->location.valid) ? true : false;
@@ -318,7 +99,6 @@ static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *
         metadata->location.altitude = meta->location.altitude;
         metadata->location.svCount = meta->location.svCount;
     }
-    //TODO speed xyz to NED?
     metadata->groundSpeed.north = meta->speed.x;
     metadata->groundSpeed.east = meta->speed.y;
     metadata->groundSpeed.down = meta->speed.z;
@@ -345,7 +125,7 @@ static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *
 }
 
 
-static void mapFrameMetadataV1strmbasic(const struct vmeta_v1_streaming_basic *meta, frame_metadata_t *metadata)
+static void mapFrameMetadataV1strmbasic(const struct vmeta_v1_streaming_basic *meta, video_frame_metadata_t *metadata)
 {
     metadata->location.isValid = false;
     metadata->droneAttitude.phi = meta->droneAttitude.roll;
@@ -366,7 +146,7 @@ static void mapFrameMetadataV1strmbasic(const struct vmeta_v1_streaming_basic *m
 }
 
 
-static void mapFrameMetadataV2(const struct vmeta_v2 *meta, frame_metadata_t *metadata)
+static void mapFrameMetadataV2(const struct vmeta_v2 *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->base.groundDistance;
     metadata->location.isValid = (meta->base.location.valid) ? true : false;
@@ -404,8 +184,8 @@ static void mapFrameMetadataV2(const struct vmeta_v2 *meta, frame_metadata_t *me
 }
 
 
-bool Metadata::decodeFrameMetadata(const void *metadataBuffer, unsigned int metadataSize,
-                                   frame_metadata_source_t source, const char *mimeType, frame_metadata_t *metadata)
+bool VideoFrameMetadata::decodeMetadata(const void *metadataBuffer, unsigned int metadataSize,
+                                        video_frame_metadata_source_t source, const char *mimeType, video_frame_metadata_t *metadata)
 {
     bool ret = false;
     struct pomp_buffer *buf;
@@ -417,12 +197,12 @@ bool Metadata::decodeFrameMetadata(const void *metadataBuffer, unsigned int meta
         return false;
     }
 
-    memset(metadata, 0, sizeof(frame_metadata_t));
+    memset(metadata, 0, sizeof(video_frame_metadata_t));
 
     buf = pomp_buffer_new_with_data(metadataBuffer, metadataSize);
     if (!buf)
     {
-        ULOGE("Metadata: buffer allocation failed");
+        ULOGE("VideoFrameMetadata: buffer allocation failed");
         return false;
     }
 
@@ -432,7 +212,7 @@ bool Metadata::decodeFrameMetadata(const void *metadataBuffer, unsigned int meta
         err = vmeta_recording_read(buf, &pos, &rmeta, mimeType);
         if (err != 0)
         {
-            ULOGE("Metadata: vmeta_recording_read() failed (%d: '%s')", err, strerror(err));
+            ULOGE("VideoFrameMetadata: vmeta_recording_read() failed (%d: '%s')", err, strerror(err));
         }
         else
         {
@@ -448,7 +228,7 @@ bool Metadata::decodeFrameMetadata(const void *metadataBuffer, unsigned int meta
             }
             else
             {
-                ULOGW("Metadata: invalid metadata type %d", rmeta.type);
+                ULOGW("VideoFrameMetadata: invalid metadata type %d", rmeta.type);
             }
         }
     }
@@ -458,7 +238,7 @@ bool Metadata::decodeFrameMetadata(const void *metadataBuffer, unsigned int meta
         err = vmeta_streaming_read(buf, &pos, &smeta);
         if (err != 0)
         {
-            ULOGE("Metadata: vmeta_streaming_read() failed (%d: '%s')", err, strerror(err));
+            ULOGE("VideoFrameMetadata: vmeta_streaming_read() failed (%d: '%s')", err, strerror(err));
         }
         else
         {
@@ -479,7 +259,7 @@ bool Metadata::decodeFrameMetadata(const void *metadataBuffer, unsigned int meta
             }
             else
             {
-                ULOGW("Metadata: invalid metadata type %d", smeta.type);
+                ULOGW("VideoFrameMetadata: invalid metadata type %d", smeta.type);
             }
         }
     }

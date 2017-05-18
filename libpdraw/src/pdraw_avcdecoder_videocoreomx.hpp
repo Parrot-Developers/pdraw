@@ -63,7 +63,7 @@ class VideoCoreOmxAvcDecoder : public AvcDecoder
 {
 public:
 
-    VideoCoreOmxAvcDecoder();
+    VideoCoreOmxAvcDecoder(VideoMedia *media);
 
     ~VideoCoreOmxAvcDecoder();
 
@@ -88,6 +88,10 @@ public:
     int stop();
 
     void setRenderer(Renderer *renderer);
+
+    Media *getMedia() { return mMedia; };
+
+    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
 
 private:
 

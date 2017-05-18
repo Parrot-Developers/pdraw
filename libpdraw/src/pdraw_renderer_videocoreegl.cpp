@@ -56,7 +56,7 @@ namespace Pdraw
 {
 
 
-VideoCoreEglRenderer::VideoCoreEglRenderer() : Gles2Renderer()
+VideoCoreEglRenderer::VideoCoreEglRenderer(Session *session) : Gles2Renderer(session)
 {
     mVideoWidth = 0;
     mVideoHeight = 0;

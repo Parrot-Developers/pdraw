@@ -1,6 +1,6 @@
 /**
- * @file pdraw_session_metadata.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - session metadata
+ * @file pdraw_metadata_videoframe.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - video frame metadata
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,45 +36,39 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SESSION_METADATA_HPP_
-#define _PDRAW_SESSION_METADATA_HPP_
+#ifndef _PDRAW_METADATA_VIDEOFRAME_HPP_
+#define _PDRAW_METADATA_VIDEOFRAME_HPP_
 
 #include <inttypes.h>
 #include <string>
-#include <vector>
 
-
-using namespace std;
+#include "pdraw_utils.hpp"
 
 
 namespace Pdraw
 {
 
 
-class SessionSelfMetadata
+typedef enum
+{
+    FRAME_METADATA_SOURCE_RECORDING = 0,
+    FRAME_METADATA_SOURCE_STREAMING,
+
+} video_frame_metadata_source_t;
+
+
+#define video_frame_metadata_t pdraw_video_frame_metadata_t
+
+
+class VideoFrameMetadata
 {
 public:
 
-    SessionSelfMetadata();
+    static bool decodeMetadata(const void *metadataBuffer, unsigned int metadataSize,
+                               video_frame_metadata_source_t source, const char *mimeType, video_frame_metadata_t *metadata);
 
-    ~SessionSelfMetadata();
-
-    string& getFriendlyName(void);
-    void setFriendlyName(const string& friendlyName);
-
-    string& getSerialNumber(void);
-    void setSerialNumber(const string& serialNumber);
-
-    string& getSoftwareVersion(void);
-    void setSoftwareVersion(const string& softwareVersion);
-
-private:
-
-    std::string mFriendlyName;
-    std::string mSerialNumber;
-    std::string mSoftwareVersion;
 };
 
 }
 
-#endif /* !_PDRAW_SESSION_METADATA_HPP_ */
+#endif /* !_PDRAW_METADATA_VIDEOFRAME_HPP_ */

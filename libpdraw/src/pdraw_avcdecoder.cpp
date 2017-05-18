@@ -44,12 +44,12 @@
 namespace Pdraw
 {
 
-AvcDecoder *AvcDecoder::create()
+AvcDecoder *AvcDecoder::create(VideoMedia *media)
 {
 #if defined(USE_VIDEOCOREOMX)
-    return new VideoCoreOmxAvcDecoder();
+    return new VideoCoreOmxAvcDecoder(media);
 #elif defined(USE_FFMPEG)
-    return new FfmpegAvcDecoder();
+    return new FfmpegAvcDecoder(media);
 #else
     return NULL;
 #endif

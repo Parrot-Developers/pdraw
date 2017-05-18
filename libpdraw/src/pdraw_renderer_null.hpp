@@ -52,7 +52,7 @@ class NullRenderer : public Renderer
 {
 public:
 
-    NullRenderer();
+    NullRenderer(Session *session);
 
     ~NullRenderer();
 
@@ -67,6 +67,8 @@ public:
              void *uiHandler);
 
     int render(int timeout);
+
+    Session *getSession() { return mSession; };
 
 private:
 

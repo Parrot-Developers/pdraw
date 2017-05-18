@@ -55,7 +55,7 @@ class RecordDemuxer : public Demuxer
 {
 public:
 
-    RecordDemuxer();
+    RecordDemuxer(Session *session);
 
     ~RecordDemuxer();
 
@@ -68,6 +68,14 @@ public:
     int getElementaryStreamCount();
 
     elementary_stream_type_t getElementaryStreamType(int esIndex);
+
+    int getElementaryStreamVideoDimensions(int esIndex,
+        unsigned int *width, unsigned int *height,
+        unsigned int *cropLeft, unsigned int *cropRight,
+        unsigned int *cropTop, unsigned int *cropBottom,
+        unsigned int *sarWidth, unsigned int *sarHeight);
+
+    int getElementaryStreamVideoFov(int esIndex, float *hfov, float *vfov);
 
     int setElementaryStreamDecoder(int esIndex, Decoder *decoder);
 
@@ -86,7 +94,17 @@ public:
     int seekBack
             (uint64_t delta);
 
+    uint64_t getDuration() { return mDuration; };
+
+    uint64_t getCurrentTime() { return mCurrentTime; };
+
+    Session *getSession() { return mSession; };
+
 private:
+
+    int fetchVideoDimensions();
+
+    int fetchSessionMetadata();
 
     static void* runDemuxerThread(void *ptr);
 
@@ -99,6 +117,7 @@ private:
     int mThreadShouldStop;
     struct mp4_demux *mDemux;
     uint64_t mDuration;
+    uint64_t mCurrentTime;
     int mVideoTrackCount;
     unsigned int mVideoTrackId;
     char *mMetadataMimeType;
@@ -108,6 +127,16 @@ private:
     uint64_t mLastFrameOutputTime;
     uint64_t mLastFrameTimestamp;
     int64_t mPendingSeekTs;
+    unsigned int mWidth;
+    unsigned int mHeight;
+    unsigned int mCropLeft;
+    unsigned int mCropRight;
+    unsigned int mCropTop;
+    unsigned int mCropBottom;
+    unsigned int mSarWidth;
+    unsigned int mSarHeight;
+    float mHfov;
+    float mVfov;
 };
 
 }

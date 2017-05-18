@@ -58,7 +58,7 @@ VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder) : Vid
 VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw_video_frame_filter_callback_t cb, void *userPtr)
 {
     int ret = 0;
-    mMedia = media;
+    mMedia = (Media*)media;
     mDecoder = NULL;
     mDecoderOutputBufferQueue = NULL;
     mThreadLaunched = false;
