@@ -562,8 +562,15 @@ int PdrawImpl::getMediaInfo(unsigned int index, pdraw_media_info_t *info)
 
     switch (media->getType())
     {
-        case MEDIA_TYPE_VIDEO:
+        case PDRAW_MEDIA_TYPE_VIDEO:
             info->type = PDRAW_MEDIA_TYPE_VIDEO;
+            info->videoInfo.type = ((VideoMedia*)media)->getVideoType();
+            ((VideoMedia*)media)->getDimensions(&info->videoInfo.width, &info->videoInfo.height,
+                &info->videoInfo.cropLeft, &info->videoInfo.cropRight,
+                &info->videoInfo.cropTop, &info->videoInfo.cropBottom,
+                &info->videoInfo.croppedWidth, &info->videoInfo.croppedHeight,
+                &info->videoInfo.sarWidth, &info->videoInfo.sarHeight);
+            ((VideoMedia*)media)->getFov(&info->videoInfo.horizontalFov, &info->videoInfo.verticalFov);
             break;
         default:
             info->type = PDRAW_MEDIA_TYPE_UNKNOWN;
@@ -585,7 +592,7 @@ void *PdrawImpl::addVideoFrameFilterCallback(unsigned int mediaId, pdraw_video_f
         return NULL;
     }
 
-    if (media->getType() != MEDIA_TYPE_VIDEO)
+    if (media->getType() != PDRAW_MEDIA_TYPE_VIDEO)
     {
         ULOGE("Invalid media type");
         return NULL;
@@ -612,7 +619,7 @@ int PdrawImpl::removeVideoFrameFilterCallback(unsigned int mediaId, void *filter
         return -1;
     }
 
-    if (media->getType() != MEDIA_TYPE_VIDEO)
+    if (media->getType() != PDRAW_MEDIA_TYPE_VIDEO)
     {
         ULOGE("Invalid media type");
         return -1;
@@ -639,7 +646,7 @@ void *PdrawImpl::addVideoFrameProducer(unsigned int mediaId)
         return NULL;
     }
 
-    if (media->getType() != MEDIA_TYPE_VIDEO)
+    if (media->getType() != PDRAW_MEDIA_TYPE_VIDEO)
     {
         ULOGE("Invalid media type");
         return NULL;

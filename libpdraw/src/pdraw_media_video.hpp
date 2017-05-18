@@ -56,13 +56,7 @@ namespace Pdraw
 {
 
 
-typedef enum
-{
-    VIDEO_TYPE_DEFAULT_CAMERA = 0,
-    VIDEO_TYPE_FRONT_CAMERA = 0,
-    VIDEO_TYPE_VERTICAL_CAMERA,
-
-} video_type_t;
+#define video_type_t pdraw_video_type_t
 
 
 class VideoMedia : public Media
@@ -75,7 +69,7 @@ public:
 
     ~VideoMedia();
 
-    media_type_t getType() { return MEDIA_TYPE_VIDEO; };
+    media_type_t getType() { return PDRAW_MEDIA_TYPE_VIDEO; };
 
     unsigned int getId() { return mId; };
 

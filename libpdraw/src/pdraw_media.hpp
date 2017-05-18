@@ -41,6 +41,7 @@
 
 #include <inttypes.h>
 #include <string>
+#include <pdraw/pdraw_defs.h>
 
 #include "pdraw_decoder.hpp"
 
@@ -51,11 +52,7 @@ namespace Pdraw
 {
 
 
-typedef enum
-{
-    MEDIA_TYPE_VIDEO = 0,
-
-} media_type_t;
+#define media_type_t pdraw_media_type_t
 
 
 typedef enum

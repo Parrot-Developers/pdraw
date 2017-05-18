@@ -55,7 +55,7 @@ VideoMedia::VideoMedia(Session *session, elementary_stream_type_t esType, unsign
     mSession = session;
     mEsType = esType;
     mId = id;
-    mVideoType = VIDEO_TYPE_DEFAULT_CAMERA;
+    mVideoType = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
     mWidth = mHeight = 0;
     mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
     mSarWidth = mSarHeight = 0;
@@ -71,7 +71,7 @@ VideoMedia::VideoMedia(Session *session, elementary_stream_type_t esType, unsign
     mSession = session;
     mEsType = esType;
     mId = id;
-    mVideoType = VIDEO_TYPE_DEFAULT_CAMERA;
+    mVideoType = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
     mWidth = mHeight = 0;
     mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
     mSarWidth = mSarHeight = 0;

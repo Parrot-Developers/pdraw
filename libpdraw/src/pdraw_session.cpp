@@ -364,7 +364,7 @@ int Session::enableRenderer()
 
         for (m = mMedias.begin(); m < mMedias.end(); m++)
         {
-            if ((*m)->getType() == MEDIA_TYPE_VIDEO)
+            if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO)
             {
                 ret = mRenderer->addAvcDecoder((AvcDecoder*)((*m)->getDecoder()));
                 if (ret != 0)
@@ -393,7 +393,7 @@ int Session::disableRenderer()
 
     for (m = mMedias.begin(); m < mMedias.end(); m++)
     {
-        if ((*m)->getType() == MEDIA_TYPE_VIDEO)
+        if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO)
         {
             ret = mRenderer->removeAvcDecoder((AvcDecoder*)((*m)->getDecoder()));
             if (ret != 0)

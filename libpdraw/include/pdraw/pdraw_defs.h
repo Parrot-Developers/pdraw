@@ -59,10 +59,42 @@ typedef enum
 } pdraw_color_format_t;
 
 
+typedef enum
+{
+    PDRAW_VIDEO_TYPE_DEFAULT_CAMERA = 0,
+    PDRAW_VIDEO_TYPE_FRONT_CAMERA = 0,
+    PDRAW_VIDEO_TYPE_VERTICAL_CAMERA,
+
+} pdraw_video_type_t;
+
+
+typedef struct
+{
+    pdraw_video_type_t type;
+    unsigned int width;
+    unsigned int height;
+    unsigned int cropLeft;
+    unsigned int cropRight;
+    unsigned int cropTop;
+    unsigned int cropBottom;
+    unsigned int croppedWidth;
+    unsigned int croppedHeight;
+    unsigned int sarWidth;
+    unsigned int sarHeight;
+    float horizontalFov;
+    float verticalFov;
+
+} pdraw_video_info_t;
+
+
 typedef struct
 {
     pdraw_media_type_t type;
     unsigned int id;
+    union
+    {
+        pdraw_video_info_t videoInfo;
+    };
 
 } pdraw_media_info_t;
 
