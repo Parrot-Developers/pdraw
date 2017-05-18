@@ -372,169 +372,169 @@ int PdrawImpl::render(int timeout)
 
 std::string& PdrawImpl::getSelfFriendlyName(void)
 {
-    return mSession.getSelfMetadata().getFriendlyName();
+    return mSession.getSelfMetadata()->getFriendlyName();
 }
 
 
 void PdrawImpl::setSelfFriendlyName
         (const std::string &friendlyName)
 {
-    mSession.getSelfMetadata().setFriendlyName(friendlyName);
+    mSession.getSelfMetadata()->setFriendlyName(friendlyName);
 }
 
 
 std::string& PdrawImpl::getSelfSerialNumber(void)
 {
-    return mSession.getSelfMetadata().getSerialNumber();
+    return mSession.getSelfMetadata()->getSerialNumber();
 }
 
 
 void PdrawImpl::setSelfSerialNumber
         (const std::string &serialNumber)
 {
-    mSession.getSelfMetadata().setSerialNumber(serialNumber);
+    mSession.getSelfMetadata()->setSerialNumber(serialNumber);
 }
 
 
 std::string& PdrawImpl::getSelfSoftwareVersion(void)
 {
-    return mSession.getSelfMetadata().getSoftwareVersion();
+    return mSession.getSelfMetadata()->getSoftwareVersion();
 }
 
 
 void PdrawImpl::setSelfSoftwareVersion
         (const std::string &softwareVersion)
 {
-    mSession.getSelfMetadata().setSoftwareVersion(softwareVersion);
+    mSession.getSelfMetadata()->setSoftwareVersion(softwareVersion);
 }
 
 
 void PdrawImpl::getSelfLocation
         (location_t *loc)
 {
-    mSession.getSelfMetadata().getLocation(loc);
+    mSession.getSelfMetadata()->getLocation(loc);
 }
 
 
 void PdrawImpl::setSelfLocation
         (const location_t *loc)
 {
-    mSession.getSelfMetadata().setLocation(loc);
+    mSession.getSelfMetadata()->setLocation(loc);
 }
 
 
 bool PdrawImpl::isSelfPilot(void)
 {
-    return mSession.getSelfMetadata().isPilot();
+    return mSession.getSelfMetadata()->isPilot();
 }
 
 
 void PdrawImpl::setSelfPilot
         (bool isPilot)
 {
-    mSession.getSelfMetadata().setPilot(isPilot);
+    mSession.getSelfMetadata()->setPilot(isPilot);
 }
 
 
 std::string& PdrawImpl::getPeerFriendlyName(void)
 {
-    return mSession.getPeerMetadata().getFriendlyName();
+    return mSession.getPeerMetadata()->getFriendlyName();
 }
 
 
 std::string& PdrawImpl::getPeerMaker(void)
 {
-    return mSession.getPeerMetadata().getMaker();
+    return mSession.getPeerMetadata()->getMaker();
 }
 
 
 std::string& PdrawImpl::getPeerModel(void)
 {
-    return mSession.getPeerMetadata().getModel();
+    return mSession.getPeerMetadata()->getModel();
 }
 
 
 std::string& PdrawImpl::getPeerModelId(void)
 {
-    return mSession.getPeerMetadata().getModelId();
+    return mSession.getPeerMetadata()->getModelId();
 }
 
 
 std::string& PdrawImpl::getPeerSerialNumber(void)
 {
-    return mSession.getPeerMetadata().getSerialNumber();
+    return mSession.getPeerMetadata()->getSerialNumber();
 }
 
 
 std::string& PdrawImpl::getPeerSoftwareVersion(void)
 {
-    return mSession.getPeerMetadata().getSoftwareVersion();
+    return mSession.getPeerMetadata()->getSoftwareVersion();
 }
 
 
 std::string& PdrawImpl::getPeerBuildId(void)
 {
-    return mSession.getPeerMetadata().getBuildId();
+    return mSession.getPeerMetadata()->getBuildId();
 }
 
 
 std::string& PdrawImpl::getPeerTitle(void)
 {
-    return mSession.getPeerMetadata().getTitle();
+    return mSession.getPeerMetadata()->getTitle();
 }
 
 
 std::string& PdrawImpl::getPeerComment(void)
 {
-    return mSession.getPeerMetadata().getComment();
+    return mSession.getPeerMetadata()->getComment();
 }
 
 
 std::string& PdrawImpl::getPeerCopyright(void)
 {
-    return mSession.getPeerMetadata().getCopyright();
+    return mSession.getPeerMetadata()->getCopyright();
 }
 
 
 std::string& PdrawImpl::getPeerRunDate(void)
 {
-    return mSession.getPeerMetadata().getRunDate();
+    return mSession.getPeerMetadata()->getRunDate();
 }
 
 
 std::string& PdrawImpl::getPeerRunUuid(void)
 {
-    return mSession.getPeerMetadata().getRunUuid();
+    return mSession.getPeerMetadata()->getRunUuid();
 }
 
 
 std::string& PdrawImpl::getPeerMediaDate(void)
 {
-    return mSession.getPeerMetadata().getMediaDate();
+    return mSession.getPeerMetadata()->getMediaDate();
 }
 
 
 void PdrawImpl::getPeerTakeoffLocation(pdraw_location_t *loc)
 {
-    mSession.getPeerMetadata().getTakeoffLocation(loc);
+    mSession.getPeerMetadata()->getTakeoffLocation(loc);
 }
 
 
 void PdrawImpl::setPeerTakeoffLocation(const pdraw_location_t *loc)
 {
-    mSession.getPeerMetadata().setTakeoffLocation(loc);
+    mSession.getPeerMetadata()->setTakeoffLocation(loc);
 }
 
 
 void PdrawImpl::getPeerHomeLocation(pdraw_location_t *loc)
 {
-    mSession.getPeerMetadata().getHomeLocation(loc);
+    mSession.getPeerMetadata()->getHomeLocation(loc);
 }
 
 
 void PdrawImpl::setPeerHomeLocation(const pdraw_location_t *loc)
 {
-    mSession.getPeerMetadata().setHomeLocation(loc);
+    mSession.getPeerMetadata()->setHomeLocation(loc);
 }
 
 

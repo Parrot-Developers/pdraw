@@ -185,7 +185,7 @@ int RecordDemuxer::fetchSessionMetadata()
         return -1;
     }
 
-    SessionPeerMetadata peerMeta = mSession->getPeerMetadata();
+    SessionPeerMetadata *peerMeta = mSession->getPeerMetadata();
     unsigned int count = 0, i;
     char **keys = NULL, *key;
     char **values = NULL, *value;
@@ -204,13 +204,13 @@ int RecordDemuxer::fetchSessionMetadata()
         if ((key) && (value))
         {
             location_t takeoffLoc;
-            peerMeta.getTakeoffLocation(&takeoffLoc);
-            if ((peerMeta.getFriendlyName().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_ARTIST, strlen(RECORD_DEMUXER_UDTA_KEY_ARTIST))))
-                peerMeta.setFriendlyName(value);
-            else if ((peerMeta.getTitle().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_TITLE, strlen(RECORD_DEMUXER_UDTA_KEY_TITLE))))
-                peerMeta.setTitle(value);
-            else if ((peerMeta.getMediaDate().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_DATE, strlen(RECORD_DEMUXER_UDTA_KEY_DATE))))
-                peerMeta.setMediaDate(value);
+            peerMeta->getTakeoffLocation(&takeoffLoc);
+            if ((peerMeta->getFriendlyName().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_ARTIST, strlen(RECORD_DEMUXER_UDTA_KEY_ARTIST))))
+                peerMeta->setFriendlyName(value);
+            else if ((peerMeta->getTitle().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_TITLE, strlen(RECORD_DEMUXER_UDTA_KEY_TITLE))))
+                peerMeta->setTitle(value);
+            else if ((peerMeta->getMediaDate().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_DATE, strlen(RECORD_DEMUXER_UDTA_KEY_DATE))))
+                peerMeta->setMediaDate(value);
             else if ((!strncmp(key, RECORD_DEMUXER_UDTA_KEY_COMMENT, strlen(RECORD_DEMUXER_UDTA_KEY_COMMENT))))
             {
                 if ((strlen(value) > 0) && (value[0] == '{') && (value[strlen(value) - 1] == '}'))
@@ -230,22 +230,22 @@ int RecordDemuxer::fetchSessionMetadata()
                     }
 
                     /* software_version */
-                    if ((error == 0) && (peerMeta.getSoftwareVersion().empty()))
+                    if ((error == 0) && (peerMeta->getSoftwareVersion().empty()))
                     {
                         jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_VERSION, &jsonObjItem);
                         if ((jsonRet) && (jsonObjItem != NULL))
                         {
-                            peerMeta.setSoftwareVersion(json_object_get_string(jsonObjItem));
+                            peerMeta->setSoftwareVersion(json_object_get_string(jsonObjItem));
                         }
                     }
 
                     /* run_uuid */
-                    if ((error == 0) && (peerMeta.getRunUuid().empty()))
+                    if ((error == 0) && (peerMeta->getRunUuid().empty()))
                     {
                         jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_RUN_ID, &jsonObjItem);
                         if ((jsonRet) && (jsonObjItem != NULL))
                         {
-                            peerMeta.setRunUuid(json_object_get_string(jsonObjItem));
+                            peerMeta->setRunUuid(json_object_get_string(jsonObjItem));
                         }
                     }
 
@@ -261,18 +261,18 @@ int RecordDemuxer::fetchSessionMetadata()
                             if ((takeoffLoc.latitude != 500.) && (takeoffLoc.longitude != 500.))
                             {
                                 takeoffLoc.isValid = 1;
-                                peerMeta.setTakeoffLocation(&takeoffLoc);
+                                peerMeta->setTakeoffLocation(&takeoffLoc);
                             }
                         }
                     }
 
                     /* media_date */
-                    if ((error == 0) && (peerMeta.getMediaDate().empty()))
+                    if ((error == 0) && (peerMeta->getMediaDate().empty()))
                     {
                         jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_DATE, &jsonObjItem);
                         if ((jsonRet) && (jsonObjItem != NULL))
                         {
-                            peerMeta.setMediaDate(json_object_get_string(jsonObjItem));
+                            peerMeta->setMediaDate(json_object_get_string(jsonObjItem));
                         }
                     }
 
@@ -296,61 +296,61 @@ int RecordDemuxer::fetchSessionMetadata()
                         }
                     }
                 }
-                else if (peerMeta.getComment().empty())
+                else if (peerMeta->getComment().empty())
                 {
-                    peerMeta.setComment(value);
+                    peerMeta->setComment(value);
                 }
             }
-            else if ((peerMeta.getCopyright().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_COPYRIGHT, strlen(RECORD_DEMUXER_UDTA_KEY_COPYRIGHT))))
-                peerMeta.setCopyright(value);
-            else if ((peerMeta.getMaker().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_MAKER, strlen(RECORD_DEMUXER_UDTA_KEY_MAKER))))
-                peerMeta.setMaker(value);
-            else if ((peerMeta.getModel().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_MODEL, strlen(RECORD_DEMUXER_UDTA_KEY_MODEL))))
-                peerMeta.setModel(value);
-            else if ((peerMeta.getSoftwareVersion().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_VERSION, strlen(RECORD_DEMUXER_UDTA_KEY_VERSION))))
-                peerMeta.setSoftwareVersion(value);
-            else if ((peerMeta.getSerialNumber().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_SERIAL, strlen(RECORD_DEMUXER_UDTA_KEY_SERIAL))))
-                peerMeta.setSerialNumber(value);
+            else if ((peerMeta->getCopyright().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_COPYRIGHT, strlen(RECORD_DEMUXER_UDTA_KEY_COPYRIGHT))))
+                peerMeta->setCopyright(value);
+            else if ((peerMeta->getMaker().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_MAKER, strlen(RECORD_DEMUXER_UDTA_KEY_MAKER))))
+                peerMeta->setMaker(value);
+            else if ((peerMeta->getModel().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_MODEL, strlen(RECORD_DEMUXER_UDTA_KEY_MODEL))))
+                peerMeta->setModel(value);
+            else if ((peerMeta->getSoftwareVersion().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_VERSION, strlen(RECORD_DEMUXER_UDTA_KEY_VERSION))))
+                peerMeta->setSoftwareVersion(value);
+            else if ((peerMeta->getSerialNumber().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_SERIAL, strlen(RECORD_DEMUXER_UDTA_KEY_SERIAL))))
+                peerMeta->setSerialNumber(value);
             else if ((!takeoffLoc.isValid) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_LOCATION, strlen(RECORD_DEMUXER_UDTA_KEY_LOCATION))))
             {
                 pdraw_parseLocationString(value, &takeoffLoc);
                 if (takeoffLoc.isValid)
                 {
-                    peerMeta.setTakeoffLocation(&takeoffLoc);
+                    peerMeta->setTakeoffLocation(&takeoffLoc);
                 }
             }
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_ARTIST, strlen(RECORD_DEMUXER_META_KEY_ARTIST)))
-                peerMeta.setFriendlyName(value);
+                peerMeta->setFriendlyName(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_TITLE, strlen(RECORD_DEMUXER_META_KEY_TITLE)))
-                peerMeta.setTitle(value);
+                peerMeta->setTitle(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_DATE, strlen(RECORD_DEMUXER_META_KEY_DATE)))
-                peerMeta.setMediaDate(value);
+                peerMeta->setMediaDate(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_COMMENT, strlen(RECORD_DEMUXER_META_KEY_COMMENT)))
-                peerMeta.setComment(value);
+                peerMeta->setComment(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_COPYRIGHT, strlen(RECORD_DEMUXER_META_KEY_COPYRIGHT)))
-                peerMeta.setCopyright(value);
+                peerMeta->setCopyright(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_MAKER, strlen(RECORD_DEMUXER_META_KEY_MAKER)))
-                peerMeta.setMaker(value);
+                peerMeta->setMaker(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_MODEL, strlen(RECORD_DEMUXER_META_KEY_MODEL)))
-                peerMeta.setModel(value);
+                peerMeta->setModel(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_VERSION, strlen(RECORD_DEMUXER_META_KEY_VERSION)))
-                peerMeta.setSoftwareVersion(value);
+                peerMeta->setSoftwareVersion(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_SERIAL, strlen(RECORD_DEMUXER_META_KEY_SERIAL)))
-                peerMeta.setSerialNumber(value);
+                peerMeta->setSerialNumber(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_MODEL_ID, strlen(RECORD_DEMUXER_META_KEY_MODEL_ID)))
-                peerMeta.setModelId(value);
+                peerMeta->setModelId(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_BUILD_ID, strlen(RECORD_DEMUXER_META_KEY_BUILD_ID)))
-                peerMeta.setBuildId(value);
+                peerMeta->setBuildId(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_RUN_ID, strlen(RECORD_DEMUXER_META_KEY_RUN_ID)))
-                peerMeta.setRunUuid(value);
+                peerMeta->setRunUuid(value);
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_RUN_DATE, strlen(RECORD_DEMUXER_META_KEY_RUN_DATE)))
-                peerMeta.setRunDate(value);
+                peerMeta->setRunDate(value);
             else if ((!strncmp(key, RECORD_DEMUXER_META_KEY_LOCATION, strlen(RECORD_DEMUXER_META_KEY_LOCATION))))
             {
                 pdraw_parseLocationString(value, &takeoffLoc);
                 if (takeoffLoc.isValid)
                 {
-                    peerMeta.setTakeoffLocation(&takeoffLoc);
+                    peerMeta->setTakeoffLocation(&takeoffLoc);
                 }
             }
             else if (!strncmp(key, RECORD_DEMUXER_META_KEY_PICTURE_HFOV, strlen(RECORD_DEMUXER_META_KEY_PICTURE_HFOV)))

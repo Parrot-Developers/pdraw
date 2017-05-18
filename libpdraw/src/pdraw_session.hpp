@@ -95,9 +95,9 @@ public:
 
     Renderer *getRenderer() { return mRenderer; };
 
-    SessionSelfMetadata& getSelfMetadata() { return mSelfMetadata; };
+    SessionSelfMetadata *getSelfMetadata() { return &mSelfMetadata; };
 
-    SessionPeerMetadata& getPeerMetadata() { return mPeerMetadata; };
+    SessionPeerMetadata *getPeerMetadata() { return &mPeerMetadata; };
 
 private:
 

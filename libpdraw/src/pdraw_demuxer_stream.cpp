@@ -114,7 +114,7 @@ void StreamDemuxer::fetchSessionMetadata(StreamDemuxer *demuxer)
         return;
     }
 
-    SessionPeerMetadata peerMeta = demuxer->mSession->getPeerMetadata();
+    SessionPeerMetadata *peerMeta = demuxer->mSession->getPeerMetadata();
     ARSTREAM2_Stream_UntimedMetadata_t metadata;
     memset(&metadata, 0, sizeof(metadata));
     eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_GetPeerUntimedMetadata(demuxer->mStreamReceiver, &metadata);
@@ -125,29 +125,29 @@ void StreamDemuxer::fetchSessionMetadata(StreamDemuxer *demuxer)
     }
 
     if (metadata.friendlyName)
-        peerMeta.setFriendlyName(metadata.friendlyName);
+        peerMeta->setFriendlyName(metadata.friendlyName);
     if (metadata.title)
-        peerMeta.setTitle(metadata.title);
+        peerMeta->setTitle(metadata.title);
     if (metadata.maker)
-        peerMeta.setMaker(metadata.maker);
+        peerMeta->setMaker(metadata.maker);
     if (metadata.model)
-        peerMeta.setModel(metadata.model);
+        peerMeta->setModel(metadata.model);
     if (metadata.softwareVersion)
-        peerMeta.setSoftwareVersion(metadata.softwareVersion);
+        peerMeta->setSoftwareVersion(metadata.softwareVersion);
     if (metadata.serialNumber)
-        peerMeta.setSerialNumber(metadata.serialNumber);
+        peerMeta->setSerialNumber(metadata.serialNumber);
     if (metadata.modelId)
-        peerMeta.setModelId(metadata.modelId);
+        peerMeta->setModelId(metadata.modelId);
     if (metadata.buildId)
-        peerMeta.setBuildId(metadata.buildId);
+        peerMeta->setBuildId(metadata.buildId);
     if (metadata.runUuid)
-        peerMeta.setRunUuid(metadata.runUuid);
+        peerMeta->setRunUuid(metadata.runUuid);
     if (metadata.runDate)
-        peerMeta.setRunDate(metadata.runDate);
+        peerMeta->setRunDate(metadata.runDate);
     if (metadata.comment)
-        peerMeta.setComment(metadata.comment);
+        peerMeta->setComment(metadata.comment);
     if (metadata.copyright)
-        peerMeta.setCopyright(metadata.copyright);
+        peerMeta->setCopyright(metadata.copyright);
     if ((metadata.pictureHFov != 0.) && (metadata.pictureVFov != 0.) &&
         ((demuxer->mHfov != metadata.pictureHFov) || (demuxer->mVfov != metadata.pictureVFov)))
     {
@@ -196,7 +196,7 @@ int StreamDemuxer::configure(const std::string &srcAddr,
     }
 
     mQosMode = qosMode;
-    SessionSelfMetadata selfMeta = mSession->getSelfMetadata();
+    SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
     int ret = 0;
 
     if (ret == 0)
@@ -215,9 +215,9 @@ int StreamDemuxer::configure(const std::string &srcAddr,
         streamReceiverNetConfig.clientStreamPort = dstStreamPort;
         streamReceiverNetConfig.clientControlPort = dstControlPort;
         streamReceiverNetConfig.classSelector = (qosMode == 1) ? ARSAL_SOCKET_CLASS_SELECTOR_CS4 : ARSAL_SOCKET_CLASS_SELECTOR_UNSPECIFIED;
-        streamReceiverConfig.canonicalName = selfMeta.getSerialNumber().c_str();
-        streamReceiverConfig.friendlyName = selfMeta.getFriendlyName().c_str();
-        streamReceiverConfig.applicationName = selfMeta.getSoftwareVersion().c_str();
+        streamReceiverConfig.canonicalName = selfMeta->getSerialNumber().c_str();
+        streamReceiverConfig.friendlyName = selfMeta->getFriendlyName().c_str();
+        streamReceiverConfig.applicationName = selfMeta->getSoftwareVersion().c_str();
         streamReceiverConfig.maxPacketSize = mMaxPacketSize;
         streamReceiverConfig.generateReceiverReports = 1;
         streamReceiverConfig.waitForSync = 1;
@@ -543,13 +543,13 @@ int StreamDemuxer::startResender(const std::string &dstAddr, const std::string &
         return -1;
     }
 
-    SessionSelfMetadata selfMeta = mSession->getSelfMetadata();
+    SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
 
     ARSTREAM2_StreamReceiver_ResenderConfig_t resenderConfig;
     memset(&resenderConfig, 0, sizeof(resenderConfig));
-    resenderConfig.canonicalName = selfMeta.getSerialNumber().c_str();
-    resenderConfig.friendlyName = selfMeta.getFriendlyName().c_str();
-    resenderConfig.applicationName = selfMeta.getSoftwareVersion().c_str();
+    resenderConfig.canonicalName = selfMeta->getSerialNumber().c_str();
+    resenderConfig.friendlyName = selfMeta->getFriendlyName().c_str();
+    resenderConfig.applicationName = selfMeta->getSoftwareVersion().c_str();
     resenderConfig.clientAddr = dstAddr.c_str();
     int addrFirst = atoi(dstAddr.c_str());
     resenderConfig.mcastAddr = ((addrFirst >= 224) && (addrFirst <= 239)) ? dstAddr.c_str() : NULL;
