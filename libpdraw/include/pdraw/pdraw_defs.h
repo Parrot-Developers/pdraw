@@ -68,6 +68,39 @@ typedef enum
 } pdraw_video_type_t;
 
 
+typedef enum
+{
+    PDRAW_FLYING_STATE_LANDED = 0,
+    PDRAW_FLYING_STATE_TAKINGOFF,
+    PDRAW_FLYING_STATE_HOVERING,
+    PDRAW_FLYING_STATE_FLYING,
+    PDRAW_FLYING_STATE_LANDING,
+    PDRAW_FLYING_STATE_EMERGENCY,
+
+} pdraw_flying_state_t;
+
+
+typedef enum
+{
+    PDRAW_PILOTING_MODE_MANUAL = 0,
+    PDRAW_PILOTING_MODE_RETURN_HOME,
+    PDRAW_PILOTING_MODE_FLIGHT_PLAN,
+    PDRAW_PILOTING_MODE_FOLLOW_ME,
+
+} pdraw_piloting_mode_t;
+
+
+typedef enum
+{
+    PDRAW_FOLLOWME_ANIM_NONE = 0,
+    PDRAW_FOLLOWME_ANIM_ORBIT,
+    PDRAW_FOLLOWME_ANIM_BOOMERANG,
+    PDRAW_FOLLOWME_ANIM_PARABOLA,
+    PDRAW_FOLLOWME_ANIM_ZENITH,
+
+} pdraw_followme_anim_t;
+
+
 typedef struct
 {
     pdraw_video_type_t type;
@@ -152,12 +185,18 @@ typedef struct
     float cameraTilt;
     float exposureTime;
     int gain;
-    int flyingState;
+    pdraw_flying_state_t flyingState;
     int binning;
-    int pilotingMode;
+    pdraw_piloting_mode_t pilotingMode;
     int animation;
     int wifiRssi;
     int batteryPercentage;
+    uint64_t frameTimestamp;
+    int followMeEnabled;
+    int followMeMode;
+    int followMeAngleLocked;
+    pdraw_followme_anim_t followMeAnimation;
+    pdraw_location_t followMeTargetLocation;
 
 } pdraw_video_frame_metadata_t;
 

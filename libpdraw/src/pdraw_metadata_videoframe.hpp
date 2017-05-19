@@ -58,6 +58,9 @@ typedef enum
 
 
 #define video_frame_metadata_t pdraw_video_frame_metadata_t
+#define flying_state_t pdraw_flying_state_t
+#define piloting_mode_t pdraw_piloting_mode_t
+#define followme_anim_t pdraw_followme_anim_t
 
 
 class VideoFrameMetadata

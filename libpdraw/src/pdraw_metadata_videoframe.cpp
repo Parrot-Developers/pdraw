@@ -54,7 +54,7 @@ namespace Pdraw
 static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->altitude;
-    metadata->location.isValid = (meta->location.valid) ? true : false;
+    metadata->location.isValid = (meta->location.valid) ? 1 : 0;
     if (meta->location.valid)
     {
         metadata->location.latitude = meta->location.latitude;
@@ -79,9 +79,45 @@ static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, video_f
     metadata->cameraTilt = meta->cameraTilt;
     metadata->exposureTime = meta->exposureTime;
     metadata->gain = meta->gain;
-    metadata->flyingState = meta->state;
+    switch (meta->state)
+    {
+    default:
+    case VMETA_FLYING_STATE_LANDED:
+        metadata->flyingState = PDRAW_FLYING_STATE_LANDED;
+        break;
+    case VMETA_FLYING_STATE_TAKINGOFF:
+        metadata->flyingState = PDRAW_FLYING_STATE_TAKINGOFF;
+        break;
+    case VMETA_FLYING_STATE_HOVERING:
+        metadata->flyingState = PDRAW_FLYING_STATE_HOVERING;
+        break;
+    case VMETA_FLYING_STATE_FLYING:
+        metadata->flyingState = PDRAW_FLYING_STATE_FLYING;
+        break;
+    case VMETA_FLYING_STATE_LANDING:
+        metadata->flyingState = PDRAW_FLYING_STATE_LANDING;
+        break;
+    case VMETA_FLYING_STATE_EMERGENCY:
+        metadata->flyingState = PDRAW_FLYING_STATE_EMERGENCY;
+        break;
+    }
     metadata->binning = meta->binning;
-    metadata->pilotingMode = meta->mode;
+    switch (meta->mode)
+    {
+    default:
+    case VMETA_PILOTING_MODE_MANUAL:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_MANUAL;
+        break;
+    case VMETA_PILOTING_MODE_RETURN_HOME:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_RETURN_HOME;
+        break;
+    case VMETA_PILOTING_MODE_FLIGHT_PLAN:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_FLIGHT_PLAN;
+        break;
+    case VMETA_PILOTING_MODE_FOLLOW_ME:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_FOLLOW_ME;
+        break;
+    }
     metadata->animation = meta->animation;
     metadata->wifiRssi = meta->wifiRssi;
     metadata->batteryPercentage = meta->batteryPercentage;
@@ -91,7 +127,7 @@ static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, video_f
 static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->altitude;
-    metadata->location.isValid = (meta->location.valid) ? true : false;
+    metadata->location.isValid = (meta->location.valid) ? 1 : 0;
     if (meta->location.valid)
     {
         metadata->location.latitude = meta->location.latitude;
@@ -116,9 +152,45 @@ static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *
     metadata->cameraTilt = meta->cameraTilt;
     metadata->exposureTime = meta->exposureTime;
     metadata->gain = meta->gain;
-    metadata->flyingState = meta->state;
+    switch (meta->state)
+    {
+    default:
+    case VMETA_FLYING_STATE_LANDED:
+        metadata->flyingState = PDRAW_FLYING_STATE_LANDED;
+        break;
+    case VMETA_FLYING_STATE_TAKINGOFF:
+        metadata->flyingState = PDRAW_FLYING_STATE_TAKINGOFF;
+        break;
+    case VMETA_FLYING_STATE_HOVERING:
+        metadata->flyingState = PDRAW_FLYING_STATE_HOVERING;
+        break;
+    case VMETA_FLYING_STATE_FLYING:
+        metadata->flyingState = PDRAW_FLYING_STATE_FLYING;
+        break;
+    case VMETA_FLYING_STATE_LANDING:
+        metadata->flyingState = PDRAW_FLYING_STATE_LANDING;
+        break;
+    case VMETA_FLYING_STATE_EMERGENCY:
+        metadata->flyingState = PDRAW_FLYING_STATE_EMERGENCY;
+        break;
+    }
     metadata->binning = meta->binning;
-    metadata->pilotingMode = meta->mode;
+    switch (meta->mode)
+    {
+    default:
+    case VMETA_PILOTING_MODE_MANUAL:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_MANUAL;
+        break;
+    case VMETA_PILOTING_MODE_RETURN_HOME:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_RETURN_HOME;
+        break;
+    case VMETA_PILOTING_MODE_FLIGHT_PLAN:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_FLIGHT_PLAN;
+        break;
+    case VMETA_PILOTING_MODE_FOLLOW_ME:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_FOLLOW_ME;
+        break;
+    }
     metadata->animation = meta->animation;
     metadata->wifiRssi = meta->wifiRssi;
     metadata->batteryPercentage = meta->batteryPercentage;
@@ -149,7 +221,7 @@ static void mapFrameMetadataV1strmbasic(const struct vmeta_v1_streaming_basic *m
 static void mapFrameMetadataV2(const struct vmeta_v2 *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->base.groundDistance;
-    metadata->location.isValid = (meta->base.location.valid) ? true : false;
+    metadata->location.isValid = (meta->base.location.valid) ? 1 : 0;
     if (meta->base.location.valid)
     {
         metadata->location.latitude = meta->base.location.latitude;
@@ -175,12 +247,85 @@ static void mapFrameMetadataV2(const struct vmeta_v2 *meta, video_frame_metadata
     metadata->cameraTilt = meta->base.cameraTilt;
     metadata->exposureTime = meta->base.exposureTime;
     metadata->gain = meta->base.gain;
-    metadata->flyingState = meta->base.state;
+    switch (meta->base.state)
+    {
+    default:
+    case VMETA_FLYING_STATE_LANDED:
+        metadata->flyingState = PDRAW_FLYING_STATE_LANDED;
+        break;
+    case VMETA_FLYING_STATE_TAKINGOFF:
+        metadata->flyingState = PDRAW_FLYING_STATE_TAKINGOFF;
+        break;
+    case VMETA_FLYING_STATE_HOVERING:
+        metadata->flyingState = PDRAW_FLYING_STATE_HOVERING;
+        break;
+    case VMETA_FLYING_STATE_FLYING:
+        metadata->flyingState = PDRAW_FLYING_STATE_FLYING;
+        break;
+    case VMETA_FLYING_STATE_LANDING:
+        metadata->flyingState = PDRAW_FLYING_STATE_LANDING;
+        break;
+    case VMETA_FLYING_STATE_EMERGENCY:
+        metadata->flyingState = PDRAW_FLYING_STATE_EMERGENCY;
+        break;
+    }
     metadata->binning = meta->base.binning;
-    metadata->pilotingMode = meta->base.mode;
+    switch (meta->base.mode)
+    {
+    default:
+    case VMETA_PILOTING_MODE_MANUAL:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_MANUAL;
+        break;
+    case VMETA_PILOTING_MODE_RETURN_HOME:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_RETURN_HOME;
+        break;
+    case VMETA_PILOTING_MODE_FLIGHT_PLAN:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_FLIGHT_PLAN;
+        break;
+    case VMETA_PILOTING_MODE_FOLLOW_ME:
+        metadata->pilotingMode = PDRAW_PILOTING_MODE_FOLLOW_ME;
+        break;
+    }
     metadata->animation = meta->base.animation;
     metadata->wifiRssi = meta->base.wifiRssi;
     metadata->batteryPercentage = meta->base.batteryPercentage;
+    if (meta->has_timestamp)
+    {
+        metadata->frameTimestamp = meta->timestamp.frameTimestamp;
+    }
+    if (meta->has_followme)
+    {
+        metadata->followMeEnabled = meta->followme.enabled;
+        metadata->followMeMode = meta->followme.mode;
+        metadata->followMeAngleLocked = meta->followme.angleLocked;
+        switch (meta->followme.animation)
+        {
+        default:
+        case VMETA_FOLLOWME_ANIM_NONE:
+            metadata->followMeAnimation = PDRAW_FOLLOWME_ANIM_NONE;
+            break;
+        case VMETA_FOLLOWME_ANIM_ORBIT:
+            metadata->followMeAnimation = PDRAW_FOLLOWME_ANIM_ORBIT;
+            break;
+        case VMETA_FOLLOWME_ANIM_BOOMERANG:
+            metadata->followMeAnimation = PDRAW_FOLLOWME_ANIM_BOOMERANG;
+            break;
+        case VMETA_FOLLOWME_ANIM_PARABOLA:
+            metadata->followMeAnimation = PDRAW_FOLLOWME_ANIM_PARABOLA;
+            break;
+        case VMETA_FOLLOWME_ANIM_ZENITH:
+            metadata->followMeAnimation = PDRAW_FOLLOWME_ANIM_ZENITH;
+            break;
+        }
+        metadata->followMeTargetLocation.isValid = (meta->followme.target.valid) ? 1 : 0;
+        if (meta->followme.target.valid)
+        {
+            metadata->followMeTargetLocation.latitude = meta->followme.target.latitude;
+            metadata->followMeTargetLocation.longitude = meta->followme.target.longitude;
+            metadata->followMeTargetLocation.altitude = meta->followme.target.altitude;
+            metadata->followMeTargetLocation.svCount = meta->followme.target.svCount;
+        }
+    }
 }
 
 
