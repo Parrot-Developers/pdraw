@@ -52,7 +52,7 @@ namespace Pdraw
 {
 
 
-VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder()
+VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
 {
     mConfigured = false;
     mConfigured2 = false;
