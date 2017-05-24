@@ -216,8 +216,8 @@ int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame, long waitUs)
     memcpy(frame, &mBufferData[mBufferIndex], sizeof(*frame));
     mBufferIndex ^= 1;
 
-    pthread_mutex_unlock(&mMutex);
     mFrameAvailable = false;
+    pthread_mutex_unlock(&mMutex);
 
     return 0;
 }
