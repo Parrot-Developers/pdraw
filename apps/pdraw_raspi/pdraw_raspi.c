@@ -1478,60 +1478,46 @@ eARDISCOVERY_ERROR ardiscoveryConnectionReceiveJsonCallback(uint8_t *dataRx, uin
         int error = 0;
         json_object* jsonObj_All;
         json_object* jsonObj_Item;
-        int value;
+        json_bool jsonRet;
 
         /* Parse the whole Rx buffer */
         if (error == 0)
         {
             jsonObj_All = json_tokener_parse((const char*)dataRx);
             if (jsonObj_All == NULL)
-            {
                 error = -1;
-            }
         }
 
         /* Find the c2dPort */
         if (error == 0)
         {
-            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_C2DPORT_KEY);
-            if (jsonObj_Item != NULL)
-            {
-                value = json_object_get_int(jsonObj_Item);
-                app->arsdkC2DPort = value;
-            }
+            jsonRet = json_object_object_get_ex(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_C2DPORT_KEY, &jsonObj_Item);
+            if ((jsonRet) && (jsonObj_Item != NULL))
+                app->arsdkC2DPort = json_object_get_int(jsonObj_Item);
         }
 
         /* Find the QoS mode */
         if (error == 0)
         {
-            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_QOS_MODE_KEY);
-            if (jsonObj_Item != NULL)
-            {
-                value = json_object_get_int(jsonObj_Item);
-                app->qosMode = value;
-            }
+            jsonRet = json_object_object_get_ex(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_QOS_MODE_KEY, &jsonObj_Item);
+            if ((jsonRet) && (jsonObj_Item != NULL))
+                app->qosMode = json_object_get_int(jsonObj_Item);
         }
 
         /* Find the srcStreamPort */
         if (error == 0)
         {
-            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_STREAM_PORT_KEY);
-            if (jsonObj_Item != NULL)
-            {
-                value = json_object_get_int(jsonObj_Item);
-                app->srcStreamPort = value;
-            }
+            jsonRet = json_object_object_get_ex(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_STREAM_PORT_KEY, &jsonObj_Item);
+            if ((jsonRet) && (jsonObj_Item != NULL))
+                app->srcStreamPort = json_object_get_int(jsonObj_Item);
         }
 
         /* Find the srcControlPort */
         if (error == 0)
         {
-            jsonObj_Item = json_object_object_get(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_CONTROL_PORT_KEY);
-            if (jsonObj_Item != NULL)
-            {
-                value = json_object_get_int(jsonObj_Item);
-                app->srcControlPort = value;
-            }
+            jsonRet = json_object_object_get_ex(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_CONTROL_PORT_KEY, &jsonObj_Item);
+            if ((jsonRet) && (jsonObj_Item != NULL))
+                app->srcControlPort = json_object_get_int(jsonObj_Item);
         }
     }
     else
