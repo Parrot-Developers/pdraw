@@ -174,6 +174,15 @@ int pdraw_set_self_software_version
          const char *softwareVersion);
 
 
+int pdraw_is_self_pilot
+        (struct pdraw *pdraw);
+
+
+int pdraw_set_self_pilot
+        (struct pdraw *pdraw,
+         int isPilot);
+
+
 int pdraw_get_self_location
         (struct pdraw *pdraw,
          pdraw_location_t *loc);
@@ -184,13 +193,64 @@ int pdraw_set_self_location
          const pdraw_location_t *loc);
 
 
-int pdraw_is_self_pilot
-        (struct pdraw *pdraw);
-
-
-int pdraw_set_self_pilot
+int pdraw_get_self_controller_orientation_quat
         (struct pdraw *pdraw,
-         int isPilot);
+         pdraw_quaternion_t *quat);
+
+
+int pdraw_get_self_controller_orientation_euler
+        (struct pdraw *pdraw,
+         pdraw_euler_t *euler);
+
+
+int pdraw_set_self_controller_orientation_quat
+        (struct pdraw *pdraw,
+         const pdraw_quaternion_t *quat);
+
+
+int pdraw_set_self_controller_orientation_euler
+        (struct pdraw *pdraw,
+         const pdraw_euler_t *euler);
+
+
+int pdraw_get_self_head_orientation_quat
+        (struct pdraw *pdraw,
+         pdraw_quaternion_t *quat);
+
+
+int pdraw_get_self_head_orientation_euler
+        (struct pdraw *pdraw,
+         pdraw_euler_t *euler);
+
+
+int pdraw_set_self_head_orientation_quat
+        (struct pdraw *pdraw,
+         const pdraw_quaternion_t *quat);
+
+
+int pdraw_set_self_head_orientation_euler
+        (struct pdraw *pdraw,
+         const pdraw_euler_t *euler);
+
+
+int pdraw_get_self_head_ref_orientation_quat
+        (struct pdraw *pdraw,
+         pdraw_quaternion_t *quat);
+
+
+int pdraw_get_self_head_ref_orientation_euler
+        (struct pdraw *pdraw,
+         pdraw_euler_t *euler);
+
+
+int pdraw_set_self_head_ref_orientation_quat
+        (struct pdraw *pdraw,
+         const pdraw_quaternion_t *quat);
+
+
+int pdraw_set_self_head_ref_orientation_euler
+        (struct pdraw *pdraw,
+         const pdraw_euler_t *euler);
 
 
 const char *pdraw_get_peer_friendly_name

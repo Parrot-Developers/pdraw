@@ -128,14 +128,41 @@ public:
     void setSelfSoftwareVersion
             (const std::string &softwareVersion);
 
+    bool isSelfPilot(void);
+    void setSelfPilot
+            (bool isPilot);
+
     void getSelfLocation
             (location_t *loc);
     void setSelfLocation
             (const location_t *loc);
 
-    bool isSelfPilot(void);
-    void setSelfPilot
-            (bool isPilot);
+    void getSelfControllerOrientation
+            (quaternion_t *quat);
+    void getSelfControllerOrientation
+            (euler_t *euler);
+    void setSelfControllerOrientation
+            (const quaternion_t *quat);
+    void setSelfControllerOrientation
+            (const euler_t *euler);
+
+    void getSelfHeadOrientation
+            (quaternion_t *quat);
+    void getSelfHeadOrientation
+            (euler_t *euler);
+    void setSelfHeadOrientation
+            (const quaternion_t *quat);
+    void setSelfHeadOrientation
+            (const euler_t *euler);
+
+    void getSelfHeadRefOrientation
+            (quaternion_t *quat);
+    void getSelfHeadRefOrientation
+            (euler_t *euler);
+    void setSelfHeadRefOrientation
+            (const quaternion_t *quat);
+    void setSelfHeadRefOrientation
+            (const euler_t *euler);
 
     std::string& getPeerFriendlyName(void);
 

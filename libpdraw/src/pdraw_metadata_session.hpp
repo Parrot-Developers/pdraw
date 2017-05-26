@@ -67,19 +67,37 @@ public:
     std::string& getSoftwareVersion(void) { return mSoftwareVersion; };
     void setSoftwareVersion(const std::string& softwareVersion) { mSoftwareVersion = softwareVersion; };
 
+    bool isPilot() { return mIsPilot; };
+    void setPilot(bool isPilot) { mIsPilot = isPilot; };
+
     void getLocation(location_t *loc);
     void setLocation(const location_t *loc);
 
-    bool isPilot() { return mIsPilot; };
-    void setPilot(bool isPilot) { mIsPilot = isPilot; };
+    void getControllerOrientation(quaternion_t *quat);
+    void getControllerOrientation(euler_t *euler);
+    void setControllerOrientation(const quaternion_t *quat);
+    void setControllerOrientation(const euler_t *euler);
+
+    void getHeadOrientation(quaternion_t *quat);
+    void getHeadOrientation(euler_t *euler);
+    void setHeadOrientation(const quaternion_t *quat);
+    void setHeadOrientation(const euler_t *euler);
+
+    void getHeadRefOrientation(quaternion_t *quat);
+    void getHeadRefOrientation(euler_t *euler);
+    void setHeadRefOrientation(const quaternion_t *quat);
+    void setHeadRefOrientation(const euler_t *euler);
 
 private:
 
     std::string mFriendlyName;
     std::string mSerialNumber;
     std::string mSoftwareVersion;
-    location_t mLocation;
     bool mIsPilot;
+    location_t mLocation;
+    quaternion_t mControllerQuat;
+    quaternion_t mHeadQuat;
+    quaternion_t mHeadRefQuat;
 };
 
 

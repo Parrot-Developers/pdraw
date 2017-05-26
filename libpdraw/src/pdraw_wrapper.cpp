@@ -319,6 +319,27 @@ int pdraw_set_self_software_version(struct pdraw *pdraw, const char *softwareVer
 }
 
 
+int pdraw_is_self_pilot(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return (toPdraw(pdraw)->isSelfPilot()) ? 1 : 0;
+}
+
+
+int pdraw_set_self_pilot(struct pdraw *pdraw, int isPilot)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfPilot((isPilot) ? true : false);
+    return 0;
+}
+
+
 int pdraw_get_self_location(struct pdraw *pdraw, pdraw_location_t *loc)
 {
     if (pdraw == NULL)
@@ -341,23 +362,134 @@ int pdraw_set_self_location(struct pdraw *pdraw, const pdraw_location_t *loc)
 }
 
 
-int pdraw_is_self_pilot(struct pdraw *pdraw)
+int pdraw_get_self_controller_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t *quat)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return (toPdraw(pdraw)->isSelfPilot()) ? 1 : 0;
+    toPdraw(pdraw)->getSelfControllerOrientation(quat);
+    return 0;
 }
 
 
-int pdraw_set_self_pilot(struct pdraw *pdraw, int isPilot)
+int pdraw_get_self_controller_orientation_euler(struct pdraw *pdraw, pdraw_euler_t *euler)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    toPdraw(pdraw)->setSelfPilot((isPilot) ? true : false);
+    toPdraw(pdraw)->getSelfControllerOrientation(euler);
+    return 0;
+}
+
+
+int pdraw_set_self_controller_orientation_quat(struct pdraw *pdraw, const pdraw_quaternion_t *quat)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfControllerOrientation(quat);
+    return 0;
+}
+
+
+int pdraw_set_self_controller_orientation_euler(struct pdraw *pdraw, const pdraw_euler_t *euler)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfControllerOrientation(euler);
+    return 0;
+}
+
+
+int pdraw_get_self_head_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t *quat)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getSelfHeadOrientation(quat);
+    return 0;
+}
+
+
+int pdraw_get_self_head_orientation_euler(struct pdraw *pdraw, pdraw_euler_t *euler)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getSelfHeadOrientation(euler);
+    return 0;
+}
+
+
+int pdraw_set_self_head_orientation_quat(struct pdraw *pdraw, const pdraw_quaternion_t *quat)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfHeadOrientation(quat);
+    return 0;
+}
+
+
+int pdraw_set_self_head_orientation_euler(struct pdraw *pdraw, const pdraw_euler_t *euler)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfHeadOrientation(euler);
+    return 0;
+}
+
+
+int pdraw_get_self_head_ref_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t *quat)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getSelfHeadRefOrientation(quat);
+    return 0;
+}
+
+
+int pdraw_get_self_head_ref_orientation_euler(struct pdraw *pdraw, pdraw_euler_t *euler)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getSelfHeadRefOrientation(euler);
+    return 0;
+}
+
+
+int pdraw_set_self_head_ref_orientation_quat(struct pdraw *pdraw, const pdraw_quaternion_t *quat)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfHeadRefOrientation(quat);
+    return 0;
+}
+
+
+int pdraw_set_self_head_ref_orientation_euler(struct pdraw *pdraw, const pdraw_euler_t *euler)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setSelfHeadRefOrientation(euler);
     return 0;
 }
 

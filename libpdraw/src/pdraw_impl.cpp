@@ -409,6 +409,19 @@ void PdrawImpl::setSelfSoftwareVersion
 }
 
 
+bool PdrawImpl::isSelfPilot(void)
+{
+    return mSession.getSelfMetadata()->isPilot();
+}
+
+
+void PdrawImpl::setSelfPilot
+        (bool isPilot)
+{
+    mSession.getSelfMetadata()->setPilot(isPilot);
+}
+
+
 void PdrawImpl::getSelfLocation
         (location_t *loc)
 {
@@ -423,16 +436,87 @@ void PdrawImpl::setSelfLocation
 }
 
 
-bool PdrawImpl::isSelfPilot(void)
+void PdrawImpl::getSelfControllerOrientation
+        (quaternion_t *quat)
 {
-    return mSession.getSelfMetadata()->isPilot();
+    mSession.getSelfMetadata()->getControllerOrientation(quat);
 }
 
 
-void PdrawImpl::setSelfPilot
-        (bool isPilot)
+void PdrawImpl::getSelfControllerOrientation
+        (euler_t *euler)
 {
-    mSession.getSelfMetadata()->setPilot(isPilot);
+    mSession.getSelfMetadata()->getControllerOrientation(euler);
+}
+
+
+void PdrawImpl::setSelfControllerOrientation
+        (const quaternion_t *quat)
+{
+    mSession.getSelfMetadata()->setControllerOrientation(quat);
+}
+
+
+void PdrawImpl::setSelfControllerOrientation
+        (const euler_t *euler)
+{
+    mSession.getSelfMetadata()->setControllerOrientation(euler);
+}
+
+
+void PdrawImpl::getSelfHeadOrientation
+        (quaternion_t *quat)
+{
+    mSession.getSelfMetadata()->getHeadOrientation(quat);
+}
+
+
+void PdrawImpl::getSelfHeadOrientation
+        (euler_t *euler)
+{
+    mSession.getSelfMetadata()->getHeadOrientation(euler);
+}
+
+
+void PdrawImpl::setSelfHeadOrientation
+        (const quaternion_t *quat)
+{
+    mSession.getSelfMetadata()->setHeadOrientation(quat);
+}
+
+
+void PdrawImpl::setSelfHeadOrientation
+        (const euler_t *euler)
+{
+    mSession.getSelfMetadata()->setHeadOrientation(euler);
+}
+
+
+void PdrawImpl::getSelfHeadRefOrientation
+        (quaternion_t *quat)
+{
+    mSession.getSelfMetadata()->getHeadRefOrientation(quat);
+}
+
+
+void PdrawImpl::getSelfHeadRefOrientation
+        (euler_t *euler)
+{
+    mSession.getSelfMetadata()->getHeadRefOrientation(euler);
+}
+
+
+void PdrawImpl::setSelfHeadRefOrientation
+        (const quaternion_t *quat)
+{
+    mSession.getSelfMetadata()->setHeadRefOrientation(quat);
+}
+
+
+void PdrawImpl::setSelfHeadRefOrientation
+        (const euler_t *euler)
+{
+    mSession.getSelfMetadata()->setHeadRefOrientation(euler);
 }
 
 

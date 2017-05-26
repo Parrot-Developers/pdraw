@@ -123,14 +123,41 @@ public:
     virtual void setSelfSoftwareVersion
             (const std::string &softwareVersion) = 0;
 
+    virtual bool isSelfPilot(void) = 0;
+    virtual void setSelfPilot
+            (bool isPilot) = 0;
+
     virtual void getSelfLocation
             (pdraw_location_t *loc) = 0;
     virtual void setSelfLocation
             (const pdraw_location_t *loc) = 0;
 
-    virtual bool isSelfPilot(void) = 0;
-    virtual void setSelfPilot
-            (bool isPilot) = 0;
+    virtual void getSelfControllerOrientation
+            (pdraw_quaternion_t *quat) = 0;
+    virtual void getSelfControllerOrientation
+            (pdraw_euler_t *euler) = 0;
+    virtual void setSelfControllerOrientation
+            (const pdraw_quaternion_t *quat) = 0;
+    virtual void setSelfControllerOrientation
+            (const pdraw_euler_t *euler) = 0;
+
+    virtual void getSelfHeadOrientation
+            (pdraw_quaternion_t *quat) = 0;
+    virtual void getSelfHeadOrientation
+            (pdraw_euler_t *euler) = 0;
+    virtual void setSelfHeadOrientation
+            (const pdraw_quaternion_t *quat) = 0;
+    virtual void setSelfHeadOrientation
+            (const pdraw_euler_t *euler) = 0;
+
+    virtual void getSelfHeadRefOrientation
+            (pdraw_quaternion_t *quat) = 0;
+    virtual void getSelfHeadRefOrientation
+            (pdraw_euler_t *euler) = 0;
+    virtual void setSelfHeadRefOrientation
+            (const pdraw_quaternion_t *quat) = 0;
+    virtual void setSelfHeadRefOrientation
+            (const pdraw_euler_t *euler) = 0;
 
     virtual std::string& getPeerFriendlyName(void) = 0;
 

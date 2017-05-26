@@ -51,8 +51,11 @@ namespace Pdraw
 
 SessionSelfMetadata::SessionSelfMetadata()
 {
-    mLocation.isValid = 0;
     mIsPilot = true;
+    mLocation.isValid = 0;
+    mControllerQuat = { 1, 0, 0, 0 };
+    mHeadQuat = { 1, 0, 0, 0 };
+    mHeadRefQuat = mHeadQuat;
 }
 
 
@@ -66,11 +69,7 @@ void SessionSelfMetadata::getLocation(location_t *loc)
 {
     if (!loc)
         return;
-    loc->isValid = mLocation.isValid;
-    loc->latitude = mLocation.latitude;
-    loc->longitude = mLocation.longitude;
-    loc->altitude = mLocation.altitude;
-    loc->svCount = mLocation.svCount;
+    memcpy(loc, &mLocation, sizeof(*loc));
 }
 
 
@@ -78,11 +77,103 @@ void SessionSelfMetadata::setLocation(const location_t *loc)
 {
     if (!loc)
         return;
-    mLocation.isValid = loc->isValid;
-    mLocation.latitude = loc->latitude;
-    mLocation.longitude = loc->longitude;
-    mLocation.altitude = loc->altitude;
-    mLocation.svCount = loc->svCount;
+    memcpy(&mLocation, loc, sizeof(*loc));
+}
+
+
+void SessionSelfMetadata::getControllerOrientation(quaternion_t *quat)
+{
+    if (!quat)
+        return;
+    memcpy(quat, &mControllerQuat, sizeof(*quat));
+}
+
+
+void SessionSelfMetadata::getControllerOrientation(euler_t *euler)
+{
+    if (!euler)
+        return;
+    pdraw_quat2euler(&mControllerQuat, euler);
+}
+
+
+void SessionSelfMetadata::setControllerOrientation(const quaternion_t *quat)
+{
+    if (!quat)
+        return;
+    memcpy(&mControllerQuat, quat, sizeof(*quat));
+}
+
+
+void SessionSelfMetadata::setControllerOrientation(const euler_t *euler)
+{
+    if (!euler)
+        return;
+    pdraw_euler2quat(euler, &mControllerQuat);
+}
+
+
+void SessionSelfMetadata::getHeadOrientation(quaternion_t *quat)
+{
+    if (!quat)
+        return;
+    memcpy(quat, &mHeadQuat, sizeof(*quat));
+}
+
+
+void SessionSelfMetadata::getHeadOrientation(euler_t *euler)
+{
+    if (!euler)
+        return;
+    pdraw_quat2euler(&mHeadQuat, euler);
+}
+
+
+void SessionSelfMetadata::setHeadOrientation(const quaternion_t *quat)
+{
+    if (!quat)
+        return;
+    memcpy(&mHeadQuat, quat, sizeof(*quat));
+}
+
+
+void SessionSelfMetadata::setHeadOrientation(const euler_t *euler)
+{
+    if (!euler)
+        return;
+    pdraw_euler2quat(euler, &mHeadQuat);
+}
+
+
+void SessionSelfMetadata::getHeadRefOrientation(quaternion_t *quat)
+{
+    if (!quat)
+        return;
+    memcpy(quat, &mHeadRefQuat, sizeof(*quat));
+}
+
+
+void SessionSelfMetadata::getHeadRefOrientation(euler_t *euler)
+{
+    if (!euler)
+        return;
+    pdraw_quat2euler(&mHeadRefQuat, euler);
+}
+
+
+void SessionSelfMetadata::setHeadRefOrientation(const quaternion_t *quat)
+{
+    if (!quat)
+        return;
+    memcpy(&mHeadRefQuat, quat, sizeof(*quat));
+}
+
+
+void SessionSelfMetadata::setHeadRefOrientation(const euler_t *euler)
+{
+    if (!euler)
+        return;
+    pdraw_euler2quat(euler, &mHeadRefQuat);
 }
 
 
@@ -103,11 +194,7 @@ void SessionPeerMetadata::getTakeoffLocation(location_t *loc)
 {
     if (!loc)
         return;
-    loc->isValid = mTakeoffLocation.isValid;
-    loc->latitude = mTakeoffLocation.latitude;
-    loc->longitude = mTakeoffLocation.longitude;
-    loc->altitude = mTakeoffLocation.altitude;
-    loc->svCount = mTakeoffLocation.svCount;
+    memcpy(loc, &mTakeoffLocation, sizeof(*loc));
 }
 
 
@@ -115,11 +202,7 @@ void SessionPeerMetadata::setTakeoffLocation(const location_t *loc)
 {
     if (!loc)
         return;
-    mTakeoffLocation.isValid = loc->isValid;
-    mTakeoffLocation.latitude = loc->latitude;
-    mTakeoffLocation.longitude = loc->longitude;
-    mTakeoffLocation.altitude = loc->altitude;
-    mTakeoffLocation.svCount = loc->svCount;
+    memcpy(&mTakeoffLocation, loc, sizeof(*loc));
 }
 
 
@@ -127,11 +210,7 @@ void SessionPeerMetadata::getHomeLocation(location_t *loc)
 {
     if (!loc)
         return;
-    loc->isValid = mHomeLocation.isValid;
-    loc->latitude = mHomeLocation.latitude;
-    loc->longitude = mHomeLocation.longitude;
-    loc->altitude = mHomeLocation.altitude;
-    loc->svCount = mHomeLocation.svCount;
+    memcpy(loc, &mHomeLocation, sizeof(*loc));
 }
 
 
@@ -139,11 +218,7 @@ void SessionPeerMetadata::setHomeLocation(const location_t *loc)
 {
     if (!loc)
         return;
-    mHomeLocation.isValid = loc->isValid;
-    mHomeLocation.latitude = loc->latitude;
-    mHomeLocation.longitude = loc->longitude;
-    mHomeLocation.altitude = loc->altitude;
-    mHomeLocation.svCount = loc->svCount;
+    memcpy(&mHomeLocation, loc, sizeof(*loc));
 }
 
 }
