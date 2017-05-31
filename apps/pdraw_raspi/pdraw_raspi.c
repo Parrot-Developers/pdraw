@@ -423,17 +423,12 @@ int main(int argc, char *argv[])
                             case ARDISCOVERY_PRODUCT_BEBOP_2:
                             case ARDISCOVERY_PRODUCT_EVINRUDE:
                             case ARDISCOVERY_PRODUCT_SKYCONTROLLER:
+                            case ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG:
+                            case ARDISCOVERY_PRODUCT_SKYCONTROLLER_2:
                                 strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
                                 app->arsdkDiscoveryPort = device->port;
                                 app->arsdkConnect = 1;
                                 app->arsdkStartStream = 1;
-                                app->receiveStream = 1;
-                                selected = 1;
-                                break;
-                            case ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG:
-                            case ARDISCOVERY_PRODUCT_SKYCONTROLLER_2:
-                                strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
-                                app->scRestream = 1;
                                 app->receiveStream = 1;
                                 selected = 1;
                                 break;
