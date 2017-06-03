@@ -20,6 +20,7 @@ LOCAL_SRC_FILES := \
 	src/pdraw_avcdecoder.cpp \
 	src/pdraw_avcdecoder_ffmpeg.cpp \
 	src/pdraw_avcdecoder_videocoreomx.cpp \
+	src/pdraw_avcdecoder_amediacodec.cpp \
 	src/pdraw_gles2_hud.cpp \
 	src/pdraw_gles2_video.cpp \
 	src/pdraw_gles2_hmd.cpp \

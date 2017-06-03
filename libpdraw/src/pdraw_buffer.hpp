@@ -73,6 +73,8 @@ public:
 
     void unref();
 
+    bool isRef() { return (mRefCount == 0) ? false : true; };
+
     void *getPtr();
 
     void setPtr(void *ptr);

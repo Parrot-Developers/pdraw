@@ -178,7 +178,7 @@ int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const
         }
     }
 
-    /* Output buffers queue allocation */
+    /* Output buffers pool allocation */
     if (ret == 0)
     {
         mOutputBufferPool = new BufferPool(FFMPEG_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,

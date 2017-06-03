@@ -1,6 +1,6 @@
 /**
- * @file pdraw_avcdecoder.cpp
- * @brief Parrot Drones Awesome Video Viewer Library - H.264/AVC decoder interface
+ * @file pdraw_avcdecoder_amediacodec.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - Android NDK MediaCodec H.264/AVC video decoder
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,26 +36,73 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef _PDRAW_AVCDECODER_AMEDIACODEC_HPP_
+#define _PDRAW_AVCDECODER_AMEDIACODEC_HPP_
+
+#ifdef USE_AMEDIACODEC
+
+#include <vector>
+#include <media/NdkMediaCodec.h>
+
 #include "pdraw_avcdecoder.hpp"
-#include "pdraw_avcdecoder_ffmpeg.hpp"
-#include "pdraw_avcdecoder_videocoreomx.hpp"
-#include "pdraw_avcdecoder_amediacodec.hpp"
+
+
+#define AMEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT 10
+#define AMEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT 10
 
 
 namespace Pdraw
 {
 
-AvcDecoder *AvcDecoder::create(VideoMedia *media)
+
+class AMediaCodecAvcDecoder : public AvcDecoder
 {
-#if defined(USE_AMEDIACODEC)
-    return new AMediaCodecAvcDecoder(media);
-#elif defined(USE_VIDEOCOREOMX)
-    return new VideoCoreOmxAvcDecoder(media);
-#elif defined(USE_FFMPEG)
-    return new FfmpegAvcDecoder(media);
-#else
-    return NULL;
-#endif
-}
+public:
+
+    AMediaCodecAvcDecoder(VideoMedia *media);
+
+    ~AMediaCodecAvcDecoder();
+
+    bool isConfigured() { return mConfigured; };
+
+    int configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize);
+
+    avc_decoder_color_format_t getOutputColorFormat() { return mOutputColorFormat; };
+
+    int getInputBuffer(Buffer **buffer, bool blocking);
+
+    int queueInputBuffer(Buffer *buffer);
+
+    BufferQueue *addOutputQueue();
+
+    int removeOutputQueue(BufferQueue *queue);
+
+    int dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking);
+
+    int releaseOutputBuffer(Buffer *buffer);
+
+    int stop();
+
+    Media *getMedia() { return mMedia; };
+
+    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+
+private:
+
+    bool isOutputQueueValid(BufferQueue *queue);
+
+    int pollDecoderOutput();
+
+    AMediaCodec *mCodec;
+    avc_decoder_color_format_t mOutputColorFormat;
+    BufferPool *mInputBufferPool;
+    BufferQueue *mInputBufferQueue;
+    BufferPool *mOutputBufferPool;
+    std::vector<BufferQueue*> mOutputBufferQueues;
+};
 
 }
+
+#endif /* USE_AMEDIACODEC */
+
+#endif /* !_PDRAW_AVCDECODER_AMEDIACODEC_HPP_ */

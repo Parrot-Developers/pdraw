@@ -202,7 +202,7 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
         }
     }
 
-    /* Output buffers queue allocation */
+    /* Output buffers pool allocation */
     mOutputBufferPool = new BufferPool(VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
                                        sizeof(avc_decoder_output_buffer_t), NULL, NULL);
     if (mOutputBufferPool == NULL)
@@ -250,6 +250,11 @@ int VideoCoreOmxAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize,
     if (mConfigured)
     {
         ULOGE("videoCoreOmx: decoder is already configured");
+        return -1;
+    }
+    if ((!pSps) || (spsSize <= 4) || (!pPps) || (ppsSize <= 4))
+    {
+        ULOGE("videoCoreOmx: invalid SPS/PPS");
         return -1;
     }
 
