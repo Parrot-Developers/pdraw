@@ -43,6 +43,9 @@ ifeq ("$(TARGET_OS)","linux")
 	ifeq ("$(TARGET_OS_FLAVOUR)","native")
 		LOCAL_CFLAGS += -DUSE_FFMPEG -DUSE_GLES2
 		LOCAL_LDLIBS += -lavcodec -lavdevice -lavfilter -lavformat -lswresample -lswscale -lavutil -lGL -lGLU
+	else ifeq ("$(TARGET_OS_FLAVOUR)","android")
+		LOCAL_CFLAGS += -DUSE_AMEDIACODEC -DUSE_ANATIVEWINDOW -DUSE_GLES2
+		LOCAL_LDLIBS += -lmediandk -lEGL -lGLESv2 -landroid
 	else ifeq ("$(TARGET_OS_FLAVOUR)","generic")
 		ifeq ("$(TARGET_PRODUCT_VARIANT)","raspi")
 			LOCAL_LIBRARIES += ilclient

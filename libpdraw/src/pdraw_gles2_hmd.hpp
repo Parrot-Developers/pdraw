@@ -45,7 +45,7 @@
 
 #ifdef USE_GLES2
 
-#if defined(BCM_VIDEOCORE)
+#if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
     #include <GLES2/gl2.h>
 #else
     #define GLFW_INCLUDE_ES2

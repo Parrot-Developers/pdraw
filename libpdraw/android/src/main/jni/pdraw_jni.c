@@ -1,7 +1,7 @@
 /**
- * @file pdraw_gles2_video.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 video rendering
- * @date 23/11/2016
+ * @file pdraw_jni.c
+ * @brief Parrot Drones Awesome Video Viewer - Android JNI
+ * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
  * Copyright (c) 2016 Aurelien Barre <aurelien.barre@akaaba.net>.
@@ -35,69 +35,3 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef _PDRAW_GLES2_VIDEO_HPP_
-#define _PDRAW_GLES2_VIDEO_HPP_
-
-#ifdef USE_GLES2
-
-#if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
-    #include <GLES2/gl2.h>
-#else
-    #define GLFW_INCLUDE_ES2
-    #include <GLFW/glfw3.h>
-#endif
-
-
-#define GLES2_VIDEO_TEX_UNIT_COUNT 3
-
-
-namespace Pdraw
-{
-
-
-typedef enum
-{
-    GLES2_VIDEO_COLOR_CONVERSION_NONE = 0,
-    GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB,
-    GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB,
-    GLES2_VIDEO_COLOR_CONVERSION_MAX,
-
-} gles2_video_color_conversion_t;
-
-
-class Gles2Video
-{
-public:
-
-    Gles2Video(unsigned int firstTexUnit);
-
-    ~Gles2Video();
-
-    static int getTexUnitCount() { return GLES2_VIDEO_TEX_UNIT_COUNT; }
-
-    GLuint* getTextures();
-
-    int allocTextures(unsigned int videoWidth, unsigned int videoHeight);
-
-    int renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
-                    unsigned int frameWidth, unsigned int frameHeight,
-                    unsigned int sarWidth, unsigned int sarHeight,
-                    unsigned int windowWidth, unsigned int windowHeight,
-                    gles2_video_color_conversion_t colorConversion);
-
-private:
-
-    unsigned int mFirstTexUnit;
-    GLint mProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLuint mTextures[3];
-    GLint mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_MAX][3];
-    GLint mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLint mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-};
-
-}
-
-#endif /* USE_GLES2 */
-
-#endif /* !_PDRAW_GLES2_VIDEO_HPP_ */

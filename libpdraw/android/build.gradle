@@ -1,0 +1,16 @@
+apply plugin: 'com.android.library'
+
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+
+    sourceSets {
+        main {
+            jni.srcDirs = [] // This prevents the auto generation of Android.mk
+            jniLibs.srcDir "${project.buildDir}/../../jni/libpdraw/libs"
+        }
+    }
+}
+
+dependencies {
+}
