@@ -92,12 +92,17 @@ int VideoCoreEglRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
-         void *uiHandler)
+         bool hmdDistorsionCorrection, void *uiHandler)
 {
     int ret = 0;
 
+    /* HMD distorsion correction is not supported with VideoCore:
+     * the video decoder outputs frames through the egl_renderer element,
+     * this must be changed to render to FBO */
+    hmdDistorsionCorrection = false; //TODO
+
     Gles2Renderer::setRendererParams(windowWidth, windowHeight, renderX, renderY,
-                                     renderWidth, renderHeight, uiHandler);
+                                     renderWidth, renderHeight, hmdDistorsionCorrection, uiHandler);
 
     struct uiParams_s
     {
@@ -254,6 +259,11 @@ int VideoCoreEglRenderer::render(int timeout)
         usleep(5000); //TODO
         return 0;
     }
+    if ((mRenderWidth == 0) || (mRenderHeight == 0))
+    {
+        usleep(5000); //TODO
+        return 0;
+    }
     if ((mVideoWidth == 0) || (mVideoHeight == 0))
     {
         usleep(5000); //TODO
@@ -296,6 +306,12 @@ int VideoCoreEglRenderer::render(int timeout)
     {
         data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
 
+        if ((ret == 0) && (mHmdDistorsionCorrection))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+            glViewport(0, 0, mRenderWidth, mRenderHeight);
+        }
+
         if ((ret == 0) && (mGles2Video))
         {
             swapRendererEglImage();
@@ -317,6 +333,21 @@ int VideoCoreEglRenderer::render(int timeout)
             if (ret != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to render frame");
+            }
+        }
+
+        if ((ret == 0) && (mHmdDistorsionCorrection))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+
+            if (mGles2Hmd)
+            {
+                ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth, mRenderHeight);
+                if (ret != 0)
+                {
+                    ULOGE("VideoCoreEglRenderer: failed to render HMD distorsion correction");
+                }
             }
         }
 

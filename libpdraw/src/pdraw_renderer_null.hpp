@@ -64,7 +64,7 @@ public:
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
              int renderWidth, int renderHeight,
-             void *uiHandler);
+             bool hmdDistorsionCorrection, void *uiHandler);
 
     int render(int timeout);
 

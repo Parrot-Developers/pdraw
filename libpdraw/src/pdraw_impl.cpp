@@ -300,6 +300,7 @@ int PdrawImpl::stopResender()
 int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
                              int renderX, int renderY,
                              int renderWidth, int renderHeight,
+                             bool hmdDistorsionCorrection,
                              void *uiHandler)
 {
     mGotRendererParams = true;
@@ -310,6 +311,7 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
     mRenderY = renderY;
     mRenderWidth = renderWidth;
     mRenderHeight = renderHeight;
+    mHmdDistorsionCorrection = hmdDistorsionCorrection;
 
     if (!mSession.getRenderer())
     {
@@ -325,7 +327,7 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
         return mSession.getRenderer()->setRendererParams(mWindowWidth, mWindowHeight,
                                             mRenderX, mRenderY,
                                             mRenderWidth, mRenderHeight,
-                                            mUiHandler);
+                                            mHmdDistorsionCorrection, mUiHandler);
     }
     else
     {

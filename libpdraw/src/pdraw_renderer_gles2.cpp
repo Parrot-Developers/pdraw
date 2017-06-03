@@ -66,8 +66,14 @@ Gles2Renderer::Gles2Renderer(Session *session)
     mDecoderOutputBufferQueue = NULL;
     mGles2Video = NULL;
     mGles2Hud = NULL;
-    mGles2VideoFirstTexUnit = 1;
+    mGles2HmdFirstTexUnit = 0;
+    mGles2VideoFirstTexUnit = mGles2HmdFirstTexUnit + Gles2Hmd::getTexUnitCount();
     mGles2HudFirstTexUnit = mGles2VideoFirstTexUnit + Gles2Video::getTexUnitCount();
+    mHmdDistorsionCorrection = false;
+    mGles2Hmd = NULL;
+    mFbo = 0;
+    mFboTexture = 0;
+    mFboRenderBuffer = 0;
     int ret = 0;
 
     if (ret == 0)
@@ -98,6 +104,10 @@ Gles2Renderer::~Gles2Renderer()
 
     if (mGles2Video) delete mGles2Video;
     if (mGles2Hud) delete mGles2Hud;
+    if (mGles2Hmd) delete mGles2Hmd;
+    if (mFboRenderBuffer > 0) glDeleteRenderbuffers(1, &mFboRenderBuffer);
+    if (mFboTexture > 0) glDeleteTextures(1, &mFboTexture);
+    if (mFbo > 0) glDeleteFramebuffers(1, &mFbo);
 }
 
 
@@ -161,7 +171,7 @@ int Gles2Renderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
-         void *uiHandler)
+         bool hmdDistorsionCorrection, void *uiHandler)
 {
     int ret = 0;
 
@@ -171,16 +181,99 @@ int Gles2Renderer::setRendererParams
     mRenderY = renderY;
     mRenderWidth = renderWidth;
     mRenderHeight = renderHeight;
+    mHmdDistorsionCorrection = hmdDistorsionCorrection;
 
     // Set background color and clear buffers
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    //glDisable(GL_BLEND);
     glDisable(GL_DITHER);
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_TEXTURE_2D);
 
     glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+
+    if ((ret == 0) && (mHmdDistorsionCorrection))
+    {
+        if (mFboRenderBuffer > 0)
+        {
+            glDeleteRenderbuffers(1, &mFboRenderBuffer);
+            mFboRenderBuffer = 0;
+        }
+        if (mFboTexture > 0)
+        {
+            glDeleteTextures(1, &mFboTexture);
+            mFboTexture = 0;
+        }
+        if (mFbo > 0)
+        {
+            glDeleteFramebuffers(1, &mFbo);
+            mFbo = 0;
+        }
+
+        glGenFramebuffers(1, &mFbo);
+        if (mFbo <= 0)
+        {
+            ULOGE("Gles2Renderer: failed to create framebuffer");
+            ret = -1;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+
+        glGenTextures(1, &mFboTexture);
+        if (mFboTexture <= 0)
+        {
+            ULOGE("Gles2Renderer: failed to create texture");
+            ret = -1;
+        }
+        glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit);
+        glBindTexture(GL_TEXTURE_2D, mFboTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mRenderWidth, mRenderHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+        glGenRenderbuffers(1, &mFboRenderBuffer);
+        if (mFboRenderBuffer <= 0)
+        {
+            ULOGE("Gles2Renderer: failed to create render buffer");
+            ret = -1;
+        }
+        glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, mRenderWidth, mRenderHeight);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboTexture, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mFboRenderBuffer);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            ULOGE("Gles2Renderer: invalid framebuffer status");
+            ret = -1;
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        if (ret == 0)
+        {
+            if (mGles2Hmd)
+            {
+                delete mGles2Hmd;
+                mGles2Hmd = NULL;
+            }
+            mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight);
+            if (!mGles2Hmd)
+            {
+                ULOGE("Gles2Renderer: failed to create GlesHmd context");
+                ret = -1;
+            }
+        }
+
+        if (ret != 0)
+        {
+            mHmdDistorsionCorrection = false;
+        }
+    }
 
     return ret;
 }
@@ -223,6 +316,12 @@ int Gles2Renderer::render(int timeout)
 
             if ((data) && (mRenderWidth) && (mRenderHeight))
             {
+                if ((ret == 0) && (mHmdDistorsionCorrection))
+                {
+                    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+                    glViewport(0, 0, mRenderWidth, mRenderHeight);
+                }
+
                 if (ret == 0)
                 {
                     if (mGles2Video)
@@ -258,6 +357,21 @@ int Gles2Renderer::render(int timeout)
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render frame");
+                        }
+                    }
+                }
+
+                if ((ret == 0) && (mHmdDistorsionCorrection))
+                {
+                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                    glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+
+                    if (mGles2Hmd)
+                    {
+                        ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth, mRenderHeight);
+                        if (ret != 0)
+                        {
+                            ULOGE("Gles2Renderer: failed to render HMD distorsion correction");
                         }
                     }
                 }

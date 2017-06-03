@@ -109,6 +109,7 @@ public:
              int renderY,
              int renderWidth,
              int renderHeight,
+             bool hmdDistorsionCorrection,
              void *uiHandler);
 
     int stopRenderer(void);
@@ -246,6 +247,7 @@ private:
     int mRenderY;
     int mRenderWidth;
     int mRenderHeight;
+    bool mHmdDistorsionCorrection;
     void *mUiHandler;
 };
 

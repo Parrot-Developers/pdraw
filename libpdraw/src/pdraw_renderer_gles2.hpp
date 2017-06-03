@@ -46,6 +46,7 @@
 #include "pdraw_renderer.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
+#include "pdraw_gles2_hmd.hpp"
 
 
 namespace Pdraw
@@ -68,7 +69,7 @@ public:
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
              int renderWidth, int renderHeight,
-             void *uiHandler);
+             bool hmdDistorsionCorrection, void *uiHandler);
 
     int render(int timeout);
 
@@ -84,10 +85,16 @@ protected:
     int mRenderY;
     int mRenderWidth;
     int mRenderHeight;
+    bool mHmdDistorsionCorrection;
+    Gles2Hmd *mGles2Hmd;
+    unsigned int mGles2HmdFirstTexUnit;
     Gles2Video *mGles2Video;
     unsigned int mGles2VideoFirstTexUnit;
     Gles2Hud *mGles2Hud;
     unsigned int mGles2HudFirstTexUnit;
+    GLuint mFbo;
+    GLuint mFboTexture;
+    GLuint mFboRenderBuffer;
 };
 
 }

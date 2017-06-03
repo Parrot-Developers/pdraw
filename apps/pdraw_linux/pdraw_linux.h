@@ -106,6 +106,7 @@ struct pdraw_app
     int arsdkStartStream;
     int scRestream;
     int receiveStream;
+    int hmd;
 
     ARDISCOVERY_AvahiDiscovery_BrowserData_t *ardiscoveryBrowserData;
     ARNETWORKAL_Manager_t *arnetworkalManager;

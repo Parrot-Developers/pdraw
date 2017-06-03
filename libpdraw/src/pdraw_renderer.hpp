@@ -63,7 +63,7 @@ public:
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
              int renderWidth, int renderHeight,
-             void *uiHandler) = 0;
+             bool hmdDistorsionCorrection, void *uiHandler) = 0;
 
     virtual int render(int timeout) = 0;
 

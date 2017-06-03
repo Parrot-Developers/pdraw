@@ -148,7 +148,7 @@ int NullRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
-         void *uiHandler)
+         bool hmdDistorsionCorrection, void *uiHandler)
 {
     return 0;
 }

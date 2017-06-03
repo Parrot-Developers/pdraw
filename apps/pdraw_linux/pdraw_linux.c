@@ -50,6 +50,11 @@
 ULOG_DECLARE_TAG(pdraw_app);
 
 
+enum args_id {
+    ARGS_ID_HMD = 256,
+};
+
+
 static const char short_options[] = "hf:bk:K:i:m:s:c:S:C:n:";
 
 
@@ -67,6 +72,7 @@ static const struct option long_options[] =
     { "dststrmp"        , required_argument  , NULL, 'S' },
     { "dstctrlp"        , required_argument  , NULL, 'C' },
     { "screstream"      , required_argument  , NULL, 'n' },
+    { "hmd"             , no_argument        , NULL, ARGS_ID_HMD },
     { 0, 0, 0, 0 }
 };
 
@@ -184,6 +190,7 @@ static void usage(int argc, char *argv[])
             "-S | --dststrmp <port>             Destination stream port for direct RTP/AVP reception\n"
             "-C | --dstctrlp <port>             Destination control port for direct RTP/AVP reception\n"
             "-n | --screstream <ip_address>     Connexion to a RTP restream from a SkyController\n"
+            "     --hmd                         HMD distorsion correction\n"
             "\n",
             argv[0]);
 }
@@ -325,6 +332,10 @@ int main(int argc, char *argv[])
 
                 case 'C':
                     sscanf(optarg, "%d", &app->dstControlPort);
+                    break;
+
+                case ARGS_ID_HMD:
+                    app->hmd = 1;
                     break;
 
                 default:
@@ -540,7 +551,7 @@ int main(int argc, char *argv[])
                     {
                         int ret = pdraw_start_renderer(app->pdraw,
                                                        app->windowWidth, app->windowHeight, 0, 0,
-                                                       app->windowWidth, app->windowHeight, NULL);
+                                                       app->windowWidth, app->windowHeight, app->hmd, NULL);
                         if (ret != 0)
                         {
                             ULOGE("pdraw_start_renderer() failed (%d)", ret);
@@ -770,7 +781,7 @@ int startPdraw(struct pdraw_app *app)
     {
         ret = pdraw_start_renderer(app->pdraw,
                                    app->windowWidth, app->windowHeight, 0, 0,
-                                   app->windowWidth, app->windowHeight, NULL);
+                                   app->windowWidth, app->windowHeight, app->hmd, NULL);
         if (ret != 0)
         {
             ULOGE("pdraw_start_renderer() failed (%d)", ret);

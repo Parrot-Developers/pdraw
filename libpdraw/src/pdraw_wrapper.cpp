@@ -220,6 +220,7 @@ int pdraw_start_renderer(struct pdraw *pdraw,
                          int windowWidth, int windowHeight,
                          int renderX, int renderY,
                          int renderWidth, int renderHeight,
+                         int hmdDistorsionCorrection,
                          void *uiHandler)
 {
     if (pdraw == NULL)
@@ -229,6 +230,7 @@ int pdraw_start_renderer(struct pdraw *pdraw,
     return toPdraw(pdraw)->startRenderer(windowWidth, windowHeight,
                                          renderX, renderY,
                                          renderWidth, renderHeight,
+                                         (hmdDistorsionCorrection) ? true : false,
                                          uiHandler);
 }
 

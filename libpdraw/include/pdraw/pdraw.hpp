@@ -104,6 +104,7 @@ public:
              int renderY,
              int renderWidth,
              int renderHeight,
+             bool hmdDistorsionCorrection,
              void *uiHandler) = 0;
 
     virtual int stopRenderer(void) = 0;

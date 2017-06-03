@@ -49,6 +49,7 @@
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
+#include "pdraw_gles2_hmd.hpp"
 
 
 namespace Pdraw
@@ -67,7 +68,7 @@ public:
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
              int renderWidth, int renderHeight,
-             void *uiHandler);
+             bool hmdDistorsionCorrection, void *uiHandler);
 
     int setVideoDimensions(unsigned int videoWidth, unsigned int videoHeight);
 
