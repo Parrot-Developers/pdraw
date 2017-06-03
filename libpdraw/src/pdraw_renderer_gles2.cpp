@@ -53,7 +53,7 @@ namespace Pdraw
 {
 
 
-Gles2Renderer::Gles2Renderer(Session *session)
+Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
 {
     mSession = session;
     mWindowWidth = 0;
@@ -74,25 +74,29 @@ Gles2Renderer::Gles2Renderer(Session *session)
     mFbo = 0;
     mFboTexture = 0;
     mFboRenderBuffer = 0;
-    int ret = 0;
 
-    if (ret == 0)
+    if (initGles2)
     {
-        mGles2Video = new Gles2Video(mGles2VideoFirstTexUnit);
-        if (!mGles2Video)
+        int ret = 0;
+
+        if (ret == 0)
         {
-            ULOGE("Gles2Renderer: failed to create Gles2Video context");
-            ret = -1;
+            mGles2Video = new Gles2Video(mGles2VideoFirstTexUnit);
+            if (!mGles2Video)
+            {
+                ULOGE("Gles2Renderer: failed to create Gles2Video context");
+                ret = -1;
+            }
         }
-    }
 
-    if (ret == 0)
-    {
-        mGles2Hud = new Gles2Hud(mGles2HudFirstTexUnit);
-        if (!mGles2Hud)
+        if (ret == 0)
         {
-            ULOGE("Gles2Renderer: failed to create Gles2Hud context");
-            ret = -1;
+            mGles2Hud = new Gles2Hud(mGles2HudFirstTexUnit);
+            if (!mGles2Hud)
+            {
+                ULOGE("Gles2Renderer: failed to create Gles2Hud context");
+                ret = -1;
+            }
         }
     }
 }
@@ -179,8 +183,8 @@ int Gles2Renderer::setRendererParams
     mWindowHeight = windowHeight;
     mRenderX = renderX;
     mRenderY = renderY;
-    mRenderWidth = renderWidth;
-    mRenderHeight = renderHeight;
+    mRenderWidth = (renderWidth) ? renderWidth : windowWidth;
+    mRenderHeight = (renderHeight) ? renderHeight : windowHeight;
     mHmdDistorsionCorrection = hmdDistorsionCorrection;
 
     // Set background color and clear buffers
@@ -397,12 +401,15 @@ int Gles2Renderer::render(int timeout)
                           (float)(renderTimestamp - data->decoderOutputTimestamp) / 1000.,
                           (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.);
                 }
+
+                ret = 1;
             }
 
-            ret = mDecoder->releaseOutputBuffer(buffer);
-            if (ret != 0)
+            int releaseRet = mDecoder->releaseOutputBuffer(buffer);
+            if (releaseRet != 0)
             {
-                ULOGE("Gles2Renderer: failed to release buffer (%d)", ret);
+                ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
+                ret = releaseRet;
             }
         }
     }

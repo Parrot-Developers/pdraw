@@ -1,7 +1,7 @@
 /**
- * @file pdraw_renderer_gles2.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 renderer
- * @date 05/11/2016
+ * @file pdraw_renderer_anativewindow.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - Android NDK native window renderer
+ * @date 23/11/2016
  * @author aurelien.barre@akaaba.net
  *
  * Copyright (c) 2016 Aurelien Barre <aurelien.barre@akaaba.net>.
@@ -36,34 +36,32 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_GLES2_HPP_
-#define _PDRAW_RENDERER_GLES2_HPP_
+#ifndef _PDRAW_RENDERER_ANATIVEWINDOW_HPP_
+#define _PDRAW_RENDERER_ANATIVEWINDOW_HPP_
 
-#ifdef USE_GLES2
+#ifdef USE_ANATIVEWINDOW
 
 #include <pthread.h>
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
+#include <android/native_window.h>
 
-#include "pdraw_renderer.hpp"
+#include "pdraw_renderer_gles2.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
-#include "pdraw_gles2_hmd.hpp"
 
 
 namespace Pdraw
 {
 
 
-class Gles2Renderer : public Renderer
+class ANativeWindowRenderer : public Gles2Renderer
 {
 public:
 
-    Gles2Renderer(Session *session, bool initGles2 = true);
+    ANativeWindowRenderer(Session *session);
 
-    ~Gles2Renderer();
-
-    int addAvcDecoder(AvcDecoder *decoder);
-
-    int removeAvcDecoder(AvcDecoder *decoder);
+    ~ANativeWindowRenderer();
 
     int setRendererParams
             (int windowWidth, int windowHeight,
@@ -73,32 +71,23 @@ public:
 
     int render(int timeout);
 
-    Session *getSession() { return mSession; };
+private:
 
-protected:
+    static void* runRendererThread(void *ptr);
 
-    AvcDecoder *mDecoder;
-    BufferQueue *mDecoderOutputBufferQueue;
-    int mWindowWidth;
-    int mWindowHeight;
-    int mRenderX;
-    int mRenderY;
-    int mRenderWidth;
-    int mRenderHeight;
-    bool mHmdDistorsionCorrection;
-    Gles2Hmd *mGles2Hmd;
-    unsigned int mGles2HmdFirstTexUnit;
-    Gles2Video *mGles2Video;
-    unsigned int mGles2VideoFirstTexUnit;
-    Gles2Hud *mGles2Hud;
-    unsigned int mGles2HudFirstTexUnit;
-    GLuint mFbo;
-    GLuint mFboTexture;
-    GLuint mFboRenderBuffer;
+    pthread_t mRendererThread;
+    bool mRendererThreadLaunched;
+    bool mThreadShouldStop;
+    int mVideoWidth;
+    int mVideoHeight;
+    ANativeWindow *mWindow;
+    EGLDisplay mDisplay;
+    EGLSurface mSurface;
+    EGLContext mContext;
 };
 
 }
 
-#endif /* USE_GLES2 */
+#endif /* USE_ANATIVEWINDOW */
 
-#endif /* !_PDRAW_RENDERER_GLES2_HPP_ */
+#endif /* !_PDRAW_RENDERER_ANATIVEWINDOW_HPP_ */

@@ -633,7 +633,7 @@ int main(int argc, char *argv[])
         if (app->pdraw)
         {
             int ret = pdraw_render(app->pdraw, 0);
-            if (ret != 0)
+            if (ret < 0)
             {
                 ULOGE("pdraw_render() failed (%d)", ret);
                 failed = 1;

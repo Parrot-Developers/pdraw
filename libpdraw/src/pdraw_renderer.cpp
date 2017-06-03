@@ -40,6 +40,7 @@
 #include "pdraw_renderer_null.hpp"
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_renderer_videocoreegl.hpp"
+#include "pdraw_renderer_anativewindow.hpp"
 
 
 namespace Pdraw
@@ -47,7 +48,9 @@ namespace Pdraw
 
 Renderer *Renderer::create(Session *session)
 {
-#if defined(USE_VIDEOCOREEGL)
+#if defined(USE_ANATIVEWINDOW)
+    return new ANativeWindowRenderer(session);
+#elif defined(USE_VIDEOCOREEGL)
     return new VideoCoreEglRenderer(session);
 #elif defined(USE_GLES2)
     return new Gles2Renderer(session);

@@ -34,6 +34,7 @@ LOCAL_SRC_FILES := \
 	src/pdraw_renderer.cpp \
 	src/pdraw_renderer_null.cpp \
 	src/pdraw_renderer_videocoreegl.cpp \
+	src/pdraw_renderer_anativewindow.cpp \
 	src/pdraw_renderer_gles2.cpp \
 	src/pdraw_filter_videoframe.cpp
 LOCAL_EXPORT_CXXFLAGS := -Wextra -std=c++0x
