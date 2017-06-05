@@ -43,6 +43,7 @@
 
 #include <pdraw/pdraw.hpp>
 
+#include "pdraw_settings.hpp"
 #include "pdraw_session.hpp"
 
 
@@ -223,6 +224,11 @@ public:
      */
     int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, long waitUs = 0);
 
+    void getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
+        float *deviceMargin, float *ipd, float *scale, float *panH, float *panV);
+    void setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
+        float deviceMargin, float ipd, float scale, float panH, float panV);
+
     inline static IPdraw *create(void)
     {
         return new PdrawImpl();
@@ -238,6 +244,7 @@ private:
 
     int openWithDemux();
 
+    Settings mSettings;
     Session mSession;
     bool mPaused;
     bool mGotRendererParams;

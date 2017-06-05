@@ -37,6 +37,7 @@
  */
 
 #include "pdraw_renderer_gles2.hpp"
+#include "pdraw_settings.hpp"
 #include "pdraw_session.hpp"
 
 #ifdef USE_GLES2
@@ -265,7 +266,18 @@ int Gles2Renderer::setRendererParams
                 delete mGles2Hmd;
                 mGles2Hmd = NULL;
             }
-            mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight);
+            if ((mSession) && (mSession->getSettings()))
+            {
+                float xdpi = 0., ydpi = 0., deviceMargin = 0., ipd = 0., scale = 0., panH = 0., panV = 0.;
+                mSession->getSettings()->getHmdDistorsionCorrectionSettings(&xdpi, &ydpi,
+                    &deviceMargin, &ipd, &scale, &panH, &panV);
+                mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight,
+                    xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
+            }
+            else
+            {
+                mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight);
+            }
             if (!mGles2Hmd)
             {
                 ULOGE("Gles2Renderer: failed to create GlesHmd context");

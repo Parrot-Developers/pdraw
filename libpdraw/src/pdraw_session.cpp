@@ -52,8 +52,9 @@ namespace Pdraw
 {
 
 
-Session::Session()
+Session::Session(Settings *settings)
 {
+    mSettings = settings;
     mDemuxer = NULL;
     mRenderer = NULL;
     mMediaIdCounter = 0;

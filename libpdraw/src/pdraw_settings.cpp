@@ -1,6 +1,6 @@
 /**
- * @file pdraw_session.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - session
+ * @file pdraw_settings.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - user settings
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,87 +36,62 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SESSION_HPP_
-#define _PDRAW_SESSION_HPP_
-
-#include <inttypes.h>
-#include <string>
-#include <vector>
-
-#include "pdraw_metadata_session.hpp"
-#include "pdraw_media.hpp"
-#include "pdraw_demuxer.hpp"
-#include "pdraw_renderer.hpp"
-
-
-using namespace std;
+#include "pdraw_settings.hpp"
+#include "pdraw_gles2_hmd.hpp"
 
 
 namespace Pdraw
 {
 
 
-class Settings;
-
-
-class Session
+Settings::Settings()
 {
-public:
+    mHmdXdpi = GLES2_HMD_DEFAULT_XDPI;
+    mHmdYdpi = GLES2_HMD_DEFAULT_YDPI;
+    mHmdDeviceMargin = GLES2_HMD_DEFAULT_DEVICE_MARGIN;
+    mHmdIpd = GLES2_HMD_DEFAULT_IPD;
+    mHmdScale = GLES2_HMD_DEFAULT_SCALE;
+    mHmdPanH = GLES2_HMD_DEFAULT_PAN_H;
+    mHmdPanV = GLES2_HMD_DEFAULT_PAN_V;
+}
 
-    Session(Settings *settings);
 
-    ~Session();
-
-    int open(const std::string &url);
-
-    int open(const std::string &srcAddr, const std::string &ifaceAddr,
-             int srcStreamPort, int srcControlPort,
-             int dstStreamPort, int dstControlPort, int qosMode);
-
-    Media *addMedia(elementary_stream_type_t esType);
-
-    Media *addMedia(elementary_stream_type_t esType, Demuxer *demuxer, int demuxEsIndex);
-
-    int removeMedia(Media *media);
-
-    int removeMedia(unsigned int index);
-
-    unsigned int getMediaCount();
-
-    Media *getMedia(unsigned int index);
-
-    Media *getMediaById(unsigned int id);
-
-    int enableRenderer();
-    int disableRenderer();
-
-    uint64_t getDuration();
-
-    uint64_t getCurrentTime();
-
-    Demuxer *getDemuxer() { return mDemuxer; };
-
-    Renderer *getRenderer() { return mRenderer; };
-
-    Settings *getSettings() { return mSettings; };
-
-    SessionSelfMetadata *getSelfMetadata() { return &mSelfMetadata; };
-
-    SessionPeerMetadata *getPeerMetadata() { return &mPeerMetadata; };
-
-private:
-
-    int addMediaFromDemuxer();
-
-    Settings *mSettings;
-    SessionSelfMetadata mSelfMetadata;
-    SessionPeerMetadata mPeerMetadata;
-    std::vector<Media*> mMedias;
-    Demuxer *mDemuxer;
-    Renderer *mRenderer;
-    unsigned int mMediaIdCounter;
-};
+Settings::~Settings()
+{
 
 }
 
-#endif /* !_PDRAW_SESSION_HPP_ */
+
+void Settings::getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
+    float *deviceMargin, float *ipd, float *scale, float *panH, float *panV)
+{
+    if (xdpi)
+        *xdpi = mHmdXdpi;
+    if (ydpi)
+        *ydpi = mHmdYdpi;
+    if (deviceMargin)
+        *deviceMargin = mHmdDeviceMargin;
+    if (ipd)
+        *ipd = mHmdIpd;
+    if (scale)
+        *scale = mHmdScale;
+    if (panH)
+        *panH = mHmdPanH;
+    if (panV)
+        *panV = mHmdPanV;
+}
+
+
+void Settings::setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
+    float deviceMargin, float ipd, float scale, float panH, float panV)
+{
+    mHmdXdpi = xdpi;
+    mHmdYdpi = ydpi;
+    mHmdDeviceMargin = deviceMargin;
+    mHmdIpd = ipd;
+    mHmdScale = scale;
+    mHmdPanH = panH;
+    mHmdPanV = panV;
+}
+
+}

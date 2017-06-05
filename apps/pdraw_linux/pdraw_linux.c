@@ -762,6 +762,16 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
+        ret = pdraw_set_hmd_distorsion_correction_settings(app->pdraw, PDRAW_HMD_DEFAULT_XDPI, PDRAW_HMD_DEFAULT_YDPI,
+            PDRAW_HMD_DEFAULT_DEVICE_MARGIN, PDRAW_HMD_DEFAULT_IPD, PDRAW_HMD_DEFAULT_SCALE, PDRAW_HMD_DEFAULT_PAN_H, PDRAW_HMD_DEFAULT_PAN_V);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_hmd_distorsion_correction_settings() failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
+    {
         if (app->receiveStream)
         {
             ret = pdraw_open_single_stream(app->pdraw, app->ipAddr, app->ifaceAddr, app->srcStreamPort, app->srcControlPort,

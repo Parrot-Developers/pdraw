@@ -93,6 +93,135 @@ static void cleanup(
 }
 
 
+static jobject newHmdSettings(
+    JNIEnv *env)
+{
+    jclass hmdClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/HmdSettings");
+    jmethodID hmdConstructID = (*env)->GetMethodID(env, hmdClass, "<init>", "()V");
+    jobject hmd = (*env)->NewObject(env, hmdClass, hmdConstructID);
+    return hmd;
+}
+
+
+static void mapHmdSettingsToC(
+    JNIEnv *env,
+    jobject hmd,
+    float *c_xdpi,
+    float *c_ydpi,
+    float *c_deviceMargin,
+    float *c_ipd,
+    float *c_scale,
+    float *c_panH,
+    float *c_panV)
+{
+    if ((!hmd) || (!c_xdpi) || (!c_ydpi) || (!c_deviceMargin) ||
+        (!c_ipd) || (!c_scale) || (!c_panH) || (!c_panV))
+    {
+        LOGE("invalid pointer");
+        return;
+    }
+
+    jclass hmdClass = (*env)->GetObjectClass(env, hmd);
+
+    jfieldID fidXdpi = (*env)->GetFieldID(env, hmdClass, "xdpi", "F");
+    if (NULL == fidXdpi)
+        return;
+    jfieldID fidYdpi = (*env)->GetFieldID(env, hmdClass, "ydpi", "F");
+    if (NULL == fidYdpi)
+        return;
+    jfieldID fidDeviceMargin = (*env)->GetFieldID(env, hmdClass, "deviceMargin", "F");
+    if (NULL == fidDeviceMargin)
+        return;
+    jfieldID fidIpd = (*env)->GetFieldID(env, hmdClass, "ipd", "F");
+    if (NULL == fidIpd)
+        return;
+    jfieldID fidScale = (*env)->GetFieldID(env, hmdClass, "scale", "F");
+    if (NULL == fidScale)
+        return;
+    jfieldID fidPanH = (*env)->GetFieldID(env, hmdClass, "panH", "F");
+    if (NULL == fidPanH)
+        return;
+    jfieldID fidPanV = (*env)->GetFieldID(env, hmdClass, "panV", "F");
+    if (NULL == fidPanV)
+        return;
+
+    jfloat xdpi = (*env)->GetFloatField(env, hmd, fidXdpi);
+    jfloat ydpi = (*env)->GetFloatField(env, hmd, fidYdpi);
+    jfloat deviceMargin = (*env)->GetFloatField(env, hmd, fidDeviceMargin);
+    jfloat ipd = (*env)->GetFloatField(env, hmd, fidIpd);
+    jfloat scale = (*env)->GetFloatField(env, hmd, fidScale);
+    jfloat panH = (*env)->GetFloatField(env, hmd, fidPanH);
+    jfloat panV = (*env)->GetFloatField(env, hmd, fidPanV);
+
+    *c_xdpi = (float)xdpi;
+    *c_ydpi = (float)ydpi;
+    *c_deviceMargin = (float)deviceMargin;
+    *c_ipd = (float)ipd;
+    *c_scale = (float)scale;
+    *c_panH = (float)panH;
+    *c_panV = (float)panV;
+}
+
+
+static void mapHmdSettingsFromC(
+    JNIEnv *env,
+    jobject hmd,
+    float c_xdpi,
+    float c_ydpi,
+    float c_deviceMargin,
+    float c_ipd,
+    float c_scale,
+    float c_panH,
+    float c_panV)
+{
+    if (!hmd)
+    {
+        LOGE("invalid pointer");
+        return;
+    }
+
+    jclass hmdClass = (*env)->GetObjectClass(env, hmd);
+
+    jfieldID fidXdpi = (*env)->GetFieldID(env, hmdClass, "xdpi", "F");
+    if (NULL == fidXdpi)
+        return;
+    jfieldID fidYdpi = (*env)->GetFieldID(env, hmdClass, "ydpi", "F");
+    if (NULL == fidYdpi)
+        return;
+    jfieldID fidDeviceMargin = (*env)->GetFieldID(env, hmdClass, "deviceMargin", "F");
+    if (NULL == fidDeviceMargin)
+        return;
+    jfieldID fidIpd = (*env)->GetFieldID(env, hmdClass, "ipd", "F");
+    if (NULL == fidIpd)
+        return;
+    jfieldID fidScale = (*env)->GetFieldID(env, hmdClass, "scale", "F");
+    if (NULL == fidScale)
+        return;
+    jfieldID fidPanH = (*env)->GetFieldID(env, hmdClass, "panH", "F");
+    if (NULL == fidPanH)
+        return;
+    jfieldID fidPanV = (*env)->GetFieldID(env, hmdClass, "panV", "F");
+    if (NULL == fidPanV)
+        return;
+
+    jfloat xdpi = (jfloat)c_xdpi;
+    jfloat ydpi = (jfloat)c_ydpi;
+    jfloat deviceMargin = (jfloat)c_deviceMargin;
+    jfloat ipd = (jfloat)c_ipd;
+    jfloat scale = (jfloat)c_scale;
+    jfloat panH = (jfloat)c_panH;
+    jfloat panV = (jfloat)c_panV;
+
+    (*env)->SetFloatField(env, hmd, fidXdpi, xdpi);
+    (*env)->SetFloatField(env, hmd, fidYdpi, ydpi);
+    (*env)->SetFloatField(env, hmd, fidDeviceMargin, deviceMargin);
+    (*env)->SetFloatField(env, hmd, fidIpd, ipd);
+    (*env)->SetFloatField(env, hmd, fidScale, scale);
+    (*env)->SetFloatField(env, hmd, fidPanH, panH);
+    (*env)->SetFloatField(env, hmd, fidPanV, panV);
+}
+
+
 static jobject newLocation(
     JNIEnv *env)
 {
@@ -1905,3 +2034,66 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetProducerLastFrame(
     //TODO
 }
 #endif
+
+
+JNIEXPORT jobject JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeGetHmdDistorsionCorrectionSettings(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jobject)NULL;
+    }
+
+    float xdpi = 0., ydpi = 0., deviceMargin = 0., ipd = 0.;
+    float scale = 0., panH = 0., panV = 0.;
+    int ret = pdraw_get_hmd_distorsion_correction_settings(ctx->pdraw, &xdpi, &ydpi,
+        &deviceMargin, &ipd, &scale, &panH, &panV);
+    if (ret != 0)
+    {
+        LOGE("pdraw_get_peer_home_location() failed (%d)", ret);
+        return (jobject)NULL;
+    }
+
+    jobject hmd = newHmdSettings(env);
+    if (hmd == NULL)
+    {
+        LOGE("object creation failed");
+        return (jobject)NULL;
+    }
+
+    mapHmdSettingsFromC(env, hmd, xdpi, ydpi,
+        deviceMargin, ipd, scale, panH, panV);
+
+    return hmd;
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeSetHmdDistorsionCorrectionSettings(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jobject hmd)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    float xdpi = 0., ydpi = 0., deviceMargin = 0., ipd = 0.;
+    float scale = 0., panH = 0., panV = 0.;
+    mapHmdSettingsToC(env, hmd, &xdpi, &ydpi,
+        &deviceMargin, &ipd, &scale, &panH, &panV);
+
+    return pdraw_set_hmd_distorsion_correction_settings(ctx->pdraw, xdpi, ydpi,
+        deviceMargin, ipd, scale, panH, panV);
+}

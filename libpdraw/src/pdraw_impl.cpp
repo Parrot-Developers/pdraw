@@ -63,7 +63,7 @@ IPdraw *createPdraw()
 }
 
 
-PdrawImpl::PdrawImpl()
+PdrawImpl::PdrawImpl() : mSession(&mSettings)
 {
     mPaused = false;
     mGotRendererParams = false;
@@ -786,6 +786,22 @@ int PdrawImpl::getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *fram
     VideoFrameFilter *filter = (VideoFrameFilter*)producerCtx;
 
     return filter->getLastFrame(frame, waitUs);
+}
+
+
+void PdrawImpl::getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
+    float *deviceMargin, float *ipd, float *scale, float *panH, float *panV)
+{
+    mSettings.getHmdDistorsionCorrectionSettings(xdpi, ydpi,
+        deviceMargin, ipd, scale, panH, panV);
+}
+
+
+void PdrawImpl::setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
+    float deviceMargin, float ipd, float scale, float panH, float panV)
+{
+    mSettings.setHmdDistorsionCorrectionSettings(xdpi, ydpi,
+        deviceMargin, ipd, scale, panH, panV);
 }
 
 }

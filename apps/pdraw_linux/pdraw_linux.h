@@ -56,6 +56,14 @@
 #define PDRAW_WINDOW_WIDTH      (1280)
 #define PDRAW_WINDOW_HEIGHT     (720)
 
+#define PDRAW_HMD_DEFAULT_XDPI           (250.0f)
+#define PDRAW_HMD_DEFAULT_YDPI           (250.0f)
+#define PDRAW_HMD_DEFAULT_DEVICE_MARGIN  (0.0f)
+#define PDRAW_HMD_DEFAULT_IPD            (63.0f)
+#define PDRAW_HMD_DEFAULT_SCALE          (0.75f)
+#define PDRAW_HMD_DEFAULT_PAN_H          (0.0f)
+#define PDRAW_HMD_DEFAULT_PAN_V          (0.0f)
+
 #define PDRAW_ARSDK_DISCOVERY_PORT 44444
 #define PDRAW_ARSDK_D2C_PORT 43210
 

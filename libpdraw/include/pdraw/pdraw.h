@@ -364,6 +364,26 @@ int pdraw_get_producer_last_frame
          void *producerCtx,
          pdraw_video_frame_t *frame);
 
+int pdraw_get_hmd_distorsion_correction_settings
+        (struct pdraw *pdraw,
+         float *xdpi,
+         float *ydpi,
+         float *deviceMargin,
+         float *ipd,
+         float *scale,
+         float *panH,
+         float *panV);
+
+int pdraw_set_hmd_distorsion_correction_settings
+        (struct pdraw *pdraw,
+         float xdpi,
+         float ydpi,
+         float deviceMargin,
+         float ipd,
+         float scale,
+         float panH,
+         float panV);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

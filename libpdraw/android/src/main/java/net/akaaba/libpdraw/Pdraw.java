@@ -46,6 +46,17 @@ public class Pdraw {
     private static final String TAG = "pdraw_java";
     private long pdrawCtx;
 
+    public class HmdSettings {
+        public HmdSettings() {}
+        public float xdpi = 0.f;
+        public float ydpi = 0.f;
+        public float deviceMargin = 0.f;
+        public float ipd = 0.f;
+        public float scale = 0.f;
+        public float panH = 0.f;
+        public float panV = 0.f;
+    };
+
     public class Location {
         public Location() {}
         public boolean isValid = false;
@@ -404,6 +415,20 @@ public class Pdraw {
         nativeSetPeerHomeLocation(pdrawCtx, loc);
     }
 
+    public HmdSettings getHmdDistorsionCorrectionSettings() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetHmdDistorsionCorrectionSettings(pdrawCtx);
+    }
+
+    public void setHmdDistorsionCorrectionSettings(HmdSettings hmd) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetHmdDistorsionCorrectionSettings(pdrawCtx, hmd);
+    }
+
 
     private native long nativeNew();
 
@@ -631,5 +656,11 @@ public class Pdraw {
         pdraw_video_frame_t *frame,
         long waitUs);
 */
+
+    private native HmdSettings nativeGetHmdDistorsionCorrectionSettings(
+        long pdrawCtx);
+    private native int nativeSetHmdDistorsionCorrectionSettings(
+        long pdrawCtx,
+        HmdSettings hmd);
 
 }

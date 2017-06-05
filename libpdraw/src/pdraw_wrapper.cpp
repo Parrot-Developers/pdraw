@@ -739,3 +739,41 @@ int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, pdraw_
     }
     return toPdraw(pdraw)->getProducerLastFrame(producerCtx, frame);
 }
+
+
+int pdraw_get_hmd_distorsion_correction_settings
+        (struct pdraw *pdraw,
+         float *xdpi,
+         float *ydpi,
+         float *deviceMargin,
+         float *ipd,
+         float *scale,
+         float *panH,
+         float *panV)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getHmdDistorsionCorrectionSettings(xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
+    return 0;
+}
+
+
+int pdraw_set_hmd_distorsion_correction_settings
+        (struct pdraw *pdraw,
+         float xdpi,
+         float ydpi,
+         float deviceMargin,
+         float ipd,
+         float scale,
+         float panH,
+         float panV)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setHmdDistorsionCorrectionSettings(xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
+    return 0;
+}

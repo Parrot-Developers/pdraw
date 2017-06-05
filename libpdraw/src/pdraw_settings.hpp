@@ -1,6 +1,6 @@
 /**
- * @file pdraw_session.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - session
+ * @file pdraw_settings.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - user settings
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,87 +36,39 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SESSION_HPP_
-#define _PDRAW_SESSION_HPP_
+#ifndef _PDRAW_SETTINGS_HPP_
+#define _PDRAW_SETTINGS_HPP_
 
 #include <inttypes.h>
-#include <string>
-#include <vector>
-
-#include "pdraw_metadata_session.hpp"
-#include "pdraw_media.hpp"
-#include "pdraw_demuxer.hpp"
-#include "pdraw_renderer.hpp"
-
-
-using namespace std;
-
 
 namespace Pdraw
 {
 
 
-class Settings;
-
-
-class Session
+class Settings
 {
 public:
 
-    Session(Settings *settings);
+    Settings();
 
-    ~Session();
+    ~Settings();
 
-    int open(const std::string &url);
-
-    int open(const std::string &srcAddr, const std::string &ifaceAddr,
-             int srcStreamPort, int srcControlPort,
-             int dstStreamPort, int dstControlPort, int qosMode);
-
-    Media *addMedia(elementary_stream_type_t esType);
-
-    Media *addMedia(elementary_stream_type_t esType, Demuxer *demuxer, int demuxEsIndex);
-
-    int removeMedia(Media *media);
-
-    int removeMedia(unsigned int index);
-
-    unsigned int getMediaCount();
-
-    Media *getMedia(unsigned int index);
-
-    Media *getMediaById(unsigned int id);
-
-    int enableRenderer();
-    int disableRenderer();
-
-    uint64_t getDuration();
-
-    uint64_t getCurrentTime();
-
-    Demuxer *getDemuxer() { return mDemuxer; };
-
-    Renderer *getRenderer() { return mRenderer; };
-
-    Settings *getSettings() { return mSettings; };
-
-    SessionSelfMetadata *getSelfMetadata() { return &mSelfMetadata; };
-
-    SessionPeerMetadata *getPeerMetadata() { return &mPeerMetadata; };
+    void getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
+        float *deviceMargin, float *ipd, float *scale, float *panH, float *panV);
+    void setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
+        float deviceMargin, float ipd, float scale, float panH, float panV);
 
 private:
 
-    int addMediaFromDemuxer();
-
-    Settings *mSettings;
-    SessionSelfMetadata mSelfMetadata;
-    SessionPeerMetadata mPeerMetadata;
-    std::vector<Media*> mMedias;
-    Demuxer *mDemuxer;
-    Renderer *mRenderer;
-    unsigned int mMediaIdCounter;
+    float mHmdXdpi;
+    float mHmdYdpi;
+    float mHmdDeviceMargin;
+    float mHmdIpd;
+    float mHmdScale;
+    float mHmdPanH;
+    float mHmdPanV;
 };
 
 }
 
-#endif /* !_PDRAW_SESSION_HPP_ */
+#endif /* !_PDRAW_SETTINGS_HPP_ */
