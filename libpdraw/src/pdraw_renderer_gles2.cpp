@@ -239,7 +239,7 @@ int Gles2Renderer::setRendererParams
         }
         glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit);
         glBindTexture(GL_TEXTURE_2D, mFboTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mRenderWidth, mRenderHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mRenderWidth / 2, mRenderHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -251,7 +251,7 @@ int Gles2Renderer::setRendererParams
             ret = -1;
         }
         glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, mRenderWidth, mRenderHeight);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, mRenderWidth / 2, mRenderHeight);
 
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboTexture, 0);
         glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mFboRenderBuffer);
@@ -343,7 +343,8 @@ int Gles2Renderer::render(int timeout)
                 if ((ret == 0) && (mHmdDistorsionCorrection))
                 {
                     glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
-                    glViewport(0, 0, mRenderWidth, mRenderHeight);
+                    glViewport(0, 0, mRenderWidth / 2, mRenderHeight);
+                    glClear(GL_COLOR_BUFFER_BIT);
                 }
 
                 if (ret == 0)
@@ -361,11 +362,9 @@ int Gles2Renderer::render(int timeout)
                                 colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB;
                                 break;
                         }
-                        ret = mGles2Video->renderFrame(data->plane, data->stride,
-                                                       data->width, data->height,
-                                                       data->sarWidth, data->sarHeight,
-                                                       mRenderWidth, mRenderHeight,
-                                                       colorConversion, &data->metadata, mHeadtracking);
+                        ret = mGles2Video->renderFrame(data->plane, data->stride, data->width, data->height,
+                            data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth,
+                            mRenderHeight, colorConversion, &data->metadata, mHeadtracking);
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render frame");
@@ -378,7 +377,7 @@ int Gles2Renderer::render(int timeout)
                     if (mGles2Hud)
                     {
                         ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
-                            mRenderWidth, mRenderHeight, &data->metadata, mHeadtracking);
+                            (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight, &data->metadata, mHeadtracking);
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render frame");
@@ -393,7 +392,7 @@ int Gles2Renderer::render(int timeout)
 
                     if (mGles2Hmd)
                     {
-                        ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth, mRenderHeight);
+                        ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth / 2, mRenderHeight);
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render HMD distorsion correction");
