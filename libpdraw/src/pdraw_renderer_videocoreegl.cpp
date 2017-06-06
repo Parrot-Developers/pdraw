@@ -102,9 +102,10 @@ int VideoCoreEglRenderer::setRendererParams
      * this must be changed to render to FBO */
     hmdDistorsionCorrection = false; //TODO
 
-    Gles2Renderer::setRendererParams(windowWidth, windowHeight, renderX, renderY,
-                                     renderWidth, renderHeight, hmdDistorsionCorrection,
-                                     headtracking, uiHandler);
+    pthread_mutex_lock(&mMutex);
+
+    ret = Gles2Renderer::setRendererParams_nolock(windowWidth, windowHeight, renderX, renderY,
+        renderWidth, renderHeight, hmdDistorsionCorrection, headtracking, uiHandler);
 
     struct uiParams_s
     {
@@ -118,6 +119,11 @@ int VideoCoreEglRenderer::setRendererParams
     mContext = uiParams->context;
 
     if (mDecoder) ((VideoCoreOmxAvcDecoder*)mDecoder)->setRenderer(this);
+
+    if (ret > 0)
+        mRunning = true;
+
+    pthread_mutex_unlock(&mMutex);
 
     return ret;
 }
@@ -251,29 +257,43 @@ int VideoCoreEglRenderer::render(int timeout)
     int ret = 0;
     uint64_t oldRenderTimestamp2 = 0;
 
+    pthread_mutex_lock(&mMutex);
+
+    if (!mRunning)
+    {
+        pthread_mutex_unlock(&mMutex);
+        usleep(5000); //TODO
+        return 0;
+    }
+
     if ((!mDecoder) || (!mDecoder->isConfigured()))
     {
+        pthread_mutex_unlock(&mMutex);
         usleep(5000); //TODO
         return 0;
     }
     if ((mWindowWidth == 0) || (mWindowHeight == 0))
     {
+        pthread_mutex_unlock(&mMutex);
         usleep(5000); //TODO
         return 0;
     }
     if ((mRenderWidth == 0) || (mRenderHeight == 0))
     {
+        pthread_mutex_unlock(&mMutex);
         usleep(5000); //TODO
         return 0;
     }
     if ((mVideoWidth == 0) || (mVideoHeight == 0))
     {
+        pthread_mutex_unlock(&mMutex);
         usleep(5000); //TODO
         return 0;
     }
 
     if (eglMakeCurrent(mDisplay, mSurface, mSurface, mContext) == EGL_FALSE)
     {
+        pthread_mutex_unlock(&mMutex);
         ULOGE("VideoCoreEglRenderer: eglMakeCurrent() failed");
         return 0;
     }
@@ -389,6 +409,8 @@ int VideoCoreEglRenderer::render(int timeout)
             ULOGE("VideoCoreEglRenderer: failed to release buffer (%d)", ret);
         }
     }
+
+    pthread_mutex_unlock(&mMutex);
 
     return 0;
 }

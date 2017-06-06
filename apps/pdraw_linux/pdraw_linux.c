@@ -563,10 +563,11 @@ int main(int argc, char *argv[])
                                                        app->windowWidth, app->windowHeight, 0, 0,
                                                        app->windowWidth, app->windowHeight,
                                                        app->hmd, app->headtracking, NULL);
-                        if (ret != 0)
+                        if (ret < 0)
                         {
                             ULOGE("pdraw_start_renderer() failed (%d)", ret);
                         }
+                        ret = 0;
                     }
                     break;
                 }
@@ -858,10 +859,11 @@ int startPdraw(struct pdraw_app *app)
                                    app->windowWidth, app->windowHeight, 0, 0,
                                    app->windowWidth, app->windowHeight,
                                    app->hmd, app->headtracking, NULL);
-        if (ret != 0)
+        if (ret < 0)
         {
             ULOGE("pdraw_start_renderer() failed (%d)", ret);
         }
+        ret = 0;
     }
 
     if (ret == 0)

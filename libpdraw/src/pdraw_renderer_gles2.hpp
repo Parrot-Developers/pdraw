@@ -82,6 +82,21 @@ public:
 
 protected:
 
+    int initGles2();
+
+    int destroyGles2();
+
+    int setRendererParams_nolock
+            (int windowWidth, int windowHeight,
+             int renderX, int renderY,
+             int renderWidth, int renderHeight,
+             bool hmdDistorsionCorrection, bool headtracking,
+             void *uiHandler);
+
+    int render_nolock(int timeout);
+
+    pthread_mutex_t mMutex;
+    bool mRunning;
     AvcDecoder *mDecoder;
     BufferQueue *mDecoderOutputBufferQueue;
     int mWindowWidth;

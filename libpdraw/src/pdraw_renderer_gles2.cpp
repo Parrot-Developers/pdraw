@@ -56,6 +56,8 @@ namespace Pdraw
 
 Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
 {
+    int ret = 0;
+    mRunning = false;
     mSession = session;
     mMedia = NULL;
     mWindowWidth = 0;
@@ -77,28 +79,13 @@ Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
     mFboTexture = 0;
     mFboRenderBuffer = 0;
 
-    if (initGles2)
+    if (ret == 0)
     {
-        int ret = 0;
-
-        if (ret == 0)
+        ret = pthread_mutex_init(&mMutex, NULL);
+        if (ret != 0)
         {
-            mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia, mGles2VideoFirstTexUnit);
-            if (!mGles2Video)
-            {
-                ULOGE("Gles2Renderer: failed to create Gles2Video context");
-                ret = -1;
-            }
-        }
-
-        if (ret == 0)
-        {
-            mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia, mGles2HudFirstTexUnit);
-            if (!mGles2Hud)
-            {
-                ULOGE("Gles2Renderer: failed to create Gles2Hud context");
-                ret = -1;
-            }
+            ULOGE("Gles2Renderer: mutex creation failed (%d)", ret);
+            ret = -1;
         }
     }
 }
@@ -106,14 +93,160 @@ Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
 
 Gles2Renderer::~Gles2Renderer()
 {
-    glClear(GL_COLOR_BUFFER_BIT);
+    destroyGles2();
 
-    if (mGles2Video) delete mGles2Video;
-    if (mGles2Hud) delete mGles2Hud;
-    if (mGles2Hmd) delete mGles2Hmd;
-    if (mFboRenderBuffer > 0) glDeleteRenderbuffers(1, &mFboRenderBuffer);
-    if (mFboTexture > 0) glDeleteTextures(1, &mFboTexture);
-    if (mFbo > 0) glDeleteFramebuffers(1, &mFbo);
+    pthread_mutex_destroy(&mMutex);
+}
+
+
+int Gles2Renderer::initGles2()
+{
+    int ret = 0;
+
+    if (ret == 0)
+    {
+        mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia, mGles2VideoFirstTexUnit);
+        if (!mGles2Video)
+        {
+            ULOGE("Gles2Renderer: failed to create Gles2Video context");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia, mGles2HudFirstTexUnit);
+        if (!mGles2Hud)
+        {
+            ULOGE("Gles2Renderer: failed to create Gles2Hud context");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        // Set background color and clear buffers
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glDisable(GL_DITHER);
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_TEXTURE_2D);
+
+        glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+    }
+
+    if ((ret == 0) && (mHmdDistorsionCorrection))
+    {
+        glGenFramebuffers(1, &mFbo);
+        if (mFbo <= 0)
+        {
+            ULOGE("Gles2Renderer: failed to create framebuffer");
+            ret = -1;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+
+        glGenTextures(1, &mFboTexture);
+        if (mFboTexture <= 0)
+        {
+            ULOGE("Gles2Renderer: failed to create texture");
+            ret = -1;
+        }
+        glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit);
+        glBindTexture(GL_TEXTURE_2D, mFboTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mRenderWidth / 2, mRenderHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+        glGenRenderbuffers(1, &mFboRenderBuffer);
+        if (mFboRenderBuffer <= 0)
+        {
+            ULOGE("Gles2Renderer: failed to create render buffer");
+            ret = -1;
+        }
+        glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, mRenderWidth / 2, mRenderHeight);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboTexture, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mFboRenderBuffer);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            ULOGE("Gles2Renderer: invalid framebuffer status");
+            ret = -1;
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        if (ret == 0)
+        {
+            if ((mSession) && (mSession->getSettings()))
+            {
+                float xdpi = 0., ydpi = 0., deviceMargin = 0., ipd = 0., scale = 0., panH = 0., panV = 0.;
+                mSession->getSettings()->getHmdDistorsionCorrectionSettings(&xdpi, &ydpi,
+                    &deviceMargin, &ipd, &scale, &panH, &panV);
+                mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight,
+                    xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
+            }
+            else
+            {
+                mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight);
+            }
+            if (!mGles2Hmd)
+            {
+                ULOGE("Gles2Renderer: failed to create GlesHmd context");
+                ret = -1;
+            }
+        }
+
+        if (ret != 0)
+        {
+            mHmdDistorsionCorrection = false;
+        }
+    }
+
+    return ret;
+}
+
+
+int Gles2Renderer::destroyGles2()
+{
+    if (mGles2Video)
+    {
+        glClear(GL_COLOR_BUFFER_BIT);
+        delete mGles2Video;
+        mGles2Video = NULL;
+    }
+    if (mGles2Hud)
+    {
+        delete mGles2Hud;
+        mGles2Hud = NULL;
+    }
+    if (mGles2Hmd)
+    {
+        delete mGles2Hmd;
+        mGles2Hmd = NULL;
+    }
+    if (mFboRenderBuffer > 0)
+    {
+        glDeleteRenderbuffers(1, &mFboRenderBuffer);
+        mFboRenderBuffer = 0;
+    }
+    if (mFboTexture > 0)
+    {
+        glDeleteTextures(1, &mFboTexture);
+        mFboTexture = 0;
+    }
+    if (mFbo > 0)
+    {
+        glDeleteFramebuffers(1, &mFbo);
+        mFbo = 0;
+    }
+
+    return 0;
 }
 
 
@@ -178,7 +311,7 @@ int Gles2Renderer::removeAvcDecoder(AvcDecoder *decoder)
 }
 
 
-int Gles2Renderer::setRendererParams
+int Gles2Renderer::setRendererParams_nolock
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
@@ -186,6 +319,11 @@ int Gles2Renderer::setRendererParams
          void *uiHandler)
 {
     int ret = 0;
+
+    if (ret == 0)
+    {
+        ret = destroyGles2();
+    }
 
     mWindowWidth = windowWidth;
     mWindowHeight = windowHeight;
@@ -196,114 +334,44 @@ int Gles2Renderer::setRendererParams
     mHmdDistorsionCorrection = hmdDistorsionCorrection;
     mHeadtracking = headtracking;
 
-    // Set background color and clear buffers
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glDisable(GL_DITHER);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_TEXTURE_2D);
-
-    glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
-
-    if ((ret == 0) && (mHmdDistorsionCorrection))
+    if ((mRenderWidth == 0) || (mRenderHeight == 0))
     {
-        if (mFboRenderBuffer > 0)
-        {
-            glDeleteRenderbuffers(1, &mFboRenderBuffer);
-            mFboRenderBuffer = 0;
-        }
-        if (mFboTexture > 0)
-        {
-            glDeleteTextures(1, &mFboTexture);
-            mFboTexture = 0;
-        }
-        if (mFbo > 0)
-        {
-            glDeleteFramebuffers(1, &mFbo);
-            mFbo = 0;
-        }
-
-        glGenFramebuffers(1, &mFbo);
-        if (mFbo <= 0)
-        {
-            ULOGE("Gles2Renderer: failed to create framebuffer");
-            ret = -1;
-        }
-        glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
-
-        glGenTextures(1, &mFboTexture);
-        if (mFboTexture <= 0)
-        {
-            ULOGE("Gles2Renderer: failed to create texture");
-            ret = -1;
-        }
-        glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit);
-        glBindTexture(GL_TEXTURE_2D, mFboTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mRenderWidth / 2, mRenderHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-
-        glGenRenderbuffers(1, &mFboRenderBuffer);
-        if (mFboRenderBuffer <= 0)
-        {
-            ULOGE("Gles2Renderer: failed to create render buffer");
-            ret = -1;
-        }
-        glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, mRenderWidth / 2, mRenderHeight);
-
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboTexture, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, mFboRenderBuffer);
-
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-        {
-            ULOGE("Gles2Renderer: invalid framebuffer status");
-            ret = -1;
-        }
-
-        glClear(GL_COLOR_BUFFER_BIT);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glBindRenderbuffer(GL_RENDERBUFFER, 0);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        if (ret == 0)
-        {
-            if (mGles2Hmd)
-            {
-                delete mGles2Hmd;
-                mGles2Hmd = NULL;
-            }
-            if ((mSession) && (mSession->getSettings()))
-            {
-                float xdpi = 0., ydpi = 0., deviceMargin = 0., ipd = 0., scale = 0., panH = 0., panV = 0.;
-                mSession->getSettings()->getHmdDistorsionCorrectionSettings(&xdpi, &ydpi,
-                    &deviceMargin, &ipd, &scale, &panH, &panV);
-                mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight,
-                    xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
-            }
-            else
-            {
-                mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight);
-            }
-            if (!mGles2Hmd)
-            {
-                ULOGE("Gles2Renderer: failed to create GlesHmd context");
-                ret = -1;
-            }
-        }
-
-        if (ret != 0)
-        {
-            mHmdDistorsionCorrection = false;
-        }
+        return 0;
     }
+
+    if (ret == 0)
+    {
+        ret = initGles2();
+    }
+
+    return (ret == 0) ? 1 : ret;
+}
+
+
+int Gles2Renderer::setRendererParams
+        (int windowWidth, int windowHeight,
+         int renderX, int renderY,
+         int renderWidth, int renderHeight,
+         bool hmdDistorsionCorrection, bool headtracking,
+         void *uiHandler)
+{
+    pthread_mutex_lock(&mMutex);
+
+    mRunning = false;
+
+    int ret = setRendererParams_nolock(windowWidth, windowHeight, renderX, renderY,
+        renderWidth, renderHeight, hmdDistorsionCorrection, headtracking, uiHandler);
+
+    if (ret > 0)
+        mRunning = true;
+
+    pthread_mutex_unlock(&mMutex);
 
     return ret;
 }
 
 
-int Gles2Renderer::render(int timeout)
+int Gles2Renderer::render_nolock(int timeout)
 {
     int ret = 0;
 
@@ -437,6 +505,25 @@ int Gles2Renderer::render(int timeout)
     {
         usleep(5000); //TODO
     }
+
+    return ret;
+}
+
+
+int Gles2Renderer::render(int timeout)
+{
+    pthread_mutex_lock(&mMutex);
+
+    if (!mRunning)
+    {
+        pthread_mutex_unlock(&mMutex);
+        usleep(5000); //TODO
+        return 0;
+    }
+
+    int ret = render_nolock(timeout);
+
+    pthread_mutex_unlock(&mMutex);
 
     return ret;
 }

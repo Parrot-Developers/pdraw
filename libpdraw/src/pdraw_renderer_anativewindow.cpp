@@ -79,6 +79,7 @@ ANativeWindowRenderer::ANativeWindowRenderer(Session *session) : Gles2Renderer(s
 ANativeWindowRenderer::~ANativeWindowRenderer()
 {
     mThreadShouldStop = true;
+
     if (mRendererThreadLaunched)
     {
         int thErr = pthread_join(mRendererThread, NULL);
@@ -88,22 +89,11 @@ ANativeWindowRenderer::~ANativeWindowRenderer()
         }
     }
 
-    if (mDisplay != EGL_NO_DISPLAY)
+    int ret = setRendererParams(0, 0, 0, 0, 0, 0, false, false, NULL);
+    if (ret != 0)
     {
-        eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        if (mContext != EGL_NO_CONTEXT)
-        {
-            eglDestroyContext(mDisplay, mContext);
-        }
-        if (mSurface != EGL_NO_SURFACE)
-        {
-            eglDestroySurface(mDisplay, mSurface);
-        }
-        eglTerminate(mDisplay);
+        ULOGE("ANativeWindowRenderer: setRendererParams() failed");
     }
-    mDisplay = EGL_NO_DISPLAY;
-    mContext = EGL_NO_CONTEXT;
-    mSurface = EGL_NO_SURFACE;
 }
 
 
@@ -116,11 +106,50 @@ int ANativeWindowRenderer::setRendererParams
 {
     int ret = 0;
 
+    pthread_mutex_lock(&mMutex);
+
+    if (mWindow)
+    {
+        mWindowWidth = 0;
+        mWindowHeight = 0;
+
+        if (eglMakeCurrent(mDisplay, mSurface, mSurface, mContext) == EGL_FALSE)
+        {
+            ULOGE("ANativeWindowRenderer: eglMakeCurrent() failed");
+        }
+
+        if (!uiHandler)
+        {
+            ret = Gles2Renderer::setRendererParams_nolock(0, 0, 0, 0, 0, 0, false, false, NULL);
+            if (ret != 0)
+            {
+                ULOGE("ANativeWindowRenderer: setRendererParams_nolock() failed");
+            }
+        }
+
+        if (mDisplay != EGL_NO_DISPLAY)
+        {
+            eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if (mContext != EGL_NO_CONTEXT)
+            {
+                eglDestroyContext(mDisplay, mContext);
+            }
+            if (mSurface != EGL_NO_SURFACE)
+            {
+                eglDestroySurface(mDisplay, mSurface);
+            }
+            eglTerminate(mDisplay);
+        }
+        mDisplay = EGL_NO_DISPLAY;
+        mContext = EGL_NO_CONTEXT;
+        mSurface = EGL_NO_SURFACE;
+        mWindow = NULL;
+    }
+
     if (!uiHandler)
     {
-        ULOGE("ANativeWindowRenderer: invalid UI handler");
-        //TODO: delete context when uiHandler is null
-        return -1;
+        pthread_mutex_unlock(&mMutex);
+        return 0;
     }
 
     //TODO: proper error handling
@@ -188,33 +217,11 @@ int ANativeWindowRenderer::setRendererParams
 
     if (ret == 0)
     {
-        mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia, mGles2VideoFirstTexUnit);
-        if (!mGles2Video)
-        {
-            ULOGE("ANativeWindowRenderer: failed to create Gles2Video context");
-            ret = -1;
-        }
+        ret = Gles2Renderer::setRendererParams_nolock(w, h, renderX, renderY,
+            renderWidth, renderHeight, hmdDistorsionCorrection, headtracking, uiHandler);
     }
 
-    if (ret == 0)
-    {
-        mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia, mGles2HudFirstTexUnit);
-        if (!mGles2Hud)
-        {
-            ULOGE("ANativeWindowRenderer: failed to create Gles2Hud context");
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        ret = Gles2Renderer::setRendererParams(w, h, renderX, renderY,
-                                               renderWidth, renderHeight,
-                                               hmdDistorsionCorrection,
-                                               headtracking, uiHandler);
-    }
-
-    if (ret == 0)
+    if (ret >= 0)
     {
         if (eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) == EGL_FALSE)
         {
@@ -223,7 +230,7 @@ int ANativeWindowRenderer::setRendererParams
         }
     }
 
-    if (ret == 0)
+    if (ret >= 0)
     {
         mDisplay = display;
         mContext = context;
@@ -235,6 +242,11 @@ int ANativeWindowRenderer::setRendererParams
         ULOGE("ANativeWindowRenderer: failed to initialize EGL context");
     }
 
+    if (ret > 0)
+        mRunning = true;
+
+    pthread_mutex_unlock(&mMutex);
+
     return ret;
 }
 
@@ -243,23 +255,39 @@ int ANativeWindowRenderer::render(int timeout)
 {
     int ret = 0;
 
+    pthread_mutex_lock(&mMutex);
+
+    if (!mRunning)
+    {
+        pthread_mutex_unlock(&mMutex);
+        usleep(5000); //TODO
+        return 0;
+    }
+
     if ((mWindowWidth == 0) || (mWindowHeight == 0))
     {
+        pthread_mutex_unlock(&mMutex);
         usleep(5000); //TODO
         return -1;
     }
 
     if (eglMakeCurrent(mDisplay, mSurface, mSurface, mContext) == EGL_FALSE)
     {
+        pthread_mutex_unlock(&mMutex);
         ULOGE("ANativeWindowRenderer: eglMakeCurrent() failed");
+        usleep(5000); //TODO
         return -1;
     }
 
-    ret = Gles2Renderer::render(timeout);
+    ret = Gles2Renderer::render_nolock(timeout);
     if (ret > 0)
     {
         eglSwapBuffers(mDisplay, mSurface);
     }
+
+    eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+    pthread_mutex_unlock(&mMutex);
 
     return ret;
 }
