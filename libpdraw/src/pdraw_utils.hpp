@@ -50,6 +50,12 @@
 #define speed_t pdraw_speed_t
 
 
+void pdraw_quat_conj(const quaternion_t *qSrc, quaternion_t *qDst);
+
+
+void pdraw_quat_mult(const quaternion_t *qA, const quaternion_t *qB, quaternion_t *qDst);
+
+
 void pdraw_euler2quat(const euler_t *euler, quaternion_t *quat);
 
 

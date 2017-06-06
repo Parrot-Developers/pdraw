@@ -422,4 +422,26 @@ uint64_t Session::getCurrentTime()
     return (mDemuxer) ? mDemuxer->getCurrentTime() : 0;
 }
 
+
+void Session::getCameraOrientationForHeadtracking(float *pan, float *tilt)
+{
+    quaternion_t headQuat, headRefQuat;
+    mSelfMetadata.getHeadOrientation(&headQuat);
+    mSelfMetadata.getHeadRefOrientation(&headRefQuat);
+
+    /* headDiff * headRefQuat = headQuat  --->  headDiff = headQuat * inverse(headRefQuat) */
+    quaternion_t headDiff, headRefQuatInv;
+    pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
+    pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
+    euler_t headOrientation;
+    pdraw_quat2euler(&headDiff, &headOrientation);
+    float _pan = headOrientation.psi;
+    float _tilt = headOrientation.theta;
+
+    if (pan)
+        *pan = _pan;
+    if (tilt)
+        *tilt = _tilt;
+}
+
 }

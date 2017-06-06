@@ -92,7 +92,8 @@ int VideoCoreEglRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
-         bool hmdDistorsionCorrection, void *uiHandler)
+         bool hmdDistorsionCorrection, bool headtracking,
+         void *uiHandler)
 {
     int ret = 0;
 
@@ -102,7 +103,8 @@ int VideoCoreEglRenderer::setRendererParams
     hmdDistorsionCorrection = false; //TODO
 
     Gles2Renderer::setRendererParams(windowWidth, windowHeight, renderX, renderY,
-                                     renderWidth, renderHeight, hmdDistorsionCorrection, uiHandler);
+                                     renderWidth, renderHeight, hmdDistorsionCorrection,
+                                     headtracking, uiHandler);
 
     struct uiParams_s
     {
@@ -320,7 +322,7 @@ int VideoCoreEglRenderer::render(int timeout)
                                            data->width, data->height,
                                            data->sarWidth, data->sarHeight,
                                            mRenderWidth, mRenderHeight,
-                                           GLES2_VIDEO_COLOR_CONVERSION_NONE);
+                                           GLES2_VIDEO_COLOR_CONVERSION_NONE, &data->metadata, mHeadtracking);
             if (ret != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to render frame");
@@ -329,7 +331,8 @@ int VideoCoreEglRenderer::render(int timeout)
 
         if ((ret == 0) && (mGles2Hud))
         {
-            ret = mGles2Hud->renderHud((float)data->width / (float)data->height, &data->metadata);
+            ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
+                            mRenderWidth, mRenderHeight, &data->metadata, mHeadtracking);
             if (ret != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to render frame");

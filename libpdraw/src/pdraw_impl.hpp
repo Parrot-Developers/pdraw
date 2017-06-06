@@ -111,6 +111,7 @@ public:
              int renderWidth,
              int renderHeight,
              bool hmdDistorsionCorrection,
+             bool headtracking,
              void *uiHandler);
 
     int stopRenderer(void);
@@ -202,6 +203,8 @@ public:
     void setPeerHomeLocation
             (const pdraw_location_t *loc);
 
+    void getCameraOrientationForHeadtracking(float *pan, float *tilt);
+
     int getMediaCount();
 
     int getMediaInfo(unsigned int index, pdraw_media_info_t *info);
@@ -255,6 +258,7 @@ private:
     int mRenderWidth;
     int mRenderHeight;
     bool mHmdDistorsionCorrection;
+    bool mHeadtracking;
     void *mUiHandler;
 };
 

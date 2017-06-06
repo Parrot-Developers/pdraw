@@ -81,6 +81,12 @@ public class Pdraw {
         public float psi = 0.0f;      /* yaw */
     };
 
+    public class CameraOrientation {
+        public CameraOrientation() {}
+        public float pan = 0.f;
+        public float tilt = 0.f;
+    };
+
     public class Speed {
         public Speed() {}
         public float north = 0.0f;
@@ -217,12 +223,14 @@ public class Pdraw {
         int renderWidth,
         int renderHeight,
         boolean hmdDistorsionCorrection,
+        boolean headtracking,
         Surface surface) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
         nativeStartRenderer(pdrawCtx, renderX, renderY,
-            renderWidth, renderHeight, hmdDistorsionCorrection, surface);
+            renderWidth, renderHeight, hmdDistorsionCorrection,
+            headtracking, surface);
     }
 
     public void stopRenderer() {
@@ -415,6 +423,13 @@ public class Pdraw {
         nativeSetPeerHomeLocation(pdrawCtx, loc);
     }
 
+    public CameraOrientation getCameraOrientationForHeadtracking() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetCameraOrientationForHeadtracking(pdrawCtx);
+    }
+
     public HmdSettings getHmdDistorsionCorrectionSettings() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -499,6 +514,7 @@ public class Pdraw {
         int renderWidth,
         int renderHeight,
         boolean hmdDistorsionCorrection,
+        boolean headtracking,
         Surface surface);
 
     private native int nativeStopRenderer(
@@ -621,6 +637,9 @@ public class Pdraw {
     private native int nativeSetPeerHomeLocation(
         long pdrawCtx,
         Location loc);
+
+    private native CameraOrientation nativeGetCameraOrientationForHeadtracking(
+        long pdrawCtx);
 
 /* TODO
     private native int nativeGetMediaCount(

@@ -70,17 +70,25 @@ typedef enum
 } gles2_hud_text_align_t;
 
 
+class Session;
+class VideoMedia;
+
+
 class Gles2Hud
 {
 public:
 
-    Gles2Hud(unsigned int firstTexUnit);
+    Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUnit);
 
     ~Gles2Hud();
 
     static int getTexUnitCount() { return GLES2_HUD_TEX_UNIT_COUNT; }
 
-    int renderHud(float aspectRatio, const video_frame_metadata_t *metadata);
+    int renderHud(unsigned int videoWidth, unsigned int videoHeight,
+        unsigned int windowWidth, unsigned int windowHeight,
+        const video_frame_metadata_t *metadata, bool headtracking);
+
+    void setVideoMedia(VideoMedia *media);
 
 private:
 
@@ -101,10 +109,13 @@ private:
     void drawFlightPathVector(const euler_t *frame, float speedTheta, float speedPsi, const float color[4]);
     void drawPositionPin(const euler_t *frame, double bearing, double elevation, const float color[4]);
 
+    Session *mSession;
+    VideoMedia *mMedia;
     unsigned int mFirstTexUnit;
     float mAspectRatio;
     GLint mProgram[2];
     GLint mPositionHandle;
+    GLint mTransformMatrixHandle;
     GLint mColorHandle;
     GLuint mIconsTexture;
     unsigned int mIconsTexUnit;
@@ -113,10 +124,13 @@ private:
     GLint mTexUniformSampler;
     GLint mTexPositionHandle;
     GLint mTexTexcoordHandle;
+    GLint mTexTransformMatrixHandle;
     GLint mTexColorHandle;
 
-    float mFovX;
-    float mFovY;
+    float mHfov;
+    float mVfov;
+    float mScaleW;
+    float mScaleH;
     double mTakeoffLatitude;
     double mTakeoffLongitude;
     double mTakeoffAltitude;

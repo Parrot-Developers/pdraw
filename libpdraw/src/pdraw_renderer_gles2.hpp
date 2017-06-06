@@ -69,11 +69,16 @@ public:
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
              int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, void *uiHandler);
+             bool hmdDistorsionCorrection, bool headtracking,
+             void *uiHandler);
 
     int render(int timeout);
 
     Session *getSession() { return mSession; };
+
+    Media *getMedia() { return mMedia; };
+
+    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
 
 protected:
 
@@ -86,6 +91,7 @@ protected:
     int mRenderWidth;
     int mRenderHeight;
     bool mHmdDistorsionCorrection;
+    bool mHeadtracking;
     Gles2Hmd *mGles2Hmd;
     unsigned int mGles2HmdFirstTexUnit;
     Gles2Video *mGles2Video;

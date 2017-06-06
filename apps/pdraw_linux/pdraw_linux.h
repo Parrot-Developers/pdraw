@@ -76,6 +76,8 @@
 #define PDRAW_ARSDK_VIDEO_DST_STREAM_PORT 55004
 #define PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT 55005
 
+#define PDRAW_CAMERA_ORIENTATION_MIN_INTERVAL 25000
+
 
 struct arcmd_reader_data;
 
@@ -115,6 +117,9 @@ struct pdraw_app
     int scRestream;
     int receiveStream;
     int hmd;
+    int headtracking;
+    pdraw_euler_t headOrientation;
+    uint64_t lastCameraOrientationTime;
 
     ARDISCOVERY_AvahiDiscovery_BrowserData_t *ardiscoveryBrowserData;
     ARNETWORKAL_Manager_t *arnetworkalManager;
@@ -176,6 +181,7 @@ void stopArcommand(struct pdraw_app *app);
 int sendDateAndTime(struct pdraw_app *app);
 int sendAllStates(struct pdraw_app *app);
 int sendStreamingVideoEnable(struct pdraw_app *app);
+int sendCameraOrientation(struct pdraw_app *app, float pan, float tilt);
 
 int skyControllerRestreamConnect(struct pdraw_app *app);
 

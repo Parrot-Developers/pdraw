@@ -221,6 +221,7 @@ int pdraw_start_renderer(struct pdraw *pdraw,
                          int renderX, int renderY,
                          int renderWidth, int renderHeight,
                          int hmdDistorsionCorrection,
+                         int headtracking,
                          void *uiHandler)
 {
     if (pdraw == NULL)
@@ -231,6 +232,7 @@ int pdraw_start_renderer(struct pdraw *pdraw,
                                          renderX, renderY,
                                          renderWidth, renderHeight,
                                          (hmdDistorsionCorrection) ? true : false,
+                                         (headtracking) ? true : false,
                                          uiHandler);
 }
 
@@ -666,6 +668,20 @@ int pdraw_set_peer_home_location(struct pdraw *pdraw, const pdraw_location_t *lo
         return -EINVAL;
     }
     toPdraw(pdraw)->setPeerHomeLocation(loc);
+    return 0;
+}
+
+
+int pdraw_get_camera_orientation_for_headtracking
+        (struct pdraw *pdraw,
+         float *pan,
+         float *tilt)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getCameraOrientationForHeadtracking(pan, tilt);
     return 0;
 }
 

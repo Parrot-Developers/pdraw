@@ -53,6 +53,7 @@ NullRenderer::NullRenderer(Session *session)
 {
     int ret = 0;
     mSession = session;
+    mMedia = NULL;
     mDecoder = NULL;
     mDecoderOutputBufferQueue = NULL;
     mRendererThreadLaunched = false;
@@ -109,6 +110,7 @@ int NullRenderer::addAvcDecoder(AvcDecoder *decoder)
     }
 
     mDecoder = decoder;
+    mMedia = mDecoder->getMedia();
 
     return 0;
 }
@@ -148,7 +150,8 @@ int NullRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
-         bool hmdDistorsionCorrection, void *uiHandler)
+         bool hmdDistorsionCorrection, bool headtracking,
+         void *uiHandler)
 {
     return 0;
 }

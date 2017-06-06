@@ -104,6 +104,8 @@ public:
 
     SessionPeerMetadata *getPeerMetadata() { return &mPeerMetadata; };
 
+    void getCameraOrientationForHeadtracking(float *pan, float *tilt);
+
 private:
 
     int addMediaFromDemuxer();

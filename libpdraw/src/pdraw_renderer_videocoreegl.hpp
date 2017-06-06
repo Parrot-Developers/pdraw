@@ -68,7 +68,8 @@ public:
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
              int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, void *uiHandler);
+             bool hmdDistorsionCorrection, bool headtracking,
+             void *uiHandler);
 
     int setVideoDimensions(unsigned int videoWidth, unsigned int videoHeight);
 

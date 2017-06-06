@@ -42,6 +42,14 @@
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
+#include <math.h>
+
+#include "pdraw_session.hpp"
+#include "pdraw_media_video.hpp"
+
+
+#define PDRAW_GLES2_VIDEO_DEFAULT_HFOV (78.)
+#define PDRAW_GLES2_VIDEO_DEFAULT_VFOV (49.)
 
 
 namespace Pdraw
@@ -49,13 +57,14 @@ namespace Pdraw
 
 
 static const GLchar *videoVertexShader =
+    "uniform mat4 transform_matrix;\n"
     "attribute vec4 position;\n"
     "attribute vec2 texcoord;\n"
     "varying vec2 v_texcoord;\n"
     "\n"
     "void main()\n"
     "{\n"
-    "    gl_Position = position;\n"
+    "    gl_Position = position * transform_matrix;\n"
     "    v_texcoord = texcoord;\n"
     "}\n";
 
@@ -119,13 +128,15 @@ static const GLchar *video420SemiplanarFragmentShader =
     "}\n";
 
 
-Gles2Video::Gles2Video(unsigned int firstTexUnit)
+Gles2Video::Gles2Video(Session *session, VideoMedia *media, unsigned int firstTexUnit)
 {
     GLint vertexShader, fragmentShaderNoconv, fragmentShaderYuvp, fragmentShaderYuvsp;
     GLint success = 0;
     unsigned int i;
     int ret = 0;
 
+    mSession = session;
+    mMedia = media;
     mFirstTexUnit = firstTexUnit;
 
     if (ret == 0)
@@ -289,6 +300,8 @@ Gles2Video::Gles2Video(unsigned int firstTexUnit)
 
     if (ret == 0)
     {
+        mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
+                glGetUniformLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE], "transform_matrix");
         mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NONE][0] =
                 glGetUniformLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE], "s_texture_0");
         mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NONE][1] =
@@ -300,6 +313,8 @@ Gles2Video::Gles2Video(unsigned int firstTexUnit)
         mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
                 glGetAttribLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE], "texcoord");
 
+        mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB] =
+                glGetUniformLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB], "transform_matrix");
         mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB][0] =
                 glGetUniformLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB], "s_texture_0");
         mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB][1] =
@@ -311,6 +326,8 @@ Gles2Video::Gles2Video(unsigned int firstTexUnit)
         mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB] =
                 glGetAttribLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB], "texcoord");
 
+        mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB] =
+                glGetUniformLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB], "transform_matrix");
         mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB][0] =
                 glGetUniformLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB], "s_texture_0");
         mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB][1] =
@@ -350,11 +367,14 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                            unsigned int frameWidth, unsigned int frameHeight,
                            unsigned int sarWidth, unsigned int sarHeight,
                            unsigned int windowWidth, unsigned int windowHeight,
-                           gles2_video_color_conversion_t colorConversion)
+                           gles2_video_color_conversion_t colorConversion,
+                           const video_frame_metadata_t *metadata,
+                           bool headtracking)
 {
     unsigned int i;
     float vertices[8];
     float texCoords[8];
+    float transformMatrix[16];
 
     if ((frameWidth == 0) || (frameHeight == 0) || (sarWidth == 0) || (sarHeight == 0)
             || (windowWidth == 0) || (windowHeight == 0) || (frameStride[0] == 0))
@@ -365,6 +385,7 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
 
     glUseProgram(mProgram[colorConversion]);
     glEnable(GL_TEXTURE_2D);
+    glClear(GL_COLOR_BUFFER_BIT);
 
     switch (colorConversion)
     {
@@ -399,18 +420,87 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
 
     /* Keep the video aspect ratio */
     float windowAR = (float)windowWidth / (float)windowHeight;
-    float frameAR = (float)frameWidth / (float)frameHeight;
     float sar = (float)sarWidth / (float)sarHeight;
-    float w = (windowAR >= frameAR * sar) ? (frameAR * sar) / windowAR : 1.0;
-    float h = (windowAR >= frameAR * sar) ? 1.0 : windowAR / (frameAR * sar);
-    vertices[0] = -w;
-    vertices[1] = -h;
-    vertices[2] = w;
-    vertices[3] = -h;
-    vertices[4] = -w;
-    vertices[5] = h;
-    vertices[6] = w;
-    vertices[7] = h;
+    float videoAR = (float)frameWidth / (float)frameHeight * sar;
+    float windowW = 1.;
+    float windowH = windowAR;
+    float ratioW = 1.;
+    float ratioH = 1.;
+    if (videoAR >= windowAR)
+    {
+        ratioW = 1.;
+        ratioH = windowAR / videoAR;
+        windowW = 1.;
+        windowH = windowAR;
+    }
+    else
+    {
+        ratioW = videoAR / windowAR;
+        ratioH = 1.;
+        windowW = 1.;
+        windowH = windowAR;
+    }
+    float videoW = ratioW / windowW;
+    float videoH = ratioH / windowH;
+    float deltaX = 0.;
+    float deltaY = 0.;
+    float angle = 0.;
+    if ((headtracking) && (mSession))
+    {
+        quaternion_t headQuat, headRefQuat;
+        mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
+        mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
+
+        /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
+        quaternion_t headDiff, headRefQuatInv;
+        pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
+        pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
+        euler_t headOrientation;
+        pdraw_quat2euler(&headDiff, &headOrientation);
+        float hFov = 0.;
+        float vFov = 0.;
+        if (mMedia)
+            mMedia->getFov(&hFov, &vFov);
+        if (hFov == 0.)
+            hFov = PDRAW_GLES2_VIDEO_DEFAULT_HFOV;
+        if (vFov == 0.)
+            vFov = PDRAW_GLES2_VIDEO_DEFAULT_VFOV;
+        hFov = hFov * M_PI / 180.;
+        vFov = vFov * M_PI / 180.;
+        float scaleW = hFov / ratioW;
+        float scaleH = vFov / ratioH;
+        deltaX = (headOrientation.psi - metadata->cameraPan) / scaleW * 2.;
+        deltaY = (headOrientation.theta - metadata->cameraTilt) / scaleH * 2.;
+        angle = headOrientation.phi;
+    }
+
+    vertices[0] = -videoW;
+    vertices[1] = -videoH;
+    vertices[2] = videoW;
+    vertices[3] = -videoH;
+    vertices[4] = -videoW;
+    vertices[5] = videoH;
+    vertices[6] = videoW;
+    vertices[7] = videoH;
+
+    transformMatrix[0] = cosf(angle) * windowW;
+    transformMatrix[1] = -sinf(angle) * windowW;
+    transformMatrix[2] = 0;
+    transformMatrix[3] = -deltaX;
+    transformMatrix[4] = sinf(angle) * windowH;
+    transformMatrix[5] = cosf(angle) * windowH;
+    transformMatrix[6] = 0;
+    transformMatrix[7] = -deltaY;
+    transformMatrix[8] = 0;
+    transformMatrix[9] = 0;
+    transformMatrix[10] = 1;
+    transformMatrix[11] = 0;
+    transformMatrix[12] = 0;
+    transformMatrix[13] = 0;
+    transformMatrix[14] = 0;
+    transformMatrix[15] = 1;
+
+    glUniformMatrix4fv(mProgramTransformMatrix[colorConversion], 1, false, transformMatrix);
 
     glVertexAttribPointer(mPositionHandle[colorConversion], 2, GL_FLOAT, false, 0, vertices);
     glEnableVertexAttribArray(mPositionHandle[colorConversion]);
@@ -454,6 +544,12 @@ int Gles2Video::allocTextures(unsigned int videoWidth, unsigned int videoHeight)
     }
 
     return ret;
+}
+
+
+void Gles2Video::setVideoMedia(VideoMedia *media)
+{
+    mMedia = media;
 }
 
 }

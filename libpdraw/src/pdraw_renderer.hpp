@@ -47,6 +47,8 @@ namespace Pdraw
 
 
 class Session;
+class Media;
+class VideoMedia;
 
 
 class Renderer
@@ -63,17 +65,23 @@ public:
             (int windowWidth, int windowHeight,
              int renderX, int renderY,
              int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, void *uiHandler) = 0;
+             bool hmdDistorsionCorrection, bool headtracking,
+             void *uiHandler) = 0;
 
     virtual int render(int timeout) = 0;
 
     virtual Session *getSession() = 0;
+
+    virtual Media *getMedia() = 0;
+
+    virtual VideoMedia *getVideoMedia() = 0;
 
     static Renderer *create(Session *session);
 
 protected:
 
     Session *mSession;
+    Media *mMedia;
 };
 
 }

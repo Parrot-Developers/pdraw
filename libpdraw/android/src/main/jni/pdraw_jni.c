@@ -480,6 +480,74 @@ static void mapEulerFromC(
 }
 
 
+static jobject newCameraOrientation(
+    JNIEnv *env)
+{
+    jclass camClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/CameraOrientation");
+    jmethodID camConstructID = (*env)->GetMethodID(env, camClass, "<init>", "()V");
+    jobject cam = (*env)->NewObject(env, camClass, camConstructID);
+    return cam;
+}
+
+
+static void mapCameraOrientationToC(
+    JNIEnv *env,
+    jobject cam,
+    float *c_pan,
+    float *c_tilt)
+{
+    if ((!cam) || (!c_pan) || (!c_tilt))
+    {
+        LOGE("invalid pointer");
+        return;
+    }
+
+    jclass camClass = (*env)->GetObjectClass(env, cam);
+
+    jfieldID fidPan = (*env)->GetFieldID(env, camClass, "pan", "F");
+    if (NULL == fidPan)
+        return;
+    jfieldID fidTilt = (*env)->GetFieldID(env, camClass, "tilt", "F");
+    if (NULL == fidTilt)
+        return;
+
+    jfloat pan = (*env)->GetFloatField(env, cam, fidPan);
+    jfloat tilt = (*env)->GetFloatField(env, cam, fidTilt);
+
+    *c_pan = (float)pan;
+    *c_tilt = (float)tilt;
+}
+
+
+static void mapCameraOrientationFromC(
+    JNIEnv *env,
+    jobject cam,
+    float c_pan,
+    float c_tilt)
+{
+    if (!cam)
+    {
+        LOGE("invalid pointer");
+        return;
+    }
+
+    jclass camClass = (*env)->GetObjectClass(env, cam);
+
+    jfieldID fidPan = (*env)->GetFieldID(env, camClass, "pan", "F");
+    if (NULL == fidPan)
+        return;
+    jfieldID fidTilt = (*env)->GetFieldID(env, camClass, "tilt", "F");
+    if (NULL == fidTilt)
+        return;
+
+    jfloat pan = (jfloat)c_pan;
+    jfloat tilt = (jfloat)c_tilt;
+
+    (*env)->SetFloatField(env, cam, fidPan, pan);
+    (*env)->SetFloatField(env, cam, fidTilt, tilt);
+}
+
+
 static jobject newSpeed(
     JNIEnv *env)
 {
@@ -900,6 +968,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
     jint renderWidth,
     jint renderHeight,
     jboolean hmdDistorsionCorrection,
+    jboolean headtracking,
     jobject surface)
 {
     int ret = 0;
@@ -930,6 +999,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
         0, 0, (int)renderX, (int)renderY,
         (int)renderWidth, (int)renderHeight,
         (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
+        (headtracking == JNI_TRUE) ? 1 : 0,
         (void*)ctx->window);
 }
 
@@ -1949,6 +2019,41 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetPeerHomeLocation(
     mapLocationToC(env, loc, &c_loc);
 
     return pdraw_set_peer_home_location(ctx->pdraw, &c_loc);
+}
+
+
+JNIEXPORT jobject JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeGetCameraOrientationForHeadtracking(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jobject)NULL;
+    }
+
+    float c_pan, c_tilt;
+    int ret = pdraw_get_camera_orientation_for_headtracking(ctx->pdraw, &c_pan, &c_tilt);
+    if (ret != 0)
+    {
+        LOGE("pdraw_get_camera_orientation_for_headtracking() failed (%d)", ret);
+        return (jobject)NULL;
+    }
+
+    jobject cam = newCameraOrientation(env);
+    if (cam == NULL)
+    {
+        LOGE("object creation failed");
+        return (jobject)NULL;
+    }
+
+    mapCameraOrientationFromC(env, cam, c_pan, c_tilt);
+
+    return cam;
 }
 
 

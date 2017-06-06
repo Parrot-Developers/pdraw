@@ -57,6 +57,7 @@ namespace Pdraw
 Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
 {
     mSession = session;
+    mMedia = NULL;
     mWindowWidth = 0;
     mWindowHeight = 0;
     mRenderX = 0;
@@ -82,7 +83,7 @@ Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
 
         if (ret == 0)
         {
-            mGles2Video = new Gles2Video(mGles2VideoFirstTexUnit);
+            mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia, mGles2VideoFirstTexUnit);
             if (!mGles2Video)
             {
                 ULOGE("Gles2Renderer: failed to create Gles2Video context");
@@ -92,7 +93,7 @@ Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
 
         if (ret == 0)
         {
-            mGles2Hud = new Gles2Hud(mGles2HudFirstTexUnit);
+            mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia, mGles2HudFirstTexUnit);
             if (!mGles2Hud)
             {
                 ULOGE("Gles2Renderer: failed to create Gles2Hud context");
@@ -137,6 +138,11 @@ int Gles2Renderer::addAvcDecoder(AvcDecoder *decoder)
     }
 
     mDecoder = decoder;
+    mMedia = mDecoder->getMedia();
+    if (mGles2Video)
+        mGles2Video->setVideoMedia((VideoMedia*)mMedia);
+    if (mGles2Hud)
+        mGles2Hud->setVideoMedia((VideoMedia*)mMedia);
 
     return 0;
 }
@@ -176,7 +182,8 @@ int Gles2Renderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
-         bool hmdDistorsionCorrection, void *uiHandler)
+         bool hmdDistorsionCorrection, bool headtracking,
+         void *uiHandler)
 {
     int ret = 0;
 
@@ -187,6 +194,7 @@ int Gles2Renderer::setRendererParams
     mRenderWidth = (renderWidth) ? renderWidth : windowWidth;
     mRenderHeight = (renderHeight) ? renderHeight : windowHeight;
     mHmdDistorsionCorrection = hmdDistorsionCorrection;
+    mHeadtracking = headtracking;
 
     // Set background color and clear buffers
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -357,7 +365,7 @@ int Gles2Renderer::render(int timeout)
                                                        data->width, data->height,
                                                        data->sarWidth, data->sarHeight,
                                                        mRenderWidth, mRenderHeight,
-                                                       colorConversion);
+                                                       colorConversion, &data->metadata, mHeadtracking);
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render frame");
@@ -369,7 +377,8 @@ int Gles2Renderer::render(int timeout)
                 {
                     if (mGles2Hud)
                     {
-                        ret = mGles2Hud->renderHud((float)data->width / (float)data->height, &data->metadata);
+                        ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
+                            mRenderWidth, mRenderHeight, &data->metadata, mHeadtracking);
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render frame");

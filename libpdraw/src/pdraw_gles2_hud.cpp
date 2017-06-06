@@ -45,8 +45,15 @@
 #include <stdio.h>
 #include <math.h>
 
+#include "pdraw_session.hpp"
+#include "pdraw_media_video.hpp"
+
 #include "pdraw_gles2_hud_icons.cpp"
 #include "pdraw_gles2_hud_text_profontwindows36.cpp"
+
+
+#define PDRAW_GLES2_HUD_DEFAULT_HFOV (78.)
+#define PDRAW_GLES2_HUD_DEFAULT_VFOV (49.)
 
 
 namespace Pdraw
@@ -57,9 +64,10 @@ namespace Pdraw
 
 
 static const GLchar *hudVertexShader =
+    "uniform mat4 transform_matrix;\n"
     "attribute vec4 vPosition;\n"
     "void main() {\n"
-    "  gl_Position = vPosition;\n"
+    "  gl_Position = vPosition * transform_matrix;\n"
     "}\n";
 
 static const GLchar *hudFragmentShader =
@@ -72,13 +80,14 @@ static const GLchar *hudFragmentShader =
     "}\n";
 
 static const GLchar *hudTexVertexShader =
+    "uniform mat4 transform_matrix;\n"
     "attribute vec4 position;\n"
     "attribute vec2 texcoord;\n"
     "varying vec2 v_texcoord;\n"
     "\n"
     "void main()\n"
     "{\n"
-    "    gl_Position = position;\n"
+    "    gl_Position = position * transform_matrix;\n"
     "    v_texcoord = texcoord;\n"
     "}\n";
 
@@ -99,17 +108,22 @@ static const float colorRed[4] = { 0.9f, 0.0f, 0.0f, 1.0f };
 static const float colorGreen[4] = { 0.0f, 0.9f, 0.0f, 1.0f };
 static const float colorDarkGreen[4] = { 0.0f, 0.5f, 0.0f, 1.0f };
 static const float colorBlue[4] = { 0.0f, 0.0f, 0.9f, 1.0f };
+static const float colorGray50[4] = { 0.3f, 0.3f, 0.3f, 0.7f };
 
 
-Gles2Hud::Gles2Hud(unsigned int firstTexUnit)
+Gles2Hud::Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUnit)
 {
     GLint vertexShader, fragmentShader;
     GLint success = 0;
     int ret = 0;
 
+    mSession = session;
+    mMedia = media;
     mFirstTexUnit = firstTexUnit;
-    mFovX = 80. * M_PI / 180.; //TODO
-    mFovY = 50.5 * M_PI / 180.; //TODO
+    mHfov = 0.;
+    mVfov = 0.;
+    mScaleW = 1.;
+    mScaleH = 1.;
 
     mTakeoffLatitude = 500.;
     mTakeoffLongitude = 500.;
@@ -188,6 +202,7 @@ Gles2Hud::Gles2Hud(unsigned int firstTexUnit)
     if (ret == 0)
     {
         mPositionHandle = glGetAttribLocation(mProgram[0], "vPosition");
+        mTransformMatrixHandle = glGetUniformLocation(mProgram[0], "transform_matrix");
         mColorHandle = glGetUniformLocation(mProgram[0], "vColor");
     }
 
@@ -266,6 +281,7 @@ Gles2Hud::Gles2Hud(unsigned int firstTexUnit)
         mTexUniformSampler = glGetUniformLocation(mProgram[1], "s_texture");
         mTexPositionHandle = glGetAttribLocation(mProgram[1], "position");
         mTexTexcoordHandle = glGetAttribLocation(mProgram[1], "texcoord");
+        mTexTransformMatrixHandle = glGetUniformLocation(mProgram[1], "transform_matrix");
         mTexColorHandle = glGetUniformLocation(mProgram[1], "vColor");
     }
 
@@ -310,13 +326,49 @@ Gles2Hud::~Gles2Hud()
 }
 
 
-int Gles2Hud::renderHud(float aspectRatio, const video_frame_metadata_t *metadata)
+int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
+        unsigned int windowWidth, unsigned int windowHeight,
+        const video_frame_metadata_t *metadata, bool headtracking)
 {
-    if ((aspectRatio <= 0.) || (!metadata))
+    if ((videoWidth <= 0) || (videoHeight <= 0) || (windowWidth <= 0) || (windowHeight <= 0) || (!metadata))
     {
         return -1;
     }
-    mAspectRatio = aspectRatio;
+
+    float windowAR = (float)windowWidth / (float)windowHeight;
+    float videoAR = (float)videoWidth / (float)videoHeight;
+    float windowW = 1.;
+    float windowH = windowAR;
+    float ratioW = 1.;
+    float ratioH = 1.;
+    if (videoAR >= windowAR)
+    {
+        ratioW = 1.;
+        ratioH = windowAR / videoAR;
+        windowW = 1.;
+        windowH = windowAR;
+    }
+    else
+    {
+        ratioW = videoAR / windowAR;
+        ratioH = 1.;
+        windowW = 1.;
+        windowH = windowAR;
+    }
+    mScaleW = ratioW / windowW;
+    mScaleH = ratioH / windowH;
+    mAspectRatio = windowAR; //TODO
+
+    float hFov = 0.;
+    float vFov = 0.;
+    if (mMedia)
+        mMedia->getFov(&hFov, &vFov);
+    if (hFov == 0.)
+        hFov = PDRAW_GLES2_HUD_DEFAULT_HFOV;
+    if (vFov == 0.)
+        vFov = PDRAW_GLES2_HUD_DEFAULT_VFOV;
+    mHfov = hFov * M_PI / 180.;
+    mVfov = vFov * M_PI / 180.;
 
     float horizontalSpeed = sqrtf(metadata->groundSpeed.north * metadata->groundSpeed.north
                                   + metadata->groundSpeed.east * metadata->groundSpeed.east);
@@ -350,6 +402,46 @@ int Gles2Hud::renderHud(float aspectRatio, const video_frame_metadata_t *metadat
     glEnableVertexAttribArray(mPositionHandle);
     glEnableVertexAttribArray(mColorHandle);
 
+    float deltaX = 0.;
+    float deltaY = 0.;
+    float angle = 0.;
+    if ((headtracking) && (mSession))
+    {
+        quaternion_t headQuat, headRefQuat;
+        mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
+        mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
+
+        /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
+        quaternion_t headDiff, headRefQuatInv;
+        pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
+        pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
+        euler_t headOrientation;
+        pdraw_quat2euler(&headDiff, &headOrientation);
+        deltaX = (headOrientation.psi - metadata->cameraPan) / mHfov * ratioW * 2.;
+        deltaY = (headOrientation.theta - metadata->cameraTilt) / mVfov * ratioH * 2.;
+        angle = headOrientation.phi;
+    }
+
+    float transformMatrix[16];
+    transformMatrix[0] = cosf(angle) * windowW;
+    transformMatrix[1] = -sinf(angle) * windowW;
+    transformMatrix[2] = 0;
+    transformMatrix[3] = -deltaX;
+    transformMatrix[4] = sinf(angle) * windowH;
+    transformMatrix[5] = cosf(angle) * windowH;
+    transformMatrix[6] = 0;
+    transformMatrix[7] = -deltaY;
+    transformMatrix[8] = 0;
+    transformMatrix[9] = 0;
+    transformMatrix[10] = 1;
+    transformMatrix[11] = 0;
+    transformMatrix[12] = 0;
+    transformMatrix[13] = 0;
+    transformMatrix[14] = 0;
+    transformMatrix[15] = 1;
+
+    glUniformMatrix4fv(mTransformMatrixHandle, 1, false, transformMatrix);
+
     /* World */
     if (takeoffDistance >= 50.)
     {
@@ -357,7 +449,29 @@ int Gles2Hud::renderHud(float aspectRatio, const video_frame_metadata_t *metadat
     }
 
     /* Cockpit */
-    //drawCockpitMarks(metadata->cameraPan, metadata->cameraTilt, colorRed);
+    if (headtracking)
+    {
+        drawCockpitMarks(metadata->cameraPan, metadata->cameraTilt, colorGray50);
+    }
+
+    transformMatrix[0] = 1; //TODO windowW;
+    transformMatrix[1] = 0;
+    transformMatrix[2] = 0;
+    transformMatrix[3] = 0;
+    transformMatrix[4] = 0;
+    transformMatrix[5] = 1; //TODO windowH;
+    transformMatrix[6] = 0;
+    transformMatrix[7] = 0;
+    transformMatrix[8] = 0;
+    transformMatrix[9] = 0;
+    transformMatrix[10] = 1;
+    transformMatrix[11] = 0;
+    transformMatrix[12] = 0;
+    transformMatrix[13] = 0;
+    transformMatrix[14] = 0;
+    transformMatrix[15] = 1;
+
+    glUniformMatrix4fv(mTransformMatrixHandle, 1, false, transformMatrix);
 
     /* Helmet */
     if (horizontalSpeed >= 0.2)
@@ -383,6 +497,7 @@ int Gles2Hud::renderHud(float aspectRatio, const video_frame_metadata_t *metadat
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(mProgram[1]);
+    glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
 
     glActiveTexture(GL_TEXTURE0 + mIconsTexUnit);
     glBindTexture(GL_TEXTURE_2D, mIconsTexture);
@@ -435,6 +550,12 @@ int Gles2Hud::renderHud(float aspectRatio, const video_frame_metadata_t *metadat
     glDisableVertexAttribArray(mTexColorHandle);
 
     return 0;
+}
+
+
+void Gles2Hud::setVideoMedia(VideoMedia *media)
+{
+    mMedia = media;
 }
 
 
@@ -730,21 +851,23 @@ void Gles2Hud::drawVuMeter(float x, float y, float r, float value, float minVal,
 
 void Gles2Hud::drawCockpitMarks(float cameraPan, float cameraTilt, const float color[4])
 {
-    float cx = -cameraPan / mFovX * 2.;
-    float cy = -cameraTilt / mFovY * 2.;
+    float cx = -cameraPan / mHfov * 2. * mScaleW;
+    float cy = -cameraTilt / mVfov * 2. * mScaleH;
+    float rx = 2. / mHfov * mScaleW;
+    float ry = 2. / mVfov * mScaleH;
 
     int i;
-    float angle, span = 40. * M_PI / 180., step = M_PI / 12.;
-    for (i = 0; i < 3; i++)
+    float angle, span = 40. * M_PI / 180., step = M_PI / 72.;
+    for (i = 0; i < 5; i++)
     {
-        drawArc(cx, cy, M_PI / 180. * 2. / mFovX, M_PI / 180. * 2. / mFovX * mAspectRatio, (90. + 120. * i) * M_PI / 180. - span / 2., span, 8, color, 2.);
+        drawArc(cx, cy, M_PI / 180. * rx, M_PI / 180. * ry, (90. + 72. * i) * M_PI / 180. - span / 2., span, 8, color, 2.);
     }
-    span = 10. * M_PI / 180.;
+    span = 2. * M_PI / 180.;
     for (angle = step; angle < M_PI; angle += step)
     {
-        for (i = 0; i < 3; i++)
+        for (i = 0; i < 5; i++)
         {
-            drawArc(cx, cy, angle * 2. / mFovX, angle * 2. / mFovX * mAspectRatio, (90. + 120. * i) * M_PI / 180. - span / 2., span, 10, color, 2.);
+            drawArc(cx, cy, angle * rx, angle * ry, (90. + 72. * i) * M_PI / 180. - span / 2., span, 10, color, 2.);
         }
     }
 }
@@ -1042,8 +1165,8 @@ void Gles2Hud::drawFlightPathVector(const euler_t *frame, float speedTheta, floa
 {
     //TODO: use framePhi?
 
-    float x = (speedPsi - frame->psi) / mFovX * 2.;
-    float y = (speedTheta - frame->theta) / mFovY * 2.;
+    float x = (speedPsi - frame->psi) / mHfov * 2.;
+    float y = (speedTheta - frame->theta) / mVfov * 2.;
 
     if ((x > -1.) && (x < 1.) && (y > -1.) && (y < 1.))
     {
@@ -1059,8 +1182,8 @@ void Gles2Hud::drawPositionPin(const euler_t *frame, double bearing, double elev
 {
     //TODO: use framePhi
 
-    float x = (bearing - frame->psi) / mFovX * 2.;
-    float y = (elevation - frame->theta) / mFovY * 2.;
+    float x = (bearing - frame->psi) / mHfov * 2.;
+    float y = (elevation - frame->theta) / mVfov * 2.;
 
     if ((x > -1.) && (x < 1.) && (y > -1.) && (y < 1.))
     {

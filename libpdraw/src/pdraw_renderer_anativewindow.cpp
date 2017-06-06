@@ -111,7 +111,8 @@ int ANativeWindowRenderer::setRendererParams
         (int windowWidth, int windowHeight,
          int renderX, int renderY,
          int renderWidth, int renderHeight,
-         bool hmdDistorsionCorrection, void *uiHandler)
+         bool hmdDistorsionCorrection, bool headtracking,
+         void *uiHandler)
 {
     int ret = 0;
 
@@ -187,7 +188,7 @@ int ANativeWindowRenderer::setRendererParams
 
     if (ret == 0)
     {
-        mGles2Video = new Gles2Video(mGles2VideoFirstTexUnit);
+        mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia, mGles2VideoFirstTexUnit);
         if (!mGles2Video)
         {
             ULOGE("ANativeWindowRenderer: failed to create Gles2Video context");
@@ -197,7 +198,7 @@ int ANativeWindowRenderer::setRendererParams
 
     if (ret == 0)
     {
-        mGles2Hud = new Gles2Hud(mGles2HudFirstTexUnit);
+        mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia, mGles2HudFirstTexUnit);
         if (!mGles2Hud)
         {
             ULOGE("ANativeWindowRenderer: failed to create Gles2Hud context");
@@ -209,7 +210,8 @@ int ANativeWindowRenderer::setRendererParams
     {
         ret = Gles2Renderer::setRendererParams(w, h, renderX, renderY,
                                                renderWidth, renderHeight,
-                                               hmdDistorsionCorrection, uiHandler);
+                                               hmdDistorsionCorrection,
+                                               headtracking, uiHandler);
     }
 
     if (ret == 0)

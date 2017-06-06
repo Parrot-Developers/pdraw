@@ -301,6 +301,7 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
                              int renderX, int renderY,
                              int renderWidth, int renderHeight,
                              bool hmdDistorsionCorrection,
+                             bool headtracking,
                              void *uiHandler)
 {
     mGotRendererParams = true;
@@ -312,6 +313,7 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
     mRenderWidth = renderWidth;
     mRenderHeight = renderHeight;
     mHmdDistorsionCorrection = hmdDistorsionCorrection;
+    mHeadtracking = headtracking;
 
     if (!mSession.getRenderer())
     {
@@ -327,7 +329,7 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
         return mSession.getRenderer()->setRendererParams(mWindowWidth, mWindowHeight,
                                             mRenderX, mRenderY,
                                             mRenderWidth, mRenderHeight,
-                                            mHmdDistorsionCorrection, mUiHandler);
+                                            mHmdDistorsionCorrection, mHeadtracking, mUiHandler);
     }
     else
     {
@@ -621,6 +623,12 @@ void PdrawImpl::getPeerHomeLocation(pdraw_location_t *loc)
 void PdrawImpl::setPeerHomeLocation(const pdraw_location_t *loc)
 {
     mSession.getPeerMetadata()->setHomeLocation(loc);
+}
+
+
+void PdrawImpl::getCameraOrientationForHeadtracking(float *pan, float *tilt)
+{
+    mSession.getCameraOrientationForHeadtracking(pan, tilt);
 }
 
 

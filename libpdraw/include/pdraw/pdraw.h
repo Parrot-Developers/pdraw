@@ -136,6 +136,7 @@ int pdraw_start_renderer
          int renderWidth,
          int renderHeight,
          int hmdDistorsionCorrection,
+         int headtracking,
          void *uiHandler);
 
 
@@ -324,6 +325,12 @@ int pdraw_get_peer_home_location
 int pdraw_set_peer_home_location
         (struct pdraw *pdraw,
          const pdraw_location_t *loc);
+
+
+int pdraw_get_camera_orientation_for_headtracking
+        (struct pdraw *pdraw,
+         float *pan,
+         float *tilt);
 
 
 int pdraw_get_media_count

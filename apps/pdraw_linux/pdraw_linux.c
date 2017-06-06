@@ -44,6 +44,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <getopt.h>
+#include <math.h>
 
 #define ULOG_TAG pdraw_app
 #include <ulog.h>
@@ -52,6 +53,7 @@ ULOG_DECLARE_TAG(pdraw_app);
 
 enum args_id {
     ARGS_ID_HMD = 256,
+    ARGS_ID_HEADTRACK,
 };
 
 
@@ -73,6 +75,7 @@ static const struct option long_options[] =
     { "dstctrlp"        , required_argument  , NULL, 'C' },
     { "screstream"      , required_argument  , NULL, 'n' },
     { "hmd"             , no_argument        , NULL, ARGS_ID_HMD },
+    { "headtrack"       , no_argument        , NULL, ARGS_ID_HEADTRACK },
     { 0, 0, 0, 0 }
 };
 
@@ -191,6 +194,7 @@ static void usage(int argc, char *argv[])
             "-C | --dstctrlp <port>             Destination control port for direct RTP/AVP reception\n"
             "-n | --screstream <ip_address>     Connexion to a RTP restream from a SkyController\n"
             "     --hmd                         HMD distorsion correction\n"
+            "     --headtrack                   Enable headtracking\n"
             "\n",
             argv[0]);
 }
@@ -232,7 +236,9 @@ static void summary(struct pdraw_app* app, int afterBrowse)
 int main(int argc, char *argv[])
 {
     int failed = 0;
-    int idx, c;
+    int idx, c, mouseDown = 0;
+    int mouseDownX = 0, mouseDownY = 0;
+    pdraw_euler_t mouseDownHeadOrientation;
     struct pdraw_app *app;
 
     welcome();
@@ -336,6 +342,10 @@ int main(int argc, char *argv[])
 
                 case ARGS_ID_HMD:
                     app->hmd = 1;
+                    break;
+
+                case ARGS_ID_HEADTRACK:
+                    app->headtracking = 1;
                     break;
 
                 default:
@@ -551,7 +561,8 @@ int main(int argc, char *argv[])
                     {
                         int ret = pdraw_start_renderer(app->pdraw,
                                                        app->windowWidth, app->windowHeight, 0, 0,
-                                                       app->windowWidth, app->windowHeight, app->hmd, NULL);
+                                                       app->windowWidth, app->windowHeight,
+                                                       app->hmd, app->headtracking, NULL);
                         if (ret != 0)
                         {
                             ULOGE("pdraw_start_renderer() failed (%d)", ret);
@@ -627,6 +638,55 @@ int main(int argc, char *argv[])
                             break;
                     }
                     break;
+                case SDL_MOUSEBUTTONDOWN:
+                    if ((event.button.button == SDL_BUTTON_LEFT) || (event.button.button == SDL_BUTTON_RIGHT))
+                    {
+                        mouseDown = 1;
+                        mouseDownX = event.button.x;
+                        mouseDownY = event.button.y;
+                        pdraw_get_self_head_orientation_euler(app->pdraw, &mouseDownHeadOrientation);
+                        app->headOrientation = mouseDownHeadOrientation;
+                    }
+                    break;
+                case SDL_MOUSEBUTTONUP:
+                    if ((event.button.button == SDL_BUTTON_LEFT) || (event.button.button == SDL_BUTTON_RIGHT))
+                    {
+                        mouseDown = 0;
+                    }
+                    break;
+                case SDL_MOUSEMOTION:
+                    if ((mouseDown) && (event.motion.x != 0) && (event.motion.x != app->windowWidth - 1) &&
+                        (event.motion.y != 0) && (event.motion.y != app->windowHeight - 1))
+                    {
+                        int deltaX = (int)event.motion.x - mouseDownX;
+                        int deltaY = mouseDownY - (int)event.motion.y;
+                        app->headOrientation = mouseDownHeadOrientation;
+                        if (event.motion.state & SDL_BUTTON(SDL_BUTTON_LEFT))
+                        {
+                            app->headOrientation.psi += (float)deltaX / (float)app->windowWidth * 78. * M_PI / 180.;
+                            app->headOrientation.theta += (float)deltaY / (float)app->windowHeight * 49. * M_PI / 180;
+                        }
+                        else if (event.motion.state & SDL_BUTTON(SDL_BUTTON_RIGHT))
+                        {
+                            app->headOrientation.phi += (float)deltaX / (float)app->windowWidth * 180. * M_PI / 180.;
+                        }
+                    }
+                    break;
+            }
+        }
+
+        struct timespec t1;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        uint64_t curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+        pdraw_set_self_head_orientation_euler(app->pdraw, &app->headOrientation);
+        if ((app->arsdkConnect) && (app->headtracking) && (curTime >= app->lastCameraOrientationTime + PDRAW_CAMERA_ORIENTATION_MIN_INTERVAL))
+        {
+            float pan = 0., tilt = 0.;
+            int ret = pdraw_get_camera_orientation_for_headtracking(app->pdraw, &pan, &tilt);
+            if (ret >= 0)
+            {
+                sendCameraOrientation(app, pan * 180. / M_PI, tilt * 180. / M_PI);
+                app->lastCameraOrientationTime = curTime;
             }
         }
 
@@ -772,6 +832,11 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
+        pdraw_get_self_head_orientation_euler(app->pdraw, &app->headOrientation);
+    }
+
+    if (ret == 0)
+    {
         if (app->receiveStream)
         {
             ret = pdraw_open_single_stream(app->pdraw, app->ipAddr, app->ifaceAddr, app->srcStreamPort, app->srcControlPort,
@@ -791,7 +856,8 @@ int startPdraw(struct pdraw_app *app)
     {
         ret = pdraw_start_renderer(app->pdraw,
                                    app->windowWidth, app->windowHeight, 0, 0,
-                                   app->windowWidth, app->windowHeight, app->hmd, NULL);
+                                   app->windowWidth, app->windowHeight,
+                                   app->hmd, app->headtracking, NULL);
         if (ret != 0)
         {
             ULOGE("pdraw_start_renderer() failed (%d)", ret);
@@ -1560,6 +1626,31 @@ int sendStreamingVideoEnable(struct pdraw_app *app)
         sentStatus = 0;
     }
     
+    return sentStatus;
+}
+
+
+int sendCameraOrientation(struct pdraw_app *app, float pan, float tilt)
+{
+    int sentStatus = 1;
+    u_int8_t cmdBuffer[128];
+    int32_t cmdSize = 0;
+    eARCOMMANDS_GENERATOR_ERROR cmdError;
+    eARNETWORK_ERROR netError = ARNETWORK_ERROR;
+
+    /* Send camera orientation command */
+    cmdError = ARCOMMANDS_Generator_GenerateARDrone3CameraOrientationV2(cmdBuffer, sizeof(cmdBuffer), &cmdSize, tilt, pan);
+    if (cmdError == ARCOMMANDS_GENERATOR_OK)
+    {
+        netError = ARNETWORK_Manager_SendData(app->arnetworkManager, PDRAW_ARSDK_CD_NONACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
+    }
+
+    if ((cmdError != ARCOMMANDS_GENERATOR_OK) || (netError != ARNETWORK_OK))
+    {
+        ULOGW("Failed to send camera orientation command. cmdError:%d netError:%s", cmdError, ARNETWORK_Error_ToString(netError));
+        sentStatus = 0;
+    }
+
     return sentStatus;
 }
 

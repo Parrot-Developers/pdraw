@@ -48,6 +48,8 @@
     #include <GLFW/glfw3.h>
 #endif
 
+#include "pdraw_metadata_videoframe.hpp"
+
 
 #define GLES2_VIDEO_TEX_UNIT_COUNT 3
 
@@ -66,11 +68,15 @@ typedef enum
 } gles2_video_color_conversion_t;
 
 
+class Session;
+class VideoMedia;
+
+
 class Gles2Video
 {
 public:
 
-    Gles2Video(unsigned int firstTexUnit);
+    Gles2Video(Session *session, VideoMedia *media, unsigned int firstTexUnit);
 
     ~Gles2Video();
 
@@ -84,12 +90,19 @@ public:
                     unsigned int frameWidth, unsigned int frameHeight,
                     unsigned int sarWidth, unsigned int sarHeight,
                     unsigned int windowWidth, unsigned int windowHeight,
-                    gles2_video_color_conversion_t colorConversion);
+                    gles2_video_color_conversion_t colorConversion,
+                    const video_frame_metadata_t *metadata,
+                    bool headtracking);
+
+    void setVideoMedia(VideoMedia *media);
 
 private:
 
+    Session *mSession;
+    VideoMedia *mMedia;
     unsigned int mFirstTexUnit;
     GLint mProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+    GLint mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_MAX];
     GLuint mTextures[3];
     GLint mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_MAX][3];
     GLint mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
