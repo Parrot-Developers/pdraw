@@ -982,6 +982,16 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
 
     if (ctx->window)
     {
+        ret = pdraw_start_renderer(ctx->pdraw,
+            0, 0, 0, 0,
+            (int)renderWidth, (int)renderHeight,
+            (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
+            (headtracking == JNI_TRUE) ? 1 : 0, NULL);
+        if (ret != 0)
+        {
+            LOGE("pdraw_start_renderer() failed on free (%d)", ret);
+        }
+
         ANativeWindow_release(ctx->window);
         ctx->window = NULL;
     }
@@ -993,14 +1003,15 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
             LOGE("failed to get window from surface");
             return (jint)-1;
         }
+
+        ret = pdraw_start_renderer(ctx->pdraw,
+            0, 0, (int)renderX, (int)renderY,
+            (int)renderWidth, (int)renderHeight,
+            (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
+            (headtracking == JNI_TRUE) ? 1 : 0, (void*)ctx->window);
     }
 
-    return (jint)pdraw_start_renderer(ctx->pdraw,
-        0, 0, (int)renderX, (int)renderY,
-        (int)renderWidth, (int)renderHeight,
-        (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
-        (headtracking == JNI_TRUE) ? 1 : 0,
-        (void*)ctx->window);
+    return (jint)ret;
 }
 
 
@@ -1010,6 +1021,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStopRenderer(
     jobject thizz,
     jlong jctx)
 {
+    int ret = 0;
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
 
     if ((!ctx) || (!ctx->pdraw))
@@ -1018,7 +1030,15 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStopRenderer(
         return (jint)-1;
     }
 
-    return (jint)pdraw_stop_renderer(ctx->pdraw);
+    ret = pdraw_stop_renderer(ctx->pdraw);
+
+    if (ctx->window)
+    {
+        ANativeWindow_release(ctx->window);
+        ctx->window = NULL;
+    }
+
+    return (jint)ret;
 }
 
 
