@@ -94,11 +94,12 @@ static void cleanup(
 
 
 static jobject newHmdSettings(
-    JNIEnv *env)
+    JNIEnv *env,
+    jobject thizz)
 {
-    jclass hmdClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/HmdSettings");
-    jmethodID hmdConstructID = (*env)->GetMethodID(env, hmdClass, "<init>", "()V");
-    jobject hmd = (*env)->NewObject(env, hmdClass, hmdConstructID);
+    jclass hmdClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$HmdSettings");
+    jmethodID hmdConstructID = (*env)->GetMethodID(env, hmdClass, "<init>", "(Lnet/akaaba/libpdraw/Pdraw;)V");
+    jobject hmd = (*env)->NewObject(env, hmdClass, hmdConstructID, thizz);
     return hmd;
 }
 
@@ -223,11 +224,12 @@ static void mapHmdSettingsFromC(
 
 
 static jobject newLocation(
-    JNIEnv *env)
+    JNIEnv *env,
+    jobject thizz)
 {
-    jclass locClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/Location");
-    jmethodID locConstructID = (*env)->GetMethodID(env, locClass, "<init>", "()V");
-    jobject loc = (*env)->NewObject(env, locClass, locConstructID);
+    jclass locClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$Location");
+    jmethodID locConstructID = (*env)->GetMethodID(env, locClass, "<init>", "(Lnet/akaaba/libpdraw/Pdraw;)V");
+    jobject loc = (*env)->NewObject(env, locClass, locConstructID, thizz);
     return loc;
 }
 
@@ -319,11 +321,12 @@ static void mapLocationFromC(
 
 
 static jobject newQuaternion(
-    JNIEnv *env)
+    JNIEnv *env,
+    jobject thizz)
 {
-    jclass quatClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/Quaternion");
-    jmethodID quatConstructID = (*env)->GetMethodID(env, quatClass, "<init>", "()V");
-    jobject quat = (*env)->NewObject(env, quatClass, quatConstructID);
+    jclass quatClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$Quaternion");
+    jmethodID quatConstructID = (*env)->GetMethodID(env, quatClass, "<init>", "(Lnet/akaaba/libpdraw/Pdraw;)V");
+    jobject quat = (*env)->NewObject(env, quatClass, quatConstructID, thizz);
     return quat;
 }
 
@@ -405,11 +408,12 @@ static void mapQuaternionFromC(
 
 
 static jobject newEuler(
-    JNIEnv *env)
+    JNIEnv *env,
+    jobject thizz)
 {
-    jclass eulerClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/Euler");
-    jmethodID eulerConstructID = (*env)->GetMethodID(env, eulerClass, "<init>", "()V");
-    jobject euler = (*env)->NewObject(env, eulerClass, eulerConstructID);
+    jclass eulerClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$Euler");
+    jmethodID eulerConstructID = (*env)->GetMethodID(env, eulerClass, "<init>", "(Lnet/akaaba/libpdraw/Pdraw;)V");
+    jobject euler = (*env)->NewObject(env, eulerClass, eulerConstructID, thizz);
     return euler;
 }
 
@@ -481,11 +485,12 @@ static void mapEulerFromC(
 
 
 static jobject newCameraOrientation(
-    JNIEnv *env)
+    JNIEnv *env,
+    jobject thizz)
 {
-    jclass camClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/CameraOrientation");
-    jmethodID camConstructID = (*env)->GetMethodID(env, camClass, "<init>", "()V");
-    jobject cam = (*env)->NewObject(env, camClass, camConstructID);
+    jclass camClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$CameraOrientation");
+    jmethodID camConstructID = (*env)->GetMethodID(env, camClass, "<init>", "(Lnet/akaaba/libpdraw/Pdraw;)V");
+    jobject cam = (*env)->NewObject(env, camClass, camConstructID, thizz);
     return cam;
 }
 
@@ -549,11 +554,12 @@ static void mapCameraOrientationFromC(
 
 
 static jobject newSpeed(
-    JNIEnv *env)
+    JNIEnv *env,
+    jobject thizz)
 {
-    jclass speedClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw/Speed");
-    jmethodID speedConstructID = (*env)->GetMethodID(env, speedClass, "<init>", "()V");
-    jobject speed = (*env)->NewObject(env, speedClass, speedConstructID);
+    jclass speedClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$Speed");
+    jmethodID speedConstructID = (*env)->GetMethodID(env, speedClass, "<init>", "(Lnet/akaaba/libpdraw/Pdraw;)V");
+    jobject speed = (*env)->NewObject(env, speedClass, speedConstructID, thizz);
     return speed;
 }
 
@@ -1265,7 +1271,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfLocation(
         return (jobject)NULL;
     }
 
-    jobject loc = newLocation(env);
+    jobject loc = newLocation(env, thizz);
     if (loc == NULL)
     {
         LOGE("object creation failed");
@@ -1322,7 +1328,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfControllerOrientationQuat(
         return (jobject)NULL;
     }
 
-    jobject quat = newQuaternion(env);
+    jobject quat = newQuaternion(env, thizz);
     if (quat == NULL)
     {
         LOGE("object creation failed");
@@ -1357,7 +1363,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfControllerOrientationEuler(
         return (jobject)NULL;
     }
 
-    jobject euler = newEuler(env);
+    jobject euler = newEuler(env, thizz);
     if (euler == NULL)
     {
         LOGE("object creation failed");
@@ -1436,7 +1442,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadOrientationQuat(
         return (jobject)NULL;
     }
 
-    jobject quat = newQuaternion(env);
+    jobject quat = newQuaternion(env, thizz);
     if (quat == NULL)
     {
         LOGE("object creation failed");
@@ -1471,7 +1477,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadOrientationEuler(
         return (jobject)NULL;
     }
 
-    jobject euler = newEuler(env);
+    jobject euler = newEuler(env, thizz);
     if (euler == NULL)
     {
         LOGE("object creation failed");
@@ -1550,7 +1556,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadRefOrientationQuat(
         return (jobject)NULL;
     }
 
-    jobject quat = newQuaternion(env);
+    jobject quat = newQuaternion(env, thizz);
     if (quat == NULL)
     {
         LOGE("object creation failed");
@@ -1585,7 +1591,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadRefOrientationEuler(
         return (jobject)NULL;
     }
 
-    jobject euler = newEuler(env);
+    jobject euler = newEuler(env, thizz);
     if (euler == NULL)
     {
         LOGE("object creation failed");
@@ -1950,7 +1956,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerTakeoffLocation(
         return (jobject)NULL;
     }
 
-    jobject loc = newLocation(env);
+    jobject loc = newLocation(env, thizz);
     if (loc == NULL)
     {
         LOGE("object creation failed");
@@ -2007,7 +2013,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerHomeLocation(
         return (jobject)NULL;
     }
 
-    jobject loc = newLocation(env);
+    jobject loc = newLocation(env, thizz);
     if (loc == NULL)
     {
         LOGE("object creation failed");
@@ -2064,7 +2070,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetCameraOrientationForHeadtracking(
         return (jobject)NULL;
     }
 
-    jobject cam = newCameraOrientation(env);
+    jobject cam = newCameraOrientation(env, thizz);
     if (cam == NULL)
     {
         LOGE("object creation failed");
@@ -2185,7 +2191,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetHmdDistorsionCorrectionSettings(
         return (jobject)NULL;
     }
 
-    jobject hmd = newHmdSettings(env);
+    jobject hmd = newHmdSettings(env, thizz);
     if (hmd == NULL)
     {
         LOGE("object creation failed");
