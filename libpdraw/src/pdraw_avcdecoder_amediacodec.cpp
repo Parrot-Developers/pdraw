@@ -99,7 +99,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
         ULOGE("AMediaCodec: decoder is already configured");
         return -1;
     }
-    if ((!pSps) || (spsSize <= 4) || (!pPps) || (ppsSize <= 4))
+    if ((!pSps) || (spsSize == 0) || (!pPps) || (ppsSize == 0))
     {
         ULOGE("AMediaCodec: invalid SPS/PPS");
         return -1;
@@ -611,6 +611,11 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
         {
             ULOGW("AMediaCodec: invalid timestamp in buffer callback");
         }
+#if 0
+        inputBuffer = mInputBufferQueue->popBuffer(false);
+        if (inputBuffer)
+            inputData = (avc_decoder_input_buffer_t*)inputBuffer->getMetadataPtr();
+#endif
 
         if ((inputBuffer == NULL) || (inputData == NULL))
         {

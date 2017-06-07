@@ -252,7 +252,7 @@ int VideoCoreOmxAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize,
         ULOGE("videoCoreOmx: decoder is already configured");
         return -1;
     }
-    if ((!pSps) || (spsSize <= 4) || (!pPps) || (ppsSize <= 4))
+    if ((!pSps) || (spsSize == 0) || (!pPps) || (ppsSize == 0))
     {
         ULOGE("videoCoreOmx: invalid SPS/PPS");
         return -1;
