@@ -53,6 +53,12 @@
 
 #define GLES2_HUD_TEX_UNIT_COUNT 3
 
+#define GLES2_HUD_CENTRAL_ZONE_SIZE     (0.25f)
+#define GLES2_HUD_HEADING_ZONE_OFFSET   (-0.75f)
+#define GLES2_HUD_ROLL_ZONE_OFFSET      (0.45f)
+#define GLES2_HUD_VU_METER_ZONE_OFFSET  (-0.60f)
+#define GLES2_HUD_VU_METER_V_INTERVAL   (-0.3f)
+
 
 namespace Pdraw
 {
@@ -113,6 +119,7 @@ private:
     VideoMedia *mMedia;
     unsigned int mFirstTexUnit;
     float mAspectRatio;
+    float mVideoAspectRatio;
     GLint mProgram[2];
     GLint mPositionHandle;
     GLint mTransformMatrixHandle;
@@ -127,13 +134,17 @@ private:
     GLint mTexTransformMatrixHandle;
     GLint mTexColorHandle;
 
+    float mHudCentralZoneSize;
+    float mHudHeadingZoneOffset;
+    float mHudRollZoneOffset;
+    float mHudVuMeterZoneOffset;
+    float mHudVuMeterVInterval;
     float mHfov;
     float mVfov;
     float mScaleW;
     float mScaleH;
-    double mTakeoffLatitude;
-    double mTakeoffLongitude;
-    double mTakeoffAltitude;
+    float mRatioW;
+    float mRatioH;
 };
 
 }

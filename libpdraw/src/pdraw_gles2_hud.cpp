@@ -120,14 +120,19 @@ Gles2Hud::Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUni
     mSession = session;
     mMedia = media;
     mFirstTexUnit = firstTexUnit;
+    mHudCentralZoneSize = GLES2_HUD_CENTRAL_ZONE_SIZE;
+    mHudHeadingZoneOffset = GLES2_HUD_HEADING_ZONE_OFFSET;
+    mHudRollZoneOffset = GLES2_HUD_ROLL_ZONE_OFFSET;
+    mHudVuMeterZoneOffset = GLES2_HUD_VU_METER_ZONE_OFFSET;
+    mHudVuMeterVInterval = GLES2_HUD_VU_METER_V_INTERVAL;
+    mAspectRatio = 1.;
+    mVideoAspectRatio = 1.;
     mHfov = 0.;
     mVfov = 0.;
     mScaleW = 1.;
     mScaleH = 1.;
-
-    mTakeoffLatitude = 500.;
-    mTakeoffLongitude = 500.;
-    mTakeoffAltitude = 0.;
+    mRatioW = 1.;
+    mRatioH = 1.;
 
     if (ret == 0)
     {
@@ -339,25 +344,26 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     float videoAR = (float)videoWidth / (float)videoHeight;
     float windowW = 1.;
     float windowH = windowAR;
-    float ratioW = 1.;
-    float ratioH = 1.;
+    mRatioW = 1.;
+    mRatioH = 1.;
     if (videoAR >= windowAR)
     {
-        ratioW = 1.;
-        ratioH = windowAR / videoAR;
+        mRatioW = 1.;
+        mRatioH = windowAR / videoAR;
         windowW = 1.;
         windowH = windowAR;
     }
     else
     {
-        ratioW = videoAR / windowAR;
-        ratioH = 1.;
+        mRatioW = videoAR / windowAR;
+        mRatioH = 1.;
         windowW = 1.;
         windowH = windowAR;
     }
-    mScaleW = ratioW / windowW;
-    mScaleH = ratioH / windowH;
-    mAspectRatio = windowAR; //TODO
+    mScaleW = mRatioW / windowW;
+    mScaleH = mRatioH / windowH;
+    mAspectRatio = windowAR;
+    mVideoAspectRatio = videoAR;
 
     float hFov = 0.;
     float vFov = 0.;
@@ -377,21 +383,21 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
                            + metadata->groundSpeed.down * metadata->groundSpeed.down);
     float speedPsi = atan2f(metadata->groundSpeed.east, metadata->groundSpeed.north);
     float speedTheta = M_PI / 2 - acosf(metadata->groundSpeed.down / speedRho);
-    if (((mTakeoffLatitude == 500.) || (mTakeoffLongitude == 500.)) && (metadata->location.isValid))
+    location_t takeoffLocation;
+    takeoffLocation.isValid = 0;
+    if (mSession)
     {
-        mTakeoffLatitude = metadata->location.latitude;
-        mTakeoffLongitude = metadata->location.longitude;
-        mTakeoffAltitude = metadata->location.altitude;
+        mSession->getPeerMetadata()->getTakeoffLocation(&takeoffLocation);
     }
     double takeoffDistance = 0.;
     double takeoffBearing = 0.;
     double takeoffElevation = 0.;
-    if (metadata->location.isValid)
+    if ((metadata->location.isValid) && (takeoffLocation.isValid))
     {
         pdraw_coordsDistanceAndBearing(metadata->location.latitude, metadata->location.longitude,
-                                       mTakeoffLatitude, mTakeoffLongitude,
+                                       takeoffLocation.latitude, takeoffLocation.longitude,
                                        &takeoffDistance, &takeoffBearing);
-        takeoffElevation = atan2(mTakeoffAltitude - metadata->location.altitude, takeoffDistance);
+        takeoffElevation = atan2(takeoffLocation.altitude - metadata->location.altitude, takeoffDistance);
     }
     int headingInt = ((int)(metadata->droneAttitude.psi * RAD_TO_DEG) + 360) % 360;
 
@@ -417,8 +423,8 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
         euler_t headOrientation;
         pdraw_quat2euler(&headDiff, &headOrientation);
-        deltaX = (headOrientation.psi - metadata->cameraPan) / mHfov * ratioW * 2.;
-        deltaY = (headOrientation.theta - metadata->cameraTilt) / mVfov * ratioH * 2.;
+        deltaX = (headOrientation.psi - metadata->cameraPan) / mHfov * mRatioW * 2.;
+        deltaY = (headOrientation.theta - metadata->cameraTilt) / mVfov * mRatioH * 2.;
         angle = headOrientation.phi;
     }
 
@@ -484,9 +490,9 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     drawAltitude(metadata->location.altitude, metadata->groundSpeed.down, colorGreen);
     drawSpeed(horizontalSpeed, colorGreen);
 
-    drawVuMeter(-0.85, 0.75, 0.06, metadata->batteryPercentage, 0., 100., 0., 20., colorGreen, colorDarkGreen, 2.);
-    drawVuMeter(-0.85, 0.375, 0.06, metadata->wifiRssi, -90., -20., -90., -70., colorGreen, colorDarkGreen, 2.);
-    drawVuMeter(-0.85, 0.0, 0.06, metadata->location.svCount, 0., 30., 0., 5., colorGreen, colorDarkGreen, 2.);
+    drawVuMeter(mHudVuMeterZoneOffset, mHudVuMeterVInterval, 0.06, metadata->batteryPercentage, 0., 100., 0., 20., colorGreen, colorDarkGreen, 2.);
+    drawVuMeter(mHudVuMeterZoneOffset, 0.0, 0.06, metadata->wifiRssi, -90., -20., -90., -70., colorGreen, colorDarkGreen, 2.);
+    drawVuMeter(mHudVuMeterZoneOffset, -mHudVuMeterVInterval, 0.06, metadata->location.svCount, 0., 30., 0., 5., colorGreen, colorDarkGreen, 2.);
 
     glDisableVertexAttribArray(mPositionHandle);
     glDisableVertexAttribArray(mColorHandle);
@@ -506,9 +512,9 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     glEnableVertexAttribArray(mTexTexcoordHandle);
     glEnableVertexAttribArray(mTexColorHandle);
 
-    drawIcon(3, -0.85, 0.73, 0.045, colorGreen);
-    drawIcon(4, -0.85, 0.355, 0.045, colorGreen);
-    drawIcon(5, -0.85, -0.02, 0.045, colorGreen);
+    drawIcon(3, mHudVuMeterZoneOffset * mRatioW, (mHudVuMeterVInterval - 0.02) * mRatioH, 0.045 * mRatioW, colorGreen);
+    drawIcon(4, mHudVuMeterZoneOffset * mRatioW, (0.0 - 0.02) * mRatioH, 0.045 * mRatioW, colorGreen);
+    drawIcon(5, mHudVuMeterZoneOffset * mRatioW, (-mHudVuMeterVInterval - 0.02) * mRatioH, 0.045 * mRatioW, colorGreen);
 
     glActiveTexture(GL_TEXTURE0 + mTextTexUnit);
     glBindTexture(GL_TEXTURE_2D, mTextTexture);
@@ -516,22 +522,22 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
 
     char str[20];
     snprintf(str, sizeof(str), "%d%%", metadata->batteryPercentage);
-    drawText(str, -0.85, 0.68, 0.15, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
+    drawText(str, mHudVuMeterZoneOffset * mRatioW, (mHudVuMeterVInterval - 0.07) * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
     snprintf(str, sizeof(str), "%ddBm", metadata->wifiRssi);
-    drawText(str, -0.85, 0.305, 0.15, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
+    drawText(str, mHudVuMeterZoneOffset * mRatioW, (0.0 - 0.07) * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
     snprintf(str, sizeof(str), "%d", metadata->location.svCount);
-    drawText(str, -0.85, -0.07, 0.15, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
+    drawText(str, mHudVuMeterZoneOffset * mRatioW, (-mHudVuMeterVInterval - 0.07) * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
     snprintf(str, sizeof(str), "ALT");
-    drawText(str, 0.45, 0.42, 0.15, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
+    drawText(str, mHudCentralZoneSize * mRatioW, (mHudCentralZoneSize - 0.02) * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
     snprintf(str, sizeof(str), "%.1fm", metadata->location.altitude);
-    drawText(str, 0.49, 0.0, 0.15, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+    drawText(str, (mHudCentralZoneSize + 0.04) * mRatioW, 0.0 * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     snprintf(str, sizeof(str), "SPD");
-    drawText(str, -0.45, 0.42, 0.15, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
+    drawText(str, -mHudCentralZoneSize * mRatioW, (mHudCentralZoneSize - 0.02) * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
     snprintf(str, sizeof(str), "%.1fm/s", horizontalSpeed);
-    drawText(str, -0.49, 0.0, 0.15, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+    drawText(str, -(mHudCentralZoneSize + 0.04) * mRatioW, 0.0 * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     snprintf(str, sizeof(str), "%d", headingInt);
-    drawText(str, 0., -0.60, 0.15, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
-    float height = 0.45 * mAspectRatio;
+    drawText(str, 0. * mRatioW, (mHudHeadingZoneOffset + 0.25) * mRatioH, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
+    float height = mHudCentralZoneSize * mRatioW * mAspectRatio;
     int steps = 6, i;
     for (i = -steps; i <= steps; i++)
     {
@@ -540,7 +546,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
             if (!(i & 1))
             {
                 snprintf(str, sizeof(str), "%+2d ", i * 10);
-                drawText(str, 0., i * height / 2 / steps, 0.15, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+                drawText(str, 0. * mRatioW, i * height / 2 / steps, 0.15 * mRatioW, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
             }
         }
     }
@@ -829,22 +835,24 @@ void Gles2Hud::drawEllipse(float cx, float cy, float rx, float ry, int numSegmen
 
 void Gles2Hud::drawVuMeter(float x, float y, float r, float value, float minVal, float maxVal, float criticalMin, float criticalMax, const float color[4], const float criticalColor[4], float lineWidth)
 {
+    x *= mRatioW;
+    y *= mRatioH;
     if (value < minVal) value = minVal;
     if (value > maxVal) value = maxVal;
     float span = 4. * M_PI / 3.;
     float start = (M_PI - span) / 2.;
-    drawArc(x, y, r, r * mAspectRatio, start, span, 20, color, 2.);
+    drawArc(x, y, r * mRatioW, r * mRatioW * mAspectRatio, start, span, 20, color, 2.);
     if ((criticalMin >= minVal) && (criticalMin <= maxVal) && (criticalMax >= minVal) && (criticalMax <= maxVal) && (criticalMin < criticalMax))
     {
         float start2 = start + (1. - (criticalMax - minVal) / (maxVal - minVal)) * span;
         float end2 = start + (1. - (criticalMin - minVal) / (maxVal - minVal)) * span;
-        drawArc(x, y, r * 0.9, r * 0.9 * mAspectRatio, start2, end2 - start2, 10, criticalColor, 2.);
+        drawArc(x, y, r * mRatioW * 0.9, r * mRatioW * mAspectRatio * 0.9, start2, end2 - start2, 10, criticalColor, 2.);
     }
     float angle = start + (1. - (value - minVal) / (maxVal - minVal)) * span;
-    float x1 = x + r * 0.4 * cosf(angle);
-    float y1 = y + r * 0.4 * mAspectRatio * sinf(angle);
-    float x2 = x + r * 0.9 * cosf(angle);
-    float y2 = y + r * 0.9 * mAspectRatio * sinf(angle);
+    float x1 = x + r * mRatioW * 0.4 * cosf(angle);
+    float y1 = y + r * mRatioW * mAspectRatio * 0.4 * sinf(angle);
+    float x2 = x + r * mRatioW * 0.9 * cosf(angle);
+    float y2 = y + r * mRatioW * mAspectRatio * 0.9 * sinf(angle);
     drawLine(x1, y1, x2, y2, color, 2.);
 }
 
@@ -877,7 +885,7 @@ void Gles2Hud::drawArtificialHorizon(const euler_t *drone, const euler_t *frame,
 {
     int i;
     float x1, y1, x2, y2;
-    float height = 0.45 * mAspectRatio;
+    float height = mHudCentralZoneSize * mRatioW * mAspectRatio;
     int steps = 6;
 
     /* Scale */
@@ -887,31 +895,31 @@ void Gles2Hud::drawArtificialHorizon(const euler_t *drone, const euler_t *frame,
         {
             if (i & 1)
             {
-                drawLine(-0.01, i * height / 2 / steps, 0.01, i * height / 2 / steps, color, 2.);
+                drawLine(-0.01 * mRatioW, i * height / 2 / steps, 0.01 * mRatioW, i * height / 2 / steps, color, 2.);
             }   
         }
     }
 
     /* Horizon */
-    x1 = -0.225 * cosf(frame->phi);
-    y1 = -0.225 * mAspectRatio * sinf(frame->phi);
-    x2 = 0.225 * cosf(frame->phi);
-    y2 = 0.225 * mAspectRatio * sinf(frame->phi);
+    x1 = -0.5 * mHudCentralZoneSize * mRatioW * cosf(frame->phi);
+    y1 = -0.5 * mHudCentralZoneSize * mRatioW * mAspectRatio * sinf(frame->phi);
+    x2 = 0.5 * mHudCentralZoneSize * mRatioW * cosf(frame->phi);
+    y2 = 0.5 * mHudCentralZoneSize * mRatioW * mAspectRatio * sinf(frame->phi);
     drawLine(x1, y1, x2, y2, color, 2.);
 
     /* Drone */
     float vertices[10];
     float droneY = drone->theta / (M_PI / 18 * steps) * height / 2;
-    vertices[0] = -0.06 * cosf(frame->phi - drone->phi);
-    vertices[1] = -0.06 * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
-    vertices[2] = -0.015 * cosf(frame->phi - drone->phi);
-    vertices[3] = -0.015 * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
-    vertices[4] = 0.015 * sinf(frame->phi - drone->phi);
-    vertices[5] = -0.015 * mAspectRatio * cosf(frame->phi - drone->phi) + droneY;
-    vertices[6] = 0.015 * cosf(frame->phi - drone->phi);
-    vertices[7] = 0.015 * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
-    vertices[8] = 0.06 * cosf(frame->phi - drone->phi);
-    vertices[9] = 0.06 * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
+    vertices[0] = -0.06 * mRatioW * cosf(frame->phi - drone->phi);
+    vertices[1] = -0.06 * mRatioW * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
+    vertices[2] = -0.015 * mRatioW * cosf(frame->phi - drone->phi);
+    vertices[3] = -0.015 * mRatioW * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
+    vertices[4] = 0.015 * mRatioW * sinf(frame->phi - drone->phi);
+    vertices[5] = -0.015 * mRatioW * mAspectRatio * cosf(frame->phi - drone->phi) + droneY;
+    vertices[6] = 0.015 * mRatioW * cosf(frame->phi - drone->phi);
+    vertices[7] = 0.015 * mRatioW * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
+    vertices[8] = 0.06 * mRatioW * cosf(frame->phi - drone->phi);
+    vertices[9] = 0.06 * mRatioW * mAspectRatio * sinf(frame->phi - drone->phi) + droneY;
     glLineWidth(6.);
     glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
     glUniform4fv(mColorHandle, 1, color);
@@ -923,16 +931,16 @@ void Gles2Hud::drawRoll(float droneRoll, const float color[4])
 {
     int i;
     float rotation, x1, y1, x2, y2;
-    float yOffset = 0.55;
-    float width = 0.12;
+    float width = 0.12 * mRatioW;
+    float yOffset = mHudRollZoneOffset * mRatioH;
     int steps = 6;
 
     drawArc(0., yOffset, width, width * mAspectRatio, M_PI * (90. - 10. * steps) / 180., M_PI * 20. * steps / 180., 100, color, 2.);
     rotation = M_PI / 2. - droneRoll;
-    x1 = (width - 0.012) * cosf(rotation);
-    y1 = (width - 0.012) * mAspectRatio * sinf(rotation) + yOffset;
-    x2 = (width + 0.012) * cosf(rotation);
-    y2 = (width + 0.012) * mAspectRatio * sinf(rotation) + yOffset;
+    x1 = (width - 0.012 * mRatioW) * cosf(rotation);
+    y1 = (width - 0.012 * mRatioW) * mAspectRatio * sinf(rotation) + yOffset;
+    x2 = (width + 0.012 * mRatioW) * cosf(rotation);
+    y2 = (width + 0.012 * mRatioW) * mAspectRatio * sinf(rotation) + yOffset;
     drawLine(x1, y1, x2, y2, color, 2.);
 
     for (i = -steps, rotation = M_PI * (90. - 10. * steps) / 180.; i <= steps; i++, rotation += M_PI * 10. / 180.)
@@ -942,8 +950,8 @@ void Gles2Hud::drawRoll(float droneRoll, const float color[4])
         {
             x1 = width * cosf(rotation);
             y1 = width * mAspectRatio * sinf(rotation) + yOffset;
-            x2 = (width - 0.008) * cosf(rotation);
-            y2 = (width - 0.008) * mAspectRatio * sinf(rotation) + yOffset;
+            x2 = (width - 0.008 * mRatioW) * cosf(rotation);
+            y2 = (width - 0.008 * mRatioW) * mAspectRatio * sinf(rotation) + yOffset;
             drawLine(x1, y1, x2, y2, color, 2.);
         }
     }
@@ -964,14 +972,14 @@ void Gles2Hud::drawHeading(float droneYaw, float horizontalSpeed, float speedPsi
     char strHeading[20];
     snprintf(strHeading, sizeof(strHeading), "%d", heading);
 
-    float yOffset = -0.85;
-    float width = 0.12;
+    float width = 0.12 * mRatioW;
+    float yOffset = mHudHeadingZoneOffset * mRatioH;
 
     drawArc(0., yOffset, width, width * mAspectRatio, M_PI * 20. / 180., M_PI * 140. / 180., 100, color, 2.);
     x1 = 0.;
     y1 = yOffset + width * mAspectRatio;
     x2 = 0.;
-    y2 = yOffset + (width + 0.01) * mAspectRatio;
+    y2 = yOffset + (width + 0.01 * mRatioW) * mAspectRatio;
     drawLine(x1, y1, x2, y2, color, 2.);
     //drawText(QRect(-40, -headingWidth / 2 - 25, 80, 20), Qt::AlignCenter, strHeading, NULL);
 
@@ -982,8 +990,8 @@ void Gles2Hud::drawHeading(float droneYaw, float horizontalSpeed, float speedPsi
         {
             x1 = width * cosf(rotation);
             y1 = width * mAspectRatio * sinf(rotation) + yOffset;
-            x2 = (width - 0.01) * cosf(rotation);
-            y2 = (width - 0.01) * mAspectRatio * sinf(rotation) + yOffset;
+            x2 = (width - 0.01 * mRatioW) * cosf(rotation);
+            y2 = (width - 0.01 * mRatioW) * mAspectRatio * sinf(rotation) + yOffset;
             drawLine(x1, y1, x2, y2, color, 2.);
         }
     }
@@ -1004,20 +1012,20 @@ void Gles2Hud::drawHeading(float droneYaw, float horizontalSpeed, float speedPsi
     if (horizontalSpeed >= 0.2)
     {
         rotation = droneYaw - speedPsi + M_PI / 2.;
-        x1 = 0.05 * cosf(rotation);
-        y1 = 0.05 * mAspectRatio * sinf(rotation) + yOffset;
+        x1 = 0.05 * mRatioW * cosf(rotation);
+        y1 = 0.05 * mRatioW * mAspectRatio * sinf(rotation) + yOffset;
         x2 = 0.;
         y2 = yOffset;
         drawLine(x1, y1, x2, y2, color, 2.);
-        x1 = 0.05 * cosf(rotation);
-        y1 = 0.05 * mAspectRatio * sinf(rotation) + yOffset;
-        x2 = 0.015 * cosf(rotation - 5. * M_PI / 6.) + x1;
-        y2 = 0.015 * mAspectRatio * sinf(rotation - 5. * M_PI / 6.) + y1;
+        x1 = 0.05 * mRatioW * cosf(rotation);
+        y1 = 0.05 * mRatioW * mAspectRatio * sinf(rotation) + yOffset;
+        x2 = 0.015 * mRatioW * cosf(rotation - 5. * M_PI / 6.) + x1;
+        y2 = 0.015 * mRatioW * mAspectRatio * sinf(rotation - 5. * M_PI / 6.) + y1;
         drawLine(x1, y1, x2, y2, color, 2.);
-        x1 = 0.05 * cosf(rotation);
-        y1 = 0.05 * mAspectRatio * sinf(rotation) + yOffset;
-        x2 = 0.015 * cosf(rotation + 5. * M_PI / 6.) + x1;
-        y2 = 0.015 * mAspectRatio * sinf(rotation + 5. * M_PI / 6.) + y1;
+        x1 = 0.05 * mRatioW * cosf(rotation);
+        y1 = 0.05 * mRatioW * mAspectRatio * sinf(rotation) + yOffset;
+        x2 = 0.015 * mRatioW * cosf(rotation + 5. * M_PI / 6.) + x1;
+        y2 = 0.015 * mRatioW * mAspectRatio * sinf(rotation + 5. * M_PI / 6.) + y1;
         drawLine(x1, y1, x2, y2, color, 2.);
     }
 }
@@ -1028,25 +1036,25 @@ void Gles2Hud::drawAltitude(double altitude, float downSpeed, const float color[
     char strAltitude[20];
     sprintf(strAltitude, "%.1fm", altitude);
 
-    float xOffset = 0.45;
-    float height = 0.45 * mAspectRatio;
+    float xOffset = mHudCentralZoneSize * mRatioW;
+    float height = mHudCentralZoneSize * mRatioW * mAspectRatio;
     float altitudeInterval = height / 20.;
 
     drawLine(xOffset, -height / 2., xOffset, height / 2., color, 2.);
-    drawLine(xOffset, -height / 2., xOffset + 0.08, -height / 2., color, 2.);
-    drawLine(xOffset, height / 2., xOffset + 0.08, height / 2., color, 2.);
-    drawRect(xOffset + 0.03, -0.03, xOffset + 0.03 + 0.1, 0.03, color, 2.);
-    drawLine(xOffset, 0., xOffset + 0.03, -0.03, color, 2.);
-    drawLine(xOffset, 0., xOffset + 0.03, 0.03, color, 2.);
+    drawLine(xOffset, -height / 2., xOffset + 0.08 * mRatioW, -height / 2., color, 2.);
+    drawLine(xOffset, height / 2., xOffset + 0.08 * mRatioW, height / 2., color, 2.);
+    drawRect(xOffset + 0.03 * mRatioW, -0.017 * mRatioW * mAspectRatio, xOffset + 0.03 * mRatioW + 0.1 * mRatioW, 0.017 * mRatioW * mAspectRatio, color, 2.);
+    drawLine(xOffset, 0., xOffset + 0.03 * mRatioW, -0.017 * mRatioW * mAspectRatio, color, 2.);
+    drawLine(xOffset, 0., xOffset + 0.03 * mRatioW, 0.017 * mRatioW * mAspectRatio, color, 2.);
 
     float y = (ceil(altitude) - altitude) * altitudeInterval;
     int altInt = ((int)ceil(altitude));
     int altMod5 = altInt % 5;
     while (y < height / 2.)
     {
-        drawLine(xOffset, y, xOffset + ((altMod5 == 0) ? 0.03 : 0.015), y, color, 2.);
-        if ((!altMod5) && (y > -height / 2. + 0.03) && (y < height / 2. - 0.03)
-                && (!((y > -0.03) && (y < 0.03))))
+        drawLine(xOffset, y, xOffset + ((altMod5 == 0) ? 0.03 * mRatioW : 0.015 * mRatioW), y, color, 2.);
+        if ((!altMod5) && (y > -height / 2. + 0.03 * mRatioW) && (y < height / 2. - 0.03 * mRatioW)
+                && (!((y > -0.03 * mRatioW) && (y < 0.03 * mRatioW))))
         {
             sprintf(strAltitude, "%d", altInt);
             //drawText(QRect(drawWidth / 80, y - drawWidth / 180, drawWidth / 128 * strlen(strAltitude), drawWidth / 80), Qt::AlignCenter, strAltitude, NULL);
@@ -1060,9 +1068,9 @@ void Gles2Hud::drawAltitude(double altitude, float downSpeed, const float color[
     altMod5 = altInt % 5;
     while (y > -height / 2.)
     {
-        drawLine(xOffset, y, xOffset + ((altMod5 == 0) ? 0.03 : 0.015), y, color, 2.);
-        if ((!altMod5) && (y > -height / 2. + 0.03) && (y < height / 2. - 0.03)
-                && (!((y > -0.03) && (y < 0.03))))
+        drawLine(xOffset, y, xOffset + ((altMod5 == 0) ? 0.03 * mRatioW : 0.015 * mRatioW), y, color, 2.);
+        if ((!altMod5) && (y > -height / 2. + 0.017 * mRatioW * mAspectRatio) && (y < height / 2. - 0.017 * mRatioW * mAspectRatio)
+                && (!((y > -0.017 * mRatioW * mAspectRatio) && (y < 0.017 * mRatioW * mAspectRatio))))
         {
             sprintf(strAltitude, "%d", altInt);
             //drawText(QRect(drawWidth / 80, y - drawWidth / 180, drawWidth / 128 * strlen(strAltitude), drawWidth / 80), Qt::AlignCenter, strAltitude, NULL);
@@ -1075,35 +1083,35 @@ void Gles2Hud::drawAltitude(double altitude, float downSpeed, const float color[
     if (fabs(downSpeed) >= 0.2)
     {
         float x1, y1, x2, y2;
-        x1 = xOffset + 0.15;
-        y1 = -0.03;
-        x2 = xOffset + 0.15;
-        y2 = 0.03;
+        x1 = xOffset + 0.15 * mRatioW;
+        y1 = -0.017 * mRatioW * mAspectRatio;
+        x2 = xOffset + 0.15 * mRatioW;
+        y2 = 0.017 * mRatioW * mAspectRatio;
         drawLine(x1, y1, x2, y2, color, 2.);
         if (downSpeed < 0.)
         {
-            x1 = xOffset + 0.15;
-            y1 = 0.03;
-            x2 = xOffset + 0.15 - 0.0075;
-            y2 = 0.03 - 0.013 * mAspectRatio;
+            x1 = xOffset + 0.15 * mRatioW;
+            y1 = 0.017 * mRatioW * mAspectRatio;
+            x2 = xOffset + 0.15 * mRatioW - 0.0075 * mRatioW;
+            y2 = 0.017 * mRatioW * mAspectRatio - 0.013 * mRatioW * mAspectRatio;
             drawLine(x1, y1, x2, y2, color, 2.);
-            x1 = xOffset + 0.15;
-            y1 = 0.03;
-            x2 = xOffset + 0.15 + 0.0075;
-            y2 = 0.03 - 0.013 * mAspectRatio;
+            x1 = xOffset + 0.15 * mRatioW;
+            y1 = 0.017 * mRatioW * mAspectRatio;
+            x2 = xOffset + 0.15 * mRatioW + 0.0075 * mRatioW;
+            y2 = 0.017 * mRatioW * mAspectRatio - 0.013 * mRatioW * mAspectRatio;
             drawLine(x1, y1, x2, y2, color, 2.);
         }
         else
         {
-            x1 = xOffset + 0.15;
-            y1 = -0.03;
-            x2 = xOffset + 0.15 - 0.0075;
-            y2 = -0.03 + 0.013 * mAspectRatio;
+            x1 = xOffset + 0.15 * mRatioW;
+            y1 = -0.017 * mRatioW * mAspectRatio;
+            x2 = xOffset + 0.15 * mRatioW - 0.0075 * mRatioW;
+            y2 = -0.017 * mRatioW * mAspectRatio + 0.013 * mRatioW * mAspectRatio;
             drawLine(x1, y1, x2, y2, color, 2.);
-            x1 = xOffset + 0.15;
-            y1 = -0.03;
-            x2 = xOffset + 0.15 + 0.0075;
-            y2 = -0.03 + 0.013 * mAspectRatio;
+            x1 = xOffset + 0.15 * mRatioW;
+            y1 = -0.017 * mRatioW * mAspectRatio;
+            x2 = xOffset + 0.15 * mRatioW + 0.0075 * mRatioW;
+            y2 = -0.017 * mRatioW * mAspectRatio + 0.013 * mRatioW * mAspectRatio;
             drawLine(x1, y1, x2, y2, color, 2.);
         }
     }
@@ -1115,25 +1123,25 @@ void Gles2Hud::drawSpeed(float horizontalSpeed, const float color[4])
     char strSpeed[20];
     sprintf(strSpeed, "%.1fm/s", horizontalSpeed);
 
-    float xOffset = -0.45;
-    float height = 0.45 * mAspectRatio;
+    float xOffset = -mHudCentralZoneSize * mRatioW;
+    float height = mHudCentralZoneSize * mRatioW * mAspectRatio;
     float speedInterval = height / 20.;
 
     drawLine(xOffset, -height / 2., xOffset, height / 2., color, 2.);
-    drawLine(xOffset, -height / 2., xOffset - 0.08, -height / 2., color, 2.);
-    drawLine(xOffset, height / 2., xOffset - 0.08, height / 2., color, 2.);
-    drawRect(xOffset - 0.03, -0.03, xOffset - 0.03 - 0.1, 0.03, color, 2.);
-    drawLine(xOffset, 0., xOffset - 0.03, -0.03, color, 2.);
-    drawLine(xOffset, 0., xOffset - 0.03, 0.03, color, 2.);
+    drawLine(xOffset, -height / 2., xOffset - 0.08 * mRatioW, -height / 2., color, 2.);
+    drawLine(xOffset, height / 2., xOffset - 0.08 * mRatioW, height / 2., color, 2.);
+    drawRect(xOffset - 0.03 * mRatioW, -0.017 * mRatioW * mAspectRatio, xOffset - 0.03 * mRatioW - 0.1 * mRatioW, 0.017 * mRatioW * mAspectRatio, color, 2.);
+    drawLine(xOffset, 0., xOffset - 0.03 * mRatioW, -0.017 * mRatioW * mAspectRatio, color, 2.);
+    drawLine(xOffset, 0., xOffset - 0.03 * mRatioW, 0.017 * mRatioW * mAspectRatio, color, 2.);
 
     float y = (ceil(horizontalSpeed) - horizontalSpeed) * speedInterval;
     int spdInt = ((int)ceil(horizontalSpeed));
     int spdMod5 = spdInt % 5;
     while (y < height / 2.)
     {
-        drawLine(xOffset, y, xOffset - ((spdMod5 == 0) ? 0.03 : 0.015), y, color, 2.);
-        if ((!spdMod5) && (y > -height / 2. + 0.03) && (y < height / 2. - 0.03)
-                && (!((y > -0.03) && (y < 0.03))))
+        drawLine(xOffset, y, xOffset - ((spdMod5 == 0) ? 0.03 * mRatioW : 0.015 * mRatioW), y, color, 2.);
+        if ((!spdMod5) && (y > -height / 2. + 0.017 * mRatioW * mAspectRatio) && (y < height / 2. - 0.017 * mRatioW * mAspectRatio)
+                && (!((y > -0.017 * mRatioW * mAspectRatio) && (y < 0.017 * mRatioW * mAspectRatio))))
         {
             sprintf(strSpeed, "%d", spdInt);
             //drawText(QRect(drawWidth / 80, y - drawWidth / 180, drawWidth / 128 * strlen(strAltitude), drawWidth / 80), Qt::AlignCenter, strAltitude, NULL);
@@ -1147,9 +1155,9 @@ void Gles2Hud::drawSpeed(float horizontalSpeed, const float color[4])
     spdMod5 = spdInt % 5;
     while (y > -height / 2.)
     {
-        drawLine(xOffset, y, xOffset - ((spdMod5 == 0) ? 0.03 : 0.015), y, color, 2.);
-        if ((!spdMod5) && (y > -height / 2. + 0.03) && (y < height / 2. - 0.03)
-                && (!((y > -0.03) && (y < 0.03))))
+        drawLine(xOffset, y, xOffset - ((spdMod5 == 0) ? 0.03 * mRatioW : 0.015 * mRatioW), y, color, 2.);
+        if ((!spdMod5) && (y > -height / 2. + 0.017 * mRatioW * mAspectRatio) && (y < height / 2. - 0.017 * mRatioW * mAspectRatio)
+                && (!((y > -0.017 * mRatioW * mAspectRatio) && (y < 0.017 * mRatioW * mAspectRatio))))
         {
             sprintf(strSpeed, "%d", spdInt);
             //drawText(QRect(drawWidth / 80, y - drawWidth / 180, drawWidth / 128 * strlen(strAltitude), drawWidth / 80), Qt::AlignCenter, strAltitude, NULL);
@@ -1163,33 +1171,78 @@ void Gles2Hud::drawSpeed(float horizontalSpeed, const float color[4])
 
 void Gles2Hud::drawFlightPathVector(const euler_t *frame, float speedTheta, float speedPsi, const float color[4])
 {
-    //TODO: use framePhi?
+    float x = (speedPsi - frame->psi) / mHfov * 2. * mRatioW;
+    float y = (speedTheta - frame->theta) / mVfov * 2. * mRatioH;
+    float x1, y1, x2, y2, tx, ty;
+    float rotation = frame->phi;
 
-    float x = (speedPsi - frame->psi) / mHfov * 2.;
-    float y = (speedTheta - frame->theta) / mVfov * 2.;
-
-    if ((x > -1.) && (x < 1.) && (y > -1.) && (y < 1.))
+    if ((x > -mRatioW) && (x < mRatioW) && (y > -mRatioH) && (y < mRatioH))
     {
-        drawEllipse(x, y, 0.02, 0.02 * mAspectRatio, 40, color, 2.);
-        drawLine(x, y + 0.02 * mAspectRatio, x, y + 0.03 * mAspectRatio, color, 2.);
-        drawLine(x - 0.02, y, x - 0.03, y, color, 2.);
-        drawLine(x + 0.02, y, x + 0.03, y, color, 2.);
+        drawEllipse(x, y, 0.02 * mRatioW, 0.02 * mRatioW * mAspectRatio, 40, color, 2.);
+        tx = 0.;
+        ty = 0.02;
+        x1 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mRatioW;
+        y1 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mRatioW * mAspectRatio;
+        tx = 0.;
+        ty = 0.03;
+        x2 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mRatioW;
+        y2 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mRatioW * mAspectRatio;
+        drawLine(x1, y1, x2, y2, color, 2.);
+        tx = -0.02;
+        ty = 0.;
+        x1 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mRatioW;
+        y1 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mRatioW * mAspectRatio;
+        tx = -0.03;
+        ty = 0.;
+        x2 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mRatioW;
+        y2 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mRatioW * mAspectRatio;
+        drawLine(x1, y1, x2, y2, color, 2.);
+        tx = 0.02;
+        ty = 0.;
+        x1 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mRatioW;
+        y1 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mRatioW * mAspectRatio;
+        tx = 0.03;
+        ty = 0.;
+        x2 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mRatioW;
+        y2 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mRatioW * mAspectRatio;
+        drawLine(x1, y1, x2, y2, color, 2.);
     }
 }
 
 
 void Gles2Hud::drawPositionPin(const euler_t *frame, double bearing, double elevation, const float color[4])
 {
-    //TODO: use framePhi
+    float x = (bearing - frame->psi) / mHfov * 2. * mScaleW;
+    float y = (elevation - frame->theta) / mVfov * 2. * mScaleH;
+    float x1, y1, x2, y2, tx, ty;
+    float rotation = frame->phi;
 
-    float x = (bearing - frame->psi) / mHfov * 2.;
-    float y = (elevation - frame->theta) / mVfov * 2.;
-
-    if ((x > -1.) && (x < 1.) && (y > -1.) && (y < 1.))
+    if ((x > -mScaleW) && (x < mScaleW) && (y > -mScaleH) && (y < mScaleH))
     {
-        drawEllipse(x, y + 0.08 * mAspectRatio, 0.02, 0.02 * mAspectRatio, 40, color, 2.);
-        drawLine(x, y + 0.04 * mAspectRatio, x - 0.01, y + 0.05 * mAspectRatio, color, 2.);
-        drawLine(x, y + 0.04 * mAspectRatio, x + 0.01, y + 0.05 * mAspectRatio, color, 2.);
+        tx = 0.;
+        ty = 0.08;
+        x1 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mScaleW;
+        y1 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mScaleH * mVideoAspectRatio;
+        drawEllipse(x1, y1,
+            0.02 * mScaleW, 0.02 * mScaleH * mVideoAspectRatio, 40, color, 2.);
+        tx = 0.;
+        ty = 0.04;
+        x1 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mScaleW;
+        y1 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mScaleH * mVideoAspectRatio;
+        tx = -0.01;
+        ty = 0.05;
+        x2 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mScaleW;
+        y2 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mScaleH * mVideoAspectRatio;
+        drawLine(x1, y1, x2, y2, color, 2.);
+        tx = 0.;
+        ty = 0.04;
+        x1 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mScaleW;
+        y1 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mScaleH * mVideoAspectRatio;
+        tx = 0.01;
+        ty = 0.05;
+        x2 = x + (tx * cosf(rotation) - ty * sinf(rotation)) * mScaleW;
+        y2 = y + (tx * sinf(rotation) + ty * cosf(rotation)) * mScaleH * mVideoAspectRatio;
+        drawLine(x1, y1, x2, y2, color, 2.);
     }
 }
 
