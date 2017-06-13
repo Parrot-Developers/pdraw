@@ -183,6 +183,8 @@ int sendAllStates(struct pdraw_app *app);
 int sendStreamingVideoEnable(struct pdraw_app *app);
 int sendCameraOrientation(struct pdraw_app *app, float pan, float tilt);
 
+void skyControllerSkyControllerStateAttitudeChangedCallback(float q0, float q1, float q2, float q3, void *custom);
+
 int skyControllerRestreamConnect(struct pdraw_app *app);
 
 

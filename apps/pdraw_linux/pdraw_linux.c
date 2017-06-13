@@ -1494,6 +1494,12 @@ int startArcommand(struct pdraw_app *app)
         }
     }
 
+    if (!failed)
+    {
+        ARCOMMANDS_Decoder_SetSkyControllerSkyControllerStateAttitudeChangedCb(app->arcmdDecoder,
+            skyControllerSkyControllerStateAttitudeChangedCallback, (void*)app);
+    }
+
     return failed;
 }
 
@@ -1654,6 +1660,25 @@ int sendCameraOrientation(struct pdraw_app *app, float pan, float tilt)
     }
 
     return sentStatus;
+}
+
+
+void skyControllerSkyControllerStateAttitudeChangedCallback(float q0, float q1, float q2, float q3, void *custom)
+{
+    struct pdraw_app *app = (struct pdraw_app*)custom;
+    if (app)
+    {
+        pdraw_quaternion_t quat;
+        quat.w = q0;
+        quat.x = q1;
+        quat.y = q2;
+        quat.z = q3;
+        int ret = pdraw_set_self_controller_orientation_quat(app->pdraw, &quat);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_self_controller_orientation_quat() failed (%d)", ret);
+        }
+    }
 }
 
 
