@@ -304,6 +304,104 @@ public class Pdraw {
         nativeSetSelfPilot(pdrawCtx, isPilot);
     }
 
+    public Location getSelfLocation() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfLocation(pdrawCtx);
+    }
+
+    public void setSelfLocation(Location loc) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfLocation(pdrawCtx, loc);
+    }
+
+    public Quaternion getSelfControllerOrientationQuat() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfControllerOrientationQuat(pdrawCtx);
+    }
+
+    public Euler getSelfControllerOrientationEuler() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfControllerOrientationEuler(pdrawCtx);
+    }
+
+    public void setSelfControllerOrientation(Quaternion quat) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfControllerOrientationQuat(pdrawCtx, quat);
+    }
+
+    public void setSelfControllerOrientation(Euler euler) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfControllerOrientationEuler(pdrawCtx, euler);
+    }
+
+    public Quaternion getSelfHeadOrientationQuat() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfHeadOrientationQuat(pdrawCtx);
+    }
+
+    public Euler getSelfHeadOrientationEuler() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfHeadOrientationEuler(pdrawCtx);
+    }
+
+    public void setSelfHeadOrientation(Quaternion quat) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfHeadOrientationQuat(pdrawCtx, quat);
+    }
+
+    public void setSelfHeadOrientation(Euler euler) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfHeadOrientationEuler(pdrawCtx, euler);
+    }
+
+    public Quaternion getSelfHeadRefOrientationQuat() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfHeadRefOrientationQuat(pdrawCtx);
+    }
+
+    public Euler getSelfHeadRefOrientationEuler() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfHeadRefOrientationEuler(pdrawCtx);
+    }
+
+    public void setSelfHeadRefOrientation(Quaternion quat) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfHeadRefOrientationQuat(pdrawCtx, quat);
+    }
+
+    public void setSelfHeadRefOrientation(Euler euler) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfHeadRefOrientationEuler(pdrawCtx, euler);
+    }
+
     public String getPeerFriendlyName() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
