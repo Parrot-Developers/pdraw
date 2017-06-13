@@ -40,7 +40,7 @@ package net.akaaba.libpdraw;
 
 import android.util.Log;
 import android.view.Surface;
-import android.os.Process;
+import com.parrot.mux.Mux;
 
 public class Pdraw {
     private static final String TAG = "pdraw_java";
@@ -130,6 +130,15 @@ public class Pdraw {
         nativeOpenSingleStream(pdrawCtx, srcAddr, ifaceAddr,
             srcStreamPort, srcControlPort,
             dstStreamPort, dstControlPort, qosMode);
+    }
+
+    public void open(Mux mux) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        Mux.Ref muxRef = mux.newMuxRef();
+        nativeOpenMux(pdrawCtx, muxRef.getCPtr());
+        muxRef.release();
     }
 
     public void start() {
@@ -561,6 +570,10 @@ public class Pdraw {
         int dstStreamPort,
         int dstControlPort,
         int qosMode);
+
+    private native int nativeOpenMux(
+        long pdrawCtx,
+        long mux);
 
     private native int nativeStart(
         long pdrawCtx);

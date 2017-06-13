@@ -71,6 +71,9 @@ public:
              int dstControlPort,
              int qosMode);
 
+    int open
+            (void *muxContext);
+
     int start(void);
 
     int pause(void);

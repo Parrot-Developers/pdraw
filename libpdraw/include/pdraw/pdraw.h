@@ -73,6 +73,11 @@ int pdraw_open_single_stream
          int qosMode);
 
 
+int pdraw_open_mux
+        (struct pdraw *pdraw,
+         void *muxContext);
+
+
 int pdraw_start
         (struct pdraw *pdraw);
 

@@ -73,6 +73,8 @@ public:
              int srcStreamPort, int srcControlPort,
              int dstStreamPort, int dstControlPort, int qosMode);
 
+    int open(void *muxContext);
+
     Media *addMedia(elementary_stream_type_t esType);
 
     Media *addMedia(elementary_stream_type_t esType, Demuxer *demuxer, int demuxEsIndex);

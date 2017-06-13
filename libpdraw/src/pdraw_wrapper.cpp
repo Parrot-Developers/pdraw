@@ -99,6 +99,16 @@ int pdraw_open_single_stream(struct pdraw *pdraw, const char *srcAddr, const cha
 }
 
 
+int pdraw_open_mux(struct pdraw *pdraw, void *muxContext)
+{
+    if ((pdraw == NULL) || (muxContext == NULL))
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->open(muxContext);
+}
+
+
 int pdraw_start(struct pdraw *pdraw)
 {
     if (pdraw == NULL)

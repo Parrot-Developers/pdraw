@@ -169,6 +169,36 @@ int Session::open(const std::string &srcAddr, const std::string &ifaceAddr,
 }
 
 
+int Session::open(void *muxContext)
+{
+    int ret = 0;
+
+    if (ret == 0)
+    {
+        mDemuxer = new StreamDemuxer(this);
+        if (mDemuxer == NULL)
+        {
+            ULOGE("Session: failed to alloc demuxer");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        ret = ((StreamDemuxer*)mDemuxer)->configure(muxContext);
+        if (ret != 0)
+        {
+            ULOGE("Session: failed to configure demuxer");
+            delete mDemuxer;
+            mDemuxer = NULL;
+            ret = -1;
+        }
+    }
+
+    return (ret == 0) ? addMediaFromDemuxer() : ret;
+}
+
+
 int Session::addMediaFromDemuxer()
 {
     int ret = 0, esCount = 0;

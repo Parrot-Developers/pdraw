@@ -93,6 +93,12 @@ int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
 }
 
 
+int PdrawImpl::open(void *muxContext)
+{
+    return mSession.open(muxContext);
+}
+
+
 int PdrawImpl::start()
 {
     if (mSession.getDemuxer())

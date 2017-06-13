@@ -739,6 +739,28 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenSingleStream(
 
 
 JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeOpenMux(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jlong mux)
+{
+    int ret = 0;
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    ret = pdraw_open_mux(ctx->pdraw, (void*)(intptr_t)mux);
+
+    return (jint)ret;
+}
+
+
+JNIEXPORT jint JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeStart(
     JNIEnv *env,
     jobject thizz,

@@ -70,6 +70,8 @@ public:
                   int srcStreamPort, int srcControlPort,
                   int dstStreamPort, int dstControlPort, int qosMode);
 
+    int configure(void *muxContext);
+
     int getElementaryStreamCount();
 
     elementary_stream_type_t getElementaryStreamType(int esIndex);

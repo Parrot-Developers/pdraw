@@ -269,7 +269,93 @@ int StreamDemuxer::configure(const std::string &srcAddr,
 
     if (mConfigured)
     {
-        ULOGI("StreamDemuxer: demuxer is configured");        
+        ULOGI("StreamDemuxer: demuxer is configured");
+    }
+
+    return ret;
+}
+
+
+int StreamDemuxer::configure(void *muxContext)
+{
+    if (mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is already configured");
+        return -1;
+    }
+    if (!mSession)
+    {
+        ULOGE("StreamDemuxer: invalid session");
+        return -1;
+    }
+
+    mQosMode = 1; //TODO
+    SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
+    int ret = 0;
+
+    if (ret == 0)
+    {
+        eARSTREAM2_ERROR err;
+        ARSTREAM2_StreamReceiver_Config_t streamReceiverConfig;
+        ARSTREAM2_StreamReceiver_MuxConfig_t streamReceiverMuxConfig;
+        memset(&streamReceiverConfig, 0, sizeof(streamReceiverConfig));
+        memset(&streamReceiverMuxConfig, 0, sizeof(streamReceiverMuxConfig));
+        streamReceiverMuxConfig.mux = (struct mux_ctx*)muxContext;
+        streamReceiverConfig.canonicalName = selfMeta->getSerialNumber().c_str();
+        streamReceiverConfig.friendlyName = selfMeta->getFriendlyName().c_str();
+        streamReceiverConfig.applicationName = selfMeta->getSoftwareVersion().c_str();
+        streamReceiverConfig.maxPacketSize = mMaxPacketSize;
+        streamReceiverConfig.generateReceiverReports = 1;
+        streamReceiverConfig.waitForSync = 1;
+        streamReceiverConfig.outputIncompleteAu = 0;
+        streamReceiverConfig.filterOutSpsPps = 0;
+        streamReceiverConfig.filterOutSei = 1;
+        streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
+        streamReceiverConfig.generateSkippedPSlices = 1;
+        streamReceiverConfig.generateFirstGrayIFrame = 1;
+        streamReceiverConfig.debugPath = "./streamdebug";
+
+        err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver, &streamReceiverConfig, NULL, &streamReceiverMuxConfig);
+        if (err != ARSTREAM2_OK)
+        {
+            ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Init() failed: %s", ARSTREAM2_Error_ToString(err));
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int thErr = pthread_create(&mStreamNetworkThread, NULL, ARSTREAM2_StreamReceiver_RunNetworkThread, (void*)mStreamReceiver);
+        if (thErr != 0)
+        {
+            ULOGE("StreamDemuxer: stream network thread creation failed (%d)", thErr);
+            ret = -1;
+        }
+        else
+        {
+            mStreamNetworkThreadLaunched = true;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int thErr = pthread_create(&mStreamOutputThread, NULL, ARSTREAM2_StreamReceiver_RunAppOutputThread, (void*)mStreamReceiver);
+        if (thErr != 0)
+        {
+            ULOGE("StreamDemuxer: stream output thread creation failed (%d)", thErr);
+            ret = -1;
+        }
+        else
+        {
+            mStreamOutputThreadLaunched = true;
+        }
+    }
+
+    mConfigured = (ret == 0) ? true : false;
+
+    if (mConfigured)
+    {
+        ULOGI("StreamDemuxer: demuxer is configured");
     }
 
     return ret;
