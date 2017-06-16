@@ -94,6 +94,7 @@ public:
     bool getHeadRefOrientation(euler_t *euler);
     void setHeadRefOrientation(const quaternion_t *quat);
     void setHeadRefOrientation(const euler_t *euler);
+    void resetHeadRefOrientation();
 
 private:
 

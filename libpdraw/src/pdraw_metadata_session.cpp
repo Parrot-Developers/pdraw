@@ -193,6 +193,12 @@ void SessionSelfMetadata::setHeadRefOrientation(const euler_t *euler)
 }
 
 
+void SessionSelfMetadata::resetHeadRefOrientation()
+{
+    memcpy(&mHeadRefQuat, &mHeadQuat, sizeof(mHeadQuat));
+}
+
+
 SessionPeerMetadata::SessionPeerMetadata()
 {
     mTakeoffLocation.isValid = 0;

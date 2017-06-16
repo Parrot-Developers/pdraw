@@ -539,6 +539,17 @@ int pdraw_set_self_head_ref_orientation_euler(struct pdraw *pdraw, const pdraw_e
 }
 
 
+int pdraw_reset_self_head_ref_orientation(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->resetSelfHeadRefOrientation();
+    return 0;
+}
+
+
 const char *pdraw_get_peer_friendly_name(struct pdraw *pdraw)
 {
     if (pdraw == NULL)

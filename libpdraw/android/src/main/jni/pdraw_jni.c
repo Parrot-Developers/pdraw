@@ -1707,6 +1707,24 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfHeadRefOrientationEuler(
 }
 
 
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeResetSelfHeadRefOrientation(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return pdraw_reset_self_head_ref_orientation(ctx->pdraw);
+}
+
+
 JNIEXPORT jstring JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerFriendlyName(
     JNIEnv *env,

@@ -548,6 +548,12 @@ void PdrawImpl::setSelfHeadRefOrientation
 }
 
 
+void PdrawImpl::resetSelfHeadRefOrientation(void)
+{
+    mSession.getSelfMetadata()->resetHeadRefOrientation();
+}
+
+
 std::string& PdrawImpl::getPeerFriendlyName(void)
 {
     return mSession.getPeerMetadata()->getFriendlyName();

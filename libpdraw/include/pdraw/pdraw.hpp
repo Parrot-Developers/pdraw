@@ -168,6 +168,7 @@ public:
             (const pdraw_quaternion_t *quat) = 0;
     virtual void setSelfHeadRefOrientation
             (const pdraw_euler_t *euler) = 0;
+    virtual void resetSelfHeadRefOrientation(void) = 0;
 
     virtual std::string& getPeerFriendlyName(void) = 0;
 

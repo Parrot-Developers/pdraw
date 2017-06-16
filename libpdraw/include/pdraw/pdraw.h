@@ -273,6 +273,10 @@ int pdraw_set_self_head_ref_orientation_euler
          const pdraw_euler_t *euler);
 
 
+int pdraw_reset_self_head_ref_orientation
+        (struct pdraw *pdraw);
+
+
 const char *pdraw_get_peer_friendly_name
         (struct pdraw *pdraw);
 

@@ -425,6 +425,13 @@ public class Pdraw {
         nativeSetSelfHeadRefOrientationEuler(pdrawCtx, euler);
     }
 
+    public void resetSelfHeadRefOrientation() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeResetSelfHeadRefOrientation(pdrawCtx);
+    }
+
     public String getPeerFriendlyName() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -717,6 +724,8 @@ public class Pdraw {
     private native int nativeSetSelfHeadRefOrientationEuler(
         long pdrawCtx,
         Euler euler);
+    private native int nativeResetSelfHeadRefOrientation(
+        long pdrawCtx);
 
     private native String nativeGetPeerFriendlyName(
         long pdrawCtx);

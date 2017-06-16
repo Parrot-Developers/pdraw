@@ -174,6 +174,7 @@ public:
             (const quaternion_t *quat);
     void setSelfHeadRefOrientation
             (const euler_t *euler);
+    void resetSelfHeadRefOrientation(void);
 
     std::string& getPeerFriendlyName(void);
 
