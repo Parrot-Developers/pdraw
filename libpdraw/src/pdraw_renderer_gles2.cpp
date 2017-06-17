@@ -93,6 +93,13 @@ Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
 
 Gles2Renderer::~Gles2Renderer()
 {
+    if (mDecoder)
+    {
+        int ret = removeAvcDecoder(mDecoder);
+        if (ret != 0)
+            ULOGE("Gles2Renderer: removeAvcDecoder() failed (%d)", ret);
+    }
+
     destroyGles2();
 
     pthread_mutex_destroy(&mMutex);

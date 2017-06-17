@@ -111,6 +111,7 @@ RecordDemuxer::RecordDemuxer(Session *session)
     mDuration = 0;
     mCurrentTime = 0;
     mPendingSeekTs = -1;
+    mCurrentBuffer = NULL;
     mWidth = mHeight = 0;
     mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
     mSarWidth = mSarHeight = 0;
@@ -139,14 +140,17 @@ RecordDemuxer::~RecordDemuxer()
     {
         int thErr = pthread_join(mDemuxerThread, NULL);
         if (thErr != 0)
-        {
             ULOGE("RecordDemuxer: pthread_join() failed (%d)", thErr);
-        }
     }
 
     pthread_mutex_destroy(&mDemuxerMutex);
 
-    if (mDemux) mp4_demux_close(mDemux);
+    if (mCurrentBuffer)
+        mCurrentBuffer->unref();
+
+    if (mDemux)
+        mp4_demux_close(mDemux);
+
     free(mMetadataBuffer);
     free(mMetadataMimeType);
 }
@@ -687,13 +691,11 @@ int RecordDemuxer::seekBack(uint64_t delta)
 void* RecordDemuxer::runDemuxerThread(void *ptr)
 {
     RecordDemuxer *demuxer = (RecordDemuxer*)ptr;
-    Buffer *buffer = NULL;
-    bool moreFrames = true;
     struct timespec t1;
     uint64_t curTime;
     int32_t outputTimeError = 0;
 
-    while ((!demuxer->mThreadShouldStop) && (moreFrames))
+    while (!demuxer->mThreadShouldStop)
     {
         if ((demuxer->mDecoder) && (demuxer->mRunning))
         {
@@ -720,19 +722,19 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                 }
             }
 
-            if ((demuxer->mDecoder->isConfigured()) && (buffer == NULL))
+            if ((demuxer->mDecoder->isConfigured()) && (demuxer->mCurrentBuffer == NULL))
             {
-                ret = demuxer->mDecoder->getInputBuffer(&buffer, true);
+                ret = demuxer->mDecoder->getInputBuffer(&demuxer->mCurrentBuffer, true);
                 if (ret != 0)
                 {
                     ULOGW("RecordDemuxer: failed to get an output buffer (%d)", ret);
                 }
             }
 
-            if (buffer)
+            if (demuxer->mCurrentBuffer)
             {
-                uint8_t *buf = (uint8_t*)buffer->getPtr();
-                unsigned int bufSize = buffer->getCapacity();
+                uint8_t *buf = (uint8_t*)demuxer->mCurrentBuffer->getPtr();
+                unsigned int bufSize = demuxer->mCurrentBuffer->getCapacity();
 
                 if (demuxer->mFirstFrame)
                 {
@@ -776,7 +778,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                                                       buf, bufSize, demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize, &sample);
                 if ((ret == 0) && (sample.sample_size))
                 {
-                    buffer->setSize(sample.sample_size);
+                    demuxer->mCurrentBuffer->setSize(sample.sample_size);
 
                     /* Fix the H.264 bitstream: replace NALU size by byte stream start codes */
                     uint32_t offset = 0, naluSize, naluCount = 0;
@@ -790,7 +792,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         naluCount++;
                     }
 
-                    avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)buffer->getMetadataPtr();
+                    avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)demuxer->mCurrentBuffer->getMetadataPtr();
                     data->isComplete = true; //TODO?
                     data->hasErrors = false; //TODO?
                     data->isRef = true; //TODO?
@@ -819,7 +821,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp)) ?
                                         (int32_t)((int64_t)(sample.sample_dts - demuxer->mLastFrameTimestamp) - (int64_t)(data->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
 
-                    ret = demuxer->mDecoder->queueInputBuffer(buffer);
+                    ret = demuxer->mDecoder->queueInputBuffer(demuxer->mCurrentBuffer);
                     if (ret != 0)
                     {
                         ULOGW("RecordDemuxer: failed to release the output buffer (%d)", ret);
@@ -829,8 +831,8 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         demuxer->mLastFrameOutputTime = data->demuxOutputTimestamp;
                         demuxer->mLastFrameTimestamp = sample.sample_dts;
                         demuxer->mCurrentTime = sample.sample_dts;
-                        buffer->unref();
-                        buffer = NULL;
+                        demuxer->mCurrentBuffer->unref();
+                        demuxer->mCurrentBuffer = NULL;
                     }
                 }
             }

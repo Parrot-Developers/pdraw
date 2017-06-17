@@ -86,6 +86,13 @@ NullRenderer::~NullRenderer()
             ULOGE("NullRenderer: pthread_join() failed (%d)", thErr);
         }
     }
+
+    if (mDecoder)
+    {
+        int ret = removeAvcDecoder(mDecoder);
+        if (ret != 0)
+            ULOGE("NullRenderer: removeAvcDecoder() failed (%d)", ret);
+    }
 }
 
 

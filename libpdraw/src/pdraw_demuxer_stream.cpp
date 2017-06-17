@@ -80,22 +80,25 @@ StreamDemuxer::StreamDemuxer(Session *session)
 
 StreamDemuxer::~StreamDemuxer()
 {
+    int ret = stop();
+    if (ret != 0)
+        ULOGE("StreamDemuxer: stop() failed (%d)", ret);
+
     if (mStreamNetworkThreadLaunched)
     {
-        int thErr = pthread_join(mStreamNetworkThread, NULL);
-        if (thErr != 0)
-        {
-            ULOGE("StreamDemuxer: pthread_join() failed (%d)", thErr);
-        }
+        ret = pthread_join(mStreamNetworkThread, NULL);
+        if (ret != 0)
+            ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
     }
     if (mStreamOutputThreadLaunched)
     {
-        int thErr = pthread_join(mStreamOutputThread, NULL);
-        if (thErr != 0)
-        {
-            ULOGE("StreamDemuxer: pthread_join() failed (%d)", thErr);
-        }
+        ret = pthread_join(mStreamOutputThread, NULL);
+        if (ret != 0)
+            ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
     }
+
+    if (mCurrentBuffer)
+        mCurrentBuffer->unref();
 
     ARSTREAM2_StreamReceiver_Free(&mStreamReceiver);
 }

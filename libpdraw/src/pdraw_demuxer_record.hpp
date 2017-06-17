@@ -127,6 +127,7 @@ private:
     uint64_t mLastFrameOutputTime;
     uint64_t mLastFrameTimestamp;
     int64_t mPendingSeekTs;
+    Buffer *mCurrentBuffer;
     unsigned int mWidth;
     unsigned int mHeight;
     unsigned int mCropLeft;
