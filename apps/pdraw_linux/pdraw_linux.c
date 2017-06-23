@@ -202,7 +202,7 @@ static void usage(int argc, char *argv[])
 
 static void summary(struct pdraw_app* app, int afterBrowse)
 {
-    if ((app->arsdkBrowse) && (!afterBrowse))
+    if ((app->arsdkBrowse) && (!strlen(app->ipAddr)) && (!afterBrowse))
     {
         printf("Browse for ARSDK devices (discovery)\n\n");
     }
@@ -299,6 +299,7 @@ int main(int argc, char *argv[])
 
                 case 'k':
                     strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
+                    app->arsdkBrowse = 1;
                     app->arsdkConnect = 1;
                     app->arsdkStartStream = 1;
                     app->receiveStream = 1;
@@ -306,6 +307,7 @@ int main(int argc, char *argv[])
 
                 case 'K':
                     strncpy(app->ipAddr, optarg, sizeof(app->ipAddr));
+                    app->arsdkBrowse = 1;
                     app->arsdkConnect = 1;
                     app->arsdkStartStream = 1;
                     break;
@@ -357,7 +359,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    if ((!app->arsdkBrowse) && (((!app->ipAddr) || (!strlen(app->ipAddr)))
+    if ((!app->arsdkBrowse) && ((!strlen(app->ipAddr))
             && ((!app->url) || (!strlen(app->url)))))
     {
         failed = 1;
@@ -389,82 +391,113 @@ int main(int argc, char *argv[])
 
         while ((!failed) && (!stopping) && (!selected))
         {
-#ifdef USE_SDL
-            SDL_Event event;
-            while ((!failed) && (!stopping) && (!selected) && (SDL_PollEvent(&event)))
+            if (!strlen(app->ipAddr))
             {
-                switch(event.type)
+#ifdef USE_SDL
+                SDL_Event event;
+                while ((!failed) && (!stopping) && (!selected) && (SDL_PollEvent(&event)))
                 {
-                    case SDL_QUIT:
-                        stopping = 1;
-                        break;
-                    case SDL_VIDEORESIZE:
+                    switch(event.type)
                     {
-                        app->windowWidth = event.resize.w;
-                        app->windowHeight = event.resize.h;
-                        app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
-                        if (app->surface == NULL)
-                        {
-                            ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
-                        }
-                        break;
-                    }
-                    case SDL_KEYDOWN:
-                    {
-                        int idx = -1;
-                        if (event.key.keysym.sym == SDLK_ESCAPE)
-                        {
+                        case SDL_QUIT:
                             stopping = 1;
-                        }
-                        else if ((event.key.keysym.sym >= SDLK_1) && (event.key.keysym.sym <= SDLK_9))
+                            break;
+                        case SDL_VIDEORESIZE:
                         {
-                            idx = event.key.keysym.sym - SDLK_1;
-                        }
-                        else if ((event.key.keysym.sym >= SDLK_KP1) && (event.key.keysym.sym <= SDLK_KP9))
-                        {
-                            idx = event.key.keysym.sym - SDLK_KP1;
-                        }
-
-                        pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
-
-                        if ((idx >= 0) && (idx < app->ardiscoveryDeviceCount))
-                        {
-                            struct ardiscovery_browser_device *device;
-                            int i;
-                            for (device = app->ardiscoveryDeviceList, i = 0; device && i < idx; device = device->next, i++);
-
-                            if ((device) && (i == idx))
+                            app->windowWidth = event.resize.w;
+                            app->windowHeight = event.resize.h;
+                            app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
+                            if (app->surface == NULL)
                             {
-                                switch (device->product)
+                                ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
+                            }
+                            break;
+                        }
+                        case SDL_KEYDOWN:
+                        {
+                            int idx = -1;
+                            if (event.key.keysym.sym == SDLK_ESCAPE)
+                            {
+                                stopping = 1;
+                            }
+                            else if ((event.key.keysym.sym >= SDLK_1) && (event.key.keysym.sym <= SDLK_9))
+                            {
+                                idx = event.key.keysym.sym - SDLK_1;
+                            }
+                            else if ((event.key.keysym.sym >= SDLK_KP1) && (event.key.keysym.sym <= SDLK_KP9))
+                            {
+                                idx = event.key.keysym.sym - SDLK_KP1;
+                            }
+
+                            pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
+
+                            if ((idx >= 0) && (idx < app->ardiscoveryDeviceCount))
+                            {
+                                struct ardiscovery_browser_device *device;
+                                int i;
+                                for (device = app->ardiscoveryDeviceList, i = 0; device && i < idx; device = device->next, i++);
+
+                                if ((device) && (i == idx))
                                 {
-                                    case ARDISCOVERY_PRODUCT_ARDRONE:
-                                    case ARDISCOVERY_PRODUCT_BEBOP_2:
-                                    case ARDISCOVERY_PRODUCT_EVINRUDE:
-                                    case ARDISCOVERY_PRODUCT_SKYCONTROLLER:
-                                    case ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG:
-                                    case ARDISCOVERY_PRODUCT_SKYCONTROLLER_2:
-                                        strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
-                                        app->arsdkDiscoveryPort = device->port;
-                                        app->arsdkConnect = 1;
-                                        app->arsdkStartStream = 1;
-                                        app->receiveStream = 1;
-                                        selected = 1;
-                                        break;
-                                    default:
-                                        break;
+                                    switch (device->product)
+                                    {
+                                        case ARDISCOVERY_PRODUCT_ARDRONE:
+                                        case ARDISCOVERY_PRODUCT_BEBOP_2:
+                                        case ARDISCOVERY_PRODUCT_EVINRUDE:
+                                        case ARDISCOVERY_PRODUCT_SKYCONTROLLER:
+                                        case ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG:
+                                        case ARDISCOVERY_PRODUCT_SKYCONTROLLER_2:
+                                            strncpy(app->ipAddr, device->ipAddr, sizeof(app->ipAddr));
+                                            app->arsdkDiscoveryPort = device->port;
+                                            app->arsdkConnect = 1;
+                                            app->arsdkProduct = device->product;
+                                            app->arsdkStartStream = 1;
+                                            app->receiveStream = 1;
+                                            selected = 1;
+                                            break;
+                                        default:
+                                            break;
+                                    }
                                 }
                             }
+
+                            pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+
+                            break;
                         }
+                    }
+                }
+#else /* USE_SDL */
+                sleep(1);
+#endif /* USE_SDL */
+            }
+            else
+            {
+                pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
 
-                        pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
-
+                struct ardiscovery_browser_device *device;
+                int i;
+                for (device = app->ardiscoveryDeviceList; device; device = device->next, i++)
+                {
+                    if (!strncmp(app->ipAddr, device->ipAddr, sizeof(app->ipAddr)))
+                    {
+                        app->arsdkDiscoveryPort = device->port;
+                        app->arsdkConnect = 1;
+                        app->arsdkProduct = device->product;
+                        app->arsdkStartStream = 1;
+                        app->receiveStream = 1;
+                        selected = 1;
                         break;
                     }
                 }
+
+                pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+
+                if (!selected)
+                {
+                    usleep(100000);
+                }
             }
-#else /* USE_SDL */
-            sleep(1);
-#endif /* USE_SDL */
         }
 
         if (selected)
@@ -505,6 +538,11 @@ int main(int argc, char *argv[])
     {
         if (!failed)
         {
+            failed = startArcommand(app);
+        }
+
+        if (!failed)
+        {
             int cmdSend = 0;
 
             cmdSend = sendDateAndTime(app);
@@ -522,11 +560,6 @@ int main(int argc, char *argv[])
             int cmdSend = 0;
 
             cmdSend = sendStreamingVideoEnable(app);
-        }
-
-        if (!failed)
-        {
-            failed = startArcommand(app);
         }
     }
 
@@ -1068,21 +1101,24 @@ eARDISCOVERY_ERROR ardiscoveryBrowserCallback(void *userdata, uint8_t state, con
         pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
     }
 
-    pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
-
-    printf("\nDevice discovery:\n");
-    int i;
-    for (device = app->ardiscoveryDeviceList, i = 1; device; device = device->next, i++)
+    if (!strlen(app->ipAddr))
     {
-        printf("  - %d - %s (%s) %s:%d\n", i, device->serviceName, device->serviceType, device->ipAddr, device->port);
-    }
+        pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
 
-    if (app->ardiscoveryDeviceCount == 0)
-    {
-        printf("  - none\n");
-    }
+        printf("\nDevice discovery:\n");
+        int i;
+        for (device = app->ardiscoveryDeviceList, i = 1; device; device = device->next, i++)
+        {
+            printf("  - %d - %s (%s) %s:%d\n", i, device->serviceName, device->serviceType, device->ipAddr, device->port);
+        }
 
-    pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+        if (app->ardiscoveryDeviceCount == 0)
+        {
+            printf("  - none\n");
+        }
+
+        pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
+    }
 
     return ARDISCOVERY_OK;
 }
@@ -1496,8 +1532,17 @@ int startArcommand(struct pdraw_app *app)
 
     if (!failed)
     {
-        ARCOMMANDS_Decoder_SetSkyControllerSkyControllerStateAttitudeChangedCb(app->arcmdDecoder,
-            skyControllerSkyControllerStateAttitudeChangedCallback, (void*)app);
+        if ((app->arsdkProduct == ARDISCOVERY_PRODUCT_SKYCONTROLLER) ||
+            (app->arsdkProduct == ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG) ||
+            (app->arsdkProduct == ARDISCOVERY_PRODUCT_SKYCONTROLLER_2))
+        {
+            ARCOMMANDS_Decoder_SetSkyControllerSkyControllerStateBatteryChangedCb(app->arcmdDecoder,
+                skyControllerSkyControllerStateBatteryChangedCallback, (void*)app);
+            ARCOMMANDS_Decoder_SetSkyControllerSkyControllerStateGpsPositionChangedCb(app->arcmdDecoder,
+                skyControllerSkyControllerStateGpsPositionChangedCallback, (void*)app);
+            ARCOMMANDS_Decoder_SetSkyControllerSkyControllerStateAttitudeChangedCb(app->arcmdDecoder,
+                skyControllerSkyControllerStateAttitudeChangedCallback, (void*)app);
+        }
     }
 
     return failed;
@@ -1595,7 +1640,16 @@ int sendAllStates(struct pdraw_app *app)
     ULOGD("Send all states command");
 
     /* Send all states command */
-    cmdError = ARCOMMANDS_Generator_GenerateCommonCommonAllStates(cmdBuffer, sizeof(cmdBuffer), &cmdSize);
+    if ((app->arsdkProduct == ARDISCOVERY_PRODUCT_SKYCONTROLLER) ||
+        (app->arsdkProduct == ARDISCOVERY_PRODUCT_SKYCONTROLLER_NG) ||
+        (app->arsdkProduct == ARDISCOVERY_PRODUCT_SKYCONTROLLER_2))
+    {
+        cmdError = ARCOMMANDS_Generator_GenerateSkyControllerCommonAllStates(cmdBuffer, sizeof(cmdBuffer), &cmdSize);
+    }
+    else
+    {
+        cmdError = ARCOMMANDS_Generator_GenerateCommonCommonAllStates(cmdBuffer, sizeof(cmdBuffer), &cmdSize);
+    }
     if (cmdError == ARCOMMANDS_GENERATOR_OK)
     {
         netError = ARNETWORK_Manager_SendData(app->arnetworkManager, PDRAW_ARSDK_CD_ACK_ID, cmdBuffer, cmdSize, NULL, &(arnetworkCmdCallback), 1);
@@ -1660,6 +1714,40 @@ int sendCameraOrientation(struct pdraw_app *app, float pan, float tilt)
     }
 
     return sentStatus;
+}
+
+
+void skyControllerSkyControllerStateBatteryChangedCallback(uint8_t percent, void *custom)
+{
+    struct pdraw_app *app = (struct pdraw_app*)custom;
+    if (app)
+    {
+        int ret = pdraw_set_self_controller_battery_level(app->pdraw, percent);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_self_controller_battery_level() failed (%d)", ret);
+        }
+    }
+}
+
+
+void skyControllerSkyControllerStateGpsPositionChangedCallback(double latitude, double longitude, double altitude, float heading, void *custom)
+{
+    struct pdraw_app *app = (struct pdraw_app*)custom;
+    if (app)
+    {
+        pdraw_location_t loc;
+        loc.isValid = ((latitude != 500.) && (longitude != 500.)) ? 1 : 0;
+        loc.latitude = latitude;
+        loc.longitude = longitude;
+        loc.altitude = altitude;
+        loc.svCount = 0;
+        int ret = pdraw_set_self_location(app->pdraw, &loc);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_self_location() failed (%d)", ret);
+        }
+    }
 }
 
 
