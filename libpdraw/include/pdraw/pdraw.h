@@ -154,6 +154,10 @@ int pdraw_render
          int timeout);
 
 
+pdraw_session_type_t pdraw_get_session_type
+        (struct pdraw *pdraw);
+
+
 const char *pdraw_get_self_friendly_name
         (struct pdraw *pdraw);
 
@@ -273,6 +277,10 @@ const char *pdraw_get_peer_model
 
 
 const char *pdraw_get_peer_model_id
+        (struct pdraw *pdraw);
+
+
+pdraw_drone_model_t pdraw_get_peer_drone_model
         (struct pdraw *pdraw);
 
 

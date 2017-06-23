@@ -122,6 +122,8 @@ public:
     int render
             (int timeout);
 
+    pdraw_session_type_t getSessionType(void);
+
     std::string& getSelfFriendlyName(void);
     void setSelfFriendlyName
             (const std::string &friendlyName);
@@ -177,6 +179,8 @@ public:
     std::string& getPeerModel(void);
 
     std::string& getPeerModelId(void);
+
+    pdraw_drone_model_t getPeerDroneModel(void);
 
     std::string& getPeerSerialNumber(void);
 

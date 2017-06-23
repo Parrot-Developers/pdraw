@@ -380,6 +380,12 @@ int PdrawImpl::render(int timeout)
 }
 
 
+pdraw_session_type_t PdrawImpl::getSessionType(void)
+{
+    return mSession.getSessionType();
+}
+
+
 std::string& PdrawImpl::getSelfFriendlyName(void)
 {
     return mSession.getSelfMetadata()->getFriendlyName();
@@ -551,6 +557,12 @@ std::string& PdrawImpl::getPeerModel(void)
 std::string& PdrawImpl::getPeerModelId(void)
 {
     return mSession.getPeerMetadata()->getModelId();
+}
+
+
+pdraw_drone_model_t PdrawImpl::getPeerDroneModel(void)
+{
+    return mSession.getPeerMetadata()->getDroneModel();
 }
 
 

@@ -181,12 +181,55 @@ SessionPeerMetadata::SessionPeerMetadata()
 {
     mTakeoffLocation.isValid = 0;
     mHomeLocation.isValid = 0;
+    mDroneModel = PDRAW_DRONE_MODEL_UNKNOWN;
 }
 
 
 SessionPeerMetadata::~SessionPeerMetadata()
 {
 
+}
+
+
+void SessionPeerMetadata::setFriendlyName(const std::string& friendlyName)
+{
+    mFriendlyName = friendlyName;
+    if (mDroneModel == PDRAW_DRONE_MODEL_UNKNOWN)
+    {
+        if (!mFriendlyName.compare("Parrot Bebop"))
+            mDroneModel = PDRAW_DRONE_MODEL_BEBOP;
+        else if (!mFriendlyName.compare("Parrot Bebop 2"))
+            mDroneModel = PDRAW_DRONE_MODEL_BEBOP2;
+        else if (!mFriendlyName.compare("Parrot Disco"))
+            mDroneModel = PDRAW_DRONE_MODEL_DISCO;
+    }
+}
+
+
+void SessionPeerMetadata::setModel(const std::string& model)
+{
+    mModel = model;
+    if (mDroneModel == PDRAW_DRONE_MODEL_UNKNOWN)
+    {
+        if (!mModel.compare("Bebop"))
+            mDroneModel = PDRAW_DRONE_MODEL_BEBOP;
+        else if (!mModel.compare("Bebop 2"))
+            mDroneModel = PDRAW_DRONE_MODEL_BEBOP2;
+        else if (!mModel.compare("Disco"))
+            mDroneModel = PDRAW_DRONE_MODEL_DISCO;
+    }
+}
+
+
+void SessionPeerMetadata::setModelId(const std::string& modelId)
+{
+    mModelId = modelId;
+    if (!mModelId.compare("0901"))
+        mDroneModel = PDRAW_DRONE_MODEL_BEBOP;
+    else if (!mModelId.compare("090c"))
+        mDroneModel = PDRAW_DRONE_MODEL_BEBOP2;
+    else if (!mModelId.compare("090e"))
+        mDroneModel = PDRAW_DRONE_MODEL_DISCO;
 }
 
 

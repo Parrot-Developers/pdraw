@@ -267,6 +267,16 @@ int pdraw_render(struct pdraw *pdraw, int timeout)
 }
 
 
+pdraw_session_type_t pdraw_get_session_type(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return (pdraw_session_type_t)-EINVAL;
+    }
+    return toPdraw(pdraw)->getSessionType();
+}
+
+
 const char *pdraw_get_self_friendly_name(struct pdraw *pdraw)
 {
     if (pdraw == NULL)
@@ -545,6 +555,16 @@ const char *pdraw_get_peer_model_id(struct pdraw *pdraw)
         return NULL;
     }
     return toPdraw(pdraw)->getPeerModelId().c_str();
+}
+
+
+pdraw_drone_model_t pdraw_get_peer_drone_model(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return (pdraw_drone_model_t)-EINVAL;
+    }
+    return toPdraw(pdraw)->getPeerDroneModel();
 }
 
 

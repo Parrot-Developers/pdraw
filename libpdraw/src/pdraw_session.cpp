@@ -54,6 +54,7 @@ namespace Pdraw
 
 Session::Session(Settings *settings)
 {
+    mSessionType = PDRAW_SESSION_TYPE_UNKNOWN;
     mSettings = settings;
     mDemuxer = NULL;
     mRenderer = NULL;
@@ -97,6 +98,7 @@ int Session::open(const std::string &url)
     std::string ext = url.substr(url.length() - 4, 4);
     if ((url.front() == '/') && (ext == ".mp4"))
     {
+        mSessionType = PDRAW_SESSION_TYPE_RECORD;
         mDemuxer = new RecordDemuxer(this);
         if (mDemuxer == NULL)
         {
@@ -107,6 +109,7 @@ int Session::open(const std::string &url)
     else if (((url.front() == '/') && (ext == ".sdp"))
                 || (url.substr(0, 7) == "http://"))
     {
+        mSessionType = PDRAW_SESSION_TYPE_STREAM;
         mDemuxer = new StreamDemuxer(this);
         if (mDemuxer == NULL)
         {
@@ -144,6 +147,7 @@ int Session::open(const std::string &srcAddr, const std::string &ifaceAddr,
 
     if (ret == 0)
     {
+        mSessionType = PDRAW_SESSION_TYPE_STREAM;
         mDemuxer = new StreamDemuxer(this);
         if (mDemuxer == NULL)
         {
@@ -175,6 +179,7 @@ int Session::open(void *muxContext)
 
     if (ret == 0)
     {
+        mSessionType = PDRAW_SESSION_TYPE_STREAM;
         mDemuxer = new StreamDemuxer(this);
         if (mDemuxer == NULL)
         {

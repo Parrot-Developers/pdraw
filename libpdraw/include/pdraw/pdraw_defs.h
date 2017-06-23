@@ -44,6 +44,25 @@
 
 typedef enum
 {
+    PDRAW_DRONE_MODEL_UNKNOWN = 0,
+    PDRAW_DRONE_MODEL_BEBOP,
+    PDRAW_DRONE_MODEL_BEBOP2,
+    PDRAW_DRONE_MODEL_DISCO,
+
+} pdraw_drone_model_t;
+
+
+typedef enum
+{
+    PDRAW_SESSION_TYPE_UNKNOWN = 0,
+    PDRAW_SESSION_TYPE_STREAM,
+    PDRAW_SESSION_TYPE_RECORD,
+
+} pdraw_session_type_t;
+
+
+typedef enum
+{
     PDRAW_MEDIA_TYPE_UNKNOWN = 0,
     PDRAW_MEDIA_TYPE_VIDEO,
 

@@ -116,6 +116,8 @@ public:
     virtual int render
             (int timeout) = 0;
 
+    virtual pdraw_session_type_t getSessionType(void) = 0;
+
     virtual std::string& getSelfFriendlyName(void) = 0;
     virtual void setSelfFriendlyName
             (const std::string &friendlyName) = 0;
@@ -171,6 +173,8 @@ public:
     virtual std::string& getPeerModel(void) = 0;
 
     virtual std::string& getPeerModelId(void) = 0;
+
+    virtual pdraw_drone_model_t getPeerDroneModel(void) = 0;
 
     virtual std::string& getPeerSerialNumber(void) = 0;
 

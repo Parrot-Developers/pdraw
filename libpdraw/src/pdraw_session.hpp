@@ -56,6 +56,9 @@ namespace Pdraw
 {
 
 
+#define session_type_t pdraw_session_type_t
+
+
 class Settings;
 
 
@@ -102,6 +105,8 @@ public:
 
     Settings *getSettings() { return mSettings; };
 
+    session_type_t getSessionType() { return mSessionType; };
+
     SessionSelfMetadata *getSelfMetadata() { return &mSelfMetadata; };
 
     SessionPeerMetadata *getPeerMetadata() { return &mPeerMetadata; };
@@ -112,6 +117,7 @@ private:
 
     int addMediaFromDemuxer();
 
+    session_type_t mSessionType;
     Settings *mSettings;
     SessionSelfMetadata mSelfMetadata;
     SessionPeerMetadata mPeerMetadata;

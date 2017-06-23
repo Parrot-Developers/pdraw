@@ -50,6 +50,9 @@ namespace Pdraw
 {
 
 
+#define drone_model_t pdraw_drone_model_t
+
+
 class SessionSelfMetadata
 {
 public:
@@ -110,16 +113,18 @@ public:
     ~SessionPeerMetadata();
 
     std::string& getFriendlyName(void) { return mFriendlyName; } ;
-    void setFriendlyName(const std::string& friendlyName) { mFriendlyName = friendlyName; };
+    void setFriendlyName(const std::string& friendlyName);
 
     std::string& getMaker(void) { return mMaker; };
     void setMaker(const std::string& maker) { mMaker = maker; };
 
     std::string& getModel(void) { return mModel; };
-    void setModel(const std::string& model) { mModel = model; };
+    void setModel(const std::string& model);
 
     std::string& getModelId(void) { return mModelId; };
-    void setModelId(const std::string& modelId) { mModelId = modelId; };
+    void setModelId(const std::string& modelId);
+
+    drone_model_t getDroneModel(void) { return mDroneModel; };
 
     std::string& getSerialNumber(void) { return mSerialNumber; };
     void setSerialNumber(const std::string& serialNumber) { mSerialNumber = serialNumber; };
@@ -160,6 +165,7 @@ private:
     std::string mMaker;
     std::string mModel;
     std::string mModelId;
+    drone_model_t mDroneModel;
     std::string mSerialNumber;
     std::string mSoftwareVersion;
     std::string mBuildId;
