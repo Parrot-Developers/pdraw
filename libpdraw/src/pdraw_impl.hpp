@@ -145,6 +145,9 @@ public:
     void setSelfLocation
             (const location_t *loc);
 
+    int getControllerBatteryLevel();
+    void setControllerBatteryLevel(int batteryLevel);
+
     void getSelfControllerOrientation
             (quaternion_t *quat);
     void getSelfControllerOrientation

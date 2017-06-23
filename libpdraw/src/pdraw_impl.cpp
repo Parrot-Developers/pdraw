@@ -452,6 +452,18 @@ void PdrawImpl::setSelfLocation
 }
 
 
+int PdrawImpl::getControllerBatteryLevel()
+{
+    return mSession.getSelfMetadata()->getControllerBatteryLevel();
+}
+
+
+void PdrawImpl::setControllerBatteryLevel(int batteryLevel)
+{
+    mSession.getSelfMetadata()->setControllerBatteryLevel(batteryLevel);
+}
+
+
 void PdrawImpl::getSelfControllerOrientation
         (quaternion_t *quat)
 {

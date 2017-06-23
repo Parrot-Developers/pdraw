@@ -327,6 +327,20 @@ public class Pdraw {
         nativeSetSelfLocation(pdrawCtx, loc);
     }
 
+    public int getSelfControllerBatteryLevel() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSelfControllerBatteryLevel(pdrawCtx);
+    }
+
+    public void setSelfControllerBatteryLevel(int batteryLevel) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetSelfControllerBatteryLevel(pdrawCtx, batteryLevel);
+    }
+
     public Quaternion getSelfControllerOrientationQuat() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -664,6 +678,12 @@ public class Pdraw {
     private native int nativeSetSelfLocation(
         long pdrawCtx,
         Location loc);
+
+    private native int nativeGetSelfControllerBatteryLevel(
+        long pdrawCtx);
+    private native int nativeSetSelfControllerBatteryLevel(
+        long pdrawCtx,
+        int batteryLevel);
 
     private native Quaternion nativeGetSelfControllerOrientationQuat(
         long pdrawCtx);

@@ -386,6 +386,27 @@ int pdraw_set_self_location(struct pdraw *pdraw, const pdraw_location_t *loc)
 }
 
 
+int pdraw_get_self_controller_battery_level(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->getControllerBatteryLevel();
+}
+
+
+int pdraw_set_self_controller_battery_level(struct pdraw *pdraw, int batteryLevel)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setControllerBatteryLevel(batteryLevel);
+    return 0;
+}
+
+
 int pdraw_get_self_controller_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t *quat)
 {
     if (pdraw == NULL)

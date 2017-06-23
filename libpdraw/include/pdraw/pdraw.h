@@ -204,6 +204,15 @@ int pdraw_set_self_location
          const pdraw_location_t *loc);
 
 
+int pdraw_get_self_controller_battery_level
+        (struct pdraw *pdraw);
+
+
+int pdraw_set_self_controller_battery_level
+        (struct pdraw *pdraw,
+         int batteryLevel);
+
+
 int pdraw_get_self_controller_orientation_quat
         (struct pdraw *pdraw,
          pdraw_quaternion_t *quat);

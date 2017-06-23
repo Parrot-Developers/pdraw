@@ -1328,6 +1328,43 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfLocation(
 }
 
 
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfControllerBatteryLevel(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return (jint)pdraw_get_self_controller_battery_level(ctx->pdraw);
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfControllerBatteryLevel(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jint batteryLevel)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return pdraw_set_self_controller_battery_level(ctx->pdraw, (int)batteryLevel);
+}
+
+
 JNIEXPORT jobject JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfControllerOrientationQuat(
     JNIEnv *env,

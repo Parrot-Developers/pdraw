@@ -53,6 +53,7 @@ SessionSelfMetadata::SessionSelfMetadata()
 {
     mIsPilot = true;
     mLocation.isValid = 0;
+    mControllerBatteryLevel = 256;
     mControllerQuat = { 1, 0, 0, 0 };
     mHeadQuat = { 1, 0, 0, 0 };
     mHeadRefQuat = mHeadQuat;

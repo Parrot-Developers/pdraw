@@ -76,8 +76,12 @@ public:
     void getLocation(location_t *loc);
     void setLocation(const location_t *loc);
 
+    int getControllerBatteryLevel() { return mControllerBatteryLevel; };
+    void setControllerBatteryLevel(int batteryLevel) { mControllerBatteryLevel = batteryLevel; };
+
     void getControllerOrientation(quaternion_t *quat);
     void getControllerOrientation(euler_t *euler);
+
     void setControllerOrientation(const quaternion_t *quat);
     void setControllerOrientation(const euler_t *euler);
 
@@ -98,6 +102,7 @@ private:
     std::string mSoftwareVersion;
     bool mIsPilot;
     location_t mLocation;
+    int mControllerBatteryLevel;
     quaternion_t mControllerQuat;
     quaternion_t mHeadQuat;
     quaternion_t mHeadRefQuat;

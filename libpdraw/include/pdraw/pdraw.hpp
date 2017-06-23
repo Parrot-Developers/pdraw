@@ -139,6 +139,9 @@ public:
     virtual void setSelfLocation
             (const pdraw_location_t *loc) = 0;
 
+    virtual int getControllerBatteryLevel(void) = 0;
+    virtual void setControllerBatteryLevel(int batteryLevel) = 0;
+
     virtual void getSelfControllerOrientation
             (pdraw_quaternion_t *quat) = 0;
     virtual void getSelfControllerOrientation
