@@ -57,6 +57,9 @@ SessionSelfMetadata::SessionSelfMetadata()
     mControllerQuat = { 1, 0, 0, 0 };
     mHeadQuat = { 1, 0, 0, 0 };
     mHeadRefQuat = mHeadQuat;
+    mIsControllerValid = false;
+    mIsHeadValid = false;
+    mIsHeadRefValid = false;
 }
 
 
@@ -82,19 +85,21 @@ void SessionSelfMetadata::setLocation(const location_t *loc)
 }
 
 
-void SessionSelfMetadata::getControllerOrientation(quaternion_t *quat)
+bool SessionSelfMetadata::getControllerOrientation(quaternion_t *quat)
 {
     if (!quat)
-        return;
+        return false;
     memcpy(quat, &mControllerQuat, sizeof(*quat));
+    return mIsControllerValid;
 }
 
 
-void SessionSelfMetadata::getControllerOrientation(euler_t *euler)
+bool SessionSelfMetadata::getControllerOrientation(euler_t *euler)
 {
     if (!euler)
-        return;
+        return false;
     pdraw_quat2euler(&mControllerQuat, euler);
+    return mIsControllerValid;
 }
 
 
@@ -103,6 +108,7 @@ void SessionSelfMetadata::setControllerOrientation(const quaternion_t *quat)
     if (!quat)
         return;
     memcpy(&mControllerQuat, quat, sizeof(*quat));
+    mIsControllerValid = true;
 }
 
 
@@ -111,22 +117,25 @@ void SessionSelfMetadata::setControllerOrientation(const euler_t *euler)
     if (!euler)
         return;
     pdraw_euler2quat(euler, &mControllerQuat);
+    mIsControllerValid = true;
 }
 
 
-void SessionSelfMetadata::getHeadOrientation(quaternion_t *quat)
+bool SessionSelfMetadata::getHeadOrientation(quaternion_t *quat)
 {
     if (!quat)
-        return;
+        return false;
     memcpy(quat, &mHeadQuat, sizeof(*quat));
+    return mIsHeadValid;
 }
 
 
-void SessionSelfMetadata::getHeadOrientation(euler_t *euler)
+bool SessionSelfMetadata::getHeadOrientation(euler_t *euler)
 {
     if (!euler)
-        return;
+        return false;
     pdraw_quat2euler(&mHeadQuat, euler);
+    return mIsHeadValid;
 }
 
 
@@ -135,6 +144,7 @@ void SessionSelfMetadata::setHeadOrientation(const quaternion_t *quat)
     if (!quat)
         return;
     memcpy(&mHeadQuat, quat, sizeof(*quat));
+    mIsHeadValid = true;
 }
 
 
@@ -143,22 +153,25 @@ void SessionSelfMetadata::setHeadOrientation(const euler_t *euler)
     if (!euler)
         return;
     pdraw_euler2quat(euler, &mHeadQuat);
+    mIsHeadValid = true;
 }
 
 
-void SessionSelfMetadata::getHeadRefOrientation(quaternion_t *quat)
+bool SessionSelfMetadata::getHeadRefOrientation(quaternion_t *quat)
 {
     if (!quat)
-        return;
+        return false;
     memcpy(quat, &mHeadRefQuat, sizeof(*quat));
+    return mIsHeadRefValid;
 }
 
 
-void SessionSelfMetadata::getHeadRefOrientation(euler_t *euler)
+bool SessionSelfMetadata::getHeadRefOrientation(euler_t *euler)
 {
     if (!euler)
-        return;
+        return false;
     pdraw_quat2euler(&mHeadRefQuat, euler);
+    return mIsHeadRefValid;
 }
 
 
@@ -167,6 +180,7 @@ void SessionSelfMetadata::setHeadRefOrientation(const quaternion_t *quat)
     if (!quat)
         return;
     memcpy(&mHeadRefQuat, quat, sizeof(*quat));
+    mIsHeadRefValid = true;
 }
 
 
@@ -175,6 +189,7 @@ void SessionSelfMetadata::setHeadRefOrientation(const euler_t *euler)
     if (!euler)
         return;
     pdraw_euler2quat(euler, &mHeadRefQuat);
+    mIsHeadRefValid = true;
 }
 
 

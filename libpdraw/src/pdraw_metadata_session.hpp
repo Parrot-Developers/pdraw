@@ -79,19 +79,19 @@ public:
     int getControllerBatteryLevel() { return mControllerBatteryLevel; };
     void setControllerBatteryLevel(int batteryLevel) { mControllerBatteryLevel = batteryLevel; };
 
-    void getControllerOrientation(quaternion_t *quat);
-    void getControllerOrientation(euler_t *euler);
+    bool getControllerOrientation(quaternion_t *quat);
+    bool getControllerOrientation(euler_t *euler);
 
     void setControllerOrientation(const quaternion_t *quat);
     void setControllerOrientation(const euler_t *euler);
 
-    void getHeadOrientation(quaternion_t *quat);
-    void getHeadOrientation(euler_t *euler);
+    bool getHeadOrientation(quaternion_t *quat);
+    bool getHeadOrientation(euler_t *euler);
     void setHeadOrientation(const quaternion_t *quat);
     void setHeadOrientation(const euler_t *euler);
 
-    void getHeadRefOrientation(quaternion_t *quat);
-    void getHeadRefOrientation(euler_t *euler);
+    bool getHeadRefOrientation(quaternion_t *quat);
+    bool getHeadRefOrientation(euler_t *euler);
     void setHeadRefOrientation(const quaternion_t *quat);
     void setHeadRefOrientation(const euler_t *euler);
 
@@ -104,8 +104,11 @@ private:
     location_t mLocation;
     int mControllerBatteryLevel;
     quaternion_t mControllerQuat;
+    bool mIsControllerValid;
     quaternion_t mHeadQuat;
+    bool mIsHeadValid;
     quaternion_t mHeadRefQuat;
+    bool mIsHeadRefValid;
 };
 
 
