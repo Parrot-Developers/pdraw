@@ -137,7 +137,6 @@ int Gles2Renderer::initGles2()
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         glDisable(GL_DITHER);
-        glDisable(GL_DEPTH_TEST);
         glEnable(GL_TEXTURE_2D);
 
         glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);

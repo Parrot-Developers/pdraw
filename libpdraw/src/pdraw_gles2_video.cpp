@@ -64,7 +64,7 @@ static const GLchar *videoVertexShader =
     "\n"
     "void main()\n"
     "{\n"
-    "    gl_Position = position * transform_matrix;\n"
+    "    gl_Position = transform_matrix * position;\n"
     "    v_texcoord = texcoord;\n"
     "}\n";
 
@@ -364,6 +364,21 @@ Gles2Video::~Gles2Video()
 }
 
 
+static void createProjectionMatrix(Eigen::Matrix4f &projMat, float viewHFov, float videoHFov, float windowW, float windowH, float near, float far)
+{
+    float k = tanf(videoHFov / 2.) / tanf(viewHFov / 2.);
+    float w = k * windowW;
+    float h = k * windowH;
+    float a = -(near + far) / (near - far);
+    float b = -((2 * far * near) / (far - near));
+
+    projMat << w, 0, 0, 0,
+               0, h, 0, 0,
+               0, 0, a, b,
+               0, 0, 1, 0;
+}
+
+
 int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                            unsigned int frameWidth, unsigned int frameHeight,
                            unsigned int sarWidth, unsigned int sarHeight,
@@ -373,9 +388,8 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                            bool headtracking)
 {
     unsigned int i;
-    float vertices[8];
+    float vertices[16];
     float texCoords[8];
-    float transformMatrix[16];
 
     if ((frameWidth == 0) || (frameHeight == 0) || (sarWidth == 0) || (sarHeight == 0)
             || (windowWidth == 0) || (windowHeight == 0) || (frameStride[0] == 0))
@@ -386,7 +400,8 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
 
     glUseProgram(mProgram[colorConversion]);
     glEnable(GL_TEXTURE_2D);
-    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     switch (colorConversion)
     {
@@ -443,75 +458,63 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
     }
     float videoW = ratioW / windowW;
     float videoH = ratioH / windowH;
-    float deltaX = 0.;
-    float deltaY = 0.;
-    float angle = 0.;
+
+    Eigen::Matrix4f viewMat = Eigen::Matrix4f::Identity();
+    Eigen::Matrix4f projMat = Eigen::Matrix4f::Identity();
+
+    float hFov = 0.;
+    float vFov = 0.;
+    if (mMedia)
+        mMedia->getFov(&hFov, &vFov);
+    if (hFov == 0.)
+        hFov = PDRAW_GLES2_VIDEO_DEFAULT_HFOV;
+    if (vFov == 0.)
+        vFov = PDRAW_GLES2_VIDEO_DEFAULT_VFOV;
+    hFov = hFov * M_PI / 180.;
+    vFov = vFov * M_PI / 180.;
+
+    createProjectionMatrix(projMat, hFov, hFov, windowW, windowH, 0.1, 100.);
+
     if ((headtracking) && (mSession))
     {
-        struct vmeta_euler headOrientation;
-        mSession->getSelfMetadata()->getDebiasedHeadOrientation(&headOrientation);
+        struct vmeta_quaternion head;
+        mSession->getSelfMetadata()->getDebiasedHeadOrientation(&head);
+        Eigen::Quaternionf headQuat = Eigen::Quaternionf(head.w, head.x, head.y, head.z);
+        Eigen::Matrix3f headRotNed = headQuat.toRotationMatrix();
 
-#if 0
-        struct vmeta_quaternion headQuat, headRefQuat, controllerQuat;
-        mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
-        mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
-        mSession->getSelfMetadata()->getControllerOrientation(&controllerQuat);
+        Eigen::Matrix3f camRot1 = Eigen::AngleAxisf(-metadata->base.cameraPan, Eigen::Vector3f::UnitZ()).matrix();
+        Eigen::Matrix3f camRot2 = Eigen::AngleAxisf(-metadata->base.cameraTilt, Eigen::Vector3f::UnitY()).matrix();
 
-        /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        struct vmeta_quaternion headDiff, controllerDiff, headRefQuatInv;
-        pdraw_quatConj(&headRefQuat, &headRefQuatInv);
-        pdraw_quatMult(&headQuat, &headRefQuatInv, &headDiff);
-        pdraw_quatMult(&controllerQuat, &headRefQuatInv, &controllerDiff);
-        struct vmeta_euler headOrientation, controllerOrientation;
-        pdraw_quat2euler(&headDiff, &headOrientation);
-        pdraw_quat2euler(&controllerDiff, &controllerOrientation);
-#endif
-        float hFov = 0.;
-        float vFov = 0.;
-        if (mMedia)
-            mMedia->getFov(&hFov, &vFov);
-        if (hFov == 0.)
-            hFov = PDRAW_GLES2_VIDEO_DEFAULT_HFOV;
-        if (vFov == 0.)
-            vFov = PDRAW_GLES2_VIDEO_DEFAULT_VFOV;
-        hFov = hFov * M_PI / 180.;
-        vFov = vFov * M_PI / 180.;
-        float scaleW = hFov / ratioW;
-        float scaleH = vFov / ratioH;
-        deltaX = (-headOrientation.psi + metadata->base.cameraPan) / scaleW * 2.;
-        deltaY = (-headOrientation.theta + metadata->base.cameraTilt) / scaleH * 2.;
-        angle = headOrientation.phi;
+        Eigen::Matrix3f viewRotNed = camRot2 * camRot1 * headRotNed;
+
+        Eigen::Matrix3f viewRotLH;
+        viewRotLH <<  viewRotNed(0, 0), -viewRotNed(1, 0), -viewRotNed(2, 0),
+                     -viewRotNed(0, 1),  viewRotNed(1, 1),  viewRotNed(2, 1),
+                     -viewRotNed(0, 2),  viewRotNed(1, 2),  viewRotNed(2, 2);
+        Eigen::Matrix3f rot;
+        rot <<  0,  0, -1,
+                1,  0,  0,
+                0, -1,  0;
+        viewMat.block<3, 3>(0, 0) = rot.transpose() * viewRotLH * rot;
     }
 
     vertices[0] = -videoW;
     vertices[1] = -videoH;
-    vertices[2] = videoW;
-    vertices[3] = -videoH;
-    vertices[4] = -videoW;
-    vertices[5] = videoH;
-    vertices[6] = videoW;
+    vertices[2] = 1.;
+    vertices[3] = videoW;
+    vertices[4] = -videoH;
+    vertices[5] = 1.;
+    vertices[6] = -videoW;
     vertices[7] = videoH;
+    vertices[8] = 1.;
+    vertices[9] = videoW;
+    vertices[10] = videoH;
+    vertices[11] = 1.;
 
-    transformMatrix[0] = cosf(angle) * windowW;
-    transformMatrix[1] = -sinf(angle) * windowW;
-    transformMatrix[2] = 0;
-    transformMatrix[3] = deltaX;
-    transformMatrix[4] = sinf(angle) * windowH;
-    transformMatrix[5] = cosf(angle) * windowH;
-    transformMatrix[6] = 0;
-    transformMatrix[7] = deltaY;
-    transformMatrix[8] = 0;
-    transformMatrix[9] = 0;
-    transformMatrix[10] = 1;
-    transformMatrix[11] = 0;
-    transformMatrix[12] = 0;
-    transformMatrix[13] = 0;
-    transformMatrix[14] = 0;
-    transformMatrix[15] = 1;
+    Eigen::Matrix4f xformMat = projMat * viewMat;
+    glUniformMatrix4fv(mProgramTransformMatrix[colorConversion], 1, false, xformMat.data());
 
-    glUniformMatrix4fv(mProgramTransformMatrix[colorConversion], 1, false, transformMatrix);
-
-    glVertexAttribPointer(mPositionHandle[colorConversion], 2, GL_FLOAT, false, 0, vertices);
+    glVertexAttribPointer(mPositionHandle[colorConversion], 3, GL_FLOAT, false, 0, vertices);
     glEnableVertexAttribArray(mPositionHandle[colorConversion]);
 
     texCoords[0] = 0.0f;
