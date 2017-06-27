@@ -37,6 +37,7 @@
  */
 
 #include "pdraw_avcdecoder_amediacodec.hpp"
+#include "pdraw_media_video.hpp"
 
 #ifdef USE_AMEDIACODEC
 
@@ -61,6 +62,16 @@ AMediaCodecAvcDecoder::AMediaCodecAvcDecoder(VideoMedia *media)
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
     mOutputBufferPool = NULL;
+    mWidth = 0;
+    mHeight = 0;
+    mCropLeft = 0;
+    mCropRight = 0;
+    mCropTop = 0;
+    mCropBottom = 0;
+    mCroppedWidth = 0;
+    mCroppedHeight = 0;
+    mSarWidth = 0;
+    mSarHeight = 0;
 
     mCodec = AMediaCodec_createDecoderByType(PDRAW_AMEDIACODEC_MIME_TYPE);
 }
@@ -229,6 +240,10 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
         AMediaFormat_delete(format);
     free(sps);
     free(pps);
+
+    ((VideoMedia*)mMedia)->getDimensions(&mWidth, &mHeight,
+        &mCropLeft, &mCropRight, &mCropTop, &mCropBottom,
+        &mCroppedWidth, &mCroppedHeight, &mSarWidth, &mSarHeight);
 
     mConfigured = (ret == 0) ? true : false;
 
@@ -525,38 +540,9 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
     while (bufIdx >= 0)
     {
         bool pushed = false;
-
-        //TODO
-        int32_t width = 0, height = 0, colorFormat = 0;
-        int32_t cropLeft = 0, cropRight = 0, cropTop = 0, cropBottom = 0;
+        int32_t colorFormat = 0;
         AMediaFormat *format = AMediaCodec_getOutputFormat(mCodec);
-        AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_WIDTH, &width);
-        AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_HEIGHT, &height);
         AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, &colorFormat);
-        AMediaFormat_getInt32(format, "crop-left", &cropLeft);
-        AMediaFormat_getInt32(format, "crop-right", &cropRight);
-        AMediaFormat_getInt32(format, "crop-top", &cropTop);
-        AMediaFormat_getInt32(format, "crop-bottom", &cropBottom);
-#if 0
-        int32_t cropWidth = cropRight - cropLeft + 1;
-        int32_t cropHeight = cropBottom - cropTop + 1;
-        ULOGI("AMediaCodec: cropLeft=%d cropRight=%d cropTop=%d cropBottom=%d", cropLeft, cropRight, cropTop, cropBottom);
-        ULOGI("AMediaCodec: cropWidth=%d cropHeight=%d", cropWidth, cropHeight);
-        const char *s = AMediaFormat_toString(format);
-        ULOGI("AMediaCodec: format: %s", s);
-#endif
-        if ((!width) || (!height))
-        {
-            ULOGE("AMediaCodec: invalid width (%d) and height (%d)", width, height);
-            media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
-            if (err != AMEDIA_OK)
-            {
-                ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
-            }
-            ret = -1;
-            continue;
-        }
 
         size_t bufSize = 0;
         uint8_t *pBuf = AMediaCodec_getOutputBuffer(mCodec, bufIdx, &bufSize);
@@ -654,39 +640,39 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             struct timespec t1;
             clock_gettime(CLOCK_MONOTONIC, &t1);
             outputData->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-            outputData->width = width;
-            outputData->height = height;
-            outputData->sarWidth = 1; //TODO
-            outputData->sarHeight = 1; //TODO
+            outputData->width = mCroppedWidth;
+            outputData->height = mCroppedHeight;
+            outputData->sarWidth = mSarWidth;
+            outputData->sarHeight = mSarHeight;
             switch (colorFormat)
             {
                 //TODO: where are these constants defined in NDK?
                 case 0x00000013:
                     outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
-                    outputData->plane[0] = pBuf;
-                    outputData->plane[1] = pBuf + width * height;
-                    outputData->plane[2] = pBuf + width * height * 5 / 4;
-                    outputData->stride[0] = width;
-                    outputData->stride[1] = width / 2;
-                    outputData->stride[2] = width / 2;
+                    outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
+                    outputData->plane[1] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth / 2 + mCropLeft / 2;
+                    outputData->plane[2] = pBuf + mWidth * mHeight * 5 / 4 + mCropTop / 2 * mWidth / 2 + mCropLeft / 2;
+                    outputData->stride[0] = mWidth;
+                    outputData->stride[1] = mWidth / 2;
+                    outputData->stride[2] = mWidth / 2;
                     break;
                 case 0x00000015:
                     outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR;
-                    outputData->plane[0] = pBuf;
-                    outputData->plane[1] = pBuf + width * height;
-                    outputData->plane[2] = pBuf + width * height;
-                    outputData->stride[0] = width;
-                    outputData->stride[1] = width;
-                    outputData->stride[2] = width;
+                    outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
+                    outputData->plane[1] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth + mCropLeft;
+                    outputData->plane[2] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth + mCropLeft;
+                    outputData->stride[0] = mWidth;
+                    outputData->stride[1] = mWidth;
+                    outputData->stride[2] = mWidth;
                     break;
                 default:
                     outputData->colorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
-                    outputData->plane[0] = pBuf;
-                    outputData->plane[1] = pBuf;
-                    outputData->plane[2] = pBuf;
-                    outputData->stride[0] = width;
-                    outputData->stride[1] = width;
-                    outputData->stride[2] = width;
+                    outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
+                    outputData->plane[1] = pBuf + mCropTop * mWidth + mCropLeft;
+                    outputData->plane[2] = pBuf + mCropTop * mWidth + mCropLeft;
+                    outputData->stride[0] = mWidth;
+                    outputData->stride[1] = mWidth;
+                    outputData->stride[2] = mWidth;
                     break;
             }
             if (inputData)

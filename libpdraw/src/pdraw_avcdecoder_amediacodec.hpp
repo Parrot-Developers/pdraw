@@ -99,6 +99,16 @@ private:
     BufferQueue *mInputBufferQueue;
     BufferPool *mOutputBufferPool;
     std::vector<BufferQueue*> mOutputBufferQueues;
+    unsigned int mWidth;
+    unsigned int mHeight;
+    unsigned int mCropLeft;
+    unsigned int mCropRight;
+    unsigned int mCropTop;
+    unsigned int mCropBottom;
+    unsigned int mCroppedWidth;
+    unsigned int mCroppedHeight;
+    unsigned int mSarWidth;
+    unsigned int mSarHeight;
 };
 
 }
