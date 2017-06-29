@@ -833,6 +833,18 @@ int PdrawImpl::getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *fram
 }
 
 
+float PdrawImpl::getControllerRadarAngleSetting(void)
+{
+    return mSettings.getControllerRadarAngle();
+}
+
+
+void PdrawImpl::setControllerRadarAngleSetting(float angle)
+{
+    mSettings.setControllerRadarAngle(angle);
+}
+
+
 void PdrawImpl::getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
     float *deviceMargin, float *ipd, float *scale, float *panH, float *panV)
 {

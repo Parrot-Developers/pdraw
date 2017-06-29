@@ -2244,6 +2244,43 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetProducerLastFrame(
 #endif
 
 
+JNIEXPORT jfloat JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeGetControllerRadarAngleSetting(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jfloat)-1;
+    }
+
+    return (jfloat)pdraw_get_controller_radar_angle_setting(ctx->pdraw);
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeSetControllerRadarAngleSetting(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jfloat angle)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return (jint)pdraw_set_controller_radar_angle_setting(ctx->pdraw, (float)angle);
+}
+
+
 JNIEXPORT jobject JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeGetHmdDistorsionCorrectionSettings(
     JNIEnv *env,

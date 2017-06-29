@@ -819,6 +819,27 @@ int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, pdraw_
 }
 
 
+float pdraw_get_controller_radar_angle_setting(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return (float)-EINVAL;
+    }
+    return toPdraw(pdraw)->getControllerRadarAngleSetting();
+}
+
+
+int pdraw_set_controller_radar_angle_setting(struct pdraw *pdraw, float angle)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setControllerRadarAngleSetting(angle);
+    return 0;
+}
+
+
 int pdraw_get_hmd_distorsion_correction_settings
         (struct pdraw *pdraw,
          float *xdpi,

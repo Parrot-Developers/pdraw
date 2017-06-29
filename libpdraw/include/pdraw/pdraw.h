@@ -397,6 +397,13 @@ int pdraw_get_producer_last_frame
          void *producerCtx,
          pdraw_video_frame_t *frame);
 
+float pdraw_get_controller_radar_angle_setting
+        (struct pdraw *pdraw);
+
+int pdraw_set_controller_radar_angle_setting
+        (struct pdraw *pdraw,
+         float angle);
+
 int pdraw_get_hmd_distorsion_correction_settings
         (struct pdraw *pdraw,
          float *xdpi,

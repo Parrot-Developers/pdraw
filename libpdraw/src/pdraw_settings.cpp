@@ -38,6 +38,7 @@
 
 #include "pdraw_settings.hpp"
 #include "pdraw_gles2_hmd.hpp"
+#include "pdraw_gles2_hud.hpp"
 
 
 namespace Pdraw
@@ -46,6 +47,7 @@ namespace Pdraw
 
 Settings::Settings()
 {
+    mControllerRadarAngle = GLES2_HUD_DEFAULT_CONTROLLER_RADAR_ANGLE;
     mHmdXdpi = GLES2_HMD_DEFAULT_XDPI;
     mHmdYdpi = GLES2_HMD_DEFAULT_YDPI;
     mHmdDeviceMargin = GLES2_HMD_DEFAULT_DEVICE_MARGIN;

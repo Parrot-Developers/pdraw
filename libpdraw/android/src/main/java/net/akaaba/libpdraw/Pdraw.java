@@ -558,6 +558,20 @@ public class Pdraw {
         return nativeGetCameraOrientationForHeadtracking(pdrawCtx);
     }
 
+    public float getControllerRadarAngleSetting() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetControllerRadarAngleSetting(pdrawCtx);
+    }
+
+    public void setControllerRadarAngleSetting(float angle) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetControllerRadarAngleSetting(pdrawCtx, angle);
+    }
+
     public HmdSettings getHmdDistorsionCorrectionSettings() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -815,6 +829,12 @@ public class Pdraw {
         pdraw_video_frame_t *frame,
         long waitUs);
 */
+
+    private native float nativeGetControllerRadarAngleSetting(
+        long pdrawCtx);
+    private native int nativeSetControllerRadarAngleSetting(
+        long pdrawCtx,
+        float angle);
 
     private native HmdSettings nativeGetHmdDistorsionCorrectionSettings(
         long pdrawCtx);

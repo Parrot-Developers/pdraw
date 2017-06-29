@@ -53,6 +53,9 @@ public:
 
     ~Settings();
 
+    float getControllerRadarAngle() { return mControllerRadarAngle; };
+    void setControllerRadarAngle(float angle) { mControllerRadarAngle = angle; };
+
     void getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
         float *deviceMargin, float *ipd, float *scale, float *panH, float *panV);
     void setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
@@ -60,6 +63,7 @@ public:
 
 private:
 
+    float mControllerRadarAngle;
     float mHmdXdpi;
     float mHmdYdpi;
     float mHmdDeviceMargin;

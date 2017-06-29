@@ -43,9 +43,9 @@
 #define ULOG_TAG libpdraw
 #include <ulog.h>
 #include <stdio.h>
-#include <math.h>
 
 #include "pdraw_session.hpp"
+#include "pdraw_settings.hpp"
 #include "pdraw_media_video.hpp"
 
 #include "pdraw_gles2_hud_icons.cpp"
@@ -481,6 +481,10 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
 #ifdef DEBUG_RADAR // used to test the radar on records
         isControllerOrientationValid = true;
 #endif
+        if (mSession->getSettings())
+        {
+            controllerRadarAngle = mSession->getSettings()->getControllerRadarAngle();
+        }
     }
     float groundDistance = 0.;
     if (droneModel == PDRAW_DRONE_MODEL_DISCO)

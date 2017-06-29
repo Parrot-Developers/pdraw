@@ -48,6 +48,8 @@
     #include <GLFW/glfw3.h>
 #endif
 
+#include <math.h>
+
 #include "pdraw_metadata_videoframe.hpp"
 
 

@@ -232,6 +232,9 @@ public:
      */
     virtual int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, long waitUs = 0) = 0;
 
+    virtual float getControllerRadarAngleSetting(void) = 0;
+    virtual void setControllerRadarAngleSetting(float angle) = 0;
+
     virtual void getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
         float *deviceMargin, float *ipd, float *scale, float *panH, float *panV) = 0;
     virtual void setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
