@@ -65,7 +65,7 @@ static const GLchar *hudVertexShader =
     "uniform mat4 transform_matrix;\n"
     "attribute vec4 vPosition;\n"
     "void main() {\n"
-    "  gl_Position = vPosition * transform_matrix;\n"
+    "    gl_Position = transform_matrix * vPosition;\n"
     "}\n";
 
 static const GLchar *hudFragmentShader =
@@ -74,7 +74,7 @@ static const GLchar *hudFragmentShader =
 #endif
     "uniform vec4 vColor;\n"
     "void main() {\n"
-    "  gl_FragColor = vColor;\n"
+    "    gl_FragColor = vColor;\n"
     "}\n";
 
 static const GLchar *hudTexVertexShader =
@@ -85,7 +85,7 @@ static const GLchar *hudTexVertexShader =
     "\n"
     "void main()\n"
     "{\n"
-    "    gl_Position = position * transform_matrix;\n"
+    "    gl_Position = transform_matrix * position;\n"
     "    v_texcoord = texcoord;\n"
     "}\n";
 
@@ -145,6 +145,7 @@ static const float colorGreen[4] = { 0.0f, 0.9f, 0.0f, 1.0f };
 static const float colorDarkGreen[4] = { 0.0f, 0.5f, 0.0f, 1.0f };
 static const float colorBlue[4] = { 0.0f, 0.0f, 0.9f, 1.0f };
 static const float colorGray[4] = { 0.3f, 0.3f, 0.3f, 1.0f };
+static const float colorGray2[4] = { 0.1f, 0.1f, 0.1f, 1.0f };
 
 
 Gles2Hud::Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUnit)
@@ -176,6 +177,8 @@ Gles2Hud::Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUni
     mScaleH = 1.;
     mRatioW = 1.;
     mRatioH = 1.;
+    mCockpitSphereVertices = NULL;
+    mCockpitSphereVerticesCount = 0;
 
     if (ret == 0)
     {
@@ -335,8 +338,23 @@ Gles2Hud::Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUni
 
     if (ret == 0)
     {
-        mIconsTexUnit = mFirstTexUnit;
-        ret = loadTextureFromBuffer(hudIcons, hudIconsWidth, hudIconsHeight, mTextTexUnit);
+        mLogoTexUnit = mFirstTexUnit;
+        ret = loadTextureFromBuffer(hudLogo, hudLogoWidth, hudLogoHeight, mLogoTexUnit);
+        if (ret < 0)
+        {
+            ULOGE("Gles2Hud: loadTextureFromBuffer() failed (%d)", ret);
+        }
+        else
+        {
+            mLogoTexture = (GLuint)ret;
+            ret = 0;
+        }
+    }
+
+    if (ret == 0)
+    {
+        mIconsTexUnit = mFirstTexUnit + 1;
+        ret = loadTextureFromBuffer(hudIcons, hudIconsWidth, hudIconsHeight, mIconsTexUnit);
         if (ret < 0)
         {
             ULOGE("Gles2Hud: loadTextureFromBuffer() failed (%d)", ret);
@@ -350,7 +368,7 @@ Gles2Hud::Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUni
 
     if (ret == 0)
     {
-        mTextTexUnit = mFirstTexUnit + 1;
+        mTextTexUnit = mFirstTexUnit + 2;
         ret = loadTextureFromBuffer(font_36::image, font_36::imageW, font_36::imageH, mTextTexUnit);
         if (ret < 0)
         {
@@ -362,6 +380,11 @@ Gles2Hud::Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUni
             ret = 0;
         }
     }
+
+    if (ret == 0)
+    {
+        initCockpit();
+    }
 }
 
 
@@ -371,6 +394,22 @@ Gles2Hud::~Gles2Hud()
     glDeleteTextures(1, &mTextTexture);
     glDeleteProgram(mProgram[0]);
     glDeleteProgram(mProgram[1]);
+    free(mCockpitSphereVertices);
+}
+
+
+static void createProjectionMatrix(Eigen::Matrix4f &projMat, float viewHFov, float videoHFov, float windowW, float windowH, float near, float far)
+{
+    float k = tanf(videoHFov / 2.) / tanf(viewHFov / 2.);
+    float w = k * windowW;
+    float h = k * windowH;
+    float a = -(near + far) / (near - far);
+    float b = -((2 * far * near) / (far - near));
+
+    projMat << w, 0, 0, 0,
+               0, h, 0, 0,
+               0, 0, a, b,
+               0, 0, 1, 0;
 }
 
 
@@ -414,6 +453,8 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         mHudScale = GLES2_HUD_DEFAULT_SCALE;
     }
 
+    float transformMatrix[16];
+    float angle, deltaX, deltaY, cy;
     float windowAR = (float)windowWidth / (float)windowHeight;
     float videoAR = (float)videoWidth / (float)videoHeight;
     float windowW = 1.;
@@ -441,6 +482,10 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     mAspectRatio = windowAR;
     mVideoAspectRatio = videoAR;
 
+    Eigen::Matrix4f modelMat = Eigen::Matrix4f::Identity();
+    Eigen::Matrix4f viewMat = Eigen::Matrix4f::Identity();
+    Eigen::Matrix4f projMat = Eigen::Matrix4f::Identity();
+
     float controllerRadarAngle = SETTINGS_HUD_CONTROLLER_RADAR_ANGLE;
     float hFov = 0.;
     float vFov = 0.;
@@ -452,6 +497,8 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         vFov = GLES2_HUD_DEFAULT_VFOV;
     mHfov = hFov * M_PI / 180.;
     mVfov = vFov * M_PI / 180.;
+
+    createProjectionMatrix(projMat, mHfov, mHfov, windowW, windowH, 0.1, 100.);
 
     float horizontalSpeed = sqrtf(metadata->base.speed.north * metadata->base.speed.north
                                   + metadata->base.speed.east * metadata->base.speed.east);
@@ -527,60 +574,42 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     int headingInt = ((int)(droneAttitude.psi * RAD_TO_DEG) + 360) % 360;
 
     glDisable(GL_TEXTURE_2D);
-    glDisable(GL_DEPTH_TEST);
     glUseProgram(mProgram[0]);
 
     glEnableVertexAttribArray(mPositionHandle);
     glEnableVertexAttribArray(mColorHandle);
 
-    float deltaX = 0.;
-    float deltaY = 0.;
-    float angle = 0., cy;
     if ((headtracking) && (mSession))
     {
-        struct vmeta_euler headOrientation;
-        mSession->getSelfMetadata()->getDebiasedHeadOrientation(&headOrientation);
+        struct vmeta_quaternion head;
+        mSession->getSelfMetadata()->getDebiasedHeadOrientation(&head);
+        Eigen::Quaternionf headQuat = Eigen::Quaternionf(head.w, head.x, head.y, head.z);
+        Eigen::Matrix3f headRotNed = headQuat.toRotationMatrix();
 
-#if 0
-        struct vmeta_quaternion headQuat, headRefQuat, controllerQuat;
-        mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
-        mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
-        mSession->getSelfMetadata()->getControllerOrientation(&controllerQuat);
+        Eigen::Matrix3f camRot1 = Eigen::AngleAxisf(-metadata->base.cameraPan, Eigen::Vector3f::UnitZ()).matrix();
+        Eigen::Matrix3f camRot2 = Eigen::AngleAxisf(-metadata->base.cameraTilt, Eigen::Vector3f::UnitY()).matrix();
+        Eigen::Matrix3f camRot3 = Eigen::AngleAxisf(M_PI / 2., Eigen::Vector3f::UnitY()).matrix();
 
-        /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        struct vmeta_quaternion headDiff, controllerDiff, headRefQuatInv;
-        pdraw_quatConj(&headRefQuat, &headRefQuatInv);
-        pdraw_quatMult(&headQuat, &headRefQuatInv, &headDiff);
-        pdraw_quatMult(&controllerQuat, &headRefQuatInv, &controllerDiff);
-        struct vmeta_euler headOrientation, controllerOrientation;
-        pdraw_quat2euler(&headDiff, &headOrientation);
-        pdraw_quat2euler(&controllerDiff, &controllerOrientation);
-#endif
+        Eigen::Matrix3f rot1 = Eigen::AngleAxisf(33. * M_PI / 180., Eigen::Vector3f::UnitY()).matrix();
 
-        deltaX = (-headOrientation.psi + metadata->base.cameraPan) / mHfov * mRatioW * 2.;
-        deltaY = (-headOrientation.theta + metadata->base.cameraTilt) / mVfov * mRatioH * 2.;
-        angle = headOrientation.phi;
+        Eigen::Matrix3f viewRotNed = /*camRot2 * camRot1 **/ /*camRot3 **/ rot1 * headRotNed;
+
+        Eigen::Matrix3f viewRotLH;
+        viewRotLH <<  viewRotNed(0, 0), -viewRotNed(1, 0), -viewRotNed(2, 0),
+                     -viewRotNed(0, 1),  viewRotNed(1, 1),  viewRotNed(2, 1),
+                     -viewRotNed(0, 2),  viewRotNed(1, 2),  viewRotNed(2, 2);
+        Eigen::Matrix3f rot;
+        rot <<  0,  0, -1,
+                1,  0,  0,
+                0, -1,  0;
+        viewMat.block<3, 3>(0, 0) = rot.transpose() * viewRotLH * rot;
+        //float limitAngle = 35. * M_PI / 180. + mHfov / 2.; //TODO
+        float limitAngle = (35. + 85.8 / 2.) * M_PI / 180.; //TODO
+        modelMat.col(3) << 0, 0, -(cosf(limitAngle / 2.) - cosf(limitAngle)), 1;
     }
 
-    float transformMatrix[16];
-    transformMatrix[0] = cosf(angle) * windowW;
-    transformMatrix[1] = -sinf(angle) * windowW;
-    transformMatrix[2] = 0;
-    transformMatrix[3] = deltaX;
-    transformMatrix[4] = sinf(angle) * windowH;
-    transformMatrix[5] = cosf(angle) * windowH;
-    transformMatrix[6] = 0;
-    transformMatrix[7] = deltaY;
-    transformMatrix[8] = 0;
-    transformMatrix[9] = 0;
-    transformMatrix[10] = 1;
-    transformMatrix[11] = 0;
-    transformMatrix[12] = 0;
-    transformMatrix[13] = 0;
-    transformMatrix[14] = 0;
-    transformMatrix[15] = 1;
-
-    glUniformMatrix4fv(mTransformMatrixHandle, 1, false, transformMatrix);
+    Eigen::Matrix4f xformMat = projMat * viewMat * modelMat;
+    glUniformMatrix4fv(mTransformMatrixHandle, 1, false, xformMat.data());
 
     /* World */
     if (takeoffDistance >= 50.)
@@ -592,27 +621,11 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     /* Cockpit */
     if (headtracking)
     {
-        drawCockpitMarks(metadata->base.cameraPan, metadata->base.cameraTilt, colorGray, 0.005 * (float)windowWidth);
+        drawCockpit(colorGray, colorGray2, 0.005 * (float)windowWidth, xformMat);
     }
 
-    transformMatrix[0] = 1; //TODO windowW;
-    transformMatrix[1] = 0;
-    transformMatrix[2] = 0;
-    transformMatrix[3] = 0;
-    transformMatrix[4] = 0;
-    transformMatrix[5] = 1; //TODO windowH;
-    transformMatrix[6] = 0;
-    transformMatrix[7] = 0;
-    transformMatrix[8] = 0;
-    transformMatrix[9] = 0;
-    transformMatrix[10] = 1;
-    transformMatrix[11] = 0;
-    transformMatrix[12] = 0;
-    transformMatrix[13] = 0;
-    transformMatrix[14] = 0;
-    transformMatrix[15] = 1;
-
-    glUniformMatrix4fv(mTransformMatrixHandle, 1, false, transformMatrix);
+    xformMat = Eigen::Matrix4f::Identity();
+    glUniformMatrix4fv(mTransformMatrixHandle, 1, false, xformMat.data());
 
     /* Helmet */
     if (horizontalSpeed >= 0.2)
@@ -660,7 +673,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glUseProgram(mProgram[1]);
-    glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
+    glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, xformMat.data());
 
     glActiveTexture(GL_TEXTURE0 + mIconsTexUnit);
     glBindTexture(GL_TEXTURE_2D, mIconsTexture);
@@ -705,19 +718,19 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
             deltaY = y + 0.06 * sinf(angle) * mRatioW * mAspectRatio;
             angle = controllerOrientation.psi - droneAttitude.psi;
             transformMatrix[0] = cosf(angle) * windowW;
-            transformMatrix[1] = -sinf(angle) * windowW;
+            transformMatrix[1] = sinf(angle) * windowH;
             transformMatrix[2] = 0;
-            transformMatrix[3] = deltaX;
-            transformMatrix[4] = sinf(angle) * windowH;
+            transformMatrix[3] = 0;
+            transformMatrix[4] = -sinf(angle) * windowW;
             transformMatrix[5] = cosf(angle) * windowH;
             transformMatrix[6] = 0;
-            transformMatrix[7] = deltaY;
+            transformMatrix[7] = 0;
             transformMatrix[8] = 0;
             transformMatrix[9] = 0;
             transformMatrix[10] = 1;
             transformMatrix[11] = 0;
-            transformMatrix[12] = 0;
-            transformMatrix[13] = 0;
+            transformMatrix[12] = deltaX;
+            transformMatrix[13] = deltaY;
             transformMatrix[14] = 0;
             transformMatrix[15] = 1;
             glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
@@ -737,19 +750,19 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         if (angleDeg <= 140)
         {
             transformMatrix[0] = cosf(angle) * windowW;
-            transformMatrix[1] = -sinf(angle) * windowW;
+            transformMatrix[1] = sinf(angle) * windowH;
             transformMatrix[2] = 0;
-            transformMatrix[3] = deltaX;
-            transformMatrix[4] = sinf(angle) * windowH;
+            transformMatrix[3] = 0;
+            transformMatrix[4] = -sinf(angle) * windowW;
             transformMatrix[5] = cosf(angle) * windowH;
             transformMatrix[6] = 0;
-            transformMatrix[7] = deltaY;
+            transformMatrix[7] = 0;
             transformMatrix[8] = 0;
             transformMatrix[9] = 0;
             transformMatrix[10] = 1;
             transformMatrix[11] = 0;
-            transformMatrix[12] = 0;
-            transformMatrix[13] = 0;
+            transformMatrix[12] = deltaX;
+            transformMatrix[13] = deltaY;
             transformMatrix[14] = 0;
             transformMatrix[15] = 1;
             glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
@@ -761,24 +774,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     glBindTexture(GL_TEXTURE_2D, mTextTexture);
     glUniform1i(mTexUniformSampler, mTextTexUnit);
 
-    transformMatrix[0] = 1; //TODO windowW;
-    transformMatrix[1] = 0;
-    transformMatrix[2] = 0;
-    transformMatrix[3] = 0;
-    transformMatrix[4] = 0;
-    transformMatrix[5] = 1; //TODO windowH;
-    transformMatrix[6] = 0;
-    transformMatrix[7] = 0;
-    transformMatrix[8] = 0;
-    transformMatrix[9] = 0;
-    transformMatrix[10] = 1;
-    transformMatrix[11] = 0;
-    transformMatrix[12] = 0;
-    transformMatrix[13] = 0;
-    transformMatrix[14] = 0;
-    transformMatrix[15] = 1;
-
-    glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
+    glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, xformMat.data());
 
     char str[20];
     snprintf(str, sizeof(str), "%d%%", metadata->base.batteryPercentage);
@@ -923,17 +919,17 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     transformMatrix[0] = 1;
     transformMatrix[1] = 0;
     transformMatrix[2] = 0;
-    transformMatrix[3] = deltaX;
+    transformMatrix[3] = 0;
     transformMatrix[4] = 0;
     transformMatrix[5] = 1;
     transformMatrix[6] = 0;
-    transformMatrix[7] = deltaY;
+    transformMatrix[7] = 0;
     transformMatrix[8] = 0;
     transformMatrix[9] = 0;
     transformMatrix[10] = 1;
     transformMatrix[11] = 0;
-    transformMatrix[12] = 0;
-    transformMatrix[13] = 0;
+    transformMatrix[12] = deltaX;
+    transformMatrix[13] = deltaY;
     transformMatrix[14] = 0;
     transformMatrix[15] = 1;
     for (i = -steps, angle = M_PI * (-30. * steps) / 180.; i <= steps; i++, angle += M_PI * 30. / 180.)
@@ -942,8 +938,8 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         if (angleDeg <= 120)
         {
             transformMatrix[0] = cosf(angle) * windowW;
-            transformMatrix[1] = -sinf(angle) * windowW;
-            transformMatrix[4] = sinf(angle) * windowH;
+            transformMatrix[1] = sinf(angle) * windowH;
+            transformMatrix[4] = -sinf(angle) * windowW;
             transformMatrix[5] = cosf(angle) * windowH;
             glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
             if (i == 0)
@@ -961,17 +957,17 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     transformMatrix[0] = 1;
     transformMatrix[1] = 0;
     transformMatrix[2] = 0;
-    transformMatrix[3] = deltaX;
+    transformMatrix[3] = 0;
     transformMatrix[4] = 0;
     transformMatrix[5] = 1;
     transformMatrix[6] = 0;
-    transformMatrix[7] = deltaY;
+    transformMatrix[7] = 0;
     transformMatrix[8] = 0;
     transformMatrix[9] = 0;
     transformMatrix[10] = 1;
     transformMatrix[11] = 0;
-    transformMatrix[12] = 0;
-    transformMatrix[13] = 0;
+    transformMatrix[12] = deltaX;
+    transformMatrix[13] = deltaY;
     transformMatrix[14] = 0;
     transformMatrix[15] = 1;
     for (i = 0, angle = droneAttitude.psi; i < 8; i++, angle += M_PI / 4.)
@@ -980,8 +976,8 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         if (angleDeg <= 140)
         {
             transformMatrix[0] = cosf(angle) * windowW;
-            transformMatrix[1] = -sinf(angle) * windowW;
-            transformMatrix[4] = sinf(angle) * windowH;
+            transformMatrix[1] = sinf(angle) * windowH;
+            transformMatrix[4] = -sinf(angle) * windowW;
             transformMatrix[5] = cosf(angle) * windowH;
             glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
             drawText(pdraw_strHeading[i], 0., cy, mTextSize, mScaleW, mScaleH * mVideoAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
@@ -1001,24 +997,24 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         transformMatrix[0] = 1;
         transformMatrix[1] = 0;
         transformMatrix[2] = 0;
-        transformMatrix[3] = deltaX;
+        transformMatrix[3] = 0;
         transformMatrix[4] = 0;
         transformMatrix[5] = 1;
         transformMatrix[6] = 0;
-        transformMatrix[7] = deltaY;
+        transformMatrix[7] = 0;
         transformMatrix[8] = 0;
         transformMatrix[9] = 0;
         transformMatrix[10] = 1;
         transformMatrix[11] = 0;
-        transformMatrix[12] = 0;
-        transformMatrix[13] = 0;
+        transformMatrix[12] = deltaX;
+        transformMatrix[13] = deltaY;
         transformMatrix[14] = 0;
         transformMatrix[15] = 1;
         for (i = 0, angle = controllerOrientation.psi; i < 8; i += 2, angle += M_PI / 2.)
         {
             transformMatrix[0] = cosf(angle) * windowW;
-            transformMatrix[1] = -sinf(angle) * windowW;
-            transformMatrix[4] = sinf(angle) * windowH;
+            transformMatrix[1] = sinf(angle) * windowH;
+            transformMatrix[4] = -sinf(angle) * windowW;
             transformMatrix[5] = cosf(angle) * windowH;
             glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
             drawText(pdraw_strHeading[i], 0., cy, mTextSize, mScaleW, mScaleH * mVideoAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
@@ -1093,6 +1089,39 @@ void Gles2Hud::drawIcon(int index, float x, float y, float size, float scaleW, f
     texCoords[5] = ((float)iy + 0.) / 3.;
     texCoords[6] = ((float)ix + 0.99) / 3.;
     texCoords[7] = ((float)iy + 0.) / 3.;
+
+    glVertexAttribPointer(mTexTexcoordHandle, 2, GL_FLOAT, false, 0, texCoords);
+
+    glUniform4fv(mTexColorHandle, 1, color);
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+
+void Gles2Hud::drawLogo(float x, float y, float size, float scaleW, float scaleH, const float color[4])
+{
+    float vertices[8];
+    float texCoords[8];
+
+    vertices[0] = x - size * scaleW / 2.;
+    vertices[1] = y - size * scaleH / 2.;
+    vertices[2] = x + size * scaleW / 2.;
+    vertices[3] = y - size * scaleH / 2.;
+    vertices[4] = x - size * scaleW / 2.;
+    vertices[5] = y + size * scaleH / 2.;
+    vertices[6] = x + size * scaleW / 2.;
+    vertices[7] = y + size * scaleH / 2.;
+
+    glVertexAttribPointer(mTexPositionHandle, 2, GL_FLOAT, false, 0, vertices);
+
+    texCoords[0] = 0.;
+    texCoords[1] = 1.;
+    texCoords[2] = 1.;
+    texCoords[3] = 1.;
+    texCoords[4] = 0.;
+    texCoords[5] = 0.;
+    texCoords[6] = 1.;
+    texCoords[7] = 0.;
 
     glVertexAttribPointer(mTexTexcoordHandle, 2, GL_FLOAT, false, 0, texCoords);
 
@@ -1230,6 +1259,27 @@ void Gles2Hud::drawLine(float x1, float y1, float x2, float y2, const float colo
 }
 
 
+void Gles2Hud::drawLineZ(float x1, float y1, float z1, float x2, float y2, float z2, const float color[4], float lineWidth)
+{
+    float vertices[6];
+
+    vertices[0] = x1;
+    vertices[1] = y1;
+    vertices[2] = z1;
+    vertices[3] = x2;
+    vertices[4] = y2;
+    vertices[5] = z2;
+
+    glLineWidth(lineWidth);
+
+    glVertexAttribPointer(mPositionHandle, 3, GL_FLOAT, false, 0, vertices);
+
+    glUniform4fv(mColorHandle, 1, color);
+
+    glDrawArrays(GL_LINES, 0, 2);
+}
+
+
 void Gles2Hud::drawRect(float x1, float y1, float x2, float y2, const float color[4], float lineWidth)
 {
     float vertices[8];
@@ -1287,6 +1337,41 @@ void Gles2Hud::drawArc(float cx, float cy, float rx, float ry, float startAngle,
 }
 
 
+void Gles2Hud::drawArcZ(float cx, float cy, float rx, float ry, float z, float startAngle, float spanAngle, int numSegments, const float color[4], float lineWidth)
+{
+    int i;
+    float theta = spanAngle / (float)numSegments;
+    float c = cosf(theta);
+    float s = sinf(theta);
+    float t;
+
+    float x = cosf(startAngle);
+    float y = sinf(startAngle);
+
+    float vertices[3 * (numSegments + 1)];
+
+    for (i = 0; i <= numSegments; i++)
+    {
+        vertices[3 * i] = x * rx + cx;
+        vertices[3 * i + 1] = y * ry + cy;
+        vertices[3 * i + 2] = z; //TODO
+
+        // apply the rotation
+        t = x;
+        x = c * x - s * y;
+        y = s * t + c * y;
+    }
+
+    glLineWidth(lineWidth);
+
+    glVertexAttribPointer(mPositionHandle, 3, GL_FLOAT, false, 0, vertices);
+
+    glUniform4fv(mColorHandle, 1, color);
+
+    glDrawArrays(GL_LINE_STRIP, 0, numSegments + 1);
+}
+
+
 void Gles2Hud::drawEllipse(float cx, float cy, float rx, float ry, int numSegments, const float color[4], float lineWidth)
 {
     int i;
@@ -1314,6 +1399,41 @@ void Gles2Hud::drawEllipse(float cx, float cy, float rx, float ry, int numSegmen
     glLineWidth(lineWidth);
 
     glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
+
+    glUniform4fv(mColorHandle, 1, color);
+
+    glDrawArrays(GL_LINE_LOOP, 0, numSegments);
+}
+
+
+void Gles2Hud::drawEllipseZ(float cx, float cy, float rx, float ry, float z, int numSegments, const float color[4], float lineWidth)
+{
+    int i;
+    float theta = 2. * M_PI / (float)numSegments;
+    float c = cosf(theta);
+    float s = sinf(theta);
+    float t;
+
+    float x = 1.; // start at angle = 0
+    float y = 0.;
+
+    float vertices[3 * numSegments];
+
+    for (i = 0; i < numSegments; i++)
+    {
+        vertices[3 * i] = x * rx + cx;
+        vertices[3 * i + 1] = y * ry + cy;
+        vertices[3 * i + 2] = z;
+
+        // apply the rotation
+        t = x;
+        x = c * x - s * y;
+        y = s * t + c * y;
+    }
+
+    glLineWidth(lineWidth);
+
+    glVertexAttribPointer(mPositionHandle, 3, GL_FLOAT, false, 0, vertices);
 
     glUniform4fv(mColorHandle, 1, color);
 
@@ -1391,37 +1511,144 @@ void Gles2Hud::drawVuMeter(float x, float y, float r, float value, float minVal,
 }
 
 
-void Gles2Hud::drawCockpitMarks(float cameraPan, float cameraTilt, const float color[4], float lineWidth)
+void Gles2Hud::initCockpit()
+{
+    float x1, y1, z1, x2, y2, z2;
+
+    float limitAngle = ((35. + 85.8 / 2.) * M_PI / 180.) / 2.; //TODO
+
+    /* sphere */
+    float rings = 10;
+    float startAngle = 0., endAngle = M_PI - limitAngle;
+    float sectors = 40 * 8;
+    float radius = 1.;
+    float R = 1. / (float)(rings - 1);
+    float S = 1. / (float)(sectors - 1);
+    int r, s;
+    mCockpitSphereVertices = (float*)malloc(rings * 2 * sectors * 3 * sizeof(float));
+    mCockpitSphereVerticesCount = (rings - 1) * sectors * 2;
+    float *v = mCockpitSphereVertices;
+
+    for (r = 0; r < rings - 1; r++)
+    {
+        for(s = 0; s < sectors; s++)
+        {
+            x1 = cos(2 * M_PI * s * S) * sin(startAngle + (endAngle - startAngle) * r * R);
+            y1 = sin(2 * M_PI * s * S) * sin(startAngle + (endAngle - startAngle) * r * R);
+            z1 = sin(-M_PI / 2. + startAngle + (endAngle - startAngle) * r * R);
+            x2 = cos(2 * M_PI * s * S) * sin(startAngle + (endAngle - startAngle) * (r + 1) * R);
+            y2 = sin(2 * M_PI * s * S) * sin(startAngle + (endAngle - startAngle) * (r + 1) * R);
+            z2 = sin(-M_PI / 2. + startAngle + (endAngle - startAngle) * (r + 1) * R);
+
+            *v++ = x1 * radius;
+            *v++ = y1 * radius;
+            *v++ = z1 * radius;
+            *v++ = x2 * radius;
+            *v++ = y2 * radius;
+            *v++ = z2 * radius;
+        }
+    }
+}
+
+
+void Gles2Hud::drawCockpit(const float color[4], const float color2[4], float lineWidth, Eigen::Matrix4f &xformMat)
 {
     int i;
-    float cx = -cameraPan / mHfov * 2. * mScaleW;
-    float cy = -cameraTilt / mVfov * 2. * mScaleH;
-    float rx = 2. / mHfov * mScaleW;
-    float ry = 2. / mHfov * mScaleH * mVideoAspectRatio;
+    float rx = 1.;
+    float ry = 1.;
+    float angle, x1, y1, z1, x2, y2;
 
-    float angle, centerAngle = M_PI / 20., limitAngle = M_PI / 2;
-    float x1, y1, x2, y2;
+    float limitAngle = ((35. + 85.8 / 2.) * M_PI / 180.) / 2.; //TODO
+    float centerAngle = M_PI / 50.;
+    float halfSphereDepth = 1.;
+
+    /* sphere */
+    glUniform4fv(mColorHandle, 1, color2);
+    glVertexAttribPointer(mPositionHandle, 3, GL_FLOAT, false, 0, mCockpitSphereVertices);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, mCockpitSphereVerticesCount);
+
+    /* circles of latitude */
+    drawEllipseZ(0., 0., sinf(limitAngle) * rx, sinf(limitAngle) * ry, cosf(limitAngle) * halfSphereDepth, 40 * 8, color, lineWidth);
+    float span = M_PI - limitAngle, inc = span / 6.;
+    for (angle = limitAngle + inc; angle < M_PI; angle += inc)
+        drawEllipseZ(0., 0., sinf(angle) * rx, sinf(angle) * ry, cosf(angle) * halfSphereDepth, 40 * 8, color, lineWidth);
     for (i = 0, angle = 0.; i < 8; i++, angle += M_PI / 4.)
     {
-        x1 = centerAngle * rx * cosf(angle);
-        y1 = centerAngle * ry * sinf(angle);
-        x2 = centerAngle * rx * cosf(angle + M_PI / 4.);
-        y2 = centerAngle * ry * sinf(angle + M_PI / 4.);
-        drawLine(cx + x1, cy + y1, cx + x2, cy + y2, color, lineWidth);
-        x2 = limitAngle * rx * cosf(angle);
-        y2 = limitAngle * ry * sinf(angle);
-        drawLine(cx + x1, cy + y1, cx + x2, cy + y2, color, lineWidth);
+        x1 = sinf(centerAngle) * rx * cosf(angle);
+        y1 = sinf(centerAngle) * ry * sinf(angle);
+        z1 = cosf(centerAngle) * halfSphereDepth;
+        x2 = sinf(centerAngle) * rx * cosf(angle + M_PI / 4.);
+        y2 = sinf(centerAngle) * ry * sinf(angle + M_PI / 4.);
+        drawLineZ(x1, y1, z1, x2, y2, z1, color, lineWidth);
+        //drawLineZ(x1, y1, -z1, x2, y2, -z1, color, lineWidth);
         if (i & 1)
         {
-            drawArc(cx, cy, limitAngle / 4. * rx, limitAngle / 4. * ry, angle, M_PI / 4., 20, color, lineWidth);
-            drawArc(cx, cy, limitAngle * 3. / 4. * rx, limitAngle * 3. / 4. * ry, angle, M_PI / 4., 40, color, lineWidth);
+            drawArcZ(0., 0., sinf(limitAngle / 5.) * rx, sinf(limitAngle / 5.) * ry, cosf(limitAngle / 5.) * halfSphereDepth, angle, M_PI / 4., 20, color, lineWidth);
+            drawArcZ(0., 0., sinf(limitAngle * 3. / 5.) * rx, sinf(limitAngle * 3. / 5.) * ry, cosf(limitAngle * 3. / 5.) * halfSphereDepth, angle, M_PI / 4., 40, color, lineWidth);
         }
         else
         {
-            drawArc(cx, cy, limitAngle * 2. / 4. * rx, limitAngle * 2. / 4. * ry, angle, M_PI / 4., 30, color, lineWidth);
+            drawArcZ(0., 0., sinf(limitAngle * 2. / 5.) * rx, sinf(limitAngle * 2. / 5.) * ry, cosf(limitAngle * 2. / 5.) * halfSphereDepth, angle, M_PI / 4., 30, color, lineWidth);
+            drawArcZ(0., 0., sinf(limitAngle * 4. / 5.) * rx, sinf(limitAngle * 4. / 5.) * ry, cosf(limitAngle * 4. / 5.) * halfSphereDepth, angle, M_PI / 4., 30, color, lineWidth);
         }
     }
-    drawEllipse(cx, cy, limitAngle * rx, limitAngle * ry, 40 * 8, color, lineWidth);
+
+    /* logo */
+    glDisableVertexAttribArray(mPositionHandle);
+    glDisableVertexAttribArray(mColorHandle);
+
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(mProgram[1]);
+
+    Eigen::Matrix4f modelMat = Eigen::Matrix4f::Identity();
+    Eigen::Matrix3f rot1 = Eigen::AngleAxisf(M_PI, Eigen::Vector3f::UnitY()).matrix();
+    Eigen::Matrix3f scale;
+    scale << rx, 0, 0,
+             0, ry, 0,
+             0, 0, halfSphereDepth;
+    modelMat.block<3, 3>(0, 0) = scale * rot1;
+    modelMat.col(3) << 0., 0., cosf(M_PI - inc) * halfSphereDepth, 1.;
+    Eigen::Matrix4f xformMat2 = xformMat * modelMat;
+    glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, xformMat2.data());
+
+    glActiveTexture(GL_TEXTURE0 + mLogoTexUnit);
+    glBindTexture(GL_TEXTURE_2D, mLogoTexture);
+    glUniform1i(mTexUniformSampler, mLogoTexUnit);
+    glEnableVertexAttribArray(mTexPositionHandle);
+    glEnableVertexAttribArray(mTexTexcoordHandle);
+    glEnableVertexAttribArray(mTexColorHandle);
+
+    drawLogo(0., 0., sinf(inc), 1., 1., color);
+
+    glDisableVertexAttribArray(mTexPositionHandle);
+    glDisableVertexAttribArray(mTexTexcoordHandle);
+    glDisableVertexAttribArray(mTexColorHandle);
+
+    glDisable(GL_TEXTURE_2D);
+    glUseProgram(mProgram[0]);
+
+    glEnableVertexAttribArray(mPositionHandle);
+    glEnableVertexAttribArray(mColorHandle);
+
+    /* lines of longitude */
+    modelMat = Eigen::Matrix4f::Identity();
+    rot1 = Eigen::AngleAxisf(-M_PI / 2., Eigen::Vector3f::UnitY()).matrix();
+    Eigen::Matrix3f rot2;
+    scale << rx, 0, 0,
+             0, ry, 0,
+             0, 0, halfSphereDepth;
+    for (i = 0, angle = 0.; i < 8; i++, angle += M_PI / 4.)
+    {
+        rot2 = Eigen::AngleAxisf(-angle, Eigen::Vector3f::UnitZ()).matrix();
+        modelMat.block<3, 3>(0, 0) = scale * rot2 * rot1;
+        xformMat2 = xformMat * modelMat;
+        glUniformMatrix4fv(mTransformMatrixHandle, 1, false, xformMat2.data());
+
+        drawArcZ(0., 0., 1., 1., 0., centerAngle, M_PI - centerAngle - inc, 40, color, lineWidth);
+    }
 }
 
 

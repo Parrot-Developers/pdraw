@@ -400,7 +400,6 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
 
     glUseProgram(mProgram[colorConversion]);
     glEnable(GL_TEXTURE_2D);
-    glEnable(GL_DEPTH_TEST);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     switch (colorConversion)

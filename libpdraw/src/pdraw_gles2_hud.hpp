@@ -127,15 +127,20 @@ private:
 
     int loadTextureFromBuffer(const uint8_t *buffer, int width, int height, int texUnit);
     void drawIcon(int index, float x, float y, float size, float scaleW, float scaleH, const float color[4]);
+    void drawLogo(float x, float y, float size, float scaleW, float scaleH, const float color[4]);
     void getTextDimensions(const char *str, float size, float scaleW, float scaleH, float *width, float *height);
     void drawText(const char *str, float x, float y, float size, float scaleW, float scaleH, gles2_hud_text_align_t halign, gles2_hud_text_align_t valign, const float color[4]);
     void drawLine(float x1, float y1, float x2, float y2, const float color[4], float lineWidth);
+    void drawLineZ(float x1, float y1, float z1, float x2, float y2, float z2, const float color[4], float lineWidth);
     void drawRect(float x1, float y1, float x2, float y2, const float color[4], float lineWidth);
     void drawEllipse(float cx, float cy, float rx, float ry, int numSegments, const float color[4], float lineWidth);
+    void drawEllipseZ(float cx, float cy, float rx, float ry, float z, int numSegments, const float color[4], float lineWidth);
     void drawEllipseFilled(float cx, float cy, float rx, float ry, int numSegments, const float color[4]);
     void drawArc(float cx, float cy, float rx, float ry, float startAngle, float spanAngle, int numSegments, const float color[4], float lineWidth);
+    void drawArcZ(float cx, float cy, float rx, float ry, float z, float startAngle, float spanAngle, int numSegments, const float color[4], float lineWidth);
     void drawVuMeter(float x, float y, float r, float value, float minVal, float maxVal, float criticalMin, float criticalMax, const float color[4], const float criticalColor[4], float lineWidth);
-    void drawCockpitMarks(float cameraPan, float cameraTilt, const float color[4], float lineWidth);
+    void initCockpit();
+    void drawCockpit(const float color[4], const float color2[4], float lineWidth, Eigen::Matrix4f &xformMat);
     void drawArtificialHorizon(const struct vmeta_euler *drone, const struct vmeta_euler *frame, const float color[4]);
     void drawRoll(float droneRoll, const float color[4]);
     void drawHeading(float droneYaw, float speedHorizRho, float speedPsi, const float color[4]);
@@ -156,6 +161,8 @@ private:
     GLint mPositionHandle;
     GLint mTransformMatrixHandle;
     GLint mColorHandle;
+    GLuint mLogoTexture;
+    unsigned int mLogoTexUnit;
     GLuint mIconsTexture;
     unsigned int mIconsTexUnit;
     GLuint mTextTexture;
@@ -184,6 +191,8 @@ private:
     float mScaleH;
     float mRatioW;
     float mRatioH;
+    float *mCockpitSphereVertices;
+    unsigned int mCockpitSphereVerticesCount;
 };
 
 }
