@@ -845,19 +845,27 @@ void PdrawImpl::setControllerRadarAngleSetting(float angle)
 }
 
 
-void PdrawImpl::getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
-    float *deviceMargin, float *ipd, float *scale, float *panH, float *panV)
+void PdrawImpl::getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin)
 {
-    mSettings.getHmdDistorsionCorrectionSettings(xdpi, ydpi,
-        deviceMargin, ipd, scale, panH, panV);
+    mSettings.getDisplayScreenSettings(xdpi, ydpi, deviceMargin);
 }
 
 
-void PdrawImpl::setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
-    float deviceMargin, float ipd, float scale, float panH, float panV)
+void PdrawImpl::setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin)
 {
-    mSettings.setHmdDistorsionCorrectionSettings(xdpi, ydpi,
-        deviceMargin, ipd, scale, panH, panV);
+    mSettings.setDisplayScreenSettings(xdpi, ydpi, deviceMargin);
+}
+
+
+void PdrawImpl::getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV)
+{
+    mSettings.getHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
+}
+
+
+void PdrawImpl::setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV)
+{
+    mSettings.setHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
 }
 
 }

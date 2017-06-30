@@ -40,6 +40,7 @@
 #define _PDRAW_SETTINGS_HPP_
 
 #include <inttypes.h>
+#include <pdraw/pdraw_defs.h>
 
 namespace Pdraw
 {
@@ -56,10 +57,11 @@ public:
     float getControllerRadarAngle() { return mControllerRadarAngle; };
     void setControllerRadarAngle(float angle) { mControllerRadarAngle = angle; };
 
-    void getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
-        float *deviceMargin, float *ipd, float *scale, float *panH, float *panV);
-    void setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
-        float deviceMargin, float ipd, float scale, float panH, float panV);
+    void getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin);
+    void setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin);
+
+    void getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV);
+    void setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV);
 
 private:
 
@@ -67,6 +69,7 @@ private:
     float mHmdXdpi;
     float mHmdYdpi;
     float mHmdDeviceMargin;
+    pdraw_hmd_model_t mHmdModel;
     float mHmdIpd;
     float mHmdScale;
     float mHmdPanH;

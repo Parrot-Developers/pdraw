@@ -51,6 +51,7 @@ Settings::Settings()
     mHmdXdpi = GLES2_HMD_DEFAULT_XDPI;
     mHmdYdpi = GLES2_HMD_DEFAULT_YDPI;
     mHmdDeviceMargin = GLES2_HMD_DEFAULT_DEVICE_MARGIN;
+    mHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
     mHmdIpd = GLES2_HMD_DEFAULT_IPD;
     mHmdScale = GLES2_HMD_DEFAULT_SCALE;
     mHmdPanH = GLES2_HMD_DEFAULT_PAN_H;
@@ -64,8 +65,7 @@ Settings::~Settings()
 }
 
 
-void Settings::getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
-    float *deviceMargin, float *ipd, float *scale, float *panH, float *panV)
+void Settings::getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin)
 {
     if (xdpi)
         *xdpi = mHmdXdpi;
@@ -73,6 +73,21 @@ void Settings::getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
         *ydpi = mHmdYdpi;
     if (deviceMargin)
         *deviceMargin = mHmdDeviceMargin;
+}
+
+
+void Settings::setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin)
+{
+    mHmdXdpi = xdpi;
+    mHmdYdpi = ydpi;
+    mHmdDeviceMargin = deviceMargin;
+}
+
+
+void Settings::getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV)
+{
+    if (hmdModel)
+        *hmdModel = mHmdModel;
     if (ipd)
         *ipd = mHmdIpd;
     if (scale)
@@ -84,12 +99,9 @@ void Settings::getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
 }
 
 
-void Settings::setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
-    float deviceMargin, float ipd, float scale, float panH, float panV)
+void Settings::setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV)
 {
-    mHmdXdpi = xdpi;
-    mHmdYdpi = ydpi;
-    mHmdDeviceMargin = deviceMargin;
+    mHmdModel = hmdModel;
     mHmdIpd = ipd;
     mHmdScale = scale;
     mHmdPanH = panH;

@@ -74,7 +74,7 @@ static const struct option long_options[] =
     { "dststrmp"        , required_argument  , NULL, 'S' },
     { "dstctrlp"        , required_argument  , NULL, 'C' },
     { "screstream"      , required_argument  , NULL, 'n' },
-    { "hmd"             , no_argument        , NULL, ARGS_ID_HMD },
+    { "hmd"             , required_argument  , NULL, ARGS_ID_HMD },
     { "headtrack"       , no_argument        , NULL, ARGS_ID_HEADTRACK },
     { 0, 0, 0, 0 }
 };
@@ -193,7 +193,7 @@ static void usage(int argc, char *argv[])
             "-S | --dststrmp <port>             Destination stream port for direct RTP/AVP reception\n"
             "-C | --dstctrlp <port>             Destination control port for direct RTP/AVP reception\n"
             "-n | --screstream <ip_address>     Connexion to a RTP restream from a SkyController\n"
-            "     --hmd                         HMD distorsion correction\n"
+            "     --hmd <model>                 HMD distorsion correction with model id (0=Parrot Cockpit Glasses)\n"
             "     --headtrack                   Enable headtracking\n"
             "\n",
             argv[0]);
@@ -343,6 +343,7 @@ int main(int argc, char *argv[])
                     break;
 
                 case ARGS_ID_HMD:
+                    sscanf(optarg, "%d", (int*)&app->hmdModel);
                     app->hmd = 1;
                     break;
 
@@ -856,8 +857,18 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        ret = pdraw_set_hmd_distorsion_correction_settings(app->pdraw, PDRAW_HMD_DEFAULT_XDPI, PDRAW_HMD_DEFAULT_YDPI,
-            PDRAW_HMD_DEFAULT_DEVICE_MARGIN, PDRAW_HMD_DEFAULT_IPD, PDRAW_HMD_DEFAULT_SCALE, PDRAW_HMD_DEFAULT_PAN_H, PDRAW_HMD_DEFAULT_PAN_V);
+        ret = pdraw_set_display_screen_settings(app->pdraw, PDRAW_HMD_DEFAULT_XDPI,
+            PDRAW_HMD_DEFAULT_YDPI, PDRAW_HMD_DEFAULT_DEVICE_MARGIN);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_set_display_screen_settings() failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
+    {
+        ret = pdraw_set_hmd_distorsion_correction_settings(app->pdraw, app->hmdModel,
+            PDRAW_HMD_DEFAULT_IPD, PDRAW_HMD_DEFAULT_SCALE, PDRAW_HMD_DEFAULT_PAN_H, PDRAW_HMD_DEFAULT_PAN_V);
         if (ret != 0)
         {
             ULOGE("pdraw_set_hmd_distorsion_correction_settings() failed (%d)", ret);

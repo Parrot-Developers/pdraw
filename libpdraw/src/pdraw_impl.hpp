@@ -241,10 +241,11 @@ public:
     float getControllerRadarAngleSetting(void);
     void setControllerRadarAngleSetting(float angle);
 
-    void getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
-        float *deviceMargin, float *ipd, float *scale, float *panH, float *panV);
-    void setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
-        float deviceMargin, float ipd, float scale, float panH, float panV);
+    void getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin);
+    void setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin);
+
+    void getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV);
+    void setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV);
 
     inline static IPdraw *create(void)
     {

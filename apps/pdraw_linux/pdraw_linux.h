@@ -118,6 +118,7 @@ struct pdraw_app
     int scRestream;
     int receiveStream;
     int hmd;
+    pdraw_hmd_model_t hmdModel;
     int headtracking;
     pdraw_euler_t headOrientation;
     uint64_t lastCameraOrientationTime;

@@ -195,10 +195,11 @@ int Gles2Renderer::initGles2()
             if ((mSession) && (mSession->getSettings()))
             {
                 float xdpi = 0., ydpi = 0., deviceMargin = 0., ipd = 0., scale = 0., panH = 0., panV = 0.;
-                mSession->getSettings()->getHmdDistorsionCorrectionSettings(&xdpi, &ydpi,
-                    &deviceMargin, &ipd, &scale, &panH, &panV);
+                pdraw_hmd_model_t hmdModel = PDRAW_HMD_MODEL_UNKNOWN;
+                mSession->getSettings()->getDisplayScreenSettings(&xdpi, &ydpi, &deviceMargin);
+                mSession->getSettings()->getHmdDistorsionCorrectionSettings(&hmdModel, &ipd, &scale, &panH, &panV);
                 mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit, mRenderWidth, mRenderHeight,
-                    xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
+                    hmdModel, xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
             }
             else
             {

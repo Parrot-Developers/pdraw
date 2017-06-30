@@ -840,11 +840,39 @@ int pdraw_set_controller_radar_angle_setting(struct pdraw *pdraw, float angle)
 }
 
 
-int pdraw_get_hmd_distorsion_correction_settings
+int pdraw_get_display_screen_settings
         (struct pdraw *pdraw,
          float *xdpi,
          float *ydpi,
-         float *deviceMargin,
+         float *deviceMargin)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->getDisplayScreenSettings(xdpi, ydpi, deviceMargin);
+    return 0;
+}
+
+
+int pdraw_set_display_screen_settings
+        (struct pdraw *pdraw,
+         float xdpi,
+         float ydpi,
+         float deviceMargin)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setDisplayScreenSettings(xdpi, ydpi, deviceMargin);
+    return 0;
+}
+
+
+int pdraw_get_hmd_distorsion_correction_settings
+        (struct pdraw *pdraw,
+         pdraw_hmd_model_t *hmdModel,
          float *ipd,
          float *scale,
          float *panH,
@@ -854,16 +882,14 @@ int pdraw_get_hmd_distorsion_correction_settings
     {
         return -EINVAL;
     }
-    toPdraw(pdraw)->getHmdDistorsionCorrectionSettings(xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
+    toPdraw(pdraw)->getHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
     return 0;
 }
 
 
 int pdraw_set_hmd_distorsion_correction_settings
         (struct pdraw *pdraw,
-         float xdpi,
-         float ydpi,
-         float deviceMargin,
+         pdraw_hmd_model_t hmdModel,
          float ipd,
          float scale,
          float panH,
@@ -873,6 +899,6 @@ int pdraw_set_hmd_distorsion_correction_settings
     {
         return -EINVAL;
     }
-    toPdraw(pdraw)->setHmdDistorsionCorrectionSettings(xdpi, ydpi, deviceMargin, ipd, scale, panH, panV);
+    toPdraw(pdraw)->setHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
     return 0;
 }

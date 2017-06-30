@@ -48,12 +48,12 @@
 #include <ulog.h>
 
 
-extern const float pdraw_gles2HmdColors[14884];
-extern const uint32_t pdraw_gles2HmdIndices[21600];
-extern const float pdraw_gles2HmdPositions[7442];
-extern const float pdraw_gles2HmdTexCoordsRed[7450];
-extern const float pdraw_gles2HmdTexCoordsGreen[7450];
-extern const float pdraw_gles2HmdTexCoordsBlue[7450];
+extern const float pdraw_gles2HmdCockpitGlassesColors[14884];
+extern const uint32_t pdraw_gles2HmdCockpitGlassesIndices[21600];
+extern const float pdraw_gles2HmdCockpitGlassesPositions[7442];
+extern const float pdraw_gles2HmdCockpitGlassesTexCoordsRed[7450];
+extern const float pdraw_gles2HmdCockpitGlassesTexCoordsGreen[7450];
+extern const float pdraw_gles2HmdCockpitGlassesTexCoordsBlue[7450];
 extern const GLchar *pdraw_gles2HmdVertexShader;
 extern const GLchar *pdraw_gles2HmdFragmentShader;
 
@@ -62,12 +62,13 @@ namespace Pdraw
 {
 
 
-Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit, float scale,
-                         float panH, float panV,
+Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit, pdraw_hmd_model_t hmdModel,
+                         float scale, float panH, float panV,
                          float metricsWidth, float metricsHeight,
                          float eyeOffsetX, float eyeOffsetY)
 {
     mFirstTexUnit = firstTexUnit;
+    mHmdModel = hmdModel;
     mRotation = 0;
     mScale = scale;
     mPanH = panH;
@@ -156,35 +157,36 @@ Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit, float scale,
         GLuint buffer[6];
         glGenBuffers(6, buffer);
 
+        //TODO: support different HMD models
         mIndicesBufferHandle = buffer[0];
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pdraw_gles2HmdIndices), pdraw_gles2HmdIndices, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdIndices loaded, size=%zu", sizeof(pdraw_gles2HmdIndices));
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesIndices), pdraw_gles2HmdCockpitGlassesIndices, GL_STATIC_DRAW);
+        ULOGD("Gles2HmdEye: glesHmdIndices loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesIndices));
 
         mPositionBufferHandle = buffer[1];
         glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdPositions), pdraw_gles2HmdPositions, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdPositions loaded, size=%zu", sizeof(pdraw_gles2HmdPositions));
+        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesPositions), pdraw_gles2HmdCockpitGlassesPositions, GL_STATIC_DRAW);
+        ULOGD("Gles2HmdEye: glesHmdPositions loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesPositions));
 
         mColorBufferHandle = buffer[2];
         glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdColors), pdraw_gles2HmdColors, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdColors loaded, size=%zu", sizeof(pdraw_gles2HmdColors));
+        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesColors), pdraw_gles2HmdCockpitGlassesColors, GL_STATIC_DRAW);
+        ULOGD("Gles2HmdEye: glesHmdColors loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesColors));
 
         mTexCoord0BufferHandle = buffer[3];
         glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdTexCoordsRed), pdraw_gles2HmdTexCoordsRed, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdTexCoordsRed loaded, size=%zu", sizeof(pdraw_gles2HmdTexCoordsRed));
+        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsRed), pdraw_gles2HmdCockpitGlassesTexCoordsRed, GL_STATIC_DRAW);
+        ULOGD("Gles2HmdEye: glesHmdTexCoordsRed loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsRed));
 
         mTexCoord1BufferHandle = buffer[4];
         glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdTexCoordsGreen), pdraw_gles2HmdTexCoordsGreen, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdTexCoordsGreen loaded, size=%zu", sizeof(pdraw_gles2HmdTexCoordsGreen));
+        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsGreen), pdraw_gles2HmdCockpitGlassesTexCoordsGreen, GL_STATIC_DRAW);
+        ULOGD("Gles2HmdEye: glesHmdTexCoordsGreen loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsGreen));
 
         mTexCoord2BufferHandle = buffer[5];
         glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdTexCoordsBlue), pdraw_gles2HmdTexCoordsBlue, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdTexCoordsBlue loaded, size=%zu", sizeof(pdraw_gles2HmdTexCoordsBlue));
+        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsBlue), pdraw_gles2HmdCockpitGlassesTexCoordsBlue, GL_STATIC_DRAW);
+        ULOGD("Gles2HmdEye: glesHmdTexCoordsBlue loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsBlue));
     }
 
     if (ret == 0)
@@ -377,7 +379,7 @@ int Gles2HmdEye::renderEye(GLuint texture, unsigned int textureWidth, unsigned i
     glUniform2f(mProgramEyeToSourceScale, 2.f / mMetricsWidth, -2.f / mMetricsHeight);
     glUniform2f(mProgramEyeToSourceOffset, 2.f * mEyeOffsetX / mMetricsWidth, 2.f * mEyeOffsetY / mMetricsHeight - 1.f);
 
-    glDrawElements(GL_TRIANGLES, sizeof(pdraw_gles2HmdIndices) / sizeof(float), GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, sizeof(pdraw_gles2HmdCockpitGlassesIndices) / sizeof(float), GL_UNSIGNED_INT, 0);
 
     glDisableVertexAttribArray(mProgramPosition);
     glDisableVertexAttribArray(mProgramColor);
@@ -393,9 +395,10 @@ int Gles2HmdEye::renderEye(GLuint texture, unsigned int textureWidth, unsigned i
 
 
 Gles2Hmd::Gles2Hmd(unsigned int firstTexUnit, unsigned int width, unsigned int height,
-                   float xdpi, float ydpi, float deviceMargin,
+                   pdraw_hmd_model_t hmdModel, float xdpi, float ydpi, float deviceMargin,
                    float ipd, float scale, float panH, float panV)
 {
+    mHmdModel = hmdModel;
     mDeviceMargin = deviceMargin;
     mIpd = ipd;
     mScale = scale;
@@ -405,10 +408,10 @@ Gles2Hmd::Gles2Hmd(unsigned int firstTexUnit, unsigned int width, unsigned int h
     mMetricsWidth = (float)width / xdpi * GLES2_HMD_INCH_TO_MILLIMETER;
     mMetricsHeight = (float)height / ydpi * GLES2_HMD_INCH_TO_MILLIMETER;
 
-    mLeftEye = new Gles2HmdEye(firstTexUnit, mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
-                              -mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
-    mRightEye = new Gles2HmdEye(firstTexUnit, mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
-                               mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
+    mLeftEye = new Gles2HmdEye(firstTexUnit, mHmdModel, mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
+                               -mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
+    mRightEye = new Gles2HmdEye(firstTexUnit, mHmdModel, mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
+                                mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
 }
 
 

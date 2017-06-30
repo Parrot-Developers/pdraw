@@ -44,7 +44,7 @@
 
 #include <inttypes.h>
 
-extern const uint32_t pdraw_gles2HmdIndices[21600] =
+extern const uint32_t pdraw_gles2HmdCockpitGlassesIndices[21600] =
 {
     0, 61, 1, 1, 61, 62, 61, 122, 62, 62, 122, 123, 122, 183, 123, 123, 183, 184, 183, 244,
     184, 184, 244, 245, 244, 305, 245, 245, 305, 306, 305, 366, 306, 306, 366, 367, 366, 427, 367, 367,

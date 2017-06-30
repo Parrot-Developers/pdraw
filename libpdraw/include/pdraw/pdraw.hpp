@@ -235,10 +235,11 @@ public:
     virtual float getControllerRadarAngleSetting(void) = 0;
     virtual void setControllerRadarAngleSetting(float angle) = 0;
 
-    virtual void getHmdDistorsionCorrectionSettings(float *xdpi, float *ydpi,
-        float *deviceMargin, float *ipd, float *scale, float *panH, float *panV) = 0;
-    virtual void setHmdDistorsionCorrectionSettings(float xdpi, float ydpi,
-        float deviceMargin, float ipd, float scale, float panH, float panV) = 0;
+    virtual void getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin) = 0;
+    virtual void setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin) = 0;
+
+    virtual void getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV) = 0;
+    virtual void setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV) = 0;
 };
 
 IPdraw *createPdraw();

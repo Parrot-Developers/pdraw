@@ -404,11 +404,21 @@ int pdraw_set_controller_radar_angle_setting
         (struct pdraw *pdraw,
          float angle);
 
-int pdraw_get_hmd_distorsion_correction_settings
+int pdraw_get_display_screen_settings
         (struct pdraw *pdraw,
          float *xdpi,
          float *ydpi,
-         float *deviceMargin,
+         float *deviceMargin);
+
+int pdraw_set_display_screen_settings
+        (struct pdraw *pdraw,
+         float xdpi,
+         float ydpi,
+         float deviceMargin);
+
+int pdraw_get_hmd_distorsion_correction_settings
+        (struct pdraw *pdraw,
+         pdraw_hmd_model_t *hmdModel,
          float *ipd,
          float *scale,
          float *panH,
@@ -416,9 +426,7 @@ int pdraw_get_hmd_distorsion_correction_settings
 
 int pdraw_set_hmd_distorsion_correction_settings
         (struct pdraw *pdraw,
-         float xdpi,
-         float ydpi,
-         float deviceMargin,
+         pdraw_hmd_model_t hmdModel,
          float ipd,
          float scale,
          float panH,

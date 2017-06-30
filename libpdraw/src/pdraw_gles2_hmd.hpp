@@ -52,6 +52,9 @@
     #include <GLFW/glfw3.h>
 #endif
 
+#include <pdraw/pdraw_defs.h>
+
+
 #define GLES2_HMD_INCH_TO_MILLIMETER     (25.4f)
 #define GLES2_HMD_OFFSET                 (34.66f)
 #define GLES2_HMD_DEFAULT_XDPI           (200.0f)
@@ -73,9 +76,10 @@ class Gles2HmdEye
 {
 public:
 
-    Gles2HmdEye(unsigned int firstTexUnit, float scale, float panH, float panV,
-               float metricsWidth, float metricsHeight,
-               float eyeOffsetX, float eyeOffsetY);
+    Gles2HmdEye(unsigned int firstTexUnit, pdraw_hmd_model_t hmdModel,
+                float scale, float panH, float panV,
+                float metricsWidth, float metricsHeight,
+                float eyeOffsetX, float eyeOffsetY);
 
     ~Gles2HmdEye();
 
@@ -84,6 +88,7 @@ public:
 private:
 
     unsigned int mRotation;
+    pdraw_hmd_model_t mHmdModel;
     float mScale;
     float mPanH;
     float mPanV;
@@ -121,6 +126,7 @@ class Gles2Hmd
 public:
 
     Gles2Hmd(unsigned int firstTexUnit, unsigned int width, unsigned int height,
+            pdraw_hmd_model_t hmdModel = PDRAW_HMD_MODEL_UNKNOWN,
             float xdpi = GLES2_HMD_DEFAULT_XDPI, float ydpi = GLES2_HMD_DEFAULT_YDPI,
             float deviceMargin = GLES2_HMD_DEFAULT_DEVICE_MARGIN,
             float ipd = GLES2_HMD_DEFAULT_IPD, float scale = GLES2_HMD_DEFAULT_SCALE,
@@ -134,6 +140,7 @@ public:
 
 private:
 
+    pdraw_hmd_model_t mHmdModel;
     float mDeviceMargin;
     float mIpd;
     float mScale;

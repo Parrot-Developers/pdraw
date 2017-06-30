@@ -26,12 +26,12 @@ LOCAL_SRC_FILES := \
 	src/pdraw_gles2_video.cpp \
 	src/pdraw_gles2_hmd.cpp \
 	src/pdraw_gles2_hmd_shaders.cpp \
-	src/pdraw_gles2_hmd_indices.cpp \
-	src/pdraw_gles2_hmd_colors.cpp \
-	src/pdraw_gles2_hmd_positions.cpp \
-	src/pdraw_gles2_hmd_texcoords_red.cpp \
-	src/pdraw_gles2_hmd_texcoords_green.cpp \
-	src/pdraw_gles2_hmd_texcoords_blue.cpp \
+	src/pdraw_gles2_hmd_cockpit_glasses_indices.cpp \
+	src/pdraw_gles2_hmd_cockpit_glasses_colors.cpp \
+	src/pdraw_gles2_hmd_cockpit_glasses_positions.cpp \
+	src/pdraw_gles2_hmd_cockpit_glasses_texcoords_red.cpp \
+	src/pdraw_gles2_hmd_cockpit_glasses_texcoords_green.cpp \
+	src/pdraw_gles2_hmd_cockpit_glasses_texcoords_blue.cpp \
 	src/pdraw_renderer.cpp \
 	src/pdraw_renderer_null.cpp \
 	src/pdraw_renderer_videocoreegl.cpp \

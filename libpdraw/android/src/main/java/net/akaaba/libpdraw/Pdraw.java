@@ -46,11 +46,16 @@ public class Pdraw {
     private static final String TAG = "pdraw_java";
     private long pdrawCtx;
 
-    public class HmdSettings {
-        public HmdSettings() {}
+    public class DisplayScreenSettings {
+        public DisplayScreenSettings() {}
         public float xdpi = 0.f;
         public float ydpi = 0.f;
         public float deviceMargin = 0.f;
+    };
+
+    public class HmdDistorsionCorrectionSettings {
+        public HmdDistorsionCorrectionSettings() {}
+        public int hmdModel= 0;
         public float ipd = 0.f;
         public float scale = 0.f;
         public float panH = 0.f;
@@ -572,14 +577,28 @@ public class Pdraw {
         nativeSetControllerRadarAngleSetting(pdrawCtx, angle);
     }
 
-    public HmdSettings getHmdDistorsionCorrectionSettings() {
+    public DisplayScreenSettings getDisplayScreenSettings() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetDisplayScreenSettings(pdrawCtx);
+    }
+
+    public void setDisplayScreenSettings(DisplayScreenSettings scr) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetDisplayScreenSettings(pdrawCtx, scr);
+    }
+
+    public HmdDistorsionCorrectionSettings getHmdDistorsionCorrectionSettings() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
         return nativeGetHmdDistorsionCorrectionSettings(pdrawCtx);
     }
 
-    public void setHmdDistorsionCorrectionSettings(HmdSettings hmd) {
+    public void setHmdDistorsionCorrectionSettings(HmdDistorsionCorrectionSettings hmd) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
@@ -836,10 +855,16 @@ public class Pdraw {
         long pdrawCtx,
         float angle);
 
-    private native HmdSettings nativeGetHmdDistorsionCorrectionSettings(
+    private native DisplayScreenSettings nativeGetDisplayScreenSettings(
+        long pdrawCtx);
+    private native int nativeSetDisplayScreenSettings(
+        long pdrawCtx,
+        DisplayScreenSettings scr);
+
+    private native HmdDistorsionCorrectionSettings nativeGetHmdDistorsionCorrectionSettings(
         long pdrawCtx);
     private native int nativeSetHmdDistorsionCorrectionSettings(
         long pdrawCtx,
-        HmdSettings hmd);
+        HmdDistorsionCorrectionSettings hmd);
 
 }

@@ -54,6 +54,14 @@ typedef enum
 
 typedef enum
 {
+    PDRAW_HMD_MODEL_UNKNOWN = 0,
+    PDRAW_HMD_MODEL_COCKPIT_GLASSES = 0,
+
+} pdraw_hmd_model_t;
+
+
+typedef enum
+{
     PDRAW_SESSION_TYPE_UNKNOWN = 0,
     PDRAW_SESSION_TYPE_STREAM,
     PDRAW_SESSION_TYPE_RECORD,
