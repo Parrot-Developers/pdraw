@@ -37,6 +37,8 @@
  */
 
 #include "pdraw_renderer_videocoreegl.hpp"
+#include "pdraw_avcdecoder_videocoreomx.hpp"
+#include "pdraw_session.hpp"
 
 #ifdef USE_VIDEOCOREEGL
 
@@ -48,8 +50,6 @@
 #include <ulog.h>
 
 #include <bcm_host.h>
-
-#include "pdraw_avcdecoder_videocoreomx.hpp"
 
 
 namespace Pdraw
@@ -252,10 +252,9 @@ int VideoCoreEglRenderer::swapRendererEglImage()
 }
 
 
-int VideoCoreEglRenderer::render(int timeout)
+int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
 {
     int ret = 0;
-    uint64_t oldRenderTimestamp2 = 0;
 
     pthread_mutex_lock(&mMutex);
 
@@ -323,86 +322,95 @@ int VideoCoreEglRenderer::render(int timeout)
         }
         usleep(5000); //TODO
     }
+    else
+    {
+        mCurrentBuffer = buffer;
+    }
+
+    if (mCurrentBuffer)
+    {
+        data = (avc_decoder_output_buffer_t*)mCurrentBuffer->getMetadataPtr();
+
+        if (data)
+        {
+            if ((ret == 0) && (mHmdDistorsionCorrection))
+            {
+                glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+                glViewport(0, 0, mRenderWidth, mRenderHeight);
+            }
+
+            if ((ret == 0) && (mGles2Video))
+            {
+                swapRendererEglImage();
+
+                ret = mGles2Video->renderFrame(data->plane, data->stride, data->width, data->height,
+                    data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth,
+                    mRenderHeight, GLES2_VIDEO_COLOR_CONVERSION_NONE, &data->metadata, mHeadtracking);
+                if (ret != 0)
+                {
+                    ULOGE("VideoCoreEglRenderer: failed to render frame");
+                }
+            }
+
+            if ((ret == 0) && (mGles2Hud))
+            {
+                ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
+                    (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight,
+                    &data->metadata, mHmdDistorsionCorrection, mHeadtracking);
+                if (ret != 0)
+                {
+                    ULOGE("VideoCoreEglRenderer: failed to render frame");
+                }
+            }
+
+            if ((ret == 0) && (mHmdDistorsionCorrection))
+            {
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+
+                if (mGles2Hmd)
+                {
+                    ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth, mRenderHeight);
+                    if (ret != 0)
+                    {
+                        ULOGE("VideoCoreEglRenderer: failed to render HMD distorsion correction");
+                    }
+                }
+            }
+
+            if (ret == 0)
+            {
+                struct timespec t1;
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                uint64_t renderTimestamp, renderTimestamp1;
+                renderTimestamp1 = renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+
+                eglSwapBuffers(mDisplay, mSurface);
+
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+
+                uint64_t currentTime = mSession->getCurrentTime();
+                uint64_t duration = mSession->getDuration();
+                unsigned int cHrs = 0, cMin = 0, cSec = 0, cMsec = 0;
+                unsigned int dHrs = 0, dMin = 0, dSec = 0, dMsec = 0;
+                if ((currentTime > 0) && (currentTime != (uint64_t)-1))
+                    pdraw_friendlyTimeFromUs(currentTime, &cHrs, &cMin, &cSec, &cMsec);
+                if ((duration > 0) && (duration != (uint64_t)-1))
+                    pdraw_friendlyTimeFromUs(duration, &dHrs, &dMin, &dSec, &dMsec);
+
+                ULOGI("VideoCoreEglRenderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d frame (decoding: %.2fms, rendering: %.2fms, est. latency: %.2fms) render@%.1ffps",
+                      cHrs, cMin, cSec, cMsec, dHrs, dMin, dSec, dMsec,
+                      (float)(data->decoderOutputTimestamp - data->demuxOutputTimestamp) / 1000.,
+                      (float)(renderTimestamp1 - data->decoderOutputTimestamp) / 1000.,
+                      (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.,
+                      (renderTimestamp - lastRenderTime > 0) ? 1000000. / ((float)(renderTimestamp - lastRenderTime)) : 0.);
+            }
+        }
+    }
 
     if (buffer)
     {
-        data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
-
-        if ((ret == 0) && (mHmdDistorsionCorrection))
-        {
-            glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
-            glViewport(0, 0, mRenderWidth, mRenderHeight);
-        }
-
-        if ((ret == 0) && (mGles2Video))
-        {
-            swapRendererEglImage();
-
-            ret = mGles2Video->renderFrame(data->plane, data->stride,
-                                           data->width, data->height,
-                                           data->sarWidth, data->sarHeight,
-                                           mRenderWidth, mRenderHeight,
-                                           GLES2_VIDEO_COLOR_CONVERSION_NONE, &data->metadata, mHeadtracking);
-            if (ret != 0)
-            {
-                ULOGE("VideoCoreEglRenderer: failed to render frame");
-            }
-        }
-
-        if ((ret == 0) && (mGles2Hud))
-        {
-            ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
-                            mRenderWidth, mRenderHeight, &data->metadata, mHmdDistorsionCorrection, mHeadtracking);
-            if (ret != 0)
-            {
-                ULOGE("VideoCoreEglRenderer: failed to render frame");
-            }
-        }
-
-        if ((ret == 0) && (mHmdDistorsionCorrection))
-        {
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
-            glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
-
-            if (mGles2Hmd)
-            {
-                ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth, mRenderHeight);
-                if (ret != 0)
-                {
-                    ULOGE("VideoCoreEglRenderer: failed to render HMD distorsion correction");
-                }
-            }
-        }
-
-        if (ret == 0)
-        {
-            struct timespec t1;
-            clock_gettime(CLOCK_MONOTONIC, &t1);
-            uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-
-            eglSwapBuffers(mDisplay, mSurface);
-
-            clock_gettime(CLOCK_MONOTONIC, &t1);
-            uint64_t renderTimestamp2 = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-
-            if (data)
-            {
-                ULOGI("VideoCoreEglRenderer: %.2ffps - frame (decoding: %.2fms, rendering: %.2f + %.2fms, est. latency: %.2fms)",
-                      ((oldRenderTimestamp2 != 0) && (renderTimestamp2 != oldRenderTimestamp2)) ? 1000000. / (float)(renderTimestamp2 - oldRenderTimestamp2) : 0,
-                      (float)(data->decoderOutputTimestamp - data->demuxOutputTimestamp) / 1000.,
-                      (float)(renderTimestamp - data->decoderOutputTimestamp) / 1000.,
-                      (float)(renderTimestamp2 - renderTimestamp) / 1000.,
-                      (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp2 - data->auNtpTimestampLocal) / 1000. : 0.);
-            }
-            else
-            {
-                ULOGI("VideoCoreEglRenderer: %.2ffps",
-                      ((oldRenderTimestamp2 != 0) && (renderTimestamp2 != oldRenderTimestamp2)) ? 1000000. / (float)(renderTimestamp2 - oldRenderTimestamp2) : 0);
-            }
-
-            oldRenderTimestamp2 = renderTimestamp2;
-        }
-
         ret = mDecoder->releaseOutputBuffer(buffer);
         if (ret != 0)
         {

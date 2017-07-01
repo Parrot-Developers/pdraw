@@ -72,7 +72,7 @@ public:
              bool hmdDistorsionCorrection, bool headtracking,
              void *uiHandler);
 
-    int render(int timeout);
+    int render(uint64_t lastRenderTime);
 
     Session *getSession() { return mSession; };
 
@@ -93,12 +93,13 @@ protected:
              bool hmdDistorsionCorrection, bool headtracking,
              void *uiHandler);
 
-    int render_nolock(int timeout);
+    int render_nolock(uint64_t lastRenderTime);
 
     pthread_mutex_t mMutex;
     bool mRunning;
     AvcDecoder *mDecoder;
     BufferQueue *mDecoderOutputBufferQueue;
+    Buffer *mCurrentBuffer;
     int mWindowWidth;
     int mWindowHeight;
     int mRenderX;

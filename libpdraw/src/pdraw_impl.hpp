@@ -120,7 +120,7 @@ public:
     int stopRenderer(void);
 
     int render
-            (int timeout);
+            (uint64_t lastRenderTime);
 
     pdraw_session_type_t getSessionType(void);
 

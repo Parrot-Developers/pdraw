@@ -114,7 +114,7 @@ public:
     virtual int stopRenderer(void) = 0;
 
     virtual int render
-            (int timeout) = 0;
+            (uint64_t lastRenderTime) = 0;
 
     virtual pdraw_session_type_t getSessionType(void) = 0;
 

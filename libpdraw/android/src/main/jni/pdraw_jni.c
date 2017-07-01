@@ -1132,7 +1132,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeRender(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
-    jint timeout)
+    jlong lastRenderTime)
 {
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
 
@@ -1142,7 +1142,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeRender(
         return (jint)-1;
     }
 
-    return (jint)pdraw_render(ctx->pdraw, (int)timeout);
+    return (jint)pdraw_render(ctx->pdraw, (uint64_t)lastRenderTime);
 }
 
 

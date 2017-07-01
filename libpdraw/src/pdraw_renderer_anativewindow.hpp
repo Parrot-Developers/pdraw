@@ -70,7 +70,7 @@ public:
              bool hmdDistorsionCorrection, bool headtracking,
              void *uiHandler);
 
-    int render(int timeout);
+    int render(uint64_t lastRenderTime);
 
 private:
 

@@ -164,7 +164,7 @@ int NullRenderer::setRendererParams
 }
 
 
-int NullRenderer::render(int timeout)
+int NullRenderer::render(uint64_t lastRenderTime)
 {
     return 0;
 }

@@ -77,7 +77,7 @@ public:
 
     int swapDecoderEglImage();
 
-    int render(int timeout);
+    int render(uint64_t lastRenderTime);
 
 private:
 

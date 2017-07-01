@@ -239,6 +239,7 @@ int main(int argc, char *argv[])
     int idx, c, mouseDown = 0;
     int mouseDownX = 0, mouseDownY = 0;
     pdraw_euler_t mouseDownHeadOrientation;
+    uint64_t lastRenderTime = 0;
     struct pdraw_app *app;
 
     welcome();
@@ -727,7 +728,7 @@ int main(int argc, char *argv[])
 
         if (app->pdraw)
         {
-            int ret = pdraw_render(app->pdraw, 0);
+            int ret = pdraw_render(app->pdraw, lastRenderTime);
             if (ret < 0)
             {
                 ULOGE("pdraw_render() failed (%d)", ret);
@@ -736,6 +737,8 @@ int main(int argc, char *argv[])
         }
 
         SDL_GL_SwapBuffers();
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 #else /* USE_SDL */
         sleep(1);
 #endif /* USE_SDL */

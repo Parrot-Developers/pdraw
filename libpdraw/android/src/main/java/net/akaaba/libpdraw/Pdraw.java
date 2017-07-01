@@ -254,11 +254,11 @@ public class Pdraw {
         nativeStopRenderer(pdrawCtx);
     }
 
-    public void render(int timeout) {
+    public void render(long lastRenderTime) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeRender(pdrawCtx, timeout);
+        nativeRender(pdrawCtx, lastRenderTime);
     }
 
     public String getSelfFriendlyName() {
@@ -687,7 +687,7 @@ public class Pdraw {
 
     private native int nativeRender(
         long pdrawCtx,
-        int timeout);
+        long lastRenderTime);
 
     private native String nativeGetSelfFriendlyName(
         long pdrawCtx);

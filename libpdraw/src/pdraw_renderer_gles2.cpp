@@ -68,6 +68,7 @@ Gles2Renderer::Gles2Renderer(Session *session, bool initGles2)
     mRenderHeight = 0;
     mDecoder = NULL;
     mDecoderOutputBufferQueue = NULL;
+    mCurrentBuffer = NULL;
     mGles2Video = NULL;
     mGles2Hud = NULL;
     mGles2HmdFirstTexUnit = 0;
@@ -381,15 +382,14 @@ int Gles2Renderer::setRendererParams
 }
 
 
-int Gles2Renderer::render_nolock(int timeout)
+int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
 {
     int ret = 0;
+    Buffer *buffer = NULL, *prevBuffer = NULL;
+    int dequeueRet = 0;
 
     if ((mDecoder) && (mDecoder->isConfigured()))
     {
-        Buffer *buffer = NULL, *prevBuffer = NULL;
-        int dequeueRet;
-
         while ((dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false)) == 0)
         {
             if (prevBuffer)
@@ -402,137 +402,140 @@ int Gles2Renderer::render_nolock(int timeout)
             }
             prevBuffer = buffer;
         }
+    }
 
-        if (!buffer)
+    if (!buffer)
+    {
+        if ((dequeueRet < 0) && (dequeueRet != -2))
         {
-            if (dequeueRet != -2)
-            {
-                ULOGE("Gles2Renderer: failed to get buffer from queue (%d)", dequeueRet);
-            }
-            usleep(5000); //TODO
-        }
-
-        if ((buffer) && (ret == 0))
-        {
-            avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
-
-            if ((data) && (mRenderWidth) && (mRenderHeight))
-            {
-                if ((ret == 0) && (mHmdDistorsionCorrection))
-                {
-                    glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
-                    glViewport(0, 0, mRenderWidth / 2, mRenderHeight);
-                    glClear(GL_COLOR_BUFFER_BIT);
-                }
-
-                if (ret == 0)
-                {
-                    if (mGles2Video)
-                    {
-                        gles2_video_color_conversion_t colorConversion;
-                        switch (data->colorFormat)
-                        {
-                            default:
-                            case AVCDECODER_COLORFORMAT_YUV420PLANAR:
-                                colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB;
-                                break;
-                            case AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR:
-                                colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB;
-                                break;
-                        }
-                        ret = mGles2Video->renderFrame(data->plane, data->stride, data->width, data->height,
-                            data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth,
-                            mRenderHeight, colorConversion, &data->metadata, mHeadtracking);
-                        if (ret != 0)
-                        {
-                            ULOGE("Gles2Renderer: failed to render frame");
-                        }
-                    }
-                }
-
-                if (ret == 0)
-                {
-                    if (mGles2Hud)
-                    {
-                        ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
-                            (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight, &data->metadata,
-                            mHmdDistorsionCorrection, mHeadtracking);
-                        if (ret != 0)
-                        {
-                            ULOGE("Gles2Renderer: failed to render frame");
-                        }
-                    }
-                }
-
-                if ((ret == 0) && (mHmdDistorsionCorrection))
-                {
-                    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-                    glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
-
-                    if (mGles2Hmd)
-                    {
-                        ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth / 2, mRenderHeight);
-                        if (ret != 0)
-                        {
-                            ULOGE("Gles2Renderer: failed to render HMD distorsion correction");
-                        }
-                    }
-                }
-
-                if (ret == 0)
-                {
-                    struct timespec t1;
-                    clock_gettime(CLOCK_MONOTONIC, &t1);
-                    uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-
-                    uint64_t currentTime = mSession->getCurrentTime();
-                    uint64_t duration = mSession->getDuration();
-                    unsigned int cHrs = 0, cMin = 0, cSec = 0, cMsec = 0;
-                    unsigned int dHrs = 0, dMin = 0, dSec = 0, dMsec = 0;
-                    if ((currentTime > 0) && (currentTime != (uint64_t)-1))
-                        pdraw_friendlyTimeFromUs(currentTime, &cHrs, &cMin, &cSec, &cMsec);
-                    if ((duration > 0) && (duration != (uint64_t)-1))
-                        pdraw_friendlyTimeFromUs(duration, &dHrs, &dMin, &dSec, &dMsec);
-
-                    ULOGI("Gles2Renderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d frame (decoding: %.2fms, rendering: %.2fms, est. latency: %.2fms)",
-                          cHrs, cMin, cSec, cMsec, dHrs, dMin, dSec, dMsec,
-                          (float)(data->decoderOutputTimestamp - data->demuxOutputTimestamp) / 1000.,
-                          (float)(renderTimestamp - data->decoderOutputTimestamp) / 1000.,
-                          (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.);
-                }
-
-                ret = 1;
-            }
-
-            int releaseRet = mDecoder->releaseOutputBuffer(buffer);
-            if (releaseRet != 0)
-            {
-                ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
-                ret = releaseRet;
-            }
+            ULOGE("Gles2Renderer: failed to get buffer from queue (%d)", dequeueRet);
         }
     }
     else
     {
-        usleep(5000); //TODO
+        mCurrentBuffer = buffer;
+    }
+
+    if ((mCurrentBuffer) && (ret == 0))
+    {
+        avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)mCurrentBuffer->getMetadataPtr();
+
+        if ((data) && (mRenderWidth) && (mRenderHeight))
+        {
+            if ((ret == 0) && (mHmdDistorsionCorrection))
+            {
+                glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+                glViewport(0, 0, mRenderWidth / 2, mRenderHeight);
+                glClear(GL_COLOR_BUFFER_BIT);
+            }
+
+            if (ret == 0)
+            {
+                if (mGles2Video)
+                {
+                    gles2_video_color_conversion_t colorConversion;
+                    switch (data->colorFormat)
+                    {
+                        default:
+                        case AVCDECODER_COLORFORMAT_YUV420PLANAR:
+                            colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB;
+                            break;
+                        case AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR:
+                            colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB;
+                            break;
+                    }
+                    ret = mGles2Video->renderFrame(data->plane, data->stride, data->width, data->height,
+                        data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth,
+                        mRenderHeight, colorConversion, &data->metadata, mHeadtracking);
+                    if (ret != 0)
+                    {
+                        ULOGE("Gles2Renderer: failed to render frame");
+                    }
+                }
+            }
+
+            if (ret == 0)
+            {
+                if (mGles2Hud)
+                {
+                    ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
+                        (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight, &data->metadata,
+                        mHmdDistorsionCorrection, mHeadtracking);
+                    if (ret != 0)
+                    {
+                        ULOGE("Gles2Renderer: failed to render frame");
+                    }
+                }
+            }
+
+            if ((ret == 0) && (mHmdDistorsionCorrection))
+            {
+                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+
+                if (mGles2Hmd)
+                {
+                    ret = mGles2Hmd->renderHmd(mFboTexture, mRenderWidth / 2, mRenderHeight);
+                    if (ret != 0)
+                    {
+                        ULOGE("Gles2Renderer: failed to render HMD distorsion correction");
+                    }
+                }
+            }
+
+            if (ret == 0)
+            {
+                struct timespec t1;
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                uint64_t renderTimestamp, renderTimestamp1;
+                renderTimestamp1 = renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+
+                uint64_t currentTime = mSession->getCurrentTime();
+                uint64_t duration = mSession->getDuration();
+                unsigned int cHrs = 0, cMin = 0, cSec = 0, cMsec = 0;
+                unsigned int dHrs = 0, dMin = 0, dSec = 0, dMsec = 0;
+                if ((currentTime > 0) && (currentTime != (uint64_t)-1))
+                    pdraw_friendlyTimeFromUs(currentTime, &cHrs, &cMin, &cSec, &cMsec);
+                if ((duration > 0) && (duration != (uint64_t)-1))
+                    pdraw_friendlyTimeFromUs(duration, &dHrs, &dMin, &dSec, &dMsec);
+
+                ULOGI("Gles2Renderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d frame (decoding: %.2fms, rendering: %.2fms, est. latency: %.2fms) render@%.1ffps",
+                      cHrs, cMin, cSec, cMsec, dHrs, dMin, dSec, dMsec,
+                      (float)(data->decoderOutputTimestamp - data->demuxOutputTimestamp) / 1000.,
+                      (float)(renderTimestamp1 - data->decoderOutputTimestamp) / 1000.,
+                      (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.,
+                      (renderTimestamp - lastRenderTime > 0) ? 1000000. / ((float)(renderTimestamp - lastRenderTime)) : 0.);
+            }
+
+            ret = 1;
+        }
+    }
+
+    if (buffer)
+    {
+        int releaseRet = mDecoder->releaseOutputBuffer(buffer);
+        if (releaseRet != 0)
+        {
+            ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
+            ret = releaseRet;
+        }
     }
 
     return ret;
 }
 
 
-int Gles2Renderer::render(int timeout)
+int Gles2Renderer::render(uint64_t lastRenderTime)
 {
     pthread_mutex_lock(&mMutex);
 
     if (!mRunning)
     {
         pthread_mutex_unlock(&mMutex);
-        usleep(5000); //TODO
         return 0;
     }
 
-    int ret = render_nolock(timeout);
+    int ret = render_nolock(lastRenderTime);
 
     pthread_mutex_unlock(&mMutex);
 

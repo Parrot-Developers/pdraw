@@ -257,13 +257,13 @@ int pdraw_stop_renderer(struct pdraw *pdraw)
 }
 
 
-int pdraw_render(struct pdraw *pdraw, int timeout)
+int pdraw_render(struct pdraw *pdraw, uint64_t lastRenderTime)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->render(timeout);
+    return toPdraw(pdraw)->render(lastRenderTime);
 }
 
 

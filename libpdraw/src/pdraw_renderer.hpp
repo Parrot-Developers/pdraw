@@ -68,7 +68,7 @@ public:
              bool hmdDistorsionCorrection, bool headtracking,
              void *uiHandler) = 0;
 
-    virtual int render(int timeout) = 0;
+    virtual int render(uint64_t lastRenderTime) = 0;
 
     virtual Session *getSession() = 0;
 

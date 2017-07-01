@@ -366,11 +366,11 @@ int PdrawImpl::stopRenderer()
 }
 
 
-int PdrawImpl::render(int timeout)
+int PdrawImpl::render(uint64_t lastRenderTime)
 {
     if (mSession.getRenderer())
     {
-        return mSession.getRenderer()->render(timeout);
+        return mSession.getRenderer()->render(lastRenderTime);
     }
     else
     {

@@ -251,7 +251,7 @@ int ANativeWindowRenderer::setRendererParams
 }
 
 
-int ANativeWindowRenderer::render(int timeout)
+int ANativeWindowRenderer::render(uint64_t lastRenderTime)
 {
     int ret = 0;
 
@@ -279,7 +279,7 @@ int ANativeWindowRenderer::render(int timeout)
         return -1;
     }
 
-    ret = Gles2Renderer::render_nolock(timeout);
+    ret = Gles2Renderer::render_nolock(lastRenderTime);
     if (ret > 0)
     {
         eglSwapBuffers(mDisplay, mSurface);
@@ -296,10 +296,14 @@ int ANativeWindowRenderer::render(int timeout)
 void* ANativeWindowRenderer::runRendererThread(void *ptr)
 {
     ANativeWindowRenderer *renderer = (ANativeWindowRenderer*)ptr;
+    uint64_t lastRenderTime = 0;
 
     while (!renderer->mThreadShouldStop)
     {
-        renderer->render(0);
+        renderer->render(lastRenderTime);
+        struct timespec t1;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
     }
 
     return NULL;

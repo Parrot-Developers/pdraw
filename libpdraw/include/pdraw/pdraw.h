@@ -151,7 +151,7 @@ int pdraw_stop_renderer
 
 int pdraw_render
         (struct pdraw *pdraw,
-         int timeout);
+         uint64_t lastRenderTime);
 
 
 pdraw_session_type_t pdraw_get_session_type

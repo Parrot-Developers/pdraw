@@ -232,6 +232,7 @@ int main(int argc, char *argv[])
 {
     int failed = 0, loop = 1;
     int idx, c;
+    uint64_t lastRenderTime = 0;
     struct pdraw_app *app;
 
     welcome();
@@ -517,12 +518,15 @@ int main(int argc, char *argv[])
         {
             if (app->pdraw)
             {
-                int ret = pdraw_render(app->pdraw, 0);
+                int ret = pdraw_render(app->pdraw, lastRenderTime);
                 if (ret < 0)
                 {
                     ULOGE("pdraw_render() failed (%d)", ret);
                     failed = 1;
                 }
+                struct timespec t1;
+                clock_gettime(CLOCK_MONOTONIC, &t1);
+                lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
             }
         }
 
@@ -993,7 +997,7 @@ int startUi(struct pdraw_app *app)
         app->surface = eglCreateWindowSurface(app->display, config, &nativeWindow, NULL);
         if (app->surface == EGL_NO_SURFACE)
         {
-            ULOGE("VideoCoreEglRenderer: eglCreateWindowSurface() failed");
+            ULOGE("eglCreateWindowSurface() failed");
             ret = -1;
         }
     }
@@ -1009,15 +1013,22 @@ int startUi(struct pdraw_app *app)
         result = eglMakeCurrent(app->display, app->surface, app->surface, app->context);
         if (result == EGL_FALSE)
         {
-            ULOGE("VideoCoreEglRenderer: eglMakeCurrent() failed");
+            ULOGE("eglMakeCurrent() failed");
             ret = -1;
         }
     }
 
-    /*if (ret == 0)
+    if (ret == 0)
     {
-        eglSwapInterval(app->display, 1);
-    }*/
+        /* Set the swap interval to 2 frames to limit rendering to 30fps */
+        //TODO: what about when the video mode is not 60fps?
+        result = eglSwapInterval(app->display, 2);
+        if (result == EGL_FALSE)
+        {
+            ULOGE("eglSwapInterval() failed");
+            ret = -1;
+        }
+    }
 
     ULOGI("UI started; width=%d height=%d", app->screenWidth, app->screenHeight);
 
