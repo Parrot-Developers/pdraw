@@ -138,6 +138,19 @@ Gles2Video::Gles2Video(Session *session, VideoMedia *media, unsigned int firstTe
     mSession = session;
     mMedia = media;
     mFirstTexUnit = firstTexUnit;
+    mPaddingWidth = mPaddingHeight = GLES2_VIDEO_PADDING_FBO_WIDTH;
+    if (mMedia)
+    {
+        unsigned int width = 0, height = 0;
+        mMedia->getDimensions(NULL, NULL, NULL, NULL, NULL, NULL, &width, &height, NULL, NULL);
+        if ((width) && (height))
+        {
+            if (width >= height)
+                mPaddingHeight = GLES2_VIDEO_PADDING_FBO_WIDTH * height / width;
+            else
+                mPaddingWidth = GLES2_VIDEO_PADDING_FBO_WIDTH * width / height;
+        }
+    }
 
     if (ret == 0)
     {
@@ -353,12 +366,60 @@ Gles2Video::Gles2Video(Session *session, VideoMedia *media, unsigned int firstTe
         }
     }
 
+    if (ret == 0)
+    {
+        glGenFramebuffers(1, &mPaddingFbo);
+        if (mPaddingFbo <= 0)
+        {
+            ULOGE("Gles2Video: failed to create framebuffer");
+            ret = -1;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo);
+
+        glGenTextures(1, &mPaddingFboTexture);
+        if (mPaddingFboTexture <= 0)
+        {
+            ULOGE("Gles2Video: failed to create texture");
+            ret = -1;
+        }
+        glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT);
+        glBindTexture(GL_TEXTURE_2D, mPaddingFboTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mPaddingWidth, mPaddingHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mPaddingFboTexture, 0);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        {
+            ULOGE("Gles2Video: invalid framebuffer status");
+            ret = -1;
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
 }
 
 
 Gles2Video::~Gles2Video()
 {
     glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures);
+    if (mPaddingFboTexture > 0)
+    {
+        glDeleteTextures(1, &mPaddingFboTexture);
+        mPaddingFboTexture = 0;
+    }
+    if (mPaddingFbo > 0)
+    {
+        glDeleteFramebuffers(1, &mPaddingFbo);
+        mPaddingFbo = 0;
+    }
+
     glDeleteProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB]);
     glDeleteProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB]);
 }
@@ -383,9 +444,10 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                            unsigned int frameWidth, unsigned int frameHeight,
                            unsigned int sarWidth, unsigned int sarHeight,
                            unsigned int windowWidth, unsigned int windowHeight,
+                           unsigned int windowX, unsigned int windowY,
                            gles2_video_color_conversion_t colorConversion,
                            const struct vmeta_frame_v2 *metadata,
-                           bool headtracking)
+                           bool headtracking, GLuint fbo)
 {
     unsigned int i;
     float vertices[16];
@@ -497,6 +559,97 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
         viewMat.block<3, 3>(0, 0) = rot.transpose() * viewRotLH * rot;
     }
 
+    Eigen::Matrix4f xformMat = projMat * viewMat;
+
+    if (headtracking)
+    {
+        /* Padding */
+        glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo);
+        glViewport(0, 0, mPaddingWidth, mPaddingHeight);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        vertices[0] = -1.;
+        vertices[1] = 1.;
+        vertices[2] = 1.;
+        vertices[3] = 1.;
+        vertices[4] = 1.;
+        vertices[5] = 1.;
+        vertices[6] = -1.;
+        vertices[7] = -1.;
+        vertices[8] = 1.;
+        vertices[9] = 1.;
+        vertices[10] = -1.;
+        vertices[11] = 1.;
+
+        Eigen::Matrix4f id = Eigen::Matrix4f::Identity();
+        glUniformMatrix4fv(mProgramTransformMatrix[colorConversion], 1, false, id.data());
+
+        glVertexAttribPointer(mPositionHandle[colorConversion], 3, GL_FLOAT, false, 0, vertices);
+        glEnableVertexAttribArray(mPositionHandle[colorConversion]);
+
+        texCoords[0] = 0.0f;
+        texCoords[1] = 1.0f;
+        texCoords[2] = (float)frameWidth / (float)frameStride[0];
+        texCoords[3] = 1.0f;
+        texCoords[4] = 0.0f;
+        texCoords[5] = 0.0f;
+        texCoords[6] = (float)frameWidth / (float)frameStride[0];
+        texCoords[7] = 0.0f;
+
+        glVertexAttribPointer(mTexcoordHandle[colorConversion], 2, GL_FLOAT, false, 0, texCoords);
+        glEnableVertexAttribArray(mTexcoordHandle[colorConversion]);
+
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        glDisableVertexAttribArray(mPositionHandle[colorConversion]);
+        glDisableVertexAttribArray(mTexcoordHandle[colorConversion]);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glViewport(windowX, windowY, windowWidth, windowHeight);
+        glUseProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+        glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT);
+        glBindTexture(GL_TEXTURE_2D, mPaddingFboTexture);
+        glUniform1i(mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NONE][0], mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT);
+        glUniformMatrix4fv(mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NONE], 1, false, xformMat.data());
+
+        vertices[0] = -40. * videoW;
+        vertices[1] = -40. * videoH;
+        vertices[2] = 1.01;
+        vertices[3] = 40. * videoW;
+        vertices[4] = -40. * videoH;
+        vertices[5] = 1.001;
+        vertices[6] = -40. * videoW;
+        vertices[7] = 40. * videoH;
+        vertices[8] = 1.001;
+        vertices[9] = 40. * videoW;
+        vertices[10] = 40. * videoH;
+        vertices[11] = 1.001;
+
+        glVertexAttribPointer(mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE], 3, GL_FLOAT, false, 0, vertices);
+        glEnableVertexAttribArray(mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+
+        texCoords[0] = -19.0f;
+        texCoords[1] = 20.0f;
+        texCoords[2] = 20.0f;
+        texCoords[3] = 20.0f;
+        texCoords[4] = -19.0f;
+        texCoords[5] = -19.0f;
+        texCoords[6] = 20.0f;
+        texCoords[7] = -19.0f;
+
+        glVertexAttribPointer(mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE], 2, GL_FLOAT, false, 0, texCoords);
+        glEnableVertexAttribArray(mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        glDisableVertexAttribArray(mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+        glDisableVertexAttribArray(mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+
+        glUseProgram(mProgram[colorConversion]);
+    }
+
+    glUniformMatrix4fv(mProgramTransformMatrix[colorConversion], 1, false, xformMat.data());
+
     vertices[0] = -videoW;
     vertices[1] = -videoH;
     vertices[2] = 1.;
@@ -509,9 +662,6 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
     vertices[9] = videoW;
     vertices[10] = videoH;
     vertices[11] = 1.;
-
-    Eigen::Matrix4f xformMat = projMat * viewMat;
-    glUniformMatrix4fv(mProgramTransformMatrix[colorConversion], 1, false, xformMat.data());
 
     glVertexAttribPointer(mPositionHandle[colorConversion], 3, GL_FLOAT, false, 0, vertices);
     glEnableVertexAttribArray(mPositionHandle[colorConversion]);

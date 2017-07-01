@@ -52,6 +52,8 @@
 
 
 #define GLES2_VIDEO_TEX_UNIT_COUNT 3
+#define GLES2_VIDEO_FBO_TEX_UNIT_COUNT 1
+#define GLES2_VIDEO_PADDING_FBO_WIDTH 32
 
 
 namespace Pdraw
@@ -80,7 +82,7 @@ public:
 
     ~Gles2Video();
 
-    static int getTexUnitCount() { return GLES2_VIDEO_TEX_UNIT_COUNT; }
+    static int getTexUnitCount() { return GLES2_VIDEO_TEX_UNIT_COUNT + GLES2_VIDEO_FBO_TEX_UNIT_COUNT; }
 
     GLuint* getTextures();
 
@@ -90,9 +92,10 @@ public:
                     unsigned int frameWidth, unsigned int frameHeight,
                     unsigned int sarWidth, unsigned int sarHeight,
                     unsigned int windowWidth, unsigned int windowHeight,
+                    unsigned int windowX, unsigned int windowY,
                     gles2_video_color_conversion_t colorConversion,
                     const struct vmeta_frame_v2 *metadata,
-                    bool headtracking);
+                    bool headtracking, GLuint fbo);
 
     void setVideoMedia(VideoMedia *media);
 
@@ -107,6 +110,10 @@ private:
     GLint mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_MAX][3];
     GLint mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
     GLint mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+    GLuint mPaddingFbo;
+    GLuint mPaddingFboTexture;
+    unsigned int mPaddingWidth;
+    unsigned int mPaddingHeight;
 };
 
 }

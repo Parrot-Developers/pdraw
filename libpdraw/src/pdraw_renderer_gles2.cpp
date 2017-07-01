@@ -444,8 +444,9 @@ int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
                             break;
                     }
                     ret = mGles2Video->renderFrame(data->plane, data->stride, data->width, data->height,
-                        data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth,
-                        mRenderHeight, colorConversion, &data->metadata, mHeadtracking);
+                        data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight,
+                        (mHmdDistorsionCorrection) ? 0 : mRenderX, (mHmdDistorsionCorrection) ? 0 : mRenderY,
+                        colorConversion, &data->metadata, mHeadtracking, (mHmdDistorsionCorrection) ? mFbo : 0);
                     if (ret != 0)
                     {
                         ULOGE("Gles2Renderer: failed to render frame");

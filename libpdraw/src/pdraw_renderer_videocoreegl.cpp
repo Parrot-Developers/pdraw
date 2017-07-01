@@ -343,9 +343,13 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
             {
                 swapRendererEglImage();
 
-                ret = mGles2Video->renderFrame(data->plane, data->stride, data->width, data->height,
-                    data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth,
-                    mRenderHeight, GLES2_VIDEO_COLOR_CONVERSION_NONE, &data->metadata, mHeadtracking);
+                ret = mGles2Video->renderFrame(data->plane, data->stride,
+                                               data->width, data->height,
+                                               data->sarWidth, data->sarHeight,
+                                               mRenderWidth, mRenderHeight,
+                                               mRenderX, mRenderY,
+                                               GLES2_VIDEO_COLOR_CONVERSION_NONE, &data->metadata,
+                                               mHeadtracking, 0);
                 if (ret != 0)
                 {
                     ULOGE("VideoCoreEglRenderer: failed to render frame");
