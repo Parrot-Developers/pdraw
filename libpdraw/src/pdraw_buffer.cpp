@@ -51,7 +51,6 @@ Buffer::Buffer(BufferPool *bufferPool,
                void *userPtr,
                uint8_t *preallocBuf,
                unsigned int capacity,
-               bool alloc,
                unsigned int metadataSize,
                int(*bufferCreationCb)(Buffer *buffer),
                int(*bufferDeletionCb)(Buffer *buffer))
@@ -63,13 +62,13 @@ Buffer::Buffer(BufferPool *bufferPool,
     mUserPtr = userPtr;
     mCapacity = capacity;
     mSize = 0;
-    mAlloc = alloc;
+    mAlloc = ((mCapacity > 0) && (preallocBuf == NULL)) ? true : false;
     mPtr = preallocBuf;
     mResPtr = NULL;
     mMetadataPtr = NULL;
     mMetadataSize = metadataSize;
 
-    if ((alloc) && (capacity > 0))
+    if ((mAlloc) && (mCapacity > 0))
     {
         mPtr = (void*)malloc(mCapacity);
         if (mPtr == NULL)
@@ -237,7 +236,7 @@ BufferPool::BufferPool(unsigned int bufferCount,
     /* Allocate all buffers */
     for (i = 0; i < mBuffers->size(); i++)
     {
-        (*mBuffers)[i] = new Buffer(this, i, NULL, NULL, bufferSize, true,
+        (*mBuffers)[i] = new Buffer(this, i, NULL, NULL, bufferSize,
                                     bufferMetadataSize, bufferCreationCb, bufferDeletionCb); //TODO
     }
 

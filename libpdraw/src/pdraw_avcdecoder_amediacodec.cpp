@@ -517,6 +517,8 @@ int AMediaCodecAvcDecoder::stop()
         return -1;
     }
 
+    mConfigured = false;
+
     media_status_t err = AMediaCodec_stop(mCodec);
     if (err != AMEDIA_OK)
     {

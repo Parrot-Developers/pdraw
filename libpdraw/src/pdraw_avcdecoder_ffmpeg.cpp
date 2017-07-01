@@ -410,6 +410,8 @@ int FfmpegAvcDecoder::stop()
     }
 
     mThreadShouldStop = true;
+    mConfigured = false;
+
     if (mInputBufferPool) mInputBufferPool->signal();
     if (mOutputBufferPool) mOutputBufferPool->signal();
     if (mInputBufferQueue) mInputBufferQueue->signal();

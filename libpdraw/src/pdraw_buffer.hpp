@@ -62,7 +62,6 @@ public:
            void *userPtr,
            uint8_t *preallocBuf,
            unsigned int capacity,
-           bool alloc,
            unsigned int metadataSize,
            int(*bufferCreationCb)(Buffer *buffer),
            int(*bufferDeletionCb)(Buffer *buffer));
