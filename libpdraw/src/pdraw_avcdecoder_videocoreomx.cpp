@@ -222,7 +222,6 @@ VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder()
     ilclient_disable_tunnel(mTunnel);
     ilclient_teardown_tunnels(mTunnel);
     ilclient_state_transition(list, OMX_StateIdle);
-    ilclient_state_transition(list, OMX_StateLoaded);
 
     ilclient_cleanup_components(list);
 
@@ -796,6 +795,12 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
     avc_decoder_input_buffer_t *inputData = NULL;
     avc_decoder_output_buffer_t *outputData = NULL;
     uint64_t ts = ((uint64_t)omxBuf->nTimeStamp.nHighPart << 32) | ((uint64_t)omxBuf->nTimeStamp.nLowPart & 0xFFFFFFFF);
+
+    if (!decoder->mConfigured)
+    {
+        decoder->mInputBufferQueue->flush();
+        return;
+    }
 
     if (ts > 0)
     {
