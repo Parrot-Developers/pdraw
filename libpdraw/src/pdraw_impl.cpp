@@ -564,13 +564,13 @@ int PdrawImpl::getMediaInfo(unsigned int index, pdraw_media_info_t *info)
     {
         case PDRAW_MEDIA_TYPE_VIDEO:
             info->type = PDRAW_MEDIA_TYPE_VIDEO;
-            info->videoInfo.type = ((VideoMedia*)media)->getVideoType();
-            ((VideoMedia*)media)->getDimensions(&info->videoInfo.width, &info->videoInfo.height,
-                &info->videoInfo.cropLeft, &info->videoInfo.cropRight,
-                &info->videoInfo.cropTop, &info->videoInfo.cropBottom,
-                &info->videoInfo.croppedWidth, &info->videoInfo.croppedHeight,
-                &info->videoInfo.sarWidth, &info->videoInfo.sarHeight);
-            ((VideoMedia*)media)->getFov(&info->videoInfo.horizontalFov, &info->videoInfo.verticalFov);
+            info->info.video.type = ((VideoMedia*)media)->getVideoType();
+            ((VideoMedia*)media)->getDimensions(&info->info.video.width, &info->info.video.height,
+                &info->info.video.cropLeft, &info->info.video.cropRight,
+                &info->info.video.cropTop, &info->info.video.cropBottom,
+                &info->info.video.croppedWidth, &info->info.video.croppedHeight,
+                &info->info.video.sarWidth, &info->info.video.sarHeight);
+            ((VideoMedia*)media)->getFov(&info->info.video.horizontalFov, &info->info.video.verticalFov);
             break;
         default:
             info->type = PDRAW_MEDIA_TYPE_UNKNOWN;

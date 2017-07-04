@@ -119,15 +119,16 @@ typedef struct
 
 } pdraw_video_info_t;
 
+typedef union
+{
+  pdraw_video_info_t video;
+} pdraw_media_union_t;
 
 typedef struct
 {
     pdraw_media_type_t type;
     unsigned int id;
-    union
-    {
-        pdraw_video_info_t videoInfo;
-    };
+    pdraw_media_union_t info;
 
 } pdraw_media_info_t;
 
