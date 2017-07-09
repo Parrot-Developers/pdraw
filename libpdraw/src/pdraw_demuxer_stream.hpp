@@ -42,6 +42,9 @@
 #include <pthread.h>
 
 #include <libARStream2/arstream2_stream_receiver.h>
+#include <libpomp.h>
+#include <librtsp.h>
+#include <libsdp.h>
 
 #include "pdraw_demuxer.hpp"
 #include "pdraw_avcdecoder.hpp"
@@ -131,11 +134,18 @@ private:
                                                       ARSTREAM2_StreamReceiver_AuReadyCallbackMetadata_t *auMetadata,
                                                       void *auBufferUserPtr, void *userPtr);
 
+    static void* runLoopThread(void *ptr);
+
     uint32_t mCurrentAuSize;
     int mMaxPacketSize;
     int mQosMode;
     AvcDecoder *mDecoder;
     Buffer *mCurrentBuffer;
+    struct pomp_loop *mLoop;
+    pthread_t mLoopThread;
+    bool mLoopThreadLaunched;
+    bool mThreadShouldStop;
+    struct rtsp_client *mRtspClient;
     pthread_t mStreamNetworkThread;
     bool mStreamNetworkThreadLaunched;
     pthread_t mStreamOutputThread;

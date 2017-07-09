@@ -45,11 +45,15 @@
 #include <string.h>
 #include <time.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
 
 #define STREAM_DEMUXER_SESSION_METADATA_FETCH_INTERVAL 1000000
+
+#define STREAM_DEMUXER_DEFAULT_DST_STREAM_PORT 55004
+#define STREAM_DEMUXER_DEFAULT_DST_CONTROL_PORT 55005
 
 
 namespace Pdraw
@@ -60,6 +64,10 @@ StreamDemuxer::StreamDemuxer(Session *session)
 {
     mSession = session;
     mConfigured = false;
+    mLoop = NULL;
+    mLoopThreadLaunched = false;
+    mThreadShouldStop = false;
+    mRtspClient = NULL;
     mStreamReceiver = NULL;
     mStreamNetworkThreadLaunched = false;
     mStreamOutputThreadLaunched = false;
@@ -96,11 +104,31 @@ StreamDemuxer::~StreamDemuxer()
         if (ret != 0)
             ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
     }
+    if (mLoopThreadLaunched)
+    {
+        ret = pthread_join(mLoopThread, NULL);
+        if (ret != 0)
+            ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
+    }
 
     if (mCurrentBuffer)
         mCurrentBuffer->unref();
 
-    ARSTREAM2_StreamReceiver_Free(&mStreamReceiver);
+    if (mRtspClient) {
+        ret = rtsp_client_destroy(mRtspClient);
+        if (ret != 0)
+            ULOGE("StreamDemuxer: rtsp_client_destroy() failed");
+    }
+
+    if (mStreamReceiver)
+        ARSTREAM2_StreamReceiver_Free(&mStreamReceiver);
+
+    if (mLoop)
+    {
+        ret = pomp_loop_destroy(mLoop);
+        if (ret != 0)
+            ULOGE("StreamDemuxer: pomp_loop_destroy() failed");
+    }
 }
 
 
@@ -177,8 +205,227 @@ void StreamDemuxer::fetchSessionMetadata(StreamDemuxer *demuxer)
 
 int StreamDemuxer::configure(const std::string &url)
 {
-    //TODO
-    return -1;
+    if (mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is already configured");
+        return -1;
+    }
+    if (!mSession)
+    {
+        ULOGE("StreamDemuxer: invalid session");
+        return -1;
+    }
+
+    if (url.substr(0, 7) != "rtsp://")
+    {
+        ULOGE("StreamDemuxer: unsupported URL");
+        return -1;
+    }
+
+    int ret = 0;
+    char *mediaUrl = NULL, *serverAddr = NULL;
+    int serverStreamPort = 0, serverControlPort = 0;
+    char *sdpStr = NULL;
+    struct sdp_session *sdp = NULL;
+    SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
+
+    if (ret == 0)
+    {
+        mLoop = pomp_loop_new();
+        if (!mLoop)
+        {
+            ULOGE("StreamDemuxer: pomp_loop_new() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int thErr = pthread_create(&mLoopThread, NULL, runLoopThread, (void*)this);
+        if (thErr != 0)
+        {
+            ULOGE("StreamDemuxer: loop thread creation failed (%d)", thErr);
+            ret = -1;
+        }
+        else
+        {
+            mLoopThreadLaunched = true;
+        }
+    }
+
+    if (ret == 0)
+    {
+        const char *userAgent = selfMeta->getSoftwareVersion().c_str();
+        mRtspClient = rtsp_client_new(url.c_str(), userAgent, mLoop);
+        if (!mRtspClient)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_new() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        sleep(1);
+        int err = rtsp_client_options(mRtspClient);
+        if (err)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_options() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        sleep(1);
+        int err = rtsp_client_describe(mRtspClient, &sdpStr);
+        if (err)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_describe() failed");
+            ret = -1;
+        }
+        else if (!sdpStr)
+        {
+            ULOGE("StreamDemuxer: failed to get session description");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        sdp = sdp_parse_session_description(sdpStr);
+        if (!sdp)
+        {
+            ULOGE("StreamDemuxer: sdp_parse_session_description() failed");
+            ret = -1;
+        }
+        else
+        {
+            struct sdp_media *media;
+            for (media = sdp->media; media; media = media->next)
+            {
+                if ((media->type == SDP_MEDIA_TYPE_VIDEO) &&
+                    (media->controlUrl))
+                {
+                    mediaUrl = strdup(media->controlUrl);
+                    break;
+                }
+            }
+            if (!mediaUrl)
+            {
+                ULOGE("StreamDemuxer: failed to get media control URL");
+                ret = -1;
+            }
+            serverAddr = (strncmp(sdp->connectionAddr, "0.0.0.0", 7)) ? strdup(sdp->connectionAddr) : strdup(sdp->serverAddr);
+            if (!serverAddr)
+            {
+                ULOGE("StreamDemuxer: failed to get server address");
+                ret = -1;
+            }
+            sdp_session_destroy(sdp);
+        }
+    }
+
+    if (ret == 0)
+    {
+        sleep(1);
+        int err = rtsp_client_setup(mRtspClient, mediaUrl, STREAM_DEMUXER_DEFAULT_DST_STREAM_PORT,
+            STREAM_DEMUXER_DEFAULT_DST_CONTROL_PORT, &serverStreamPort, &serverControlPort);
+        if (err)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_setup() failed");
+            ret = -1;
+        }
+    }
+
+    free(mediaUrl);
+
+    if (ret == 0)
+    {
+        eARSTREAM2_ERROR err;
+        ARSTREAM2_StreamReceiver_Config_t streamReceiverConfig;
+        ARSTREAM2_StreamReceiver_NetConfig_t streamReceiverNetConfig;
+        memset(&streamReceiverConfig, 0, sizeof(streamReceiverConfig));
+        memset(&streamReceiverNetConfig, 0, sizeof(streamReceiverNetConfig));
+        streamReceiverNetConfig.serverAddr = serverAddr;
+        streamReceiverNetConfig.mcastAddr = NULL; //TODO
+        streamReceiverNetConfig.mcastIfaceAddr = NULL; //TODO
+        streamReceiverNetConfig.serverStreamPort = serverStreamPort;
+        streamReceiverNetConfig.serverControlPort = serverControlPort;
+        streamReceiverNetConfig.clientStreamPort = STREAM_DEMUXER_DEFAULT_DST_STREAM_PORT;
+        streamReceiverNetConfig.clientControlPort = STREAM_DEMUXER_DEFAULT_DST_CONTROL_PORT;
+        streamReceiverNetConfig.classSelector = ARSAL_SOCKET_CLASS_SELECTOR_CS4; //TODO
+        streamReceiverConfig.canonicalName = selfMeta->getSerialNumber().c_str();
+        streamReceiverConfig.friendlyName = selfMeta->getFriendlyName().c_str();
+        streamReceiverConfig.applicationName = selfMeta->getSoftwareVersion().c_str();
+        streamReceiverConfig.maxPacketSize = mMaxPacketSize;
+        streamReceiverConfig.generateReceiverReports = 1;
+        streamReceiverConfig.waitForSync = 1;
+        streamReceiverConfig.outputIncompleteAu = 0;
+        streamReceiverConfig.filterOutSpsPps = 0;
+        streamReceiverConfig.filterOutSei = 1;
+        streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
+        streamReceiverConfig.generateSkippedPSlices = 1;
+        streamReceiverConfig.generateFirstGrayIFrame = 1;
+        streamReceiverConfig.debugPath = "./streamdebug";
+
+        err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver, &streamReceiverConfig, &streamReceiverNetConfig, NULL);
+        if (err != ARSTREAM2_OK)
+        {
+            ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Init() failed: %s", ARSTREAM2_Error_ToString(err));
+            ret = -1;
+        }
+    }
+
+    free(serverAddr);
+
+    if (ret == 0)
+    {
+        int thErr = pthread_create(&mStreamNetworkThread, NULL, ARSTREAM2_StreamReceiver_RunNetworkThread, (void*)mStreamReceiver);
+        if (thErr != 0)
+        {
+            ULOGE("StreamDemuxer: stream network thread creation failed (%d)", thErr);
+            ret = -1;
+        }
+        else
+        {
+            mStreamNetworkThreadLaunched = true;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int thErr = pthread_create(&mStreamOutputThread, NULL, ARSTREAM2_StreamReceiver_RunAppOutputThread, (void*)mStreamReceiver);
+        if (thErr != 0)
+        {
+            ULOGE("StreamDemuxer: stream output thread creation failed (%d)", thErr);
+            ret = -1;
+        }
+        else
+        {
+            mStreamOutputThreadLaunched = true;
+        }
+    }
+
+    if (ret == 0)
+    {
+        sleep(1);
+        int err = rtsp_client_play(mRtspClient);
+        if (err)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_play() failed");
+            ret = -1;
+        }
+    }
+
+    mConfigured = (ret == 0) ? true : false;
+
+    if (mConfigured)
+    {
+        ULOGI("StreamDemuxer: demuxer is configured");
+    }
+
+    return ret;
 }
 
 
@@ -530,18 +777,33 @@ int StreamDemuxer::stop()
         return -1;
     }
 
-    eARSTREAM2_ERROR ret = ARSTREAM2_OK;
+    int ret = 0;
 
-    if (ret == ARSTREAM2_OK)
+    if ((ret == 0) && (mRtspClient))
     {
-        ret = ARSTREAM2_StreamReceiver_Stop(mStreamReceiver);
-        if (ret != ARSTREAM2_OK)
+        int err = rtsp_client_teardown(mRtspClient);
+        if (err)
         {
-            ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Stop() failed: %s", ARSTREAM2_Error_ToString(ret));
+            ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
+            ret = -1;
         }
     }
 
-    return (ret == ARSTREAM2_OK) ? 0 : -1;
+    if (ret == 0)
+    {
+        eARSTREAM2_ERROR _ret = ARSTREAM2_StreamReceiver_Stop(mStreamReceiver);
+        if (_ret != ARSTREAM2_OK)
+        {
+            ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Stop() failed: %s", ARSTREAM2_Error_ToString(_ret));
+            ret = -1;
+        }
+    }
+
+    mThreadShouldStop = true;
+    if (mLoop)
+        pomp_loop_wakeup(mLoop);
+
+    return ret;
 }
 
 
@@ -871,6 +1133,19 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
     }
 
     return ret;
+}
+
+
+void* StreamDemuxer::runLoopThread(void *ptr)
+{
+    StreamDemuxer *demuxer = (StreamDemuxer*)ptr;
+
+    while (!demuxer->mThreadShouldStop)
+    {
+        pomp_loop_wait_and_process(demuxer->mLoop, -1);
+    }
+
+    return NULL;
 }
 
 }

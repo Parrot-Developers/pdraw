@@ -50,13 +50,14 @@
 ULOG_DECLARE_TAG(pdraw_app);
 
 
-static const char short_options[] = "hdf:bk:K:i:m:s:c:S:C:n:";
+static const char short_options[] = "hdu:f:bk:K:i:m:s:c:S:C:n:";
 
 
 static const struct option long_options[] =
 {
     { "help"            , no_argument        , NULL, 'h' },
     { "daemon"          , no_argument        , NULL, 'd' },
+    { "url"             , required_argument  , NULL, 'u' },
     { "file"            , required_argument  , NULL, 'f' },
     { "arsdk-browse"    , no_argument        , NULL, 'b' },
     { "arsdk"           , required_argument  , NULL, 'k' },
@@ -175,6 +176,7 @@ static void usage(int argc, char *argv[])
             "Options:\n"
             "-h | --help                        Print this message\n"
             "-d | --daemon                      Daemon mode (wait for available connection)\n"
+            "-u | --url <url>                   Stream from a URL\n"
             "-f | --file <file_name>            Offline MP4 file playing\n"
             "-b | --arsdk-browse                Browse for ARSDK devices (discovery)\n"
             "-k | --arsdk <ip_address>          ARSDK connection to drone with its IP address\n"
@@ -210,6 +212,10 @@ static void summary(struct pdraw_app* app, int afterBrowse)
         printf("ARSDK connection to address %s", app->ipAddr);
         if (!app->receiveStream) printf(" (start stream only)");
         printf("\n\n");
+    }
+    else if ((app->receiveStream) && (app->url))
+    {
+        printf("Streaming from URL '%s'\n\n", app->url);
     }
     else if (app->receiveStream)
     {
@@ -317,6 +323,11 @@ int main(int argc, char *argv[])
                 case 'f':
                     strncpy(app->url, optarg, sizeof(app->url));
                     app->playRecord = 1;
+                    break;
+
+                case 'u':
+                    strncpy(app->url, optarg, sizeof(app->url));
+                    app->receiveStream = 1;
                     break;
 
                 case 's':
@@ -1151,7 +1162,11 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        if (app->receiveStream)
+        if ((app->receiveStream) && (app->url))
+        {
+            ret = pdraw_open_url(app->pdraw, app->url);
+        }
+        else if (app->receiveStream)
         {
             ret = pdraw_open_single_stream(app->pdraw, app->ipAddr, app->ifaceAddr, app->srcStreamPort, app->srcControlPort,
                                            app->dstStreamPort, app->dstControlPort, app->qosMode);

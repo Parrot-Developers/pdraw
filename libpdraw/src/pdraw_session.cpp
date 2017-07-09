@@ -106,8 +106,9 @@ int Session::open(const std::string &url)
             ret = -1;
         }
     }
-    else if (((url.front() == '/') && (ext == ".sdp"))
-                || (url.substr(0, 7) == "http://"))
+    else if (((url.front() == '/') && (ext == ".sdp")) ||
+                (url.substr(0, 7) == "http://") ||
+                (url.substr(0, 7) == "rtsp://"))
     {
         mSessionType = PDRAW_SESSION_TYPE_STREAM;
         mDemuxer = new StreamDemuxer(this);
