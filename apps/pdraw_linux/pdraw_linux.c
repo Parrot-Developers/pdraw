@@ -160,7 +160,7 @@ static int stopping = 0;
 
 static void sighandler(int signum)
 {
-    printf("Stoping PDrAW...\n");
+    printf("Stopping PDrAW...\n");
     ULOGI("Stopping...");
     stopping = 1;
     signal(SIGINT, SIG_DFL);
