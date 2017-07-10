@@ -734,6 +734,27 @@ int pdraw_set_peer_home_location(struct pdraw *pdraw, const pdraw_location_t *lo
 }
 
 
+uint64_t pdraw_get_peer_recording_duration(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return 0;
+    }
+    return toPdraw(pdraw)->getPeerRecordingDuration();
+}
+
+
+int pdraw_set_peer_recording_duration(struct pdraw *pdraw, uint64_t duration)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setPeerRecordingDuration(duration);
+    return 0;
+}
+
+
 int pdraw_get_camera_orientation_for_headtracking
         (struct pdraw *pdraw,
          float *pan,

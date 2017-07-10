@@ -469,12 +469,14 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     location_t takeoffLocation, selfLocation;
     takeoffLocation.isValid = 0;
     selfLocation.isValid = 0;
+    uint64_t recordingDuration = 0;
     if (mSession)
     {
         sessionType = mSession->getSessionType();
         droneModel = mSession->getPeerMetadata()->getDroneModel();
         friendlyName = mSession->getPeerMetadata()->getFriendlyName().c_str();
         mSession->getPeerMetadata()->getTakeoffLocation(&takeoffLocation);
+        recordingDuration = mSession->getPeerMetadata()->getRecordingDuration();
         controllerBattery = mSession->getSelfMetadata()->getControllerBatteryLevel();
         mSession->getSelfMetadata()->getLocation(&selfLocation);
         isControllerOrientationValid = mSession->getSelfMetadata()->getControllerOrientation(&controllerOrientation);
@@ -629,8 +631,6 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     }
     else if (sessionType == PDRAW_SESSION_TYPE_STREAM)
     {
-        uint64_t recordingDuration = 0;
-        //TODO: get the recording duration
         drawRecordingStatus(recordingDuration, colorGreen);
     }
 
@@ -870,8 +870,6 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     }
     else if (sessionType == PDRAW_SESSION_TYPE_STREAM)
     {
-        uint64_t recordingDuration = 0;
-        //TODO: get the recording duration
         if (recordingDuration > 0)
         {
             unsigned int dHrs = 0, dMin = 0, dSec = 0, dMsec = 0;

@@ -662,6 +662,18 @@ void PdrawImpl::setPeerHomeLocation(const pdraw_location_t *loc)
 }
 
 
+uint64_t PdrawImpl::getPeerRecordingDuration(void)
+{
+    return mSession.getPeerMetadata()->getRecordingDuration();
+}
+
+
+void PdrawImpl::setPeerRecordingDuration(uint64_t duration)
+{
+    mSession.getPeerMetadata()->setRecordingDuration(duration);
+}
+
+
 void PdrawImpl::getCameraOrientationForHeadtracking(float *pan, float *tilt)
 {
     mSession.getCameraOrientationForHeadtracking(pan, tilt);

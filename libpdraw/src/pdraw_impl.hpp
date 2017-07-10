@@ -214,6 +214,9 @@ public:
     void setPeerHomeLocation
             (const pdraw_location_t *loc);
 
+    uint64_t getPeerRecordingDuration(void);
+    void setPeerRecordingDuration(uint64_t duration);
+
     void getCameraOrientationForHeadtracking(float *pan, float *tilt);
 
     int getMediaCount();

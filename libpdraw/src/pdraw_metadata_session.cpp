@@ -204,6 +204,7 @@ SessionPeerMetadata::SessionPeerMetadata()
     mTakeoffLocation.isValid = 0;
     mHomeLocation.isValid = 0;
     mDroneModel = PDRAW_DRONE_MODEL_UNKNOWN;
+    mRecordingStartTime = 0;
 }
 
 
@@ -284,6 +285,38 @@ void SessionPeerMetadata::setHomeLocation(const location_t *loc)
     if (!loc)
         return;
     memcpy(&mHomeLocation, loc, sizeof(*loc));
+}
+
+
+uint64_t SessionPeerMetadata::getRecordingDuration(void)
+{
+    if (mRecordingStartTime)
+    {
+        struct timespec t1;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        uint64_t curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+        return (curTime > mRecordingStartTime) ? curTime - mRecordingStartTime : 0;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+
+void SessionPeerMetadata::setRecordingDuration(uint64_t duration)
+{
+    if (duration == 0)
+    {
+        mRecordingStartTime = 0;
+    }
+    else
+    {
+        struct timespec t1;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        uint64_t curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+        mRecordingStartTime = (curTime > duration) ? curTime - duration : 0;
+    }
 }
 
 }

@@ -2182,6 +2182,43 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetPeerHomeLocation(
 }
 
 
+JNIEXPORT jlong JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerRecordingDuration(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jlong)-1;
+    }
+
+    return (jlong)pdraw_get_peer_recording_duration(ctx->pdraw);
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeSetPeerRecordingDuration(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jlong duration)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return pdraw_set_peer_recording_duration(ctx->pdraw, (uint64_t)duration);
+}
+
+
 JNIEXPORT jobject JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeGetCameraOrientationForHeadtracking(
     JNIEnv *env,

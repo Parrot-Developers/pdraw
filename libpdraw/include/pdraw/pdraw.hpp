@@ -208,6 +208,9 @@ public:
     virtual void setPeerHomeLocation
             (const pdraw_location_t *loc) = 0;
 
+    virtual uint64_t getPeerRecordingDuration(void) = 0;
+    virtual void setPeerRecordingDuration(uint64_t duration) = 0;
+
     virtual void getCameraOrientationForHeadtracking(float *pan, float *tilt) = 0;
 
     virtual int getMediaCount(void) = 0;

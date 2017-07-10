@@ -168,6 +168,9 @@ public:
     void getHomeLocation(location_t *loc);
     void setHomeLocation(const location_t *loc);
 
+    uint64_t getRecordingDuration(void);
+    void setRecordingDuration(uint64_t duration);
+
 private:
 
     std::string mFriendlyName;
@@ -186,6 +189,7 @@ private:
     std::string mMediaDate;
     location_t mTakeoffLocation;
     location_t mHomeLocation;
+    uint64_t mRecordingStartTime;
 };
 
 }

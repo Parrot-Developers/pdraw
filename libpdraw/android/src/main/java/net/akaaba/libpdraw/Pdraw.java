@@ -556,6 +556,20 @@ public class Pdraw {
         nativeSetPeerHomeLocation(pdrawCtx, loc);
     }
 
+    public long getPeerRecordingDuration() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetPeerRecordingDuration(pdrawCtx);
+    }
+
+    public void setPeerRecordingDuration(long duration) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeSetPeerRecordingDuration(pdrawCtx, duration);
+    }
+
     public CameraOrientation getCameraOrientationForHeadtracking() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -810,6 +824,12 @@ public class Pdraw {
     private native int nativeSetPeerHomeLocation(
         long pdrawCtx,
         Location loc);
+
+    private native long nativeGetPeerRecordingDuration(
+        long pdrawCtx);
+    private native int nativeSetPeerRecordingDuration(
+        long pdrawCtx,
+        long duration);
 
     private native CameraOrientation nativeGetCameraOrientationForHeadtracking(
         long pdrawCtx);
