@@ -452,7 +452,8 @@ int Gles2Renderer::render_nolock(int timeout)
                     if (mGles2Hud)
                     {
                         ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
-                            (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight, &data->metadata, mHeadtracking);
+                            (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight, &data->metadata,
+                            mHmdDistorsionCorrection, mHeadtracking);
                         if (ret != 0)
                         {
                             ULOGE("Gles2Renderer: failed to render frame");

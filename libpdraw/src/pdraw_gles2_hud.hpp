@@ -53,11 +53,36 @@
 
 #define GLES2_HUD_TEX_UNIT_COUNT 3
 
-#define GLES2_HUD_CENTRAL_ZONE_SIZE     (0.25f)
-#define GLES2_HUD_HEADING_ZONE_OFFSET   (-0.75f)
-#define GLES2_HUD_ROLL_ZONE_OFFSET      (0.45f)
-#define GLES2_HUD_VU_METER_ZONE_OFFSET  (-0.60f)
-#define GLES2_HUD_VU_METER_V_INTERVAL   (-0.3f)
+#define GLES2_HUD_DEFAULT_CENTRAL_ZONE_SIZE         (0.25f)
+#define GLES2_HUD_DEFAULT_HEADING_ZONE_V_OFFSET     (-0.80f)
+#define GLES2_HUD_DEFAULT_ROLL_ZONE_V_OFFSET        (0.50f)
+#define GLES2_HUD_DEFAULT_VU_METER_ZONE_H_OFFSET    (-0.60f)
+#define GLES2_HUD_DEFAULT_VU_METER_V_INTERVAL       (-0.30f)
+#define GLES2_HUD_DEFAULT_RIGHT_ZONE_H_OFFSET       (0.65f)
+#define GLES2_HUD_DEFAULT_RADAR_ZONE_H_OFFSET       (0.45f)
+#define GLES2_HUD_DEFAULT_RADAR_ZONE_V_OFFSET       (-0.65f)
+#define GLES2_HUD_DEFAULT_TEXT_SIZE                 (0.15f)
+#define GLES2_HUD_DEFAULT_SMALL_ICON_SIZE           (0.040f)
+#define GLES2_HUD_DEFAULT_MEDIUM_ICON_SIZE          (0.050f)
+#define GLES2_HUD_DEFAULT_SCALE                     (1.00f)
+
+#define GLES2_HUD_HMD_SCALE                         (1.00f)
+#define GLES2_HUD_HMD_CENTRAL_ZONE_SIZE             (0.20f)
+#define GLES2_HUD_HMD_HEADING_ZONE_V_OFFSET         (-0.80f)
+#define GLES2_HUD_HMD_ROLL_ZONE_V_OFFSET            (0.50f)
+#define GLES2_HUD_HMD_VU_METER_ZONE_H_OFFSET        (-0.50f)
+#define GLES2_HUD_HMD_VU_METER_V_INTERVAL           (-0.25f)
+#define GLES2_HUD_HMD_RIGHT_ZONE_H_OFFSET           (0.55f)
+#define GLES2_HUD_HMD_RADAR_ZONE_H_OFFSET           (0.35f)
+#define GLES2_HUD_HMD_RADAR_ZONE_V_OFFSET           (-0.65f)
+#define GLES2_HUD_HMD_TEXT_SIZE                     (0.14f)
+#define GLES2_HUD_HMD_SMALL_ICON_SIZE               (0.037f)
+#define GLES2_HUD_HMD_MEDIUM_ICON_SIZE              (0.047f)
+#define GLES2_HUD_HMD_SCALE                         (1.00f)
+
+#define GLES2_HUD_DEFAULT_HFOV                      (78.)
+#define GLES2_HUD_DEFAULT_VFOV                      (49.)
+#define GLES2_HUD_DEFAULT_CONTROLLER_RADAR_ANGLE    (M_PI / 3.)
 
 
 namespace Pdraw
@@ -92,26 +117,32 @@ public:
 
     int renderHud(unsigned int videoWidth, unsigned int videoHeight,
         unsigned int windowWidth, unsigned int windowHeight,
-        const video_frame_metadata_t *metadata, bool headtracking);
+        const video_frame_metadata_t *metadata,
+        bool hmdDistorsionCorrection, bool headtracking);
 
     void setVideoMedia(VideoMedia *media);
 
 private:
 
     int loadTextureFromBuffer(const uint8_t *buffer, int width, int height, int texUnit);
-    void drawIcon(int index, float x, float y, float size, const float color[4]);
-    void drawText(const char *str, float x, float y, float size, gles2_hud_text_align_t halign, gles2_hud_text_align_t valign, const float color[4]);
+    void drawIcon(int index, float x, float y, float size, float scaleW, float scaleH, const float color[4]);
+    void getTextDimensions(const char *str, float size, float scaleW, float scaleH, float *width, float *height);
+    void drawText(const char *str, float x, float y, float size, float scaleW, float scaleH, gles2_hud_text_align_t halign, gles2_hud_text_align_t valign, const float color[4]);
     void drawLine(float x1, float y1, float x2, float y2, const float color[4], float lineWidth);
     void drawRect(float x1, float y1, float x2, float y2, const float color[4], float lineWidth);
     void drawEllipse(float cx, float cy, float rx, float ry, int numSegments, const float color[4], float lineWidth);
+    void drawEllipseFilled(float cx, float cy, float rx, float ry, int numSegments, const float color[4]);
     void drawArc(float cx, float cy, float rx, float ry, float startAngle, float spanAngle, int numSegments, const float color[4], float lineWidth);
     void drawVuMeter(float x, float y, float r, float value, float minVal, float maxVal, float criticalMin, float criticalMax, const float color[4], const float criticalColor[4], float lineWidth);
-    void drawCockpitMarks(float cameraPan, float cameraTilt, const float color[4]);
+    void drawCockpitMarks(float cameraPan, float cameraTilt, const float color[4], float lineWidth);
     void drawArtificialHorizon(const euler_t *drone, const euler_t *frame, const float color[4]);
     void drawRoll(float droneRoll, const float color[4]);
     void drawHeading(float droneYaw, float speedHorizRho, float speedPsi, const float color[4]);
-    void drawAltitude(double altitude, float downSpeed, const float color[4]);
+    void drawAltitude(double altitude, float groundDistance, float downSpeed, const float color[4]);
     void drawSpeed(float horizontalSpeed, const float color[4]);
+    void drawControllerRadar(double distance, double bearing, float controllerYaw, float droneYaw, float controllerRadarAngle, const float color[4]);
+    void drawRecordTimeline(uint64_t currentTime, uint64_t duration, const float color[4]);
+    void drawRecordingStatus(uint64_t recordingDuration, const float color[4]);
     void drawFlightPathVector(const euler_t *frame, float speedTheta, float speedPsi, const float color[4]);
     void drawPositionPin(const euler_t *frame, double bearing, double elevation, const float color[4]);
 
@@ -135,10 +166,17 @@ private:
     GLint mTexColorHandle;
 
     float mHudCentralZoneSize;
-    float mHudHeadingZoneOffset;
-    float mHudRollZoneOffset;
-    float mHudVuMeterZoneOffset;
+    float mHudHeadingZoneVOffset;
+    float mHudRollZoneVOffset;
+    float mHudVuMeterZoneHOffset;
     float mHudVuMeterVInterval;
+    float mHudRightZoneHOffset;
+    float mHudRadarZoneHOffset;
+    float mHudRadarZoneVOffset;
+    float mTextSize;
+    float mSmallIconSize;
+    float mMediumIconSize;
+    float mHudScale;
     float mHfov;
     float mVfov;
     float mScaleW;

@@ -352,7 +352,7 @@ int VideoCoreEglRenderer::render(int timeout)
         if ((ret == 0) && (mGles2Hud))
         {
             ret = mGles2Hud->renderHud(data->width * data->sarWidth, data->height * data->sarHeight,
-                            mRenderWidth, mRenderHeight, &data->metadata, mHeadtracking);
+                            mRenderWidth, mRenderHeight, &data->metadata, mHmdDistorsionCorrection, mHeadtracking);
             if (ret != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to render frame");
