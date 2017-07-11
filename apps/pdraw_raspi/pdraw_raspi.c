@@ -213,7 +213,7 @@ static void summary(struct pdraw_app* app, int afterBrowse)
         if (!app->receiveStream) printf(" (start stream only)");
         printf("\n\n");
     }
-    else if ((app->receiveStream) && (app->url))
+    else if ((app->receiveStream) && (strlen(app->url)))
     {
         printf("Streaming from URL '%s'\n\n", app->url);
     }
@@ -1162,7 +1162,7 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        if ((app->receiveStream) && (app->url))
+        if ((app->receiveStream) && (strlen(app->url)))
         {
             ret = pdraw_open_url(app->pdraw, app->url);
         }
