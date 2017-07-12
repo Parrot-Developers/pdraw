@@ -195,7 +195,7 @@ int RecordDemuxer::fetchSessionMetadata()
     char **values = NULL, *value;
 
     int ret = mp4_demux_get_metadata_strings(mDemux, &count, &keys, &values);
-    if ((ret != 0) || (count <= 0))
+    if (ret != 0)
     {
         ULOGE("RecordDemuxer: mp4_demux_get_metadata_strings() failed (%d)", ret);
         return -1;
