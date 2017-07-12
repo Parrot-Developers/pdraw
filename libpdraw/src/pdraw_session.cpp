@@ -38,6 +38,7 @@
 
 #include <math.h>
 #include <string.h>
+#include <algorithm>
 
 #include "pdraw_session.hpp"
 #include "pdraw_media_video.hpp"
@@ -96,6 +97,7 @@ int Session::open(const std::string &url)
     int ret = 0;
 
     std::string ext = url.substr(url.length() - 4, 4);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     if ((url.front() == '/') && (ext == ".mp4"))
     {
         mSessionType = PDRAW_SESSION_TYPE_RECORD;
