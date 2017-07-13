@@ -266,7 +266,6 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        sleep(1);
         int err = rtsp_client_options(mRtspClient);
         if (err)
         {
@@ -277,7 +276,6 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        sleep(1);
         int err = rtsp_client_describe(mRtspClient, &sdpStr);
         if (err)
         {
@@ -328,7 +326,6 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        sleep(1);
         int err = rtsp_client_setup(mRtspClient, mediaUrl, STREAM_DEMUXER_DEFAULT_DST_STREAM_PORT,
             STREAM_DEMUXER_DEFAULT_DST_CONTROL_PORT, &serverStreamPort, &serverControlPort);
         if (err)
@@ -409,7 +406,6 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        sleep(1);
         int err = rtsp_client_play(mRtspClient);
         if (err)
         {
