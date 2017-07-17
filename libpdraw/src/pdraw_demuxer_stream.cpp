@@ -67,6 +67,7 @@ StreamDemuxer::StreamDemuxer(Session *session)
     mLoop = NULL;
     mLoopThreadLaunched = false;
     mThreadShouldStop = false;
+    mRtspRunning = false;
     mRtspClient = NULL;
     mStreamReceiver = NULL;
     mStreamNetworkThreadLaunched = false;
@@ -411,6 +412,10 @@ int StreamDemuxer::configure(const std::string &url)
         {
             ULOGE("StreamDemuxer: rtsp_client_play() failed");
             ret = -1;
+        }
+        else
+        {
+            mRtspRunning = true;
         }
     }
 
@@ -775,13 +780,17 @@ int StreamDemuxer::stop()
 
     int ret = 0;
 
-    if ((ret == 0) && (mRtspClient))
+    if ((ret == 0) && (mRtspClient) && (mRtspRunning))
     {
         int err = rtsp_client_teardown(mRtspClient);
         if (err)
         {
             ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
             ret = -1;
+        }
+        else
+        {
+            mRtspRunning = false;
         }
     }
 

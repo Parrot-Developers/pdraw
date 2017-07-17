@@ -145,6 +145,7 @@ private:
     pthread_t mLoopThread;
     bool mLoopThreadLaunched;
     bool mThreadShouldStop;
+    bool mRtspRunning;
     struct rtsp_client *mRtspClient;
     pthread_t mStreamNetworkThread;
     bool mStreamNetworkThreadLaunched;
