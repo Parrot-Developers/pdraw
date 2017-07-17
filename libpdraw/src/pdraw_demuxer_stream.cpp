@@ -242,6 +242,17 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
+        const char *userAgent = selfMeta->getSoftwareVersion().c_str();
+        mRtspClient = rtsp_client_new(url.c_str(), userAgent, mLoop);
+        if (!mRtspClient)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_new() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
         int thErr = pthread_create(&mLoopThread, NULL, runLoopThread, (void*)this);
         if (thErr != 0)
         {
@@ -251,17 +262,6 @@ int StreamDemuxer::configure(const std::string &url)
         else
         {
             mLoopThreadLaunched = true;
-        }
-    }
-
-    if (ret == 0)
-    {
-        const char *userAgent = selfMeta->getSoftwareVersion().c_str();
-        mRtspClient = rtsp_client_new(url.c_str(), userAgent, mLoop);
-        if (!mRtspClient)
-        {
-            ULOGE("StreamDemuxer: rtsp_client_new() failed");
-            ret = -1;
         }
     }
 
