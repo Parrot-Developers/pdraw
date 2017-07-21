@@ -390,8 +390,8 @@ int RecordDemuxer::configure(const std::string &url)
         }
 
         int i, tkCount = 0, found = 0;
-        mp4_media_info_t info;
-        mp4_track_info_t tk;
+        struct mp4_media_info info;
+        struct mp4_track_info tk;
 
         ret = mp4_demux_get_media_info(mDemux, &info);
         if (ret == 0)
@@ -701,7 +701,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
         {
             uint8_t *spsBuffer = NULL, *ppsBuffer = NULL;
             unsigned int spsSize = 0, ppsSize = 0;
-            mp4_track_sample_t sample;
+            struct mp4_track_sample sample;
             int ret;
 
             if (demuxer->mFirstFrame)
