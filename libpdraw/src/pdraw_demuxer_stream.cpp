@@ -300,8 +300,8 @@ int StreamDemuxer::configure(const std::string &url)
         }
         else
         {
-            struct sdp_media *media;
-            for (media = sdp->media; media; media = media->next)
+            struct sdp_media *media = NULL;
+            list_walk_entry_forward(&sdp->medias, media, node)
             {
                 if ((media->type == SDP_MEDIA_TYPE_VIDEO) &&
                     (media->controlUrl))
