@@ -304,9 +304,9 @@ int StreamDemuxer::configure(const std::string &url)
             list_walk_entry_forward(&sdp->medias, media, node)
             {
                 if ((media->type == SDP_MEDIA_TYPE_VIDEO) &&
-                    (media->controlUrl))
+                    (media->control_url))
                 {
-                    mediaUrl = strdup(media->controlUrl);
+                    mediaUrl = strdup(media->control_url);
                     break;
                 }
             }
@@ -315,7 +315,7 @@ int StreamDemuxer::configure(const std::string &url)
                 ULOGE("StreamDemuxer: failed to get media control URL");
                 ret = -1;
             }
-            serverAddr = (strncmp(sdp->connectionAddr, "0.0.0.0", 7)) ? strdup(sdp->connectionAddr) : strdup(sdp->serverAddr);
+            serverAddr = (strncmp(sdp->connection_addr, "0.0.0.0", 7)) ? strdup(sdp->connection_addr) : strdup(sdp->server_addr);
             if (!serverAddr)
             {
                 ULOGE("StreamDemuxer: failed to get server address");
