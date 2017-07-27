@@ -242,7 +242,7 @@ static void summary(struct pdraw_app* app, int afterBrowse)
 int main(int argc, char *argv[])
 {
     int failed = 0;
-    int idx, c, mouseDown = 0;
+    int idx, c, mouseDown = 0, isRecording = 0;
     int mouseDownX = 0, mouseDownY = 0;
     pdraw_euler_t mouseDownHeadOrientation;
     uint64_t lastRenderTime = 0;
@@ -674,6 +674,34 @@ int main(int argc, char *argv[])
                             if (ret != 0)
                             {
                                 ULOGW("pdraw_seek_to() failed (%d)", ret);
+                            }
+                            break;
+                        }
+                        case SDLK_r:
+                        {
+                            if (!isRecording)
+                            {
+                                int ret = pdraw_start_recorder(app->pdraw, "record.mp4");
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_start_recorder() failed (%d)", ret);
+                                }
+                                else
+                                {
+                                    isRecording = 1;
+                                }
+                            }
+                            else
+                            {
+                                int ret = pdraw_stop_recorder(app->pdraw);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_stop_recorder() failed (%d)", ret);
+                                }
+                                else
+                                {
+                                    isRecording = 0;
+                                }
                             }
                             break;
                         }
