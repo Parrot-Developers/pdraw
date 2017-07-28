@@ -40,7 +40,19 @@
 #define _PDRAW_SETTINGS_HPP_
 
 #include <inttypes.h>
+#include <math.h>
 #include <pdraw/pdraw_defs.h>
+
+
+#define SETTINGS_HUD_CONTROLLER_RADAR_ANGLE     (M_PI / 3.)
+#define SETTINGS_DISPLAY_XDPI                   (200.0f)
+#define SETTINGS_DISPLAY_YDPI                   (200.0f)
+#define SETTINGS_DISPLAY_DEVICE_MARGIN          (4.0f)
+#define SETTINGS_HMD_IPD                        (63.0f)
+#define SETTINGS_HMD_SCALE                      (0.75f)
+#define SETTINGS_HMD_PAN_H                      (0.0f)
+#define SETTINGS_HMD_PAN_V                      (0.0f)
+
 
 namespace Pdraw
 {
@@ -66,9 +78,9 @@ public:
 private:
 
     float mControllerRadarAngle;
-    float mHmdXdpi;
-    float mHmdYdpi;
-    float mHmdDeviceMargin;
+    float mDisplayXdpi;
+    float mDisplayYdpi;
+    float mDisplayDeviceMargin;
     pdraw_hmd_model_t mHmdModel;
     float mHmdIpd;
     float mHmdScale;

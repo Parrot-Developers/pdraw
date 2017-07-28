@@ -53,17 +53,8 @@
 #endif
 
 #include <pdraw/pdraw_defs.h>
+#include "pdraw_settings.hpp"
 
-
-#define GLES2_HMD_INCH_TO_MILLIMETER     (25.4f)
-#define GLES2_HMD_OFFSET                 (34.66f)
-#define GLES2_HMD_DEFAULT_XDPI           (200.0f)
-#define GLES2_HMD_DEFAULT_YDPI           (200.0f)
-#define GLES2_HMD_DEFAULT_DEVICE_MARGIN  (4.0f)
-#define GLES2_HMD_DEFAULT_IPD            (63.0f)
-#define GLES2_HMD_DEFAULT_SCALE          (0.75f)
-#define GLES2_HMD_DEFAULT_PAN_H          (0.0f)
-#define GLES2_HMD_DEFAULT_PAN_V          (0.0f)
 
 #define GLES2_HMD_TEX_UNIT_COUNT 1
 
@@ -127,10 +118,10 @@ public:
 
     Gles2Hmd(unsigned int firstTexUnit, unsigned int width, unsigned int height,
             pdraw_hmd_model_t hmdModel = PDRAW_HMD_MODEL_UNKNOWN,
-            float xdpi = GLES2_HMD_DEFAULT_XDPI, float ydpi = GLES2_HMD_DEFAULT_YDPI,
-            float deviceMargin = GLES2_HMD_DEFAULT_DEVICE_MARGIN,
-            float ipd = GLES2_HMD_DEFAULT_IPD, float scale = GLES2_HMD_DEFAULT_SCALE,
-            float panH = GLES2_HMD_DEFAULT_PAN_H, float panV = GLES2_HMD_DEFAULT_PAN_V);
+            float xdpi = SETTINGS_DISPLAY_XDPI, float ydpi = SETTINGS_DISPLAY_YDPI,
+            float deviceMargin = SETTINGS_DISPLAY_DEVICE_MARGIN,
+            float ipd = SETTINGS_HMD_IPD, float scale = SETTINGS_HMD_SCALE,
+            float panH = SETTINGS_HMD_PAN_H, float panV = SETTINGS_HMD_PAN_V);
 
     ~Gles2Hmd();
 

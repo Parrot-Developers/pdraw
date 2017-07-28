@@ -84,7 +84,6 @@
 
 #define GLES2_HUD_DEFAULT_HFOV                      (78.)
 #define GLES2_HUD_DEFAULT_VFOV                      (49.)
-#define GLES2_HUD_DEFAULT_CONTROLLER_RADAR_ANGLE    (M_PI / 3.)
 
 
 namespace Pdraw

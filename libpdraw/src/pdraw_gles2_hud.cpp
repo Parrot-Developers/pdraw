@@ -441,7 +441,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     mAspectRatio = windowAR;
     mVideoAspectRatio = videoAR;
 
-    float controllerRadarAngle = GLES2_HUD_DEFAULT_CONTROLLER_RADAR_ANGLE;
+    float controllerRadarAngle = SETTINGS_HUD_CONTROLLER_RADAR_ANGLE;
     float hFov = 0.;
     float vFov = 0.;
     if (mMedia)

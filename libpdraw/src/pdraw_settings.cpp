@@ -37,8 +37,6 @@
  */
 
 #include "pdraw_settings.hpp"
-#include "pdraw_gles2_hmd.hpp"
-#include "pdraw_gles2_hud.hpp"
 
 
 namespace Pdraw
@@ -47,15 +45,15 @@ namespace Pdraw
 
 Settings::Settings()
 {
-    mControllerRadarAngle = GLES2_HUD_DEFAULT_CONTROLLER_RADAR_ANGLE;
-    mHmdXdpi = GLES2_HMD_DEFAULT_XDPI;
-    mHmdYdpi = GLES2_HMD_DEFAULT_YDPI;
-    mHmdDeviceMargin = GLES2_HMD_DEFAULT_DEVICE_MARGIN;
+    mControllerRadarAngle = SETTINGS_HUD_CONTROLLER_RADAR_ANGLE;
+    mDisplayXdpi = SETTINGS_DISPLAY_XDPI;
+    mDisplayYdpi = SETTINGS_DISPLAY_YDPI;
+    mDisplayDeviceMargin = SETTINGS_DISPLAY_DEVICE_MARGIN;
     mHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
-    mHmdIpd = GLES2_HMD_DEFAULT_IPD;
-    mHmdScale = GLES2_HMD_DEFAULT_SCALE;
-    mHmdPanH = GLES2_HMD_DEFAULT_PAN_H;
-    mHmdPanV = GLES2_HMD_DEFAULT_PAN_V;
+    mHmdIpd = SETTINGS_HMD_IPD;
+    mHmdScale = SETTINGS_HMD_SCALE;
+    mHmdPanH = SETTINGS_HMD_PAN_H;
+    mHmdPanV = SETTINGS_HMD_PAN_V;
 }
 
 
@@ -68,19 +66,19 @@ Settings::~Settings()
 void Settings::getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin)
 {
     if (xdpi)
-        *xdpi = mHmdXdpi;
+        *xdpi = mDisplayXdpi;
     if (ydpi)
-        *ydpi = mHmdYdpi;
+        *ydpi = mDisplayYdpi;
     if (deviceMargin)
-        *deviceMargin = mHmdDeviceMargin;
+        *deviceMargin = mDisplayDeviceMargin;
 }
 
 
 void Settings::setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin)
 {
-    mHmdXdpi = xdpi;
-    mHmdYdpi = ydpi;
-    mHmdDeviceMargin = deviceMargin;
+    mDisplayXdpi = xdpi;
+    mDisplayYdpi = ydpi;
+    mDisplayDeviceMargin = deviceMargin;
 }
 
 

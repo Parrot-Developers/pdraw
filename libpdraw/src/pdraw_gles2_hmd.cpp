@@ -48,6 +48,10 @@
 #include <ulog.h>
 
 
+#define GLES2_HMD_INCH_TO_MILLIMETER     (25.4f)
+#define GLES2_HMD_OFFSET                 (34.66f)
+
+
 extern const float pdraw_gles2HmdCockpitGlassesColors[14884];
 extern const uint32_t pdraw_gles2HmdCockpitGlassesIndices[21600];
 extern const float pdraw_gles2HmdCockpitGlassesPositions[7442];
