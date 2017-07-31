@@ -84,6 +84,44 @@ StreamDemuxer::StreamDemuxer(Session *session)
     mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
     mSarWidth = mSarHeight = 0;
     mHfov = mVfov = 0.;
+
+    int ret = 0;
+    SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
+
+    if (ret == 0)
+    {
+        mLoop = pomp_loop_new();
+        if (!mLoop)
+        {
+            ULOGE("StreamDemuxer: pomp_loop_new() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        const char *userAgent = selfMeta->getSoftwareVersion().c_str();
+        mRtspClient = rtsp_client_new(userAgent, mLoop);
+        if (!mRtspClient)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_new() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int thErr = pthread_create(&mLoopThread, NULL, runLoopThread, (void*)this);
+        if (thErr != 0)
+        {
+            ULOGE("StreamDemuxer: loop thread creation failed (%d)", thErr);
+            ret = -1;
+        }
+        else
+        {
+            mLoopThreadLaunched = true;
+        }
+    }
 }
 
 
@@ -116,9 +154,12 @@ StreamDemuxer::~StreamDemuxer()
         mCurrentBuffer->unref();
 
     if (mRtspClient) {
-        ret = rtsp_client_destroy(mRtspClient);
-        if (ret != 0)
-            ULOGE("StreamDemuxer: rtsp_client_destroy() failed");
+        do {
+            ret = rtsp_client_destroy(mRtspClient);
+            if ((ret != 0) && (ret != -EBUSY))
+                ULOGE("StreamDemuxer: rtsp_client_destroy() failed");
+            usleep(1000);
+        } while (ret == -EBUSY);
     }
 
     if (mStreamReceiver)
@@ -232,42 +273,7 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        mLoop = pomp_loop_new();
-        if (!mLoop)
-        {
-            ULOGE("StreamDemuxer: pomp_loop_new() failed");
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        const char *userAgent = selfMeta->getSoftwareVersion().c_str();
-        mRtspClient = rtsp_client_new(url.c_str(), userAgent, mLoop);
-        if (!mRtspClient)
-        {
-            ULOGE("StreamDemuxer: rtsp_client_new() failed");
-            ret = -1;
-        }
-    }
-
-    if (ret == 0)
-    {
-        int thErr = pthread_create(&mLoopThread, NULL, runLoopThread, (void*)this);
-        if (thErr != 0)
-        {
-            ULOGE("StreamDemuxer: loop thread creation failed (%d)", thErr);
-            ret = -1;
-        }
-        else
-        {
-            mLoopThreadLaunched = true;
-        }
-    }
-
-    if (ret == 0)
-    {
-        int err = rtsp_client_options(mRtspClient);
+        int err = rtsp_client_connect(mRtspClient, url.c_str());
         if (err)
         {
             ULOGE("StreamDemuxer: rtsp_client_options() failed");
@@ -277,7 +283,17 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        int err = rtsp_client_describe(mRtspClient, &sdpStr);
+        int err = rtsp_client_options(mRtspClient, 2000);
+        if (err)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_options() failed");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        int err = rtsp_client_describe(mRtspClient, &sdpStr, 2000);
         if (err)
         {
             ULOGE("StreamDemuxer: rtsp_client_describe() failed");
@@ -328,7 +344,7 @@ int StreamDemuxer::configure(const std::string &url)
     if (ret == 0)
     {
         int err = rtsp_client_setup(mRtspClient, mediaUrl, STREAM_DEMUXER_DEFAULT_DST_STREAM_PORT,
-            STREAM_DEMUXER_DEFAULT_DST_CONTROL_PORT, &serverStreamPort, &serverControlPort);
+            STREAM_DEMUXER_DEFAULT_DST_CONTROL_PORT, &serverStreamPort, &serverControlPort, 2000);
         if (err)
         {
             ULOGE("StreamDemuxer: rtsp_client_setup() failed");
@@ -407,7 +423,7 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        int err = rtsp_client_play(mRtspClient);
+        int err = rtsp_client_play(mRtspClient, 2000);
         if (err)
         {
             ULOGE("StreamDemuxer: rtsp_client_play() failed");
@@ -782,10 +798,17 @@ int StreamDemuxer::stop()
 
     if ((ret == 0) && (mRtspClient) && (mRtspRunning))
     {
-        int err = rtsp_client_teardown(mRtspClient);
+        int err = rtsp_client_teardown(mRtspClient, 2000);
         if (err)
         {
             ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
+            ret = -1;
+        }
+
+        err = rtsp_client_disconnect(mRtspClient);
+        if (err)
+        {
+            ULOGE("StreamDemuxer: rtsp_client_disconnect() failed");
             ret = -1;
         }
         else
