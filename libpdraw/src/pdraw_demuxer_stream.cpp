@@ -50,6 +50,12 @@
 #define ULOG_TAG libpdraw
 #include <ulog.h>
 
+#ifdef ANDROID
+#define STREAM_DEMUXER_DEBUG_PATH "/sdcard/pdraw/streamdebug"
+#else
+#define STREAM_DEMUXER_DEBUG_PATH "./streamdebug"
+#endif
+
 #define STREAM_DEMUXER_SESSION_METADATA_FETCH_INTERVAL 1000000
 
 #define STREAM_DEMUXER_DEFAULT_DST_STREAM_PORT 55004
@@ -381,7 +387,7 @@ int StreamDemuxer::configure(const std::string &url)
         streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
         streamReceiverConfig.generateSkippedPSlices = 1;
         streamReceiverConfig.generateFirstGrayIFrame = 1;
-        streamReceiverConfig.debugPath = "./streamdebug";
+        streamReceiverConfig.debugPath = STREAM_DEMUXER_DEBUG_PATH;
 
         err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver, &streamReceiverConfig, &streamReceiverNetConfig, NULL);
         if (err != ARSTREAM2_OK)
@@ -494,7 +500,7 @@ int StreamDemuxer::configure(const std::string &srcAddr,
         streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
         streamReceiverConfig.generateSkippedPSlices = 1;
         streamReceiverConfig.generateFirstGrayIFrame = 1;
-        streamReceiverConfig.debugPath = "./streamdebug";
+        streamReceiverConfig.debugPath = STREAM_DEMUXER_DEBUG_PATH;
 
         err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver, &streamReceiverConfig, &streamReceiverNetConfig, NULL);
         if (err != ARSTREAM2_OK)
@@ -580,7 +586,7 @@ int StreamDemuxer::configure(void *muxContext)
         streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
         streamReceiverConfig.generateSkippedPSlices = 1;
         streamReceiverConfig.generateFirstGrayIFrame = 1;
-        streamReceiverConfig.debugPath = "./streamdebug";
+        streamReceiverConfig.debugPath = STREAM_DEMUXER_DEBUG_PATH;
 
         err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver, &streamReceiverConfig, NULL, &streamReceiverMuxConfig);
         if (err != ARSTREAM2_OK)
