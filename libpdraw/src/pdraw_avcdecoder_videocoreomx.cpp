@@ -185,7 +185,7 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
 
                 /* Input buffers pool allocation */
                 mInputBufferPool = new BufferPool(def.nBufferCountActual, 0,
-                                                  sizeof(avc_decoder_input_buffer_t),
+                                                  sizeof(avc_decoder_input_buffer_t), 0,
                                                   NULL, NULL);
                 if (mInputBufferPool == NULL)
                 {
@@ -204,7 +204,7 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
 
     /* Output buffers pool allocation */
     mOutputBufferPool = new BufferPool(VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
-                                       sizeof(avc_decoder_output_buffer_t), NULL, NULL);
+                                       sizeof(avc_decoder_output_buffer_t), 0, NULL, NULL);
     if (mOutputBufferPool == NULL)
     {
         ULOGE("videoCoreOmx: failed to allocate decoder output buffers pool");
@@ -842,6 +842,7 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
         outputData = (avc_decoder_output_buffer_t*)outputBuffer->getMetadataPtr();
         if (outputData)
         {
+            outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
             struct timespec t1;
             clock_gettime(CLOCK_MONOTONIC, &t1);
             outputData->plane[0] = (uint8_t*)decoder->mCurrentEglImageIndex;
@@ -873,6 +874,28 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
                 {
                     outputData->hasMetadata = false;
                 }
+            }
+
+            /* User data */
+            unsigned int userDataSize = inputBuffer->getUserDataSize();
+            void *userData = inputBuffer->getUserDataPtr();
+            if ((userData) && (userDataSize > 0))
+            {
+                int ret = outputBuffer->setUserDataCapacity(userDataSize);
+                if (ret < (signed)userDataSize)
+                {
+                    ULOGE("ffmpeg: failed to realloc user data buffer");
+                }
+                else
+                {
+                    void *dstBuf = outputBuffer->getUserDataPtr();
+                    memcpy(dstBuf, userData, userDataSize);
+                    outputBuffer->setUserDataSize(userDataSize);
+                }
+            }
+            else
+            {
+                outputBuffer->setUserDataSize(0);
             }
 
             std::vector<BufferQueue*>::iterator q = decoder->mOutputBufferQueues.begin();

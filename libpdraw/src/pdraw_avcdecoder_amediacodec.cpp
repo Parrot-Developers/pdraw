@@ -189,7 +189,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
     if (ret == 0)
     {
         mInputBufferPool = new BufferPool(AMEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT, 0,
-                                          sizeof(avc_decoder_input_buffer_t),
+                                          sizeof(avc_decoder_input_buffer_t), 0,
                                           NULL, NULL); //TODO: number of buffers
         if (mInputBufferPool == NULL)
         {
@@ -213,7 +213,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
     if (ret == 0)
     {
         mOutputBufferPool = new BufferPool(AMEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
-                                           sizeof(avc_decoder_output_buffer_t),
+                                           sizeof(avc_decoder_output_buffer_t), 0,
                                            NULL, NULL); //TODO: number of buffers
         if (mOutputBufferPool == NULL)
         {
@@ -639,6 +639,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
         outputData = (avc_decoder_output_buffer_t*)outputBuffer->getMetadataPtr();
         if (outputData)
         {
+            outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
             struct timespec t1;
             clock_gettime(CLOCK_MONOTONIC, &t1);
             outputData->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
@@ -696,6 +697,28 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
                 {
                     outputData->hasMetadata = false;
                 }
+            }
+
+            /* User data */
+            unsigned int userDataSize = inputBuffer->getUserDataSize();
+            void *userData = inputBuffer->getUserDataPtr();
+            if ((userData) && (userDataSize > 0))
+            {
+                int ret = outputBuffer->setUserDataCapacity(userDataSize);
+                if (ret < (signed)userDataSize)
+                {
+                    ULOGE("ffmpeg: failed to realloc user data buffer");
+                }
+                else
+                {
+                    void *dstBuf = outputBuffer->getUserDataPtr();
+                    memcpy(dstBuf, userData, userDataSize);
+                    outputBuffer->setUserDataSize(userDataSize);
+                }
+            }
+            else
+            {
+                outputBuffer->setUserDataSize(0);
             }
 
             std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();

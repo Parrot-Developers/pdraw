@@ -46,6 +46,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <json-c/json.h>
+#include <video-metadata/vmeta.h>
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
@@ -129,6 +130,16 @@ RecordDemuxer::RecordDemuxer(Session *session)
     {
         ULOGE("RecordDemuxer: mutex creation failed (%d)", ret);
     }
+
+    struct h264_ctx_cbs h264_cbs;
+    memset(&h264_cbs, 0, sizeof(h264_cbs));
+    h264_cbs.userdata = this;
+    h264_cbs.sei_user_data_unregistered = &h264UserDataSeiCb;
+    ret = h264_reader_new(&h264_cbs, &mH264Reader);
+    if (ret < 0)
+    {
+        ULOGE("RecordDemuxer: h264_reader_new() failed (%d)", ret);
+    }
 }
 
 
@@ -150,6 +161,8 @@ RecordDemuxer::~RecordDemuxer()
 
     if (mDemux)
         mp4_demux_close(mDemux);
+    if (mH264Reader)
+        h264_reader_destroy(mH264Reader);
 
     free(mMetadataBuffer);
     free(mMetadataMimeType);
@@ -688,6 +701,39 @@ int RecordDemuxer::seekBack(uint64_t delta)
 }
 
 
+void RecordDemuxer::h264UserDataSeiCb(struct h264_ctx *ctx, const uint8_t *buf, size_t len,
+                                      const struct h264_sei_user_data_unregistered *sei, void *userdata)
+{
+    RecordDemuxer *demuxer = (RecordDemuxer*)userdata;
+    int ret = 0;
+
+    if (!demuxer)
+        return;
+    if ((!buf) || (len == 0))
+        return;
+    if (!demuxer->mCurrentBuffer)
+        return;
+
+    /* ignore "Parrot Streaming" v1 and v2 user data SEI */
+    if ((vmeta_h264_sei_streaming_is_v1(sei->uuid)) || (vmeta_h264_sei_streaming_is_v2(sei->uuid)))
+    {
+        ULOGI("RecordDemuxer: Parrot Streaming user data SEI => ignored");
+        return;
+    }
+
+    ret = demuxer->mCurrentBuffer->setUserDataCapacity(len);
+    if (ret < (signed)len)
+    {
+        ULOGE("RecordDemuxer: failed to realloc user data buffer");
+        return;
+    }
+
+    void *dstBuf = demuxer->mCurrentBuffer->getUserDataPtr();
+    memcpy(dstBuf, buf, len);
+    demuxer->mCurrentBuffer->setUserDataSize(len);
+}
+
+
 void* RecordDemuxer::runDemuxerThread(void *ptr)
 {
     RecordDemuxer *demuxer = (RecordDemuxer*)ptr;
@@ -779,20 +825,38 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                 if ((ret == 0) && (sample.sample_size))
                 {
                     demuxer->mCurrentBuffer->setSize(sample.sample_size);
+                    demuxer->mCurrentBuffer->setUserDataSize(0);
 
                     /* Fix the H.264 bitstream: replace NALU size by byte stream start codes */
                     uint32_t offset = 0, naluSize, naluCount = 0;
                     uint8_t *_buf = buf;
+                    uint8_t *seiNalu = NULL;
+                    int seiNaluSize = 0;
                     while (offset < sample.sample_size)
                     {
                         naluSize = ntohl(*((uint32_t*)_buf));
                         *((uint32_t*)_buf) = htonl(0x00000001);
+                        if (*(_buf + 4) == 0x06)
+                        {
+                            seiNalu = _buf + 4;
+                            seiNaluSize = naluSize;
+                        }
                         _buf += 4 + naluSize;
                         offset += 4 + naluSize;
                         naluCount++;
                     }
 
+                    if ((seiNalu) && (seiNaluSize))
+                    {
+                        ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, seiNalu, seiNaluSize);
+                        if (ret < 0)
+                        {
+                            ULOGW("RecordDemuxer: h264_reader_parse_nalu() failed (%d)", ret);
+                        }
+                    }
+
                     avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)demuxer->mCurrentBuffer->getMetadataPtr();
+                    demuxer->mCurrentBuffer->setMetadataSize(sizeof(avc_decoder_input_buffer_t));
                     data->isComplete = true; //TODO?
                     data->hasErrors = false; //TODO?
                     data->isRef = true; //TODO?

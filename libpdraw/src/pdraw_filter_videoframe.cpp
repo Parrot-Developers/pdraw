@@ -46,6 +46,9 @@
 #include <ulog.h>
 
 
+#define VIDEO_FRAME_FILTER_USER_DATA_ALLOC_SIZE 1024
+
+
 namespace Pdraw
 {
 
@@ -67,6 +70,10 @@ VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw
     mUserPtr = userPtr;
     mBuffer[0] = NULL;
     mBuffer[1] = NULL;
+    mUserData[0] = NULL;
+    mUserData[1] = NULL;
+    mUserDataBuferSize[0] = 0;
+    mUserDataBuferSize[1] = 0;
     mBufferIndex = 0;
     mColorFormat = PDRAW_COLOR_FORMAT_UNKNOWN;
     mWidth = 0;
@@ -164,6 +171,8 @@ VideoFrameFilter::~VideoFrameFilter()
 
     free(mBuffer[0]);
     free(mBuffer[1]);
+    free(mUserData[0]);
+    free(mUserData[1]);
 
     pthread_mutex_destroy(&mMutex);
 }
@@ -271,6 +280,8 @@ void* VideoFrameFilter::runThread(void *ptr)
                 frame.auNtpTimestampLocal = data->auNtpTimestampLocal;
                 frame.hasMetadata = (data->hasMetadata) ? 1 : 0;
                 memcpy(&frame.metadata, &data->metadata, sizeof(frame.metadata));
+                frame.userData = (uint8_t *)buffer->getUserDataPtr();
+                frame.userDataSize = buffer->getUserDataSize();
 
                 if (filter->mCb)
                 {
@@ -369,6 +380,33 @@ void* VideoFrameFilter::runThread(void *ptr)
                         }
 
                         memcpy(&filter->mBufferData[filter->mBufferIndex ^ 1], &frame, sizeof(frame));
+
+                        /* user data */
+                        if ((frame.userData) && (frame.userDataSize))
+                        {
+                            if (frame.userDataSize > filter->mUserDataBuferSize[filter->mBufferIndex ^ 1])
+                            {
+                                unsigned int size = (frame.userDataSize + VIDEO_FRAME_FILTER_USER_DATA_ALLOC_SIZE - 1) & (~(VIDEO_FRAME_FILTER_USER_DATA_ALLOC_SIZE - 1));
+                                uint8_t *tmp = (uint8_t *)realloc(filter->mUserData[filter->mBufferIndex ^ 1], size);
+                                if (tmp)
+                                {
+                                    filter->mUserData[filter->mBufferIndex ^ 1] = tmp;
+                                    filter->mUserDataBuferSize[filter->mBufferIndex ^ 1] = size;
+                                }
+                            }
+                            if (frame.userDataSize <= filter->mUserDataBuferSize[filter->mBufferIndex ^ 1])
+                            {
+                                memcpy(filter->mUserData[filter->mBufferIndex ^ 1], frame.userData, frame.userDataSize);
+                                filter->mBufferData[filter->mBufferIndex ^ 1].userData = filter->mUserData[filter->mBufferIndex ^ 1];
+                                filter->mBufferData[filter->mBufferIndex ^ 1].userDataSize = frame.userDataSize;
+                            }
+                            else
+                            {
+                                filter->mBufferData[filter->mBufferIndex ^ 1].userData = NULL;
+                                filter->mBufferData[filter->mBufferIndex ^ 1].userDataSize = 0;
+                            }
+                        }
+
                         filter->mFrameAvailable = true;
                         pthread_mutex_unlock(&filter->mMutex);
                         pthread_cond_signal(&filter->mCondition);

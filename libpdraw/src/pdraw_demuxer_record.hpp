@@ -42,6 +42,7 @@
 #include <pthread.h>
 
 #include <libmp4.h>
+#include <h264/h264.h>
 
 #include "pdraw_demuxer.hpp"
 #include "pdraw_avcdecoder.hpp"
@@ -106,6 +107,9 @@ private:
 
     int fetchSessionMetadata();
 
+    static void h264UserDataSeiCb(struct h264_ctx *ctx, const uint8_t *buf, size_t len,
+                                  const struct h264_sei_user_data_unregistered *sei, void *userdata);
+
     static void* runDemuxerThread(void *ptr);
 
     std::string mFileName;
@@ -138,6 +142,7 @@ private:
     unsigned int mSarHeight;
     float mHfov;
     float mVfov;
+    struct h264_reader *mH264Reader;
 };
 
 }

@@ -246,6 +246,8 @@ typedef struct
     uint64_t auNtpTimestampLocal;
     int hasMetadata;
     pdraw_video_frame_metadata_t metadata;
+    uint8_t *userData;
+    unsigned int userDataSize;
 
 } pdraw_video_frame_t;
 

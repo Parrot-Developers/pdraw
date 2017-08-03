@@ -51,7 +51,8 @@ Buffer::Buffer(BufferPool *bufferPool,
                void *userPtr,
                uint8_t *preallocBuf,
                unsigned int capacity,
-               unsigned int metadataSize,
+               unsigned int metadataBufferCapacity,
+               unsigned int userDataBufferCapacity,
                int(*bufferCreationCb)(Buffer *buffer),
                int(*bufferDeletionCb)(Buffer *buffer))
 {
@@ -66,7 +67,10 @@ Buffer::Buffer(BufferPool *bufferPool,
     mPtr = preallocBuf;
     mResPtr = NULL;
     mMetadataPtr = NULL;
-    mMetadataSize = metadataSize;
+    mMetadataCapacity = metadataBufferCapacity;
+    mMetadataSize = 0;
+    mUserDataCapacity = userDataBufferCapacity;
+    mUserDataSize = 0;
 
     if ((mAlloc) && (mCapacity > 0))
     {
@@ -77,12 +81,21 @@ Buffer::Buffer(BufferPool *bufferPool,
         }
     }
 
-    if (mMetadataSize)
+    if (mMetadataCapacity)
     {
-        mMetadataPtr = (void*)malloc(mMetadataSize);
+        mMetadataPtr = (void*)malloc(mMetadataCapacity);
         if (mMetadataPtr == NULL)
         {
-            ULOGE("Buffer: metadata allocation failed (size %d)", mMetadataSize);
+            ULOGE("Buffer: metadata allocation failed (size %d)", mMetadataCapacity);
+        }
+    }
+
+    if (mUserDataCapacity)
+    {
+        mUserDataPtr = (void*)malloc(mUserDataCapacity);
+        if (mUserDataPtr == NULL)
+        {
+            ULOGE("Buffer: metadata allocation failed (size %d)", mUserDataCapacity);
         }
     }
 
@@ -115,6 +128,7 @@ Buffer::~Buffer()
     }
 
     free(mMetadataPtr);
+    free(mUserDataPtr);
     mMetadataPtr = NULL;
 }
 
@@ -195,9 +209,83 @@ void *Buffer::getMetadataPtr()
 }
 
 
+unsigned int Buffer::getMetadataCapacity()
+{
+    return mMetadataCapacity;
+}
+
+
+int Buffer::setMetadataCapacity(unsigned int capacity)
+{
+    if (capacity > mMetadataCapacity)
+    {
+        void *tmp = (void *)realloc(mMetadataPtr, capacity);
+        if (tmp != NULL)
+        {
+            mMetadataPtr = tmp;
+            mMetadataCapacity = capacity;
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    return (int)mMetadataCapacity;
+}
+
+
 unsigned int Buffer::getMetadataSize()
 {
     return mMetadataSize;
+}
+
+
+void Buffer::setMetadataSize(unsigned int size)
+{
+    mMetadataSize = size;
+}
+
+
+void *Buffer::getUserDataPtr()
+{
+    return mUserDataPtr;
+}
+
+
+unsigned int Buffer::getUserDataCapacity()
+{
+    return mUserDataCapacity;
+}
+
+
+int Buffer::setUserDataCapacity(unsigned int capacity)
+{
+    if (capacity > mUserDataCapacity)
+    {
+        void *tmp = (void *)realloc(mUserDataPtr, capacity);
+        if (tmp != NULL)
+        {
+            mUserDataPtr = tmp;
+            mUserDataCapacity = capacity;
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    return (int)mUserDataCapacity;
+}
+
+
+unsigned int Buffer::getUserDataSize()
+{
+    return mUserDataSize;
+}
+
+
+void Buffer::setUserDataSize(unsigned int size)
+{
+    mUserDataSize = size;
 }
 
 
@@ -221,7 +309,8 @@ void Buffer::setRefCount(unsigned int refCount)
 
 BufferPool::BufferPool(unsigned int bufferCount,
                        unsigned int bufferSize,
-                       unsigned int bufferMetadataSize,
+                       unsigned int metadataBufferSize,
+                       unsigned int userDataBufferSize,
                        int(*bufferCreationCb)(Buffer *buffer),
                        int(*bufferDeletionCb)(Buffer *buffer))
 {
@@ -237,7 +326,8 @@ BufferPool::BufferPool(unsigned int bufferCount,
     for (i = 0; i < mBuffers->size(); i++)
     {
         (*mBuffers)[i] = new Buffer(this, i, NULL, NULL, bufferSize,
-                                    bufferMetadataSize, bufferCreationCb, bufferDeletionCb); //TODO
+                                    metadataBufferSize, userDataBufferSize,
+                                    bufferCreationCb, bufferDeletionCb); //TODO
     }
 
     mPool = new std::queue<Buffer*>();

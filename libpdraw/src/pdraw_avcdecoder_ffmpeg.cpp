@@ -158,7 +158,7 @@ int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const
     {
         mInputBufferPool = new BufferPool(FFMPEG_AVC_DECODER_INPUT_BUFFER_COUNT,
                                           FFMPEG_AVC_DECODER_INPUT_BUFFER_SIZE,
-                                          sizeof(avc_decoder_input_buffer_t),
+                                          sizeof(avc_decoder_input_buffer_t), 0,
                                           NULL, NULL); //TODO: number of buffers and buffers size
         if (mInputBufferPool == NULL)
         {
@@ -182,7 +182,7 @@ int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const
     if (ret == 0)
     {
         mOutputBufferPool = new BufferPool(FFMPEG_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
-                                           sizeof(avc_decoder_output_buffer_t),
+                                           sizeof(avc_decoder_output_buffer_t), 0,
                                            outputBufferCreationCb, outputBufferDeletionCb); //TODO: number of buffers
         if (mOutputBufferPool == NULL)
         {
@@ -544,6 +544,7 @@ int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
             mSarWidth = (mCodecCtxH264->sample_aspect_ratio.num > 0) ? mCodecCtxH264->sample_aspect_ratio.num : 1;
             mSarHeight = (mCodecCtxH264->sample_aspect_ratio.den > 0) ? mCodecCtxH264->sample_aspect_ratio.den : 1;
         }
+        outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
         outputData->plane[0] = frame->data[0];
         outputData->plane[1] = frame->data[1];
         outputData->plane[2] = frame->data[2];
@@ -572,6 +573,28 @@ int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
         else
         {
             outputData->hasMetadata = false;
+        }
+
+        /* User data */
+        unsigned int userDataSize = inputBuffer->getUserDataSize();
+        void *userData = inputBuffer->getUserDataPtr();
+        if ((userData) && (userDataSize > 0))
+        {
+            int ret = outputBuffer->setUserDataCapacity(userDataSize);
+            if (ret < (signed)userDataSize)
+            {
+                ULOGE("ffmpeg: failed to realloc user data buffer");
+            }
+            else
+            {
+                void *dstBuf = outputBuffer->getUserDataPtr();
+                memcpy(dstBuf, userData, userDataSize);
+                outputBuffer->setUserDataSize(userDataSize);
+            }
+        }
+        else
+        {
+            outputBuffer->setUserDataSize(0);
         }
 
         return 0;

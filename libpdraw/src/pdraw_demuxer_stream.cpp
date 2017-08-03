@@ -1116,6 +1116,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
         struct timespec t1;
 
         buffer->setSize(auSize);
+        buffer->setMetadataSize(sizeof(avc_decoder_input_buffer_t));
         data->isComplete = (auMetadata->isComplete) ? true : false;
         data->hasErrors = (auMetadata->hasErrors) ? true : false;
         data->isRef = (auMetadata->isRef) ? true : false;
@@ -1131,6 +1132,26 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
         clock_gettime(CLOCK_MONOTONIC, &t1);
         uint64_t curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
         data->demuxOutputTimestamp = curTime;
+
+        /* User data */
+        if ((auMetadata->auUserData) && (auMetadata->auUserDataSize > 0))
+        {
+            err = buffer->setUserDataCapacity(auMetadata->auUserDataSize);
+            if (err < auMetadata->auUserDataSize)
+            {
+                ULOGE("StreamDemuxer: failed to realloc user data buffer");
+            }
+            else
+            {
+                void *dstBuf = buffer->getUserDataPtr();
+                memcpy(dstBuf, auMetadata->auUserData, auMetadata->auUserDataSize);
+                buffer->setUserDataSize(auMetadata->auUserDataSize);
+            }
+        }
+        else
+        {
+            buffer->setUserDataSize(0);
+        }
 
         //TODO: use auNtpTimestamp
         demuxer->mCurrentTime = auTimestamps->auNtpTimestampRaw;
@@ -1151,7 +1172,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
         err = demuxer->mDecoder->queueInputBuffer(buffer);
         if (err != 0)
         {
-            ULOGW("StreamDemuxer: failed to release the input buffer (%d)", ret);
+            ULOGW("StreamDemuxer: failed to release the input buffer (%d)", err);
         }
         else
         {

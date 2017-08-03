@@ -62,7 +62,8 @@ public:
            void *userPtr,
            uint8_t *preallocBuf,
            unsigned int capacity,
-           unsigned int metadataSize,
+           unsigned int metadataBufferCapacity,
+           unsigned int userDataBufferCapacity,
            int(*bufferCreationCb)(Buffer *buffer),
            int(*bufferDeletionCb)(Buffer *buffer));
 
@@ -94,7 +95,23 @@ public:
 
     void *getMetadataPtr();
 
+    unsigned int getMetadataCapacity();
+
+    int setMetadataCapacity(unsigned int capacity);
+
     unsigned int getMetadataSize();
+
+    void setMetadataSize(unsigned int size);
+
+    void *getUserDataPtr();
+
+    unsigned int getUserDataCapacity();
+
+    int setUserDataCapacity(unsigned int capacity);
+
+    unsigned int getUserDataSize();
+
+    void setUserDataSize(unsigned int size);
 
     void *getUserPtr();
 
@@ -117,7 +134,11 @@ private:
     void *mPtr;
     void *mResPtr;
     void *mMetadataPtr;
+    unsigned int mMetadataCapacity;
     unsigned int mMetadataSize;
+    void *mUserDataPtr;
+    unsigned int mUserDataCapacity;
+    unsigned int mUserDataSize;
 };
 
 
@@ -127,7 +148,8 @@ public:
 
     BufferPool(unsigned int bufferCount,
                unsigned int bufferSize,
-               unsigned int bufferMetadataSize,
+               unsigned int metadataBufferSize,
+               unsigned int userDataBufferSize,
                int(*bufferCreationCb)(Buffer *buffer),
                int(*bufferDeletionCb)(Buffer *buffer));
 
