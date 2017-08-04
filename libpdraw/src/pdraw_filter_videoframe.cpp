@@ -213,8 +213,8 @@ int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame, long waitUs)
         return -2;
     }
 
-    memcpy(frame, &mBufferData[mBufferIndex], sizeof(*frame));
     mBufferIndex ^= 1;
+    memcpy(frame, &mBufferData[mBufferIndex], sizeof(*frame));
 
     mFrameAvailable = false;
     pthread_mutex_unlock(&mMutex);
@@ -370,9 +370,8 @@ void* VideoFrameFilter::runThread(void *ptr)
 
                         memcpy(&filter->mBufferData[filter->mBufferIndex ^ 1], &frame, sizeof(frame));
                         filter->mFrameAvailable = true;
-                        pthread_cond_signal(&filter->mCondition);
-
                         pthread_mutex_unlock(&filter->mMutex);
+                        pthread_cond_signal(&filter->mCondition);
                     }
                 }
 
