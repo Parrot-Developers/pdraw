@@ -314,10 +314,10 @@ int StreamDemuxer::configure(const std::string &url)
 
     if (ret == 0)
     {
-        sdp = sdp_parse_session_description(sdpStr);
+        sdp = sdp_description_read(sdpStr);
         if (!sdp)
         {
-            ULOGE("StreamDemuxer: sdp_parse_session_description() failed");
+            ULOGE("StreamDemuxer: sdp_description_read() failed");
             ret = -1;
         }
         else
