@@ -83,6 +83,12 @@ int PdrawImpl::open(const std::string &url)
 }
 
 
+int PdrawImpl::open(const std::string &url, const std::string &ifaceAddr)
+{
+    return mSession.open(url, ifaceAddr);
+}
+
+
 int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
                     int srcStreamPort, int srcControlPort,
                     int dstStreamPort, int dstControlPort, int qosMode)
@@ -96,6 +102,12 @@ int PdrawImpl::open(const std::string &srcAddr, const std::string &ifaceAddr,
 int PdrawImpl::open(void *muxContext)
 {
     return mSession.open(muxContext);
+}
+
+
+int PdrawImpl::openSdp(const std::string &sdp, const std::string &ifaceAddr)
+{
+    return mSession.openSdp(sdp, ifaceAddr);
 }
 
 

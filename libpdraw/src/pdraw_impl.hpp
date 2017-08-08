@@ -63,6 +63,10 @@ public:
             (const std::string &url);
 
     int open
+            (const std::string &url,
+             const std::string &ifaceAddr);
+
+    int open
             (const std::string &srcAddr,
              const std::string &ifaceAddr,
              int srcStreamPort,
@@ -73,6 +77,10 @@ public:
 
     int open
             (void *muxContext);
+
+    int openSdp
+            (const std::string &sdp,
+             const std::string &ifaceAddr);
 
     int start(void);
 

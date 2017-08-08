@@ -94,6 +94,12 @@ Session::~Session()
 
 int Session::open(const std::string &url)
 {
+    return open(url, "");
+}
+
+
+int Session::open(const std::string &url, const std::string &ifaceAddr)
+{
     int ret = 0;
 
     std::string ext = url.substr(url.length() - 4, 4);
@@ -107,9 +113,20 @@ int Session::open(const std::string &url)
             ULOGE("Session: failed to alloc demuxer");
             ret = -1;
         }
+        else
+        {
+            ret = mDemuxer->configure(url);
+            if (ret != 0)
+            {
+                ULOGE("Session: failed to configure demuxer");
+                delete mDemuxer;
+                mDemuxer = NULL;
+                ret = -1;
+            }
+        }
     }
     else if (((url.front() == '/') && (ext == ".sdp")) ||
-                (url.substr(0, 7) == "http://") ||
+                ((url.substr(0, 7) == "http://") && (ext == ".sdp")) ||
                 (url.substr(0, 7) == "rtsp://"))
     {
         mSessionType = PDRAW_SESSION_TYPE_STREAM;
@@ -119,23 +136,22 @@ int Session::open(const std::string &url)
             ULOGE("Session: failed to alloc demuxer");
             ret = -1;
         }
+        else
+        {
+            ret = ((StreamDemuxer*)mDemuxer)->configure(url, ifaceAddr);
+            if (ret != 0)
+            {
+                ULOGE("Session: failed to configure demuxer");
+                delete mDemuxer;
+                mDemuxer = NULL;
+                ret = -1;
+            }
+        }
     }
     else
     {
         ULOGE("Session: unsupported URL");
         ret = -1;
-    }
-
-    if (ret == 0)
-    {
-        ret = mDemuxer->configure(url);
-        if (ret != 0)
-        {
-            ULOGE("Session: failed to configure demuxer");
-            delete mDemuxer;
-            mDemuxer = NULL;
-            ret = -1;
-        }
     }
 
     return (ret == 0) ? addMediaFromDemuxer() : ret;
@@ -194,6 +210,37 @@ int Session::open(void *muxContext)
     if (ret == 0)
     {
         ret = ((StreamDemuxer*)mDemuxer)->configure(muxContext);
+        if (ret != 0)
+        {
+            ULOGE("Session: failed to configure demuxer");
+            delete mDemuxer;
+            mDemuxer = NULL;
+            ret = -1;
+        }
+    }
+
+    return (ret == 0) ? addMediaFromDemuxer() : ret;
+}
+
+
+int Session::openSdp(const std::string &sdp, const std::string &ifaceAddr)
+{
+    int ret = 0;
+
+    if (ret == 0)
+    {
+        mSessionType = PDRAW_SESSION_TYPE_STREAM;
+        mDemuxer = new StreamDemuxer(this);
+        if (mDemuxer == NULL)
+        {
+            ULOGE("Session: failed to alloc demuxer");
+            ret = -1;
+        }
+    }
+
+    if (ret == 0)
+    {
+        ret = ((StreamDemuxer*)mDemuxer)->configureWithSdp(sdp, ifaceAddr);
         if (ret != 0)
         {
             ULOGE("Session: failed to configure demuxer");

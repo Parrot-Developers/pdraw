@@ -121,6 +121,13 @@ public class Pdraw {
         nativeOpenUrl(pdrawCtx, url);
     }
 
+    public void open(String url, String ifaceAddr) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeOpenUrlMcast(pdrawCtx, url, ifaceAddr);
+    }
+
     public void open(
         String srcAddr,
         String ifaceAddr,
@@ -144,6 +151,13 @@ public class Pdraw {
         Mux.Ref muxRef = mux.newMuxRef();
         nativeOpenMux(pdrawCtx, muxRef.getCPtr());
         muxRef.release();
+    }
+
+    public void openSdp(String sdp, String ifaceAddr) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeOpenSdp(pdrawCtx, sdp, ifaceAddr);
     }
 
     public void start() {
@@ -629,6 +643,11 @@ public class Pdraw {
         long pdrawCtx,
         String url);
 
+    private native int nativeOpenUrlMcast(
+        long pdrawCtx,
+        String url,
+        String ifaceAddr);
+
     private native int nativeOpenSingleStream(
         long pdrawCtx,
         String srcAddr,
@@ -642,6 +661,11 @@ public class Pdraw {
     private native int nativeOpenMux(
         long pdrawCtx,
         long mux);
+
+    private native int nativeOpenSdp(
+        long pdrawCtx,
+        String sdp,
+        String ifaceAddr);
 
     private native int nativeStart(
         long pdrawCtx);

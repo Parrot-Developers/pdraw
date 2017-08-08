@@ -68,12 +68,16 @@ public:
 
     int configure(const std::string &url);
 
+    int configure(const std::string &url, const std::string &ifaceAddr);
+
     int configure(const std::string &srcAddr,
                   const std::string &ifaceAddr,
                   int srcStreamPort, int srcControlPort,
                   int dstStreamPort, int dstControlPort, int qosMode);
 
     int configure(void *muxContext);
+
+    int configureWithSdp(const std::string &sdp, const std::string &ifaceAddr);
 
     int getElementaryStreamCount();
 
@@ -123,6 +127,14 @@ public:
 private:
 
     static void fetchSessionMetadata(StreamDemuxer *demuxer);
+
+    int configureRtpAvp(const char *srcAddr, const char *mcastIfaceAddr,
+                        int srcStreamPort, int srcControlPort,
+                        int dstStreamPort, int dstControlPort);
+
+    int configureSdp(const char *sdp, const char *mcastIfaceAddr);
+
+    int configureRtsp(const char *url, const char *mcastIfaceAddr);
 
     static eARSTREAM2_ERROR h264FilterSpsPpsCallback(uint8_t *spsBuffer, int spsSize, uint8_t *ppsBuffer, int ppsSize, void *userPtr);
 

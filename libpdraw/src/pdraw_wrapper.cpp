@@ -84,6 +84,18 @@ int pdraw_open_url(struct pdraw *pdraw, const char *url)
 }
 
 
+int pdraw_open_url_mcast(struct pdraw *pdraw, const char *url, const char *ifaceAddr)
+{
+    if ((pdraw == NULL) || (url == NULL))
+    {
+        return -EINVAL;
+    }
+    std::string u(url);
+    std::string i(ifaceAddr);
+    return toPdraw(pdraw)->open(u, i);
+}
+
+
 int pdraw_open_single_stream(struct pdraw *pdraw, const char *srcAddr, const char *ifaceAddr,
                              int srcStreamPort, int srcControlPort,
                              int dstStreamPort, int dstControlPort, int qosMode)
@@ -106,6 +118,18 @@ int pdraw_open_mux(struct pdraw *pdraw, void *muxContext)
         return -EINVAL;
     }
     return toPdraw(pdraw)->open(muxContext);
+}
+
+
+int pdraw_open_sdp(struct pdraw *pdraw, const char *sdp, const char *ifaceAddr)
+{
+    if ((pdraw == NULL) || (sdp == NULL))
+    {
+        return -EINVAL;
+    }
+    std::string s(sdp);
+    std::string i(ifaceAddr);
+    return toPdraw(pdraw)->openSdp(s, i);
 }
 
 

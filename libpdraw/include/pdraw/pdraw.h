@@ -62,6 +62,12 @@ int pdraw_open_url
          const char *url);
 
 
+int pdraw_open_url_mcast
+        (struct pdraw *pdraw,
+         const char *url,
+         const char *ifaceAddr);
+
+
 int pdraw_open_single_stream
         (struct pdraw *pdraw,
          const char *srcAddr,
@@ -76,6 +82,12 @@ int pdraw_open_single_stream
 int pdraw_open_mux
         (struct pdraw *pdraw,
          void *muxContext);
+
+
+int pdraw_open_sdp
+        (struct pdraw *pdraw,
+         const char *sdp,
+         const char *ifaceAddr);
 
 
 int pdraw_start

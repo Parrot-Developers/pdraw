@@ -72,11 +72,15 @@ public:
 
     int open(const std::string &url);
 
+    int open(const std::string &url, const std::string &ifaceAddr);
+
     int open(const std::string &srcAddr, const std::string &ifaceAddr,
              int srcStreamPort, int srcControlPort,
              int dstStreamPort, int dstControlPort, int qosMode);
 
     int open(void *muxContext);
+
+    int openSdp(const std::string &sdp, const std::string &ifaceAddr);
 
     Media *addMedia(elementary_stream_type_t esType);
 

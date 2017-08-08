@@ -1164,7 +1164,7 @@ int startPdraw(struct pdraw_app *app)
     {
         if ((app->receiveStream) && (strlen(app->url)))
         {
-            ret = pdraw_open_url(app->pdraw, app->url);
+            ret = pdraw_open_url_mcast(app->pdraw, app->url, app->ifaceAddr);
         }
         else if (app->receiveStream)
         {
