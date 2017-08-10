@@ -760,6 +760,16 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                 }
                 else
                 {
+                    ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, spsBuffer, spsSize);
+                    if (ret < 0)
+                    {
+                        ULOGW("RecordDemuxer: h264_reader_parse_nalu() failed (%d)", ret);
+                    }
+                    ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, ppsBuffer, ppsSize);
+                    if (ret < 0)
+                    {
+                        ULOGW("RecordDemuxer: h264_reader_parse_nalu() failed (%d)", ret);
+                    }
                     ret = demuxer->mDecoder->configure(spsBuffer, (unsigned int)spsSize, ppsBuffer, (unsigned int)ppsSize);
                     if (ret != 0)
                     {
