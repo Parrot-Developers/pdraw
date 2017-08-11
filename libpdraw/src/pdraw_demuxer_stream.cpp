@@ -958,7 +958,7 @@ int StreamDemuxer::stop()
             ret = -1;
         }
 
-        err = rtsp_client_disconnect(mRtspClient);
+        err = rtsp_client_disconnect(mRtspClient, 2000);
         if (err)
         {
             ULOGE("StreamDemuxer: rtsp_client_disconnect() failed");
