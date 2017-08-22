@@ -46,7 +46,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <json-c/json.h>
-#include <video-metadata/vmeta.h>
+#include <video-streaming/vstrm.h>
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
@@ -715,7 +715,7 @@ void RecordDemuxer::h264UserDataSeiCb(struct h264_ctx *ctx, const uint8_t *buf, 
         return;
 
     /* ignore "Parrot Streaming" v1 and v2 user data SEI */
-    if ((vmeta_h264_sei_streaming_is_v1(sei->uuid)) || (vmeta_h264_sei_streaming_is_v2(sei->uuid)))
+    if ((vstrm_h264_sei_streaming_is_v1(sei->uuid)) || (vstrm_h264_sei_streaming_is_v2(sei->uuid)))
     {
         ULOGI("RecordDemuxer: Parrot Streaming user data SEI => ignored");
         return;

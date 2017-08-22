@@ -44,6 +44,7 @@ LOCAL_LIBRARIES := \
 	libulog \
 	libpomp \
 	libvideo-metadata \
+	libvideo-streaming \
 	libARStream2 \
 	libmp4 \
 	librtsp \

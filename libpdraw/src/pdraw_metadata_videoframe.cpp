@@ -51,7 +51,7 @@ namespace Pdraw
 {
 
 
-static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV1rec(const struct vmeta_frame_v1_recording *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->altitude;
     metadata->location.isValid = (meta->location.valid) ? 1 : 0;
@@ -124,7 +124,7 @@ static void mapFrameMetadataV1rec(const struct vmeta_v1_recording *meta, video_f
 }
 
 
-static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV1strmext(const struct vmeta_frame_v1_streaming_extended *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->altitude;
     metadata->location.isValid = (meta->location.valid) ? 1 : 0;
@@ -197,7 +197,7 @@ static void mapFrameMetadataV1strmext(const struct vmeta_v1_streaming_extended *
 }
 
 
-static void mapFrameMetadataV1strmbasic(const struct vmeta_v1_streaming_basic *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV1strmbasic(const struct vmeta_frame_v1_streaming_basic *meta, video_frame_metadata_t *metadata)
 {
     metadata->location.isValid = false;
     metadata->droneAttitude.phi = meta->droneAttitude.roll;
@@ -218,7 +218,7 @@ static void mapFrameMetadataV1strmbasic(const struct vmeta_v1_streaming_basic *m
 }
 
 
-static void mapFrameMetadataV2(const struct vmeta_v2 *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV2(const struct vmeta_frame_v2 *meta, video_frame_metadata_t *metadata)
 {
     metadata->groundDistance = meta->base.groundDistance;
     metadata->location.isValid = (meta->base.location.valid) ? 1 : 0;
@@ -333,9 +333,9 @@ bool VideoFrameMetadata::decodeMetadata(const void *metadataBuffer, unsigned int
                                         video_frame_metadata_source_t source, const char *mimeType, video_frame_metadata_t *metadata)
 {
     bool ret = false;
-    struct pomp_buffer *buf;
-    size_t pos = 0;
+    struct vmeta_buffer buf;
     int err;
+    struct vmeta_frame meta;
 
     if ((!metadataBuffer) || (!metadataSize) || (!metadata))
     {
@@ -343,73 +343,43 @@ bool VideoFrameMetadata::decodeMetadata(const void *metadataBuffer, unsigned int
     }
 
     memset(metadata, 0, sizeof(video_frame_metadata_t));
+    vmeta_buffer_set_cdata(&buf, (const uint8_t *)metadataBuffer, metadataSize, 0);
 
-    buf = pomp_buffer_new_with_data(metadataBuffer, metadataSize);
-    if (!buf)
+    if (source == FRAME_METADATA_SOURCE_STREAMING)
     {
-        ULOGE("VideoFrameMetadata: buffer allocation failed");
-        return false;
+        mimeType = NULL;
     }
 
-    if (source == FRAME_METADATA_SOURCE_RECORDING)
+    err = vmeta_frame_read(&buf, &meta, mimeType);
+    if (err != 0)
     {
-        struct vmeta_recording rmeta;
-        err = vmeta_recording_read(buf, &pos, &rmeta, mimeType);
-        if (err != 0)
-        {
-            ULOGE("VideoFrameMetadata: vmeta_recording_read() failed (%d: '%s')", err, strerror(err));
-        }
-        else
-        {
-            if (rmeta.type == VMETA_RECORDING_TYPE_V2)
-            {
-                mapFrameMetadataV2(&rmeta.v2, metadata);
-                ret = true;
-            }
-            else if (rmeta.type == VMETA_RECORDING_TYPE_V1)
-            {
-                mapFrameMetadataV1rec(&rmeta.v1, metadata);
-                ret = true;
-            }
-            else
-            {
-                ULOGW("VideoFrameMetadata: invalid metadata type %d", rmeta.type);
-            }
-        }
+        ULOGE("VideoFrameMetadata: vmeta_frame_read() failed (%d: '%s')", err, strerror(err));
     }
     else
     {
-        struct vmeta_streaming smeta;
-        err = vmeta_streaming_read(buf, &pos, &smeta);
-        if (err != 0)
+        switch (meta.type)
         {
-            ULOGE("VideoFrameMetadata: vmeta_streaming_read() failed (%d: '%s')", err, strerror(err));
-        }
-        else
-        {
-            if (smeta.type == VMETA_STREAMING_TYPE_V2)
-            {
-                mapFrameMetadataV2(&smeta.v2, metadata);
-                ret = true;
-            }
-            else if (smeta.type == VMETA_STREAMING_TYPE_V1_EXTENDED)
-            {
-                mapFrameMetadataV1strmext(&smeta.v1_extended, metadata);
-                ret = true;
-            }
-            else if (smeta.type == VMETA_STREAMING_TYPE_V1_BASIC)
-            {
-                mapFrameMetadataV1strmbasic(&smeta.v1_basic, metadata);
-                ret = true;
-            }
-            else
-            {
-                ULOGW("VideoFrameMetadata: invalid metadata type %d", smeta.type);
-            }
+        case VMETA_FRAME_TYPE_V2:
+            mapFrameMetadataV2(&meta.v2, metadata);
+            ret = true;
+            break;
+        case VMETA_FRAME_TYPE_V1_RECORDING:
+            mapFrameMetadataV1rec(&meta.v1_rec, metadata);
+            ret = true;
+            break;
+        case VMETA_FRAME_TYPE_V1_STREAMING_EXTENDED:
+            mapFrameMetadataV1strmext(&meta.v1_strm_ext, metadata);
+            ret = true;
+            break;
+        case VMETA_FRAME_TYPE_V1_STREAMING_BASIC:
+            mapFrameMetadataV1strmbasic(&meta.v1_strm_basic, metadata);
+            ret = true;
+            break;
+        default:
+            ULOGW("VideoFrameMetadata: invalid metadata type %d", meta.type);
+            break;
         }
     }
-
-    pomp_buffer_unref(buf);
 
     return ret;
 }
