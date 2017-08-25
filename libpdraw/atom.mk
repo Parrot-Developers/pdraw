@@ -40,7 +40,17 @@ LOCAL_SRC_FILES := \
 	src/pdraw_filter_videoframe.cpp
 LOCAL_EXPORT_CXXFLAGS := -Wextra -std=c++0x
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
-LOCAL_LIBRARIES := libulog libpomp libvideo-metadata libARStream2 libmp4 librtsp libsdp libh264 json
+LOCAL_LIBRARIES := \
+	libulog \
+	libpomp \
+	libvideo-metadata \
+	libARStream2 \
+	libmp4 \
+	librtsp \
+	libsdp \
+	libh264 \
+	eigen \
+	json
 
 ifeq ("$(TARGET_OS)","linux")
 	ifeq ("$(TARGET_OS_FLAVOUR)","native")
