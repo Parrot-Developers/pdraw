@@ -16,9 +16,7 @@ android_app_dir = os.path.join(android_pdraw_dir,
 #===============================================================================
 
 if dragon.VARIANT == "android":
-    android_abis = ["armeabi", "armeabi-v7a", "arm64-v8a",
-                    "mips",
-                    "x86"]
+    android_abis = ["armeabi-v7a", "arm64-v8a", "x86"]
 
     android.add_task_build_common(android_abis)
 
