@@ -42,18 +42,22 @@
 #include <inttypes.h>
 
 #include <pdraw/pdraw_defs.h>
+#include <Eigen/Eigen>
 
 
-void pdraw_quat_conj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternion *qDst);
+void pdraw_quatConj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternion *qDst);
 
 
-void pdraw_quat_mult(const struct vmeta_quaternion *qA, const struct vmeta_quaternion *qB, struct vmeta_quaternion *qDst);
+void pdraw_quatMult(const struct vmeta_quaternion *qA, const struct vmeta_quaternion *qB, struct vmeta_quaternion *qDst);
 
 
 void pdraw_euler2quat(const struct vmeta_euler *euler, struct vmeta_quaternion *quat);
 
 
 void pdraw_quat2euler(const struct vmeta_quaternion *quat, struct vmeta_euler *euler);
+
+
+float pdraw_wrapToPi(float angle);
 
 
 void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,

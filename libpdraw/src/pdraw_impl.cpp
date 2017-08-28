@@ -65,8 +65,6 @@ IPdraw *createPdraw()
 
 PdrawImpl::PdrawImpl() : mSession(&mSettings)
 {
-    mGotRendererParams = false;
-    mUiHandler = NULL;
 }
 
 
@@ -328,17 +326,6 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
                              bool headtracking,
                              void *uiHandler)
 {
-    mGotRendererParams = true;
-    mUiHandler = uiHandler;
-    mWindowWidth = windowWidth;
-    mWindowHeight = windowHeight;
-    mRenderX = renderX;
-    mRenderY = renderY;
-    mRenderWidth = renderWidth;
-    mRenderHeight = renderHeight;
-    mHmdDistorsionCorrection = hmdDistorsionCorrection;
-    mHeadtracking = headtracking;
-
     if (!mSession.getRenderer())
     {
         int ret = mSession.enableRenderer();
@@ -350,10 +337,10 @@ int PdrawImpl::startRenderer(int windowWidth, int windowHeight,
 
     if (mSession.getRenderer())
     {
-        return mSession.getRenderer()->setRendererParams(mWindowWidth, mWindowHeight,
-                                            mRenderX, mRenderY,
-                                            mRenderWidth, mRenderHeight,
-                                            mHmdDistorsionCorrection, mHeadtracking, mUiHandler);
+        return mSession.getRenderer()->setRendererParams(windowWidth, windowHeight,
+                                            renderX, renderY,
+                                            renderWidth, renderHeight,
+                                            hmdDistorsionCorrection, headtracking, uiHandler);
     }
     else
     {

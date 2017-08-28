@@ -538,18 +538,27 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     float angle = 0., cy;
     if ((headtracking) && (mSession))
     {
-        struct vmeta_quaternion headQuat, headRefQuat;
+        struct vmeta_euler headOrientation;
+        mSession->getSelfMetadata()->getDebiasedHeadOrientation(&headOrientation);
+
+#if 0
+        struct vmeta_quaternion headQuat, headRefQuat, controllerQuat;
         mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
         mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
+        mSession->getSelfMetadata()->getControllerOrientation(&controllerQuat);
 
         /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        struct vmeta_quaternion headDiff, headRefQuatInv;
-        pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
-        pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
-        struct vmeta_euler headOrientation;
+        struct vmeta_quaternion headDiff, controllerDiff, headRefQuatInv;
+        pdraw_quatConj(&headRefQuat, &headRefQuatInv);
+        pdraw_quatMult(&headQuat, &headRefQuatInv, &headDiff);
+        pdraw_quatMult(&controllerQuat, &headRefQuatInv, &controllerDiff);
+        struct vmeta_euler headOrientation, controllerOrientation;
         pdraw_quat2euler(&headDiff, &headOrientation);
-        deltaX = (headOrientation.psi - metadata->base.cameraPan) / mHfov * mRatioW * 2.;
-        deltaY = (headOrientation.theta - metadata->base.cameraTilt) / mVfov * mRatioH * 2.;
+        pdraw_quat2euler(&controllerDiff, &controllerOrientation);
+#endif
+
+        deltaX = (-headOrientation.psi + metadata->base.cameraPan) / mHfov * mRatioW * 2.;
+        deltaY = (-headOrientation.theta + metadata->base.cameraTilt) / mVfov * mRatioH * 2.;
         angle = headOrientation.phi;
     }
 
@@ -557,11 +566,11 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     transformMatrix[0] = cosf(angle) * windowW;
     transformMatrix[1] = -sinf(angle) * windowW;
     transformMatrix[2] = 0;
-    transformMatrix[3] = -deltaX;
+    transformMatrix[3] = deltaX;
     transformMatrix[4] = sinf(angle) * windowH;
     transformMatrix[5] = cosf(angle) * windowH;
     transformMatrix[6] = 0;
-    transformMatrix[7] = -deltaY;
+    transformMatrix[7] = deltaY;
     transformMatrix[8] = 0;
     transformMatrix[9] = 0;
     transformMatrix[10] = 1;

@@ -55,11 +55,18 @@ SessionSelfMetadata::SessionSelfMetadata()
     mLocation.valid = 0;
     mControllerBatteryLevel = 256;
     mControllerQuat = { 1, 0, 0, 0 };
+    mPrevControllerQuat = { 1, 0, 0, 0 };
     mHeadQuat = { 1, 0, 0, 0 };
     mHeadRefQuat = mHeadQuat;
     mIsControllerValid = false;
     mIsHeadValid = false;
     mIsHeadRefValid = false;
+    mHeadPsiSpeed = 0;
+    mLastHeadPsiTimestamp = 0;
+    mControllerQuatRef = { 1, 0, 0, 0 };
+    mLastControllerQuatTimestamp = 0;
+    mPrevControllerQuatTimestamp = 0;
+    mTracking = false;
 }
 
 
@@ -107,8 +114,27 @@ void SessionSelfMetadata::setControllerOrientation(const struct vmeta_quaternion
 {
     if (!quat)
         return;
+
+    mPrevControllerQuat = mControllerQuat;
+    mPrevControllerQuatTimestamp = mLastControllerQuatTimestamp;
+
     memcpy(&mControllerQuat, quat, sizeof(*quat));
     mIsControllerValid = true;
+
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    uint64_t timestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+
+    if (mLastControllerQuatTimestamp == 0)
+    {
+        mPrevControllerQuat = mControllerQuat;
+        mControllerQuatRef = mControllerQuat;
+        mPrevControllerQuatTimestamp = mLastControllerQuatTimestamp = timestamp;
+    }
+    else
+    {
+        mLastControllerQuatTimestamp = timestamp;
+    }
 }
 
 
@@ -116,8 +142,9 @@ void SessionSelfMetadata::setControllerOrientation(const struct vmeta_euler *eul
 {
     if (!euler)
         return;
-    pdraw_euler2quat(euler, &mControllerQuat);
-    mIsControllerValid = true;
+    struct vmeta_quaternion quat;
+    pdraw_euler2quat(euler, &quat);
+    setControllerOrientation(&quat);
 }
 
 
@@ -139,12 +166,103 @@ bool SessionSelfMetadata::getHeadOrientation(struct vmeta_euler *euler)
 }
 
 
+void SessionSelfMetadata::getDebiasedHeadOrientation(struct vmeta_quaternion *quat)
+{
+    if (!quat)
+        return;
+
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    uint64_t curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+
+    struct vmeta_quaternion qControllerNed, qControllerRefConj, qController;
+    struct vmeta_quaternion qControllerPsi, qHeadRef, qHead, qHeadRefConj;
+    struct vmeta_euler controllerOrientation;
+
+    float alpha = 1.;
+    if (mLastControllerQuatTimestamp - mPrevControllerQuatTimestamp > 0)
+        alpha = (float)(curTime - mLastControllerQuatTimestamp) / (float)(mLastControllerQuatTimestamp - mPrevControllerQuatTimestamp);
+    if (alpha > 1.)
+        alpha = 1.;
+    //TODO: slerp
+    qControllerNed.w = mPrevControllerQuat.w * (1. - alpha) + mControllerQuat.w * alpha;
+    qControllerNed.x = mPrevControllerQuat.x * (1. - alpha) + mControllerQuat.x * alpha;
+    qControllerNed.y = mPrevControllerQuat.y * (1. - alpha) + mControllerQuat.y * alpha;
+    qControllerNed.z = mPrevControllerQuat.z * (1. - alpha) + mControllerQuat.z * alpha;
+
+    if (mHeadPsiSpeed < PDRAW_HEAD_PSI_SPEED_THRES)
+    {
+        if (mTracking)
+        {
+            pdraw_quatConj(&mControllerQuatRef, &qControllerRefConj);
+            pdraw_quatMult(&qControllerRefConj, &qControllerNed, &qController);
+            pdraw_quat2euler(&qController, &controllerOrientation);
+
+            qControllerPsi.x = qControllerPsi.y = 0.;
+            sincosf(controllerOrientation.psi / 2., &qControllerPsi.z, &qControllerPsi.w);
+            pdraw_quatMult(&qControllerPsi, &mHeadRefQuat, &qHeadRef);
+            mHeadRefQuat = qHeadRef;
+        }
+
+        mTracking = false;
+        mControllerQuatRef = qControllerNed;
+    }
+    else
+    {
+        mTracking = true;
+    }
+
+    pdraw_quatConj(&mControllerQuatRef, &qControllerRefConj);
+    pdraw_quatMult(&qControllerRefConj, &qControllerNed, &qController);
+    pdraw_quat2euler(&qController, &controllerOrientation);
+
+    qControllerPsi.x = qControllerPsi.y = 0.;
+    sincosf(-controllerOrientation.psi / 2., &qControllerPsi.z, &qControllerPsi.w);
+    pdraw_quatMult(&qControllerPsi, &mHeadQuat, &qHead);
+
+    pdraw_quatConj(&mHeadRefQuat, &qHeadRefConj);
+    pdraw_quatMult(&qHeadRefConj, &qHead, quat);
+}
+
+
+void SessionSelfMetadata::getDebiasedHeadOrientation(struct vmeta_euler *euler)
+{
+    if (!euler)
+        return;
+    struct vmeta_quaternion quat;
+    getDebiasedHeadOrientation(&quat);
+    pdraw_quat2euler(&quat, euler);
+}
+
+
 void SessionSelfMetadata::setHeadOrientation(const struct vmeta_quaternion *quat)
 {
     if (!quat)
         return;
+
+    struct vmeta_euler euler, prevEuler;
+    pdraw_quat2euler(&mHeadQuat, &prevEuler);
+    pdraw_quat2euler(quat, &euler);
+
     memcpy(&mHeadQuat, quat, sizeof(*quat));
     mIsHeadValid = true;
+
+    struct timespec t1;
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    uint64_t timestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+
+    if (mLastHeadPsiTimestamp == 0)
+    {
+        mHeadPsiSpeed = 0;
+    }
+    else
+    {
+        uint64_t tsDiff = timestamp - mLastHeadPsiTimestamp;
+        if (tsDiff > 0)
+            mHeadPsiSpeed = fabs(pdraw_wrapToPi(euler.psi - prevEuler.psi) * 1000000. / (float)tsDiff);
+    }
+
+    mLastHeadPsiTimestamp = timestamp;
 }
 
 
@@ -152,8 +270,9 @@ void SessionSelfMetadata::setHeadOrientation(const struct vmeta_euler *euler)
 {
     if (!euler)
         return;
-    pdraw_euler2quat(euler, &mHeadQuat);
-    mIsHeadValid = true;
+    struct vmeta_quaternion quat;
+    pdraw_euler2quat(euler, &quat);
+    setHeadOrientation(&quat);
 }
 
 
@@ -181,6 +300,12 @@ void SessionSelfMetadata::setHeadRefOrientation(const struct vmeta_quaternion *q
         return;
     memcpy(&mHeadRefQuat, quat, sizeof(*quat));
     mIsHeadRefValid = true;
+
+    mLastHeadPsiTimestamp = 0;
+    mHeadPsiSpeed = 0;
+    mLastControllerQuatTimestamp = 0;
+    memcpy(&mControllerQuat, quat, sizeof(*quat));
+    setControllerOrientation(quat);
 }
 
 
@@ -188,14 +313,22 @@ void SessionSelfMetadata::setHeadRefOrientation(const struct vmeta_euler *euler)
 {
     if (!euler)
         return;
-    pdraw_euler2quat(euler, &mHeadRefQuat);
-    mIsHeadRefValid = true;
+    struct vmeta_quaternion quat;
+    pdraw_euler2quat(euler, &quat);
+    setHeadRefOrientation(&quat);
 }
 
 
 void SessionSelfMetadata::resetHeadRefOrientation()
 {
     memcpy(&mHeadRefQuat, &mHeadQuat, sizeof(mHeadQuat));
+    mIsHeadRefValid = true;
+
+    mLastHeadPsiTimestamp = 0;
+    mHeadPsiSpeed = 0;
+    mLastControllerQuatTimestamp = 0;
+    memcpy(&mControllerQuat, &mHeadQuat, sizeof(mHeadQuat));
+    setControllerOrientation(&mHeadQuat);
 }
 
 

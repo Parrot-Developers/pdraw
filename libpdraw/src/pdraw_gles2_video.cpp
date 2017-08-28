@@ -352,6 +352,7 @@ Gles2Video::Gles2Video(Session *session, VideoMedia *media, unsigned int firstTe
             glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         }
     }
+
 }
 
 
@@ -447,16 +448,24 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
     float angle = 0.;
     if ((headtracking) && (mSession))
     {
-        struct vmeta_quaternion headQuat, headRefQuat;
+        struct vmeta_euler headOrientation;
+        mSession->getSelfMetadata()->getDebiasedHeadOrientation(&headOrientation);
+
+#if 0
+        struct vmeta_quaternion headQuat, headRefQuat, controllerQuat;
         mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
         mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
+        mSession->getSelfMetadata()->getControllerOrientation(&controllerQuat);
 
         /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        struct vmeta_quaternion headDiff, headRefQuatInv;
-        pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
-        pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
-        struct vmeta_euler headOrientation;
+        struct vmeta_quaternion headDiff, controllerDiff, headRefQuatInv;
+        pdraw_quatConj(&headRefQuat, &headRefQuatInv);
+        pdraw_quatMult(&headQuat, &headRefQuatInv, &headDiff);
+        pdraw_quatMult(&controllerQuat, &headRefQuatInv, &controllerDiff);
+        struct vmeta_euler headOrientation, controllerOrientation;
         pdraw_quat2euler(&headDiff, &headOrientation);
+        pdraw_quat2euler(&controllerDiff, &controllerOrientation);
+#endif
         float hFov = 0.;
         float vFov = 0.;
         if (mMedia)
@@ -469,8 +478,8 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
         vFov = vFov * M_PI / 180.;
         float scaleW = hFov / ratioW;
         float scaleH = vFov / ratioH;
-        deltaX = (headOrientation.psi - metadata->base.cameraPan) / scaleW * 2.;
-        deltaY = (headOrientation.theta - metadata->base.cameraTilt) / scaleH * 2.;
+        deltaX = (-headOrientation.psi + metadata->base.cameraPan) / scaleW * 2.;
+        deltaY = (-headOrientation.theta + metadata->base.cameraTilt) / scaleH * 2.;
         angle = headOrientation.phi;
     }
 
@@ -486,11 +495,11 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
     transformMatrix[0] = cosf(angle) * windowW;
     transformMatrix[1] = -sinf(angle) * windowW;
     transformMatrix[2] = 0;
-    transformMatrix[3] = -deltaX;
+    transformMatrix[3] = deltaX;
     transformMatrix[4] = sinf(angle) * windowH;
     transformMatrix[5] = cosf(angle) * windowH;
     transformMatrix[6] = 0;
-    transformMatrix[7] = -deltaY;
+    transformMatrix[7] = deltaY;
     transformMatrix[8] = 0;
     transformMatrix[9] = 0;
     transformMatrix[10] = 1;

@@ -46,6 +46,9 @@
 #include "pdraw_utils.hpp"
 
 
+#define PDRAW_HEAD_PSI_SPEED_THRES      (0.2f)
+
+
 namespace Pdraw
 {
 
@@ -87,8 +90,12 @@ public:
     void setHeadOrientation(const struct vmeta_quaternion *quat);
     void setHeadOrientation(const struct vmeta_euler *euler);
 
+    void getDebiasedHeadOrientation(struct vmeta_quaternion *quat);
+    void getDebiasedHeadOrientation(struct vmeta_euler *euler);
+
     bool getHeadRefOrientation(struct vmeta_quaternion *quat);
     bool getHeadRefOrientation(struct vmeta_euler *euler);
+
     void setHeadRefOrientation(const struct vmeta_quaternion *quat);
     void setHeadRefOrientation(const struct vmeta_euler *euler);
     void resetHeadRefOrientation();
@@ -107,6 +114,13 @@ private:
     bool mIsHeadValid;
     struct vmeta_quaternion mHeadRefQuat;
     bool mIsHeadRefValid;
+    float mHeadPsiSpeed;
+    uint64_t mLastHeadPsiTimestamp;
+    struct vmeta_quaternion mPrevControllerQuat;
+    struct vmeta_quaternion mControllerQuatRef;
+    uint64_t mLastControllerQuatTimestamp;
+    uint64_t mPrevControllerQuatTimestamp;
+    bool mTracking;
 };
 
 

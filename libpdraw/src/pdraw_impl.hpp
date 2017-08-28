@@ -279,16 +279,6 @@ private:
 
     Settings mSettings;
     Session mSession;
-    bool mGotRendererParams;
-    int mWindowWidth;
-    int mWindowHeight;
-    int mRenderX;
-    int mRenderY;
-    int mRenderWidth;
-    int mRenderHeight;
-    bool mHmdDistorsionCorrection;
-    bool mHeadtracking;
-    void *mUiHandler;
 };
 
 }

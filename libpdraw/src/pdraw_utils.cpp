@@ -70,7 +70,7 @@ static const unsigned int pdraw_h264Sar[17][2] =
 };
 
 
-void pdraw_quat_conj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternion *qDst)
+void pdraw_quatConj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternion *qDst)
 {
     if ((!qSrc) || (!qDst))
         return;
@@ -82,7 +82,7 @@ void pdraw_quat_conj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternio
 }
 
 
-void pdraw_quat_mult(const struct vmeta_quaternion *qA, const struct vmeta_quaternion *qB, struct vmeta_quaternion *qDst)
+void pdraw_quatMult(const struct vmeta_quaternion *qA, const struct vmeta_quaternion *qB, struct vmeta_quaternion *qDst)
 {
     if ((!qA) || (!qB) || (!qDst))
         return;
@@ -152,6 +152,23 @@ void pdraw_quat2euler(const struct vmeta_quaternion *quat, struct vmeta_euler *e
     euler->phi = phi;
     euler->theta = theta;
     euler->psi = psi;
+}
+
+
+
+float pdraw_wrapToPi(float angle)
+{
+    if (angle >= 0)
+        angle = fmod(angle, 2.f * M_PI);
+    else
+        angle = (2.f * M_PI - 1 - fmod(-angle - 1, 2. * M_PI));
+
+    if (angle < -M_PI)
+        angle += 2.f * M_PI;
+    else if (angle > M_PI)
+        angle -= 2.f * M_PI;
+
+    return angle;
 }
 
 
