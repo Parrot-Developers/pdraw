@@ -69,6 +69,7 @@ Buffer::Buffer(BufferPool *bufferPool,
     mMetadataPtr = NULL;
     mMetadataCapacity = metadataBufferCapacity;
     mMetadataSize = 0;
+    mUserDataPtr = NULL;
     mUserDataCapacity = userDataBufferCapacity;
     mUserDataSize = 0;
 
