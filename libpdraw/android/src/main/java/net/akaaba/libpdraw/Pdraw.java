@@ -210,6 +210,20 @@ public class Pdraw {
         nativeSeekBack(pdrawCtx, delta);
     }
 
+    public long getDuration() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetDuration(pdrawCtx);
+    }
+
+    public long getCurrentTime() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetCurrentTime(pdrawCtx);
+    }
+
     public void startRecorder(String fileName) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -690,6 +704,12 @@ public class Pdraw {
     private native int nativeSeekBack(
         long pdrawCtx,
         long delta);
+
+    private native long nativeGetDuration(
+        long pdrawCtx);
+
+    private native long nativeGetCurrentTime(
+        long pdrawCtx);
 
     private native int nativeStartRecorder(
         long pdrawCtx,

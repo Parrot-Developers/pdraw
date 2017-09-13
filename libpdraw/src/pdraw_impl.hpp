@@ -99,6 +99,10 @@ public:
     int seekBack
             (uint64_t delta);
 
+    uint64_t getDuration();
+
+    uint64_t getCurrentTime();
+
     int startRecorder
             (const std::string &fileName);
 

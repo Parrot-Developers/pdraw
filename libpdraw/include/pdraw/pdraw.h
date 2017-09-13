@@ -121,6 +121,14 @@ int pdraw_seek_back
          uint64_t delta);
 
 
+uint64_t pdraw_get_duration
+        (struct pdraw *pdraw);
+
+
+uint64_t pdraw_get_current_time
+        (struct pdraw *pdraw);
+
+
 int pdraw_start_recorder
         (struct pdraw *pdraw,
          const char *fileName);

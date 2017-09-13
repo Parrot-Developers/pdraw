@@ -93,6 +93,10 @@ public:
     virtual int seekBack
             (uint64_t delta) = 0;
 
+    virtual uint64_t getDuration() = 0;
+
+    virtual uint64_t getCurrentTime() = 0;
+
     virtual int startRecorder
             (const std::string &fileName) = 0;
 

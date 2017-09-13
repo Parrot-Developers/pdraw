@@ -255,6 +255,18 @@ int PdrawImpl::seekBack(uint64_t delta)
 }
 
 
+uint64_t PdrawImpl::getDuration()
+{
+    return mSession.getDuration();
+}
+
+
+uint64_t PdrawImpl::getCurrentTime()
+{
+    return mSession.getCurrentTime();
+}
+
+
 int PdrawImpl::startRecorder(const std::string &fileName)
 {
     if ((mSession.getDemuxer()) && (mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM))
