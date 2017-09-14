@@ -13,12 +13,12 @@
  *
  *   * Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
- * 
+ *
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in
  *     the documentation and/or other materials provided with the
  *     distribution.
- * 
+ *
  *   * Neither the name of the copyright holder nor the names of the
  *     contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
@@ -43,8 +43,13 @@
 #include <android/log.h>
 #include <android/native_window_jni.h>
 #include <pdraw/pdraw.h>
+#include <pthread.h>
 
 #define LOG_TAG "pdraw_jni"
+
+/** Log as verbose */
+#define LOGV(_fmt, ...) \
+    __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, _fmt, ##__VA_ARGS__)
 
 /** Log as debug */
 #define LOGD(_fmt, ...) \
@@ -62,12 +67,145 @@
 #define LOGE(_fmt, ...) \
     __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, _fmt, ##__VA_ARGS__)
 
+#define VERBOSE 1
+
+static pthread_key_t jniEnvKey;
+
+static struct {
+   JavaVM *gJVM;
+   jclass pdrawClass;
+   jclass videoFrameClass;
+   jclass byteBufferClass;
+   jmethodID videoFrameConstructor;
+   jmethodID notifyNewFrame;
+} globalIds;
+
+static void jniEnvDestructor(void* unused) {
+    (*(globalIds.gJVM))->DetachCurrentThread(globalIds.gJVM);
+}
+
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved)
+{
+    JNIEnv* env;
+    int ret;
+
+    globalIds.gJVM = jvm;
+
+    if ((*(globalIds.gJVM))->GetEnv(globalIds.gJVM, (void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        return -1;
+    }
+
+    globalIds.pdrawClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw");
+    if (globalIds.pdrawClass == NULL) {
+        LOGE("could not retrieve class");
+        return -1;
+    }
+    globalIds.pdrawClass = (jclass)(*env)->NewGlobalRef(env, globalIds.pdrawClass);
+    if (globalIds.pdrawClass == NULL) {
+        LOGE("could not create global ref for Pdraw class");
+        return -1;
+    }
+    globalIds.videoFrameClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$VideoFrame");
+    if (globalIds.videoFrameClass == NULL) {
+        return -1;
+        LOGE("could not find VideoFrame class");
+    }
+    globalIds.videoFrameClass = (jclass)(*env)->NewGlobalRef(env, globalIds.videoFrameClass);
+    if (globalIds.videoFrameClass == NULL) {
+        LOGE("could not create global ref for VideoFrame class");
+        return -1;
+    }
+    globalIds.byteBufferClass = (*env)->FindClass(env, "java/nio/ByteBuffer");
+    if (globalIds.byteBufferClass == NULL) {
+        return -1;
+        LOGE("could not find VideoFrame class");
+    }
+    globalIds.byteBufferClass = (jclass)(*env)->NewGlobalRef(env, globalIds.byteBufferClass);
+    if (globalIds.byteBufferClass == NULL) {
+        LOGE("could not create global ref for ByteBuffer class");
+        return -1;
+    }
+    globalIds.videoFrameConstructor = (*env)->GetMethodID(env, globalIds.videoFrameClass, "<init>", "(IIILjava/nio/ByteBuffer;IJJI)V");
+    if (globalIds.videoFrameConstructor == NULL) {
+        LOGE("could not find VideoFrame default constructor");
+        return -1;
+    }
+    globalIds.notifyNewFrame = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyNewFrame", "(Lnet/akaaba/libpdraw/Pdraw$VideoFrame;)V");
+    if (globalIds.notifyNewFrame == NULL) {
+        LOGE("could not find notifyNewFrame method");
+        return -1;
+    }
+
+    ret = pthread_key_create(&jniEnvKey, &jniEnvDestructor);
+    if (ret != 0) {
+        LOGE("pthread_key_create failed");
+        return -1;
+    }
+
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+        return -1;
+    }
+
+    return JNI_VERSION_1_6;
+}
 
 struct pdraw_jni_ctx {
     struct pdraw *pdraw;
     ANativeWindow *window;
     jobject *thizz;
+    void *filterCtx;
 };
+
+static void frame_reception_callback(void *filterCtx, const struct pdraw_video_frame *frame, void *userPtr) {
+
+   struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userPtr;
+    JNIEnv *env;
+    jobject pixels;
+    int getEnvStat;
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    if (frame->userDataSize == 0) {
+#ifdef VERBOSE
+        LOGV("frame contains no user data");
+#endif
+        goto out;
+    }
+
+    pixels = (*env)->NewDirectByteBuffer(env, frame->plane[0], (frame->stride[0] * frame->height * 3) / 2);
+    if (pixels == NULL) {
+        LOGE("could not allocate buffer for planes");
+        goto out;
+    }
+
+    jobject videoFrame = (*env)->NewObject(env, globalIds.videoFrameClass, globalIds.videoFrameConstructor, (jint)frame->colorFormat, (jint)frame->width, (jint)frame->height,
+                                              pixels, frame->stride[0], frame->auNtpTimestamp, (jlong)frame->userData, frame->userDataSize);
+    if (videoFrame == NULL) {
+        LOGE("could not construct a VideoFrame");
+        goto free_planes;
+    }
+
+    // call Java-side callback
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifyNewFrame, videoFrame);
+
+    (*env)->DeleteLocalRef(env, videoFrame);
+free_planes:
+    (*env)->DeleteLocalRef(env, pixels);
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
 
 
 static void cleanup(
@@ -693,6 +831,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNew(
     jobject thizz)
 {
     struct pdraw_jni_ctx *ctx = calloc(1, sizeof(*ctx));
+
     if (ctx == NULL)
     {
         LOGE("allocation failed on context");
@@ -732,6 +871,42 @@ Java_net_akaaba_libpdraw_Pdraw_nativeDispose(
     cleanup(env, ctx);
 }
 
+JNIEXPORT void JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeRegisterListener(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    ctx->filterCtx = pdraw_add_video_frame_filter_callback(ctx->pdraw, 0, &frame_reception_callback, ctx);
+
+    if (ctx->filterCtx == NULL)
+    {
+        LOGE("pdraw_add_video_frame_filter_callback() failed");
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeUnregisterListener(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+    int ret;
+
+    if (ctx->filterCtx == NULL) {
+       LOGE("no filter to remove");
+       return;
+    }
+    ret = (int)pdraw_remove_video_frame_filter_callback(ctx->pdraw, 0, ctx->filterCtx);
+
+    if (ret != 0)
+    {
+        LOGE("pdraw_remove_video_frame_filter_callback() failed (%d)", ret);
+    }
+}
 
 JNIEXPORT jint JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeOpenUrl(
@@ -752,6 +927,10 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenUrl(
     const char *c_url = (*env)->GetStringUTFChars(env, url, NULL);
 
     ret = pdraw_open_url(ctx->pdraw, c_url);
+    if (ret != 0)
+    {
+        LOGE("could not open URL");
+    }
 
     (*env)->ReleaseStringUTFChars(env, url, c_url);
 

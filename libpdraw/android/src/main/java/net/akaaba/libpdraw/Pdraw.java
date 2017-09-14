@@ -13,12 +13,12 @@
  *
  *   * Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
- * 
+ *
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in
  *     the documentation and/or other materials provided with the
  *     distribution.
- * 
+ *
  *   * Neither the name of the copyright holder nor the names of the
  *     contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
@@ -38,13 +38,18 @@
 
 package net.akaaba.libpdraw;
 
-import android.util.Log;
 import android.view.Surface;
 import com.parrot.mux.Mux;
+import java.nio.ByteBuffer;
 
 public class Pdraw {
-    private static final String TAG = "pdraw_java";
+    private static final String LIBRARY_NAME = "pdraw_android";
     private long pdrawCtx;
+    private VideoFrameListener mListener;
+
+    static {
+        System.loadLibrary(LIBRARY_NAME);
+    }
 
     public class DisplayScreenSettings {
         public DisplayScreenSettings() {}
@@ -98,6 +103,65 @@ public class Pdraw {
         public float east = 0.0f;
         public float down = 0.0f;
     };
+
+    public static class VideoFrame {
+        private int mColorFormat;
+        private int mWidth;
+        private int mHeight;
+        private ByteBuffer mPixels;
+        private int mStride;
+        private long mTimestamp;
+        private long mUserData;
+        private int mUserDataSize;
+
+        private VideoFrame(int colorFormat, int width, int height, ByteBuffer pixels, int stride, long timestamp, long userData, int userDataSize) {
+            mColorFormat = colorFormat;
+            mWidth = width;
+            mHeight = height;
+            mPixels = pixels;
+            mStride = stride;
+            mTimestamp = timestamp;
+            mUserData = userData;
+            mUserDataSize = userDataSize;
+        }
+
+        public int getColorFormat() {
+            return mColorFormat;
+        }
+
+        public int getWidth() {
+            return mWidth;
+        }
+
+        public int getHeight() {
+            return mHeight;
+        }
+
+        public ByteBuffer getPixels() {
+            return mPixels;
+        }
+
+        public int getStride() {
+            return mStride;
+        }
+
+        public long getTimestamp() {
+            return mTimestamp;
+        }
+
+        public long getUserData() {
+            return mUserData;
+        }
+
+        public int getUserDataSize() {
+            return mUserDataSize;
+        }
+    }
+
+    public interface VideoFrameListener {
+        public void onFrameReceived(VideoFrame frame);
+    }
+
 
     public Pdraw() {
         this.pdrawCtx = nativeNew();
@@ -294,6 +358,17 @@ public class Pdraw {
             throw new RuntimeException("invalid pdraw instance");
         }
         nativeRender(pdrawCtx, lastRenderTime);
+    }
+
+    public void setVideoFrameListener(VideoFrameListener listener) {
+        VideoFrameListener old = mListener;
+        mListener = listener;
+        if (old == null) {
+            nativeRegisterListener(pdrawCtx);
+        }
+        if (mListener == null) {
+            nativeUnregisterListener(pdrawCtx);
+        }
     }
 
     public String getSelfFriendlyName() {
@@ -941,5 +1016,16 @@ public class Pdraw {
     private native int nativeSetHmdDistorsionCorrectionSettings(
         long pdrawCtx,
         HmdDistorsionCorrectionSettings hmd);
+
+    private void notifyNewFrame(VideoFrame frame) {
+       if (mListener != null) {
+           mListener.onFrameReceived(frame);
+       }
+    }
+
+    private native void nativeRegisterListener(long pdrawCtx);
+
+    private native void nativeUnregisterListener(long pdrawCtx);
+
 
 }
