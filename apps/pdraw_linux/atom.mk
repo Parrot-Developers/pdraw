@@ -1,6 +1,8 @@
 
 LOCAL_PATH := $(call my-dir)
 
+ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
+
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := pdraw_linux
@@ -20,3 +22,5 @@ LOCAL_LIBRARIES := \
 LOCAL_CFLAGS += -DUSE_SDL
 
 include $(BUILD_EXECUTABLE)
+
+endif

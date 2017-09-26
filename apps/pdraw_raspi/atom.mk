@@ -1,6 +1,8 @@
 
 LOCAL_PATH := $(call my-dir)
 
+ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)-$(TARGET_PRODUCT_VARIANT)","linux-generic-raspi")
+
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := pdraw_raspi
@@ -29,3 +31,5 @@ LOCAL_LDLIBS += -L$(SDKSTAGE)/opt/vc/lib -lbrcmGLESv2 -lbrcmEGL -lopenmaxil \
 	-lavahi-client -lavahi-common -ldbus-1
 
 include $(BUILD_EXECUTABLE)
+
+endif
