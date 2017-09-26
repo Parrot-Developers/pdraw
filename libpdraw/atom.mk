@@ -50,8 +50,7 @@ LOCAL_LIBRARIES := \
 	librtsp \
 	libsdp \
 	libh264 \
-	eigen \
-	json
+	eigen
 
 ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
   LOCAL_CFLAGS += -DUSE_FFMPEG -DUSE_GLES2

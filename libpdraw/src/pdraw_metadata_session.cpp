@@ -214,6 +214,51 @@ SessionPeerMetadata::~SessionPeerMetadata()
 }
 
 
+void SessionPeerMetadata::set(struct vmeta_session *meta)
+{
+    if (!meta)
+        return;
+
+    setFriendlyName(std::string(meta->friendly_name));
+    setMaker(std::string(meta->maker));
+    setModel(std::string(meta->model));
+    setModelId(std::string(meta->model_id));
+    setSerialNumber(std::string(meta->serial_number));
+    setSoftwareVersion(std::string(meta->software_version));
+    setBuildId(std::string(meta->build_id));
+    setTitle(std::string(meta->title));
+    setComment(std::string(meta->comment));
+    setCopyright(std::string(meta->copyright));
+    if (meta->media_date != 0)
+    {
+        char date[VMETA_SESSION_DATE_MAX_LEN];
+        ssize_t ret = vmeta_session_date_write(date, sizeof(date),
+            meta->media_date, meta->media_date_gmtoff);
+        if (ret > 0)
+            setRunDate(std::string(date));
+    }
+    if (meta->run_date != 0)
+    {
+        char date[VMETA_SESSION_DATE_MAX_LEN];
+        ssize_t ret = vmeta_session_date_write(date, sizeof(date),
+            meta->run_date, meta->run_date_gmtoff);
+        if (ret > 0)
+            setRunDate(std::string(date));
+    }
+    setRunUuid(std::string(meta->run_id));
+    if (meta->takeoff_loc.valid)
+    {
+        location_t loc;
+        loc.isValid = meta->takeoff_loc.valid;
+        loc.latitude = meta->takeoff_loc.latitude;
+        loc.longitude = meta->takeoff_loc.longitude;
+        loc.altitude = meta->takeoff_loc.altitude;
+        loc.svCount = meta->takeoff_loc.svCount;
+        setTakeoffLocation(&loc);
+    }
+}
+
+
 void SessionPeerMetadata::setFriendlyName(const std::string& friendlyName)
 {
     mFriendlyName = friendlyName;

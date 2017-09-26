@@ -43,6 +43,8 @@
 #include <string>
 #include <vector>
 
+#include <video-metadata/vmeta.h>
+
 #include "pdraw_utils.hpp"
 
 
@@ -120,6 +122,8 @@ public:
     SessionPeerMetadata();
 
     ~SessionPeerMetadata();
+
+    void set(struct vmeta_session *meta);
 
     std::string& getFriendlyName(void) { return mFriendlyName; } ;
     void setFriendlyName(const std::string& friendlyName);

@@ -206,6 +206,8 @@ int RecordDemuxer::fetchSessionMetadata()
     unsigned int count = 0, i;
     char **keys = NULL, *key;
     char **values = NULL, *value;
+    struct vmeta_session meta;
+    memset(&meta, 0, sizeof(meta));
 
     int ret = mp4_demux_get_metadata_strings(mDemux, &count, &keys, &values);
     if (ret != 0)
@@ -220,160 +222,18 @@ int RecordDemuxer::fetchSessionMetadata()
         value = values[i];
         if ((key) && (value))
         {
-            location_t takeoffLoc;
-            peerMeta->getTakeoffLocation(&takeoffLoc);
-            if ((peerMeta->getFriendlyName().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_ARTIST, strlen(RECORD_DEMUXER_UDTA_KEY_ARTIST))))
-                peerMeta->setFriendlyName(value);
-            else if ((peerMeta->getTitle().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_TITLE, strlen(RECORD_DEMUXER_UDTA_KEY_TITLE))))
-                peerMeta->setTitle(value);
-            else if ((peerMeta->getMediaDate().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_DATE, strlen(RECORD_DEMUXER_UDTA_KEY_DATE))))
-                peerMeta->setMediaDate(value);
-            else if ((!strncmp(key, RECORD_DEMUXER_UDTA_KEY_COMMENT, strlen(RECORD_DEMUXER_UDTA_KEY_COMMENT))))
+            ret = vmeta_session_recording_read(key, value, &meta);
+            if (ret != 0)
             {
-                if ((strlen(value) > 0) && (value[0] == '{') && (value[strlen(value) - 1] == '}'))
-                {
-                    /* parse the JSON string */
-                    int error = 0;
-                    json_object* jsonObjAll;
-                    json_object* jsonObjItem;
-                    json_bool jsonRet;
-                    if (error == 0)
-                    {
-                        jsonObjAll = json_tokener_parse(value);
-                        if (jsonObjAll == NULL)
-                        {
-                            error = -1;
-                        }
-                    }
-
-                    /* software_version */
-                    if ((error == 0) && (peerMeta->getSoftwareVersion().empty()))
-                    {
-                        jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_VERSION, &jsonObjItem);
-                        if ((jsonRet) && (jsonObjItem != NULL))
-                        {
-                            peerMeta->setSoftwareVersion(json_object_get_string(jsonObjItem));
-                        }
-                    }
-
-                    /* run_uuid */
-                    if ((error == 0) && (peerMeta->getRunUuid().empty()))
-                    {
-                        jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_RUN_ID, &jsonObjItem);
-                        if ((jsonRet) && (jsonObjItem != NULL))
-                        {
-                            peerMeta->setRunUuid(json_object_get_string(jsonObjItem));
-                        }
-                    }
-
-                    /* takeoff_position */
-                    if ((error == 0) && (!takeoffLoc.isValid))
-                    {
-                        jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_LOCATION, &jsonObjItem);
-                        if ((jsonRet) && (jsonObjItem != NULL))
-                        {
-                            const char *pszLoc = json_object_get_string(jsonObjItem);
-                            memset(&takeoffLoc, 0, sizeof(takeoffLoc));
-                            sscanf(pszLoc, "%lf,%lf,%lf", &takeoffLoc.latitude, &takeoffLoc.longitude, &takeoffLoc.altitude);
-                            if ((takeoffLoc.latitude != 500.) && (takeoffLoc.longitude != 500.))
-                            {
-                                takeoffLoc.isValid = 1;
-                                peerMeta->setTakeoffLocation(&takeoffLoc);
-                            }
-                        }
-                    }
-
-                    /* media_date */
-                    if ((error == 0) && (peerMeta->getMediaDate().empty()))
-                    {
-                        jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_DATE, &jsonObjItem);
-                        if ((jsonRet) && (jsonObjItem != NULL))
-                        {
-                            peerMeta->setMediaDate(json_object_get_string(jsonObjItem));
-                        }
-                    }
-
-                    /* picture_hfov */
-                    if ((error == 0) && (mHfov == 0.))
-                    {
-                        jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_PICTURE_HFOV, &jsonObjItem);
-                        if ((jsonRet) && (jsonObjItem != NULL))
-                        {
-                            mHfov = json_object_get_double(jsonObjItem);
-                        }
-                    }
-
-                    /* picture_vfov */
-                    if ((error == 0) && (mVfov == 0.))
-                    {
-                        jsonRet = json_object_object_get_ex(jsonObjAll, RECORD_DEMUXER_JSON_KEY_PICTURE_VFOV, &jsonObjItem);
-                        if ((jsonRet) && (jsonObjItem != NULL))
-                        {
-                            mVfov = json_object_get_double(jsonObjItem);
-                        }
-                    }
-                }
-                else if (peerMeta->getComment().empty())
-                {
-                    peerMeta->setComment(value);
-                }
+                ULOGE("RecordDemuxer: vmeta_session_recording_read() failed: %d(%s)\n", ret, strerror(-ret));
+                continue;
             }
-            else if ((peerMeta->getCopyright().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_COPYRIGHT, strlen(RECORD_DEMUXER_UDTA_KEY_COPYRIGHT))))
-                peerMeta->setCopyright(value);
-            else if ((peerMeta->getMaker().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_MAKER, strlen(RECORD_DEMUXER_UDTA_KEY_MAKER))))
-                peerMeta->setMaker(value);
-            else if ((peerMeta->getModel().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_MODEL, strlen(RECORD_DEMUXER_UDTA_KEY_MODEL))))
-                peerMeta->setModel(value);
-            else if ((peerMeta->getSoftwareVersion().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_VERSION, strlen(RECORD_DEMUXER_UDTA_KEY_VERSION))))
-                peerMeta->setSoftwareVersion(value);
-            else if ((peerMeta->getSerialNumber().empty()) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_SERIAL, strlen(RECORD_DEMUXER_UDTA_KEY_SERIAL))))
-                peerMeta->setSerialNumber(value);
-            else if ((!takeoffLoc.isValid) && (!strncmp(key, RECORD_DEMUXER_UDTA_KEY_LOCATION, strlen(RECORD_DEMUXER_UDTA_KEY_LOCATION))))
-            {
-                pdraw_parseLocationString(value, &takeoffLoc);
-                if (takeoffLoc.isValid)
-                {
-                    peerMeta->setTakeoffLocation(&takeoffLoc);
-                }
-            }
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_ARTIST, strlen(RECORD_DEMUXER_META_KEY_ARTIST)))
-                peerMeta->setFriendlyName(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_TITLE, strlen(RECORD_DEMUXER_META_KEY_TITLE)))
-                peerMeta->setTitle(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_DATE, strlen(RECORD_DEMUXER_META_KEY_DATE)))
-                peerMeta->setMediaDate(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_COMMENT, strlen(RECORD_DEMUXER_META_KEY_COMMENT)))
-                peerMeta->setComment(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_COPYRIGHT, strlen(RECORD_DEMUXER_META_KEY_COPYRIGHT)))
-                peerMeta->setCopyright(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_MAKER, strlen(RECORD_DEMUXER_META_KEY_MAKER)))
-                peerMeta->setMaker(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_MODEL, strlen(RECORD_DEMUXER_META_KEY_MODEL)))
-                peerMeta->setModel(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_VERSION, strlen(RECORD_DEMUXER_META_KEY_VERSION)))
-                peerMeta->setSoftwareVersion(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_SERIAL, strlen(RECORD_DEMUXER_META_KEY_SERIAL)))
-                peerMeta->setSerialNumber(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_MODEL_ID, strlen(RECORD_DEMUXER_META_KEY_MODEL_ID)))
-                peerMeta->setModelId(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_BUILD_ID, strlen(RECORD_DEMUXER_META_KEY_BUILD_ID)))
-                peerMeta->setBuildId(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_RUN_ID, strlen(RECORD_DEMUXER_META_KEY_RUN_ID)))
-                peerMeta->setRunUuid(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_RUN_DATE, strlen(RECORD_DEMUXER_META_KEY_RUN_DATE)))
-                peerMeta->setRunDate(value);
-            else if ((!strncmp(key, RECORD_DEMUXER_META_KEY_LOCATION, strlen(RECORD_DEMUXER_META_KEY_LOCATION))))
-            {
-                pdraw_parseLocationString(value, &takeoffLoc);
-                if (takeoffLoc.isValid)
-                {
-                    peerMeta->setTakeoffLocation(&takeoffLoc);
-                }
-            }
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_PICTURE_HFOV, strlen(RECORD_DEMUXER_META_KEY_PICTURE_HFOV)))
-                mHfov = atof(value);
-            else if (!strncmp(key, RECORD_DEMUXER_META_KEY_PICTURE_VFOV, strlen(RECORD_DEMUXER_META_KEY_PICTURE_VFOV)))
-                mVfov = atof(value);
+
+            peerMeta->set(&meta);
+            if (meta.picture_fov.has_horz)
+                mHfov = meta.picture_fov.horz;
+            if (meta.picture_fov.has_vert)
+                mVfov = meta.picture_fov.vert;
         }
     }
 
