@@ -267,10 +267,10 @@ int main(int argc, char *argv[])
         app->dstStreamPort = PDRAW_ARSDK_VIDEO_DST_STREAM_PORT;
         app->dstControlPort = PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT;
         app->run = 1;
-#ifdef USE_SDL
+#ifdef BUILD_SDL
         app->windowWidth = PDRAW_WINDOW_WIDTH;
         app->windowHeight = PDRAW_WINDOW_HEIGHT;
-#endif /* USE_SDL */
+#endif /* BUILD_SDL */
     }
     else
     {
@@ -406,7 +406,7 @@ int main(int argc, char *argv[])
         {
             if (!strlen(app->ipAddr))
             {
-#ifdef USE_SDL
+#ifdef BUILD_SDL
                 SDL_Event event;
                 while ((!failed) && (!stopping) && (!selected) && (SDL_PollEvent(&event)))
                 {
@@ -480,9 +480,9 @@ int main(int argc, char *argv[])
                         }
                     }
                 }
-#else /* USE_SDL */
+#else /* BUILD_SDL */
                 sleep(1);
-#endif /* USE_SDL */
+#endif /* BUILD_SDL */
             }
             else
             {
@@ -585,7 +585,7 @@ int main(int argc, char *argv[])
     /* Run until interrupted */
     while ((!failed) && (!stopping) && (!app->disconnected))
     {
-#ifdef USE_SDL
+#ifdef BUILD_SDL
         SDL_Event event;
         while ((!failed) && (!stopping) && (SDL_PollEvent(&event)))
         {
@@ -778,9 +778,9 @@ int main(int argc, char *argv[])
         SDL_GL_SwapBuffers();
         clock_gettime(CLOCK_MONOTONIC, &t1);
         lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-#else /* USE_SDL */
+#else /* BUILD_SDL */
         sleep(1);
-#endif /* USE_SDL */
+#endif /* BUILD_SDL */
     }
 
     printf("Terminating PDrAW...\n");
@@ -809,7 +809,7 @@ int startUi(struct pdraw_app *app)
 {
     int ret = 0;
 
-#ifdef USE_SDL
+#ifdef BUILD_SDL
     ULOGI("Start UI");
 
     if (ret == 0)
@@ -843,7 +843,7 @@ int startUi(struct pdraw_app *app)
         }
         SDL_WM_SetCaption("PDrAW", "PDrAW");
     }
-#endif /* USE_SDL */
+#endif /* BUILD_SDL */
 
     return ret;
 }
@@ -851,9 +851,9 @@ int startUi(struct pdraw_app *app)
 
 void stopUi(struct pdraw_app *app)
 {
-#ifdef USE_SDL
+#ifdef BUILD_SDL
     SDL_Quit();
-#endif /* USE_SDL */
+#endif /* BUILD_SDL */
 }
 
 

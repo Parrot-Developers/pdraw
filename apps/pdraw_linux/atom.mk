@@ -17,9 +17,9 @@ LOCAL_LIBRARIES := \
 	libARNetworkAL \
 	libARDiscovery \
 	json \
-	curl \
-	sdl
-LOCAL_CFLAGS += -DUSE_SDL
+	curl
+LOCAL_CONDITIONAL_LIBRARIES := \
+	OPTIONAL:sdl
 
 include $(BUILD_EXECUTABLE)
 
