@@ -240,12 +240,12 @@ public:
     /*
      * get last frame
      *
-     * waitUs : time in microseconds to wait a frame
+     * timeout : time in microseconds to wait for a frame
      *  0: don't wait
      * -1: wait forever
      * >0: wait time
      */
-    virtual int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, long waitUs = 0) = 0;
+    virtual int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, int timeout = 0) = 0;
 
     virtual float getControllerRadarAngleSetting(void) = 0;
     virtual void setControllerRadarAngleSetting(float angle) = 0;

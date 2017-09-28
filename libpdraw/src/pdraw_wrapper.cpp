@@ -874,13 +874,13 @@ int pdraw_remove_video_frame_producer(struct pdraw *pdraw, void *producerCtx)
 }
 
 
-int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, pdraw_video_frame_t *frame)
+int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, pdraw_video_frame_t *frame, int timeout)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->getProducerLastFrame(producerCtx, frame);
+    return toPdraw(pdraw)->getProducerLastFrame(producerCtx, frame, timeout);
 }
 
 

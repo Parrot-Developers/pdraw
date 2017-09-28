@@ -910,7 +910,7 @@ public class Pdraw {
         long pdrawCtx,
         long producerCtx,
         pdraw_video_frame_t *frame,
-        long waitUs);
+        int timeout);
 */
 
     private native float nativeGetControllerRadarAngleSetting(

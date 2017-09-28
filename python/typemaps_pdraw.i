@@ -98,10 +98,10 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
         return self->open(url_);
     }
 
-    pdraw_video_frame_t* getProducerLastFrame(void *producerCtx, int waitUs = 0)
+    pdraw_video_frame_t* getProducerLastFrame(void *producerCtx, int timeout = 0)
     {
         pdraw_video_frame_t* frame = new pdraw_video_frame_t();
-        int ret = self->getProducerLastFrame(producerCtx, frame, waitUs);
+        int ret = self->getProducerLastFrame(producerCtx, frame, timeout);
 
         if (ret) {
             delete frame;

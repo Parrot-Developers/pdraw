@@ -424,7 +424,8 @@ int pdraw_remove_video_frame_producer
 int pdraw_get_producer_last_frame
         (struct pdraw *pdraw,
          void *producerCtx,
-         pdraw_video_frame_t *frame);
+         pdraw_video_frame_t *frame,
+         int timeout);
 
 float pdraw_get_controller_radar_angle_setting
         (struct pdraw *pdraw);

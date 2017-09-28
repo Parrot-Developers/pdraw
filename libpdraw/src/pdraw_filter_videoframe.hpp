@@ -65,12 +65,12 @@ public:
     ~VideoFrameFilter();
 
     /*
-     * waitUs : wait a frame, time in microseconds.
+     * timeout : time in microseconds to wait for a frame
      *  0: don't wait
      * -1: wait forever
      * >0: wait time
      */
-    int getLastFrame(pdraw_video_frame_t *frame, long waitUs = 0);
+    int getLastFrame(pdraw_video_frame_t *frame, int timeout = 0);
 
     Media *getMedia() { return mMedia; };
 

@@ -2425,7 +2425,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetProducerLastFrame(
     jlong jctx,
     jlong producerCtx,
     pdraw_video_frame_t *frame,
-    jlong waitUs)
+    jint timeout)
 {
     //TODO
 }

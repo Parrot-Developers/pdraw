@@ -178,19 +178,19 @@ VideoFrameFilter::~VideoFrameFilter()
 }
 
 
-static void getTimeWithUsDelay(struct timespec* ts, long waitUs)
+static void getTimeFromTimeout(struct timespec* ts, int timeout)
 {
     struct timeval tp;
     gettimeofday(&tp, NULL);
 
     ts->tv_sec = tp.tv_sec;
-    ts->tv_nsec = tp.tv_usec * 1000 + waitUs * 1000;
+    ts->tv_nsec = tp.tv_usec * 1000 + timeout * 1000;
     ts->tv_sec += ts->tv_nsec / 1000000000L;
     ts->tv_nsec = ts->tv_nsec % 1000000000L;
 }
 
 
-int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame, long waitUs)
+int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame, int timeout)
 {
     if (!frame)
     {
@@ -205,12 +205,12 @@ int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame, long waitUs)
 
     pthread_mutex_lock(&mMutex);
 
-    if (waitUs && !mFrameAvailable) {
-        if (waitUs == -1) {
+    if (timeout && !mFrameAvailable) {
+        if (timeout == -1) {
             pthread_cond_wait(&mCondition, &mMutex);
         } else {
             struct timespec ts;
-            getTimeWithUsDelay(&ts, waitUs);
+            getTimeFromTimeout(&ts, timeout);
             pthread_cond_timedwait(&mCondition, &mMutex, &ts);
         }
     }
