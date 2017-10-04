@@ -463,14 +463,14 @@ void PdrawImpl::setSelfPilot
 
 
 void PdrawImpl::getSelfLocation
-        (struct pdraw_location *loc)
+        (struct vmeta_location *loc)
 {
     mSession.getSelfMetadata()->getLocation(loc);
 }
 
 
 void PdrawImpl::setSelfLocation
-        (const struct pdraw_location *loc)
+        (const struct vmeta_location *loc)
 {
     mSession.getSelfMetadata()->setLocation(loc);
 }
@@ -489,84 +489,84 @@ void PdrawImpl::setControllerBatteryLevel(int batteryLevel)
 
 
 void PdrawImpl::getSelfControllerOrientation
-        (struct pdraw_quaternion *quat)
+        (struct vmeta_quaternion *quat)
 {
     mSession.getSelfMetadata()->getControllerOrientation(quat);
 }
 
 
 void PdrawImpl::getSelfControllerOrientation
-        (struct pdraw_euler *euler)
+        (struct vmeta_euler *euler)
 {
     mSession.getSelfMetadata()->getControllerOrientation(euler);
 }
 
 
 void PdrawImpl::setSelfControllerOrientation
-        (const struct pdraw_quaternion *quat)
+        (const struct vmeta_quaternion *quat)
 {
     mSession.getSelfMetadata()->setControllerOrientation(quat);
 }
 
 
 void PdrawImpl::setSelfControllerOrientation
-        (const struct pdraw_euler *euler)
+        (const struct vmeta_euler *euler)
 {
     mSession.getSelfMetadata()->setControllerOrientation(euler);
 }
 
 
 void PdrawImpl::getSelfHeadOrientation
-        (struct pdraw_quaternion *quat)
+        (struct vmeta_quaternion *quat)
 {
     mSession.getSelfMetadata()->getHeadOrientation(quat);
 }
 
 
 void PdrawImpl::getSelfHeadOrientation
-        (struct pdraw_euler *euler)
+        (struct vmeta_euler *euler)
 {
     mSession.getSelfMetadata()->getHeadOrientation(euler);
 }
 
 
 void PdrawImpl::setSelfHeadOrientation
-        (const struct pdraw_quaternion *quat)
+        (const struct vmeta_quaternion *quat)
 {
     mSession.getSelfMetadata()->setHeadOrientation(quat);
 }
 
 
 void PdrawImpl::setSelfHeadOrientation
-        (const struct pdraw_euler *euler)
+        (const struct vmeta_euler *euler)
 {
     mSession.getSelfMetadata()->setHeadOrientation(euler);
 }
 
 
 void PdrawImpl::getSelfHeadRefOrientation
-        (struct pdraw_quaternion *quat)
+        (struct vmeta_quaternion *quat)
 {
     mSession.getSelfMetadata()->getHeadRefOrientation(quat);
 }
 
 
 void PdrawImpl::getSelfHeadRefOrientation
-        (struct pdraw_euler *euler)
+        (struct vmeta_euler *euler)
 {
     mSession.getSelfMetadata()->getHeadRefOrientation(euler);
 }
 
 
 void PdrawImpl::setSelfHeadRefOrientation
-        (const struct pdraw_quaternion *quat)
+        (const struct vmeta_quaternion *quat)
 {
     mSession.getSelfMetadata()->setHeadRefOrientation(quat);
 }
 
 
 void PdrawImpl::setSelfHeadRefOrientation
-        (const struct pdraw_euler *euler)
+        (const struct vmeta_euler *euler)
 {
     mSession.getSelfMetadata()->setHeadRefOrientation(euler);
 }
@@ -662,25 +662,25 @@ std::string& PdrawImpl::getPeerMediaDate(void)
 }
 
 
-void PdrawImpl::getPeerTakeoffLocation(struct pdraw_location *loc)
+void PdrawImpl::getPeerTakeoffLocation(struct vmeta_location *loc)
 {
     mSession.getPeerMetadata()->getTakeoffLocation(loc);
 }
 
 
-void PdrawImpl::setPeerTakeoffLocation(const struct pdraw_location *loc)
+void PdrawImpl::setPeerTakeoffLocation(const struct vmeta_location *loc)
 {
     mSession.getPeerMetadata()->setTakeoffLocation(loc);
 }
 
 
-void PdrawImpl::getPeerHomeLocation(struct pdraw_location *loc)
+void PdrawImpl::getPeerHomeLocation(struct vmeta_location *loc)
 {
     mSession.getPeerMetadata()->getHomeLocation(loc);
 }
 
 
-void PdrawImpl::setPeerHomeLocation(const struct pdraw_location *loc)
+void PdrawImpl::setPeerHomeLocation(const struct vmeta_location *loc)
 {
     mSession.getPeerMetadata()->setHomeLocation(loc);
 }

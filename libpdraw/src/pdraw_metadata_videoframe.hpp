@@ -62,7 +62,7 @@ class VideoFrameMetadata
 public:
 
     static bool decodeMetadata(const void *metadataBuffer, unsigned int metadataSize,
-                               video_frame_metadata_source_t source, const char *mimeType, struct pdraw_video_frame_metadata *metadata);
+                               video_frame_metadata_source_t source, const char *mimeType, struct vmeta_frame_v2 *metadata);
 
 };
 

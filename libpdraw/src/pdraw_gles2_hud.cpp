@@ -376,7 +376,7 @@ Gles2Hud::~Gles2Hud()
 
 int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         unsigned int windowWidth, unsigned int windowHeight,
-        const struct pdraw_video_frame_metadata *metadata, bool hmdDistorsionCorrection, bool headtracking)
+        const struct vmeta_frame_v2 *metadata, bool hmdDistorsionCorrection, bool headtracking)
 {
     if ((videoWidth <= 0) || (videoHeight <= 0) || (windowWidth <= 0) || (windowHeight <= 0) || (!metadata))
     {
@@ -453,22 +453,26 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     mHfov = hFov * M_PI / 180.;
     mVfov = vFov * M_PI / 180.;
 
-    float horizontalSpeed = sqrtf(metadata->groundSpeed.north * metadata->groundSpeed.north
-                                  + metadata->groundSpeed.east * metadata->groundSpeed.east);
-    float speedRho = sqrtf(metadata->groundSpeed.north * metadata->groundSpeed.north
-                           + metadata->groundSpeed.east * metadata->groundSpeed.east
-                           + metadata->groundSpeed.down * metadata->groundSpeed.down);
-    float speedPsi = atan2f(metadata->groundSpeed.east, metadata->groundSpeed.north);
-    float speedTheta = M_PI / 2 - acosf(metadata->groundSpeed.down / speedRho);
+    float horizontalSpeed = sqrtf(metadata->base.speed.north * metadata->base.speed.north
+                                  + metadata->base.speed.east * metadata->base.speed.east);
+    float speedRho = sqrtf(metadata->base.speed.north * metadata->base.speed.north
+                           + metadata->base.speed.east * metadata->base.speed.east
+                           + metadata->base.speed.down * metadata->base.speed.down);
+    float speedPsi = atan2f(metadata->base.speed.east, metadata->base.speed.north);
+    float speedTheta = M_PI / 2 - acosf(metadata->base.speed.down / speedRho);
+    vmeta_euler droneAttitude;
+    pdraw_quat2euler(&metadata->base.droneQuat, &droneAttitude);
+    vmeta_euler frameOrientation;
+    pdraw_quat2euler(&metadata->base.frameQuat, &frameOrientation);
     enum pdraw_session_type sessionType = PDRAW_SESSION_TYPE_UNKNOWN;
     enum pdraw_drone_model droneModel = PDRAW_DRONE_MODEL_UNKNOWN;
     const char *friendlyName = NULL;
     int controllerBattery = 256;
-    struct pdraw_euler controllerOrientation;
+    struct vmeta_euler controllerOrientation;
     bool isControllerOrientationValid = false;
-    struct pdraw_location takeoffLocation, selfLocation;
-    takeoffLocation.isValid = 0;
-    selfLocation.isValid = 0;
+    struct vmeta_location takeoffLocation, selfLocation;
+    takeoffLocation.valid = 0;
+    selfLocation.valid = 0;
     uint64_t recordingDuration = 0;
     if (mSession)
     {
@@ -491,36 +495,36 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     float groundDistance = 0.;
     if (droneModel == PDRAW_DRONE_MODEL_DISCO)
     {
-        if ((metadata->location.isValid) && (takeoffLocation.isValid))
+        if ((metadata->base.location.valid) && (takeoffLocation.valid))
         {
-            groundDistance = metadata->location.altitude - takeoffLocation.altitude;
+            groundDistance = metadata->base.location.altitude - takeoffLocation.altitude;
         }
     }
     else
     {
-        groundDistance = metadata->groundDistance;
+        groundDistance = metadata->base.groundDistance;
     }
     double takeoffDistance = 0.;
     double takeoffBearing = 0.;
     double takeoffElevation = 0.;
-    if ((metadata->location.isValid) && (takeoffLocation.isValid))
+    if ((metadata->base.location.valid) && (takeoffLocation.valid))
     {
-        pdraw_coordsDistanceAndBearing(metadata->location.latitude, metadata->location.longitude,
+        pdraw_coordsDistanceAndBearing(metadata->base.location.latitude, metadata->base.location.longitude,
                                        takeoffLocation.latitude, takeoffLocation.longitude,
                                        &takeoffDistance, &takeoffBearing);
-        takeoffElevation = atan2(takeoffLocation.altitude - metadata->location.altitude, takeoffDistance);
+        takeoffElevation = atan2(takeoffLocation.altitude - metadata->base.location.altitude, takeoffDistance);
     }
     double selfDistance = 0.;
     double selfBearing = 0.;
     double selfElevation = 0.;
-    if ((metadata->location.isValid) && (selfLocation.isValid))
+    if ((metadata->base.location.valid) && (selfLocation.valid))
     {
-        pdraw_coordsDistanceAndBearing(metadata->location.latitude, metadata->location.longitude,
+        pdraw_coordsDistanceAndBearing(metadata->base.location.latitude, metadata->base.location.longitude,
                                        selfLocation.latitude, selfLocation.longitude,
                                        &selfDistance, &selfBearing);
-        selfElevation = atan2(selfLocation.altitude - metadata->location.altitude, selfDistance);
+        selfElevation = atan2(selfLocation.altitude - metadata->base.location.altitude, selfDistance);
     }
-    int headingInt = ((int)(metadata->droneAttitude.psi * RAD_TO_DEG) + 360) % 360;
+    int headingInt = ((int)(droneAttitude.psi * RAD_TO_DEG) + 360) % 360;
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_DEPTH_TEST);
@@ -534,18 +538,18 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     float angle = 0., cy;
     if ((headtracking) && (mSession))
     {
-        struct pdraw_quaternion headQuat, headRefQuat;
+        struct vmeta_quaternion headQuat, headRefQuat;
         mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
         mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
 
         /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        struct pdraw_quaternion headDiff, headRefQuatInv;
+        struct vmeta_quaternion headDiff, headRefQuatInv;
         pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
         pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
-        struct pdraw_euler headOrientation;
+        struct vmeta_euler headOrientation;
         pdraw_quat2euler(&headDiff, &headOrientation);
-        deltaX = (headOrientation.psi - metadata->cameraPan) / mHfov * mRatioW * 2.;
-        deltaY = (headOrientation.theta - metadata->cameraTilt) / mVfov * mRatioH * 2.;
+        deltaX = (headOrientation.psi - metadata->base.cameraPan) / mHfov * mRatioW * 2.;
+        deltaY = (headOrientation.theta - metadata->base.cameraTilt) / mVfov * mRatioH * 2.;
         angle = headOrientation.phi;
     }
 
@@ -573,13 +577,13 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     if (takeoffDistance >= 50.)
     {
         //TODO: pilot
-        drawPositionPin(&metadata->frameOrientation, takeoffBearing, takeoffElevation, colorBlue);
+        drawPositionPin(&frameOrientation, takeoffBearing, takeoffElevation, colorBlue);
     }
 
     /* Cockpit */
     if (headtracking)
     {
-        drawCockpitMarks(metadata->cameraPan, metadata->cameraTilt, colorGray, 0.005 * (float)windowWidth);
+        drawCockpitMarks(metadata->base.cameraPan, metadata->base.cameraTilt, colorGray, 0.005 * (float)windowWidth);
     }
 
     transformMatrix[0] = 1; //TODO windowW;
@@ -604,22 +608,22 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     /* Helmet */
     if (horizontalSpeed >= 0.2)
     {
-        drawFlightPathVector(&metadata->frameOrientation, speedTheta, speedPsi, colorGreen);
+        drawFlightPathVector(&frameOrientation, speedTheta, speedPsi, colorGreen);
     }
-    drawArtificialHorizon(&metadata->droneAttitude, &metadata->frameOrientation, colorGreen);
-    drawRoll(metadata->droneAttitude.phi, colorGreen);
-    drawHeading(metadata->droneAttitude.psi, horizontalSpeed, speedPsi, colorGreen);
-    drawAltitude(metadata->location.altitude, groundDistance, metadata->groundSpeed.down, colorGreen);
+    drawArtificialHorizon(&droneAttitude, &frameOrientation, colorGreen);
+    drawRoll(droneAttitude.phi, colorGreen);
+    drawHeading(droneAttitude.psi, horizontalSpeed, speedPsi, colorGreen);
+    drawAltitude(metadata->base.location.altitude, groundDistance, metadata->base.speed.down, colorGreen);
     drawSpeed(horizontalSpeed, colorGreen);
 #ifdef DEBUG_RADAR // used to test the radar on records
-    if ((metadata->location.isValid) && (takeoffLocation.isValid) && (isControllerOrientationValid))
+    if ((metadata->base.location.valid) && (takeoffLocation.valid) && (isControllerOrientationValid))
     {
-        drawControllerRadar(takeoffDistance, takeoffBearing, controllerOrientation.psi, metadata->droneAttitude.psi, controllerRadarAngle, colorGreen);
+        drawControllerRadar(takeoffDistance, takeoffBearing, controllerOrientation.psi, droneAttitude.psi, controllerRadarAngle, colorGreen);
     }
 #else
-    if ((metadata->location.isValid) && (selfLocation.isValid) && (isControllerOrientationValid))
+    if ((metadata->base.location.valid) && (selfLocation.valid) && (isControllerOrientationValid))
     {
-        drawControllerRadar(selfDistance, selfBearing, controllerOrientation.psi, metadata->droneAttitude.psi, controllerRadarAngle, colorGreen);
+        drawControllerRadar(selfDistance, selfBearing, controllerOrientation.psi, droneAttitude.psi, controllerRadarAngle, colorGreen);
     }
 #endif
     if (sessionType == PDRAW_SESSION_TYPE_RECORD)
@@ -634,9 +638,9 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         drawRecordingStatus(recordingDuration, colorGreen);
     }
 
-    drawVuMeter(mHudVuMeterZoneHOffset, -mHudVuMeterVInterval, 0.05, metadata->batteryPercentage, 0., 100., 0., 20., colorGreen, colorDarkGreen, 2.);
-    drawVuMeter(mHudVuMeterZoneHOffset, 0.0, 0.05, metadata->wifiRssi, -90., -20., -90., -70., colorGreen, colorDarkGreen, 2.);
-    drawVuMeter(mHudVuMeterZoneHOffset, mHudVuMeterVInterval, 0.05, metadata->location.svCount, 0., 30., 0., 5., colorGreen, colorDarkGreen, 2.);
+    drawVuMeter(mHudVuMeterZoneHOffset, -mHudVuMeterVInterval, 0.05, metadata->base.batteryPercentage, 0., 100., 0., 20., colorGreen, colorDarkGreen, 2.);
+    drawVuMeter(mHudVuMeterZoneHOffset, 0.0, 0.05, metadata->base.wifiRssi, -90., -20., -90., -70., colorGreen, colorDarkGreen, 2.);
+    drawVuMeter(mHudVuMeterZoneHOffset, mHudVuMeterVInterval, 0.05, metadata->base.location.svCount, 0., 30., 0., 5., colorGreen, colorDarkGreen, 2.);
 
     glDisableVertexAttribArray(mPositionHandle);
     glDisableVertexAttribArray(mColorHandle);
@@ -673,9 +677,9 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         }
     }
 #ifdef DEBUG_RADAR // used to test the radar on records
-    if ((metadata->location.isValid) && (takeoffLocation.isValid) && (isControllerOrientationValid))
+    if ((metadata->base.location.valid) && (takeoffLocation.valid) && (isControllerOrientationValid))
 #else
-    if ((metadata->location.isValid) && (selfLocation.isValid) && (isControllerOrientationValid))
+    if ((metadata->base.location.valid) && (selfLocation.valid) && (isControllerOrientationValid))
 #endif
     {
         float x = mHudRadarZoneHOffset * mRatioW;
@@ -690,7 +694,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
 #endif
             deltaX = x + 0.06 * cosf(angle) * mRatioW;
             deltaY = y + 0.06 * sinf(angle) * mRatioW * mAspectRatio;
-            angle = controllerOrientation.psi - metadata->droneAttitude.psi;
+            angle = controllerOrientation.psi - droneAttitude.psi;
             transformMatrix[0] = cosf(angle) * windowW;
             transformMatrix[1] = -sinf(angle) * windowW;
             transformMatrix[2] = 0;
@@ -719,7 +723,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         cy = 0.15 * mScaleW;
         deltaX = 0.;
         deltaY = mHudHeadingZoneVOffset * mRatioH;
-        angle = metadata->droneAttitude.psi - takeoffBearing;
+        angle = droneAttitude.psi - takeoffBearing;
         int angleDeg = ((int)(angle * 180. / M_PI + 70. + 360.)) % 360;
         if (angleDeg <= 140)
         {
@@ -768,36 +772,36 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     glUniformMatrix4fv(mTexTransformMatrixHandle, 1, false, transformMatrix);
 
     char str[20];
-    snprintf(str, sizeof(str), "%d%%", metadata->batteryPercentage);
+    snprintf(str, sizeof(str), "%d%%", metadata->base.batteryPercentage);
     drawText(str, mHudVuMeterZoneHOffset * mRatioW, (-mHudVuMeterVInterval - 0.07) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
-    snprintf(str, sizeof(str), "%ddBm", metadata->wifiRssi);
+    snprintf(str, sizeof(str), "%ddBm", metadata->base.wifiRssi);
     drawText(str, mHudVuMeterZoneHOffset * mRatioW, (0.0 - 0.07) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
-    snprintf(str, sizeof(str), "%d", metadata->location.svCount);
+    snprintf(str, sizeof(str), "%d", metadata->base.location.svCount);
     drawText(str, mHudVuMeterZoneHOffset * mRatioW, (mHudVuMeterVInterval - 0.07) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
     snprintf(str, sizeof(str), "ALT");
     drawText(str, mHudCentralZoneSize * mRatioW, (mHudCentralZoneSize - 0.01) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
-    snprintf(str, sizeof(str), "%.1fm", metadata->location.altitude);
+    snprintf(str, sizeof(str), "%.1fm", metadata->base.location.altitude);
     drawText(str, (mHudCentralZoneSize + 0.04) * mRatioW, 0.0 * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     if (droneModel == PDRAW_DRONE_MODEL_DISCO)
     {
-        if ((metadata->location.isValid) && (takeoffLocation.isValid))
+        if ((metadata->base.location.valid) && (takeoffLocation.valid))
         {
-            snprintf(str, sizeof(str), "DELTA: %+.1fm", metadata->location.altitude - takeoffLocation.altitude);
+            snprintf(str, sizeof(str), "DELTA: %+.1fm", metadata->base.location.altitude - takeoffLocation.altitude);
             drawText(str, mHudCentralZoneSize * mRatioW, (-mHudCentralZoneSize + 0.01) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
         }
     }
     else
     {
-        snprintf(str, sizeof(str), "GND: %.1fm", metadata->groundDistance);
+        snprintf(str, sizeof(str), "GND: %.1fm", metadata->base.groundDistance);
         drawText(str, mHudCentralZoneSize * mRatioW, (-mHudCentralZoneSize + 0.01) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_LEFT, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
     }
     snprintf(str, sizeof(str), "SPD");
     drawText(str, -mHudCentralZoneSize * mRatioW, (mHudCentralZoneSize - 0.01) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_BOTTOM, colorGreen);
     snprintf(str, sizeof(str), "%.1fm/s", horizontalSpeed);
     drawText(str, -(mHudCentralZoneSize + 0.04) * mRatioW, 0.0 * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
-    if (metadata->airSpeed != -1.)
+    if (metadata->base.airSpeed != -1.)
     {
-        snprintf(str, sizeof(str), "AIR: %4.1fm/s", metadata->airSpeed);
+        snprintf(str, sizeof(str), "AIR: %4.1fm/s", metadata->base.airSpeed);
         drawText(str, -mHudCentralZoneSize * mRatioW, (-mHudCentralZoneSize + 0.01) * mRatioH, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
     }
     if (takeoffDistance != 0.)
@@ -806,20 +810,20 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         snprintf(str, sizeof(str), "DIST: %.0fm", takeoffDistance);
         drawText(str, 0.0, (-mHudCentralZoneSize / 2. - 0.10) * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     }
-    if ((metadata->flyingState == PDRAW_FLYING_STATE_TAKINGOFF) ||
-        (metadata->flyingState == PDRAW_FLYING_STATE_LANDING) ||
-        (metadata->flyingState == PDRAW_FLYING_STATE_EMERGENCY))
+    if ((metadata->base.state == VMETA_FLYING_STATE_TAKINGOFF) ||
+        (metadata->base.state == VMETA_FLYING_STATE_LANDING) ||
+        (metadata->base.state == VMETA_FLYING_STATE_EMERGENCY))
     {
-        drawText(pdraw_strFlyingState[metadata->flyingState], 0.0, (mHudCentralZoneSize / 2. + 0.10) * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+        drawText(pdraw_strFlyingState[metadata->base.state], 0.0, (mHudCentralZoneSize / 2. + 0.10) * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     }
-    else if ((metadata->pilotingMode == PDRAW_PILOTING_MODE_RETURN_HOME) ||
-        (metadata->pilotingMode == PDRAW_PILOTING_MODE_FLIGHT_PLAN))
+    else if ((metadata->base.mode == VMETA_PILOTING_MODE_RETURN_HOME) ||
+        (metadata->base.mode == VMETA_PILOTING_MODE_FLIGHT_PLAN))
     {
-        drawText(pdraw_strPilotingMode[metadata->pilotingMode], 0.0, (mHudCentralZoneSize / 2. + 0.10) * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+        drawText(pdraw_strPilotingMode[metadata->base.mode], 0.0, (mHudCentralZoneSize / 2. + 0.10) * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     }
-    else if ((metadata->pilotingMode == PDRAW_PILOTING_MODE_FOLLOW_ME) && (metadata->followMeEnabled))
+    else if ((metadata->base.mode == VMETA_PILOTING_MODE_FOLLOW_ME) && (metadata->has_followme) && (metadata->followme.enabled))
     {
-        drawText((metadata->followMeMode == 1) ? "FOLLOW ME" : "LOOK AT ME", 0.0, (mHudCentralZoneSize / 2. + 0.10) * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+        drawText((metadata->followme.mode == 1) ? "FOLLOW ME" : "LOOK AT ME", 0.0, (mHudCentralZoneSize / 2. + 0.10) * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_CENTER, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     }
     if ((controllerBattery > 0) && (controllerBattery <= 255))
     {
@@ -831,7 +835,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     }
     if (sessionType == PDRAW_SESSION_TYPE_STREAM)
     {
-        snprintf(str, sizeof(str), "CTRL LOC: %s", (selfLocation.isValid) ? "OK" : "NOK");
+        snprintf(str, sizeof(str), "CTRL LOC: %s", (selfLocation.valid) ? "OK" : "NOK");
         drawText(str, mHudRightZoneHOffset * mRatioW, 0.05 * mRatioW * mAspectRatio, mTextSize * mRatioW, 1., mAspectRatio, GLES2_HUD_TEXT_ALIGN_RIGHT, GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
     }
     if ((friendlyName) && strlen(friendlyName))
@@ -961,7 +965,7 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     transformMatrix[13] = 0;
     transformMatrix[14] = 0;
     transformMatrix[15] = 1;
-    for (i = 0, angle = metadata->droneAttitude.psi; i < 8; i++, angle += M_PI / 4.)
+    for (i = 0, angle = droneAttitude.psi; i < 8; i++, angle += M_PI / 4.)
     {
         int angleDeg = (headingInt + i * 45 + 70 + 360) % 360;
         if (angleDeg <= 140)
@@ -977,9 +981,9 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
 
     /* Radar text */
 #ifdef DEBUG_RADAR // used to test the radar on records
-    if ((metadata->location.isValid) && (takeoffLocation.isValid) && (isControllerOrientationValid))
+    if ((metadata->base.location.valid) && (takeoffLocation.valid) && (isControllerOrientationValid))
 #else
-    if ((metadata->location.isValid) && (selfLocation.isValid) && (isControllerOrientationValid))
+    if ((metadata->base.location.valid) && (selfLocation.valid) && (isControllerOrientationValid))
 #endif
     {
         cy = 0.09 * mScaleW;
@@ -1412,7 +1416,7 @@ void Gles2Hud::drawCockpitMarks(float cameraPan, float cameraTilt, const float c
 }
 
 
-void Gles2Hud::drawArtificialHorizon(const struct pdraw_euler *drone, const struct pdraw_euler *frame, const float color[4])
+void Gles2Hud::drawArtificialHorizon(const struct vmeta_euler *drone, const struct vmeta_euler *frame, const float color[4])
 {
     int i;
     float x1, y1, x2, y2;
@@ -1831,7 +1835,7 @@ void Gles2Hud::drawRecordingStatus(uint64_t recordingDuration, const float color
 }
 
 
-void Gles2Hud::drawFlightPathVector(const struct pdraw_euler *frame, float speedTheta, float speedPsi, const float color[4])
+void Gles2Hud::drawFlightPathVector(const struct vmeta_euler *frame, float speedTheta, float speedPsi, const float color[4])
 {
     float x = (speedPsi - frame->psi) / mHfov * 2. * mRatioW;
     float y = (speedTheta - frame->theta) / mVfov * 2. * mRatioH;
@@ -1872,7 +1876,7 @@ void Gles2Hud::drawFlightPathVector(const struct pdraw_euler *frame, float speed
 }
 
 
-void Gles2Hud::drawPositionPin(const struct pdraw_euler *frame, double bearing, double elevation, const float color[4])
+void Gles2Hud::drawPositionPin(const struct vmeta_euler *frame, double bearing, double elevation, const float color[4])
 {
     float x = (bearing - frame->psi) / mHfov * 2. * mScaleW;
     float y = (elevation - frame->theta) / mVfov * 2. * mScaleH;

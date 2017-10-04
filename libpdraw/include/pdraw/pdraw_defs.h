@@ -40,6 +40,7 @@
 #define _PDRAW_DEFS_H_
 
 #include <inttypes.h>
+#include <video-metadata/vmeta.h>
 
 
 enum pdraw_drone_model {
@@ -83,33 +84,6 @@ enum pdraw_video_type {
 };
 
 
-enum pdraw_flying_state {
-	PDRAW_FLYING_STATE_LANDED = 0,
-	PDRAW_FLYING_STATE_TAKINGOFF,
-	PDRAW_FLYING_STATE_HOVERING,
-	PDRAW_FLYING_STATE_FLYING,
-	PDRAW_FLYING_STATE_LANDING,
-	PDRAW_FLYING_STATE_EMERGENCY,
-};
-
-
-enum pdraw_piloting_mode {
-	PDRAW_PILOTING_MODE_MANUAL = 0,
-	PDRAW_PILOTING_MODE_RETURN_HOME,
-	PDRAW_PILOTING_MODE_FLIGHT_PLAN,
-	PDRAW_PILOTING_MODE_FOLLOW_ME,
-};
-
-
-enum pdraw_followme_anim {
-	PDRAW_FOLLOWME_ANIM_NONE = 0,
-	PDRAW_FOLLOWME_ANIM_ORBIT,
-	PDRAW_FOLLOWME_ANIM_BOOMERANG,
-	PDRAW_FOLLOWME_ANIM_PARABOLA,
-	PDRAW_FOLLOWME_ANIM_ZENITH,
-};
-
-
 struct pdraw_video_info {
 	enum pdraw_video_type type;
 	unsigned int width;
@@ -136,74 +110,6 @@ struct pdraw_media_info {
 };
 
 
-struct pdraw_location {
-	int isValid;
-	double latitude;
-	double longitude;
-	double altitude;
-	uint8_t svCount;
-};
-
-
-struct pdraw_quaternion {
-	float w;
-	float x;
-	float y;
-	float z;
-};
-
-
-struct pdraw_euler {
-	union {
-		float roll;
-		float phi;
-	};
-	union {
-		float pitch;
-		float theta;
-	};
-	union {
-		float yaw;
-		float psi;
-	};
-};
-
-
-struct pdraw_speed {
-	float north;
-	float east;
-	float down;
-};
-
-
-struct pdraw_video_frame_metadata {
-	struct pdraw_location location;
-	float groundDistance;
-	struct pdraw_speed groundSpeed;
-	float airSpeed;
-	struct pdraw_quaternion droneQuat;
-	struct pdraw_euler droneAttitude;
-	struct pdraw_quaternion frameQuat;
-	struct pdraw_euler frameOrientation;
-	float cameraPan;
-	float cameraTilt;
-	float exposureTime;
-	int gain;
-	enum pdraw_flying_state flyingState;
-	int binning;
-	enum pdraw_piloting_mode pilotingMode;
-	int animation;
-	int wifiRssi;
-	int batteryPercentage;
-	uint64_t frameTimestamp;
-	int followMeEnabled;
-	int followMeMode;
-	int followMeAngleLocked;
-	enum pdraw_followme_anim followMeAnimation;
-	struct pdraw_location followMeTargetLocation;
-};
-
-
 struct pdraw_video_frame {
 	enum pdraw_color_format colorFormat;
 	uint8_t *plane[3];
@@ -219,7 +125,7 @@ struct pdraw_video_frame {
 	uint64_t auNtpTimestampRaw;
 	uint64_t auNtpTimestampLocal;
 	int hasMetadata;
-	struct pdraw_video_frame_metadata metadata;
+	struct vmeta_frame_v2 metadata;
 	uint8_t *userData;
 	unsigned int userDataSize;
 };

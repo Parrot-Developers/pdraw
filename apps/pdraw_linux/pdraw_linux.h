@@ -120,7 +120,7 @@ struct pdraw_app
     int hmd;
     enum pdraw_hmd_model hmdModel;
     int headtracking;
-    struct pdraw_euler headOrientation;
+    struct vmeta_euler headOrientation;
     uint64_t lastCameraOrientationTime;
 
     ARDISCOVERY_AvahiDiscovery_BrowserData_t *ardiscoveryBrowserData;

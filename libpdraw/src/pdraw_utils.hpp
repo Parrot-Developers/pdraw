@@ -44,16 +44,16 @@
 #include <pdraw/pdraw_defs.h>
 
 
-void pdraw_quat_conj(const struct pdraw_quaternion *qSrc, struct pdraw_quaternion *qDst);
+void pdraw_quat_conj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternion *qDst);
 
 
-void pdraw_quat_mult(const struct pdraw_quaternion *qA, const struct pdraw_quaternion *qB, struct pdraw_quaternion *qDst);
+void pdraw_quat_mult(const struct vmeta_quaternion *qA, const struct vmeta_quaternion *qB, struct vmeta_quaternion *qDst);
 
 
-void pdraw_euler2quat(const struct pdraw_euler *euler, struct pdraw_quaternion *quat);
+void pdraw_euler2quat(const struct vmeta_euler *euler, struct vmeta_quaternion *quat);
 
 
-void pdraw_quat2euler(const struct pdraw_quaternion *quat, struct pdraw_euler *euler);
+void pdraw_quat2euler(const struct vmeta_quaternion *quat, struct vmeta_euler *euler);
 
 
 void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,
@@ -61,7 +61,7 @@ void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,
                                     double *distance, double *bearing);
 
 
-void pdraw_parseLocationString(char *locationStr, struct pdraw_location *location);
+void pdraw_parseLocationString(char *locationStr, struct vmeta_location *location);
 
 
 void pdraw_friendlyTimeFromUs(uint64_t time, unsigned int *hrs, unsigned int *min,

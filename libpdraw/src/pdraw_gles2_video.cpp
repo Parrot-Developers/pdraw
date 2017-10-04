@@ -368,7 +368,7 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                            unsigned int sarWidth, unsigned int sarHeight,
                            unsigned int windowWidth, unsigned int windowHeight,
                            gles2_video_color_conversion_t colorConversion,
-                           const struct pdraw_video_frame_metadata *metadata,
+                           const struct vmeta_frame_v2 *metadata,
                            bool headtracking)
 {
     unsigned int i;
@@ -447,15 +447,15 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
     float angle = 0.;
     if ((headtracking) && (mSession))
     {
-        struct pdraw_quaternion headQuat, headRefQuat;
+        struct vmeta_quaternion headQuat, headRefQuat;
         mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
         mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
 
         /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        struct pdraw_quaternion headDiff, headRefQuatInv;
+        struct vmeta_quaternion headDiff, headRefQuatInv;
         pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
         pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
-        struct pdraw_euler headOrientation;
+        struct vmeta_euler headOrientation;
         pdraw_quat2euler(&headDiff, &headOrientation);
         float hFov = 0.;
         float vFov = 0.;
@@ -469,8 +469,8 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
         vFov = vFov * M_PI / 180.;
         float scaleW = hFov / ratioW;
         float scaleH = vFov / ratioH;
-        deltaX = (headOrientation.psi - metadata->cameraPan) / scaleW * 2.;
-        deltaY = (headOrientation.theta - metadata->cameraTilt) / scaleH * 2.;
+        deltaX = (headOrientation.psi - metadata->base.cameraPan) / scaleW * 2.;
+        deltaY = (headOrientation.theta - metadata->base.cameraTilt) / scaleH * 2.;
         angle = headOrientation.phi;
     }
 

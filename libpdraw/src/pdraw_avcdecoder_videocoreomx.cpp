@@ -867,7 +867,7 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
 
                 if (inputData->hasMetadata)
                 {
-                    memcpy(&outputData->metadata, &inputData->metadata, sizeof(struct pdraw_video_frame_metadata));
+                    memcpy(&outputData->metadata, &inputData->metadata, sizeof(struct vmeta_frame_v2));
                     outputData->hasMetadata = true;
                 }
                 else

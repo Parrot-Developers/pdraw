@@ -67,7 +67,7 @@ typedef struct
     uint64_t auNtpTimestampRaw;
     uint64_t auNtpTimestampLocal;
     bool hasMetadata;
-    struct pdraw_video_frame_metadata metadata;
+    struct vmeta_frame_v2 metadata;
     uint64_t demuxOutputTimestamp;
 
 } avc_decoder_input_buffer_t;
@@ -89,7 +89,7 @@ typedef struct
     uint64_t auNtpTimestampRaw;
     uint64_t auNtpTimestampLocal;
     bool hasMetadata;
-    struct pdraw_video_frame_metadata metadata;
+    struct vmeta_frame_v2 metadata;
     uint64_t demuxOutputTimestamp;
     uint64_t decoderOutputTimestamp;
 

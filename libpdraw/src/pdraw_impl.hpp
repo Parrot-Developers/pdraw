@@ -153,39 +153,39 @@ public:
             (bool isPilot);
 
     void getSelfLocation
-            (struct pdraw_location *loc);
+            (struct vmeta_location *loc);
     void setSelfLocation
-            (const struct pdraw_location *loc);
+            (const struct vmeta_location *loc);
 
     int getControllerBatteryLevel();
     void setControllerBatteryLevel(int batteryLevel);
 
     void getSelfControllerOrientation
-            (struct pdraw_quaternion *quat);
+            (struct vmeta_quaternion *quat);
     void getSelfControllerOrientation
-            (struct pdraw_euler *euler);
+            (struct vmeta_euler *euler);
     void setSelfControllerOrientation
-            (const struct pdraw_quaternion *quat);
+            (const struct vmeta_quaternion *quat);
     void setSelfControllerOrientation
-            (const struct pdraw_euler *euler);
+            (const struct vmeta_euler *euler);
 
     void getSelfHeadOrientation
-            (struct pdraw_quaternion *quat);
+            (struct vmeta_quaternion *quat);
     void getSelfHeadOrientation
-            (struct pdraw_euler *euler);
+            (struct vmeta_euler *euler);
     void setSelfHeadOrientation
-            (const struct pdraw_quaternion *quat);
+            (const struct vmeta_quaternion *quat);
     void setSelfHeadOrientation
-            (const struct pdraw_euler *euler);
+            (const struct vmeta_euler *euler);
 
     void getSelfHeadRefOrientation
-            (struct pdraw_quaternion *quat);
+            (struct vmeta_quaternion *quat);
     void getSelfHeadRefOrientation
-            (struct pdraw_euler *euler);
+            (struct vmeta_euler *euler);
     void setSelfHeadRefOrientation
-            (const struct pdraw_quaternion *quat);
+            (const struct vmeta_quaternion *quat);
     void setSelfHeadRefOrientation
-            (const struct pdraw_euler *euler);
+            (const struct vmeta_euler *euler);
     void resetSelfHeadRefOrientation(void);
 
     std::string& getPeerFriendlyName(void);
@@ -217,14 +217,14 @@ public:
     std::string& getPeerMediaDate(void);
 
     void getPeerTakeoffLocation
-            (struct pdraw_location *loc);
+            (struct vmeta_location *loc);
     void setPeerTakeoffLocation
-            (const struct pdraw_location *loc);
+            (const struct vmeta_location *loc);
 
     void getPeerHomeLocation
-            (struct pdraw_location *loc);
+            (struct vmeta_location *loc);
     void setPeerHomeLocation
-            (const struct pdraw_location *loc);
+            (const struct vmeta_location *loc);
 
     uint64_t getPeerRecordingDuration(void);
     void setPeerRecordingDuration(uint64_t duration);

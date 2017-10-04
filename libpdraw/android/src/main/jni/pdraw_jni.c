@@ -294,7 +294,7 @@ static jobject newLocation(
 static void mapLocationToC(
     JNIEnv *env,
     jobject loc,
-    struct pdraw_location *c_loc)
+    struct vmeta_location *c_loc)
 {
     if ((!loc) || (!c_loc))
     {
@@ -304,7 +304,7 @@ static void mapLocationToC(
 
     jclass locClass = (*env)->GetObjectClass(env, loc);
 
-    jfieldID fidValid = (*env)->GetFieldID(env, locClass, "isValid", "Z");
+    jfieldID fidValid = (*env)->GetFieldID(env, locClass, "valid", "Z");
     if (NULL == fidValid)
         return;
     jfieldID fidLatitude = (*env)->GetFieldID(env, locClass, "latitude", "D");
@@ -320,13 +320,13 @@ static void mapLocationToC(
     if (NULL == fidSvCount)
         return;
 
-    jboolean isValid = (*env)->GetBooleanField(env, loc, fidValid);
+    jboolean valid = (*env)->GetBooleanField(env, loc, fidValid);
     jdouble latitude = (*env)->GetDoubleField(env, loc, fidLatitude);
     jdouble longitude = (*env)->GetDoubleField(env, loc, fidLongitude);
     jdouble altitude = (*env)->GetDoubleField(env, loc, fidAltitude);
     jint svCount = (*env)->GetIntField(env, loc, fidSvCount);
 
-    c_loc->isValid = (isValid == JNI_TRUE) ? 1 : 0;
+    c_loc->valid = (valid == JNI_TRUE) ? 1 : 0;
     c_loc->latitude = (double)latitude;
     c_loc->longitude = (double)longitude;
     c_loc->altitude = (double)altitude;
@@ -337,7 +337,7 @@ static void mapLocationToC(
 static void mapLocationFromC(
     JNIEnv *env,
     jobject loc,
-    const struct pdraw_location *c_loc)
+    const struct vmeta_location *c_loc)
 {
     if ((!loc) || (!c_loc))
     {
@@ -347,7 +347,7 @@ static void mapLocationFromC(
 
     jclass locClass = (*env)->GetObjectClass(env, loc);
 
-    jfieldID fidValid = (*env)->GetFieldID(env, locClass, "isValid", "Z");
+    jfieldID fidValid = (*env)->GetFieldID(env, locClass, "valid", "Z");
     if (NULL == fidValid)
         return;
     jfieldID fidLatitude = (*env)->GetFieldID(env, locClass, "latitude", "D");
@@ -363,13 +363,13 @@ static void mapLocationFromC(
     if (NULL == fidSvCount)
         return;
 
-    jboolean isValid = (c_loc->isValid) ? JNI_TRUE : JNI_FALSE;
+    jboolean valid = (c_loc->valid) ? JNI_TRUE : JNI_FALSE;
     jdouble latitude = (jdouble)c_loc->latitude;
     jdouble longitude = (jdouble)c_loc->longitude;
     jdouble altitude = (jdouble)c_loc->altitude;
     jint svCount = (jint)c_loc->svCount;
 
-    (*env)->SetBooleanField(env, loc, fidValid, isValid);
+    (*env)->SetBooleanField(env, loc, fidValid, valid);
     (*env)->SetDoubleField(env, loc, fidLatitude, latitude);
     (*env)->SetDoubleField(env, loc, fidLongitude, longitude);
     (*env)->SetDoubleField(env, loc, fidAltitude, altitude);
@@ -391,7 +391,7 @@ static jobject newQuaternion(
 static void mapQuaternionToC(
     JNIEnv *env,
     jobject quat,
-    struct pdraw_quaternion *c_quat)
+    struct vmeta_quaternion *c_quat)
 {
     if ((!quat) || (!c_quat))
     {
@@ -429,7 +429,7 @@ static void mapQuaternionToC(
 static void mapQuaternionFromC(
     JNIEnv *env,
     jobject quat,
-    const struct pdraw_quaternion *c_quat)
+    const struct vmeta_quaternion *c_quat)
 {
     if ((!quat) || (!c_quat))
     {
@@ -478,7 +478,7 @@ static jobject newEuler(
 static void mapEulerToC(
     JNIEnv *env,
     jobject euler,
-    struct pdraw_euler *c_euler)
+    struct vmeta_euler *c_euler)
 {
     if ((!euler) || (!c_euler))
     {
@@ -511,7 +511,7 @@ static void mapEulerToC(
 static void mapEulerFromC(
     JNIEnv *env,
     jobject euler,
-    const struct pdraw_euler *c_euler)
+    const struct vmeta_euler *c_euler)
 {
     if ((!euler) || (!c_euler))
     {
@@ -624,7 +624,7 @@ static jobject newSpeed(
 static void mapSpeedToC(
     JNIEnv *env,
     jobject speed,
-    struct pdraw_speed *c_speed)
+    struct vmeta_ned *c_speed)
 {
     if ((!speed) || (!c_speed))
     {
@@ -657,7 +657,7 @@ static void mapSpeedToC(
 static void mapSpeedFromC(
     JNIEnv *env,
     jobject speed,
-    const struct pdraw_speed *c_speed)
+    const struct vmeta_ned *c_speed)
 {
     if ((!speed) || (!c_speed))
     {
@@ -1436,7 +1436,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfLocation(
         return (jobject)NULL;
     }
 
-    struct pdraw_location c_loc;
+    struct vmeta_location c_loc;
     int ret = pdraw_get_self_location(ctx->pdraw, &c_loc);
     if (ret != 0)
     {
@@ -1472,7 +1472,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfLocation(
         return (jint)-1;
     }
 
-    struct pdraw_location c_loc;
+    struct vmeta_location c_loc;
     mapLocationToC(env, loc, &c_loc);
 
     return pdraw_set_self_location(ctx->pdraw, &c_loc);
@@ -1530,7 +1530,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfControllerOrientationQuat(
         return (jobject)NULL;
     }
 
-    struct pdraw_quaternion c_quat;
+    struct vmeta_quaternion c_quat;
     int ret = pdraw_get_self_controller_orientation_quat(ctx->pdraw, &c_quat);
     if (ret != 0)
     {
@@ -1565,7 +1565,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfControllerOrientationEuler(
         return (jobject)NULL;
     }
 
-    struct pdraw_euler c_euler;
+    struct vmeta_euler c_euler;
     int ret = pdraw_get_self_controller_orientation_euler(ctx->pdraw, &c_euler);
     if (ret != 0)
     {
@@ -1601,7 +1601,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfControllerOrientationQuat(
         return (jint)-1;
     }
 
-    struct pdraw_quaternion c_quat;
+    struct vmeta_quaternion c_quat;
     mapQuaternionToC(env, quat, &c_quat);
 
     return pdraw_set_self_controller_orientation_quat(ctx->pdraw, &c_quat);
@@ -1623,7 +1623,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfControllerOrientationEuler(
         return (jint)-1;
     }
 
-    struct pdraw_euler c_euler;
+    struct vmeta_euler c_euler;
     mapEulerToC(env, euler, &c_euler);
 
     return pdraw_set_self_controller_orientation_euler(ctx->pdraw, &c_euler);
@@ -1644,7 +1644,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadOrientationQuat(
         return (jobject)NULL;
     }
 
-    struct pdraw_quaternion c_quat;
+    struct vmeta_quaternion c_quat;
     int ret = pdraw_get_self_head_orientation_quat(ctx->pdraw, &c_quat);
     if (ret != 0)
     {
@@ -1679,7 +1679,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadOrientationEuler(
         return (jobject)NULL;
     }
 
-    struct pdraw_euler c_euler;
+    struct vmeta_euler c_euler;
     int ret = pdraw_get_self_head_orientation_euler(ctx->pdraw, &c_euler);
     if (ret != 0)
     {
@@ -1715,7 +1715,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfHeadOrientationQuat(
         return (jint)-1;
     }
 
-    struct pdraw_quaternion c_quat;
+    struct vmeta_quaternion c_quat;
     mapQuaternionToC(env, quat, &c_quat);
 
     return pdraw_set_self_head_orientation_quat(ctx->pdraw, &c_quat);
@@ -1737,7 +1737,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfHeadOrientationEuler(
         return (jint)-1;
     }
 
-    struct pdraw_euler c_euler;
+    struct vmeta_euler c_euler;
     mapEulerToC(env, euler, &c_euler);
 
     return pdraw_set_self_head_orientation_euler(ctx->pdraw, &c_euler);
@@ -1758,7 +1758,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadRefOrientationQuat(
         return (jobject)NULL;
     }
 
-    struct pdraw_quaternion c_quat;
+    struct vmeta_quaternion c_quat;
     int ret = pdraw_get_self_head_ref_orientation_quat(ctx->pdraw, &c_quat);
     if (ret != 0)
     {
@@ -1793,7 +1793,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfHeadRefOrientationEuler(
         return (jobject)NULL;
     }
 
-    struct pdraw_euler c_euler;
+    struct vmeta_euler c_euler;
     int ret = pdraw_get_self_head_ref_orientation_euler(ctx->pdraw, &c_euler);
     if (ret != 0)
     {
@@ -1829,7 +1829,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfHeadRefOrientationQuat(
         return (jint)-1;
     }
 
-    struct pdraw_quaternion c_quat;
+    struct vmeta_quaternion c_quat;
     mapQuaternionToC(env, quat, &c_quat);
 
     return pdraw_set_self_head_ref_orientation_quat(ctx->pdraw, &c_quat);
@@ -1851,7 +1851,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetSelfHeadRefOrientationEuler(
         return (jint)-1;
     }
 
-    struct pdraw_euler c_euler;
+    struct vmeta_euler c_euler;
     mapEulerToC(env, euler, &c_euler);
 
     return pdraw_set_self_head_ref_orientation_euler(ctx->pdraw, &c_euler);
@@ -2176,7 +2176,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerTakeoffLocation(
         return (jobject)NULL;
     }
 
-    struct pdraw_location c_loc;
+    struct vmeta_location c_loc;
     int ret = pdraw_get_peer_takeoff_location(ctx->pdraw, &c_loc);
     if (ret != 0)
     {
@@ -2212,7 +2212,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetPeerTakeoffLocation(
         return (jint)-1;
     }
 
-    struct pdraw_location c_loc;
+    struct vmeta_location c_loc;
     mapLocationToC(env, loc, &c_loc);
 
     return pdraw_set_peer_takeoff_location(ctx->pdraw, &c_loc);
@@ -2233,7 +2233,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerHomeLocation(
         return (jobject)NULL;
     }
 
-    struct pdraw_location c_loc;
+    struct vmeta_location c_loc;
     int ret = pdraw_get_peer_home_location(ctx->pdraw, &c_loc);
     if (ret != 0)
     {
@@ -2269,7 +2269,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetPeerHomeLocation(
         return (jint)-1;
     }
 
-    struct pdraw_location c_loc;
+    struct vmeta_location c_loc;
     mapLocationToC(env, loc, &c_loc);
 
     return pdraw_set_peer_home_location(ctx->pdraw, &c_loc);

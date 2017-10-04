@@ -159,9 +159,9 @@ public:
 		bool isPilot) = 0;
 
 	virtual void getSelfLocation(
-		struct pdraw_location *loc) = 0;
+		struct vmeta_location *loc) = 0;
 	virtual void setSelfLocation(
-		const struct pdraw_location *loc) = 0;
+		const struct vmeta_location *loc) = 0;
 
 	virtual int getControllerBatteryLevel(
 		void) = 0;
@@ -169,31 +169,31 @@ public:
 		int batteryLevel) = 0;
 
 	virtual void getSelfControllerOrientation(
-		struct pdraw_quaternion *quat) = 0;
+		struct vmeta_quaternion *quat) = 0;
 	virtual void getSelfControllerOrientation(
-		struct pdraw_euler *euler) = 0;
+		struct vmeta_euler *euler) = 0;
 	virtual void setSelfControllerOrientation(
-		const struct pdraw_quaternion *quat) = 0;
+		const struct vmeta_quaternion *quat) = 0;
 	virtual void setSelfControllerOrientation(
-		const struct pdraw_euler *euler) = 0;
+		const struct vmeta_euler *euler) = 0;
 
 	virtual void getSelfHeadOrientation(
-		struct pdraw_quaternion *quat) = 0;
+		struct vmeta_quaternion *quat) = 0;
 	virtual void getSelfHeadOrientation(
-		struct pdraw_euler *euler) = 0;
+		struct vmeta_euler *euler) = 0;
 	virtual void setSelfHeadOrientation(
-		const struct pdraw_quaternion *quat) = 0;
+		const struct vmeta_quaternion *quat) = 0;
 	virtual void setSelfHeadOrientation(
-		const struct pdraw_euler *euler) = 0;
+		const struct vmeta_euler *euler) = 0;
 
 	virtual void getSelfHeadRefOrientation(
-		struct pdraw_quaternion *quat) = 0;
+		struct vmeta_quaternion *quat) = 0;
 	virtual void getSelfHeadRefOrientation(
-		struct pdraw_euler *euler) = 0;
+		struct vmeta_euler *euler) = 0;
 	virtual void setSelfHeadRefOrientation(
-		const struct pdraw_quaternion *quat) = 0;
+		const struct vmeta_quaternion *quat) = 0;
 	virtual void setSelfHeadRefOrientation(
-		const struct pdraw_euler *euler) = 0;
+		const struct vmeta_euler *euler) = 0;
 	virtual void resetSelfHeadRefOrientation(
 		void) = 0;
 
@@ -240,14 +240,14 @@ public:
 		void) = 0;
 
 	virtual void getPeerTakeoffLocation(
-		struct pdraw_location *loc) = 0;
+		struct vmeta_location *loc) = 0;
 	virtual void setPeerTakeoffLocation(
-		const struct pdraw_location *loc) = 0;
+		const struct vmeta_location *loc) = 0;
 
 	virtual void getPeerHomeLocation(
-		struct pdraw_location *loc) = 0;
+		struct vmeta_location *loc) = 0;
 	virtual void setPeerHomeLocation(
-		const struct pdraw_location *loc) = 0;
+		const struct vmeta_location *loc) = 0;
 
 	virtual uint64_t getPeerRecordingDuration(
 		void) = 0;

@@ -64,7 +64,7 @@ public class Pdraw {
 
     public class Location {
         public Location() {}
-        public boolean isValid = false;
+        public boolean valid = false;
         public double latitude = 500.0;
         public double longitude = 500.0;
         public double altitude = 0.0;

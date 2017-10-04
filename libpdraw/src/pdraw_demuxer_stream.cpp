@@ -244,12 +244,12 @@ void StreamDemuxer::fetchSessionMetadata(StreamDemuxer *demuxer)
     }
     if ((metadata.takeoffLatitude != 500.) && (metadata.takeoffLongitude != 500.))
     {
-        struct pdraw_location takeoffLoc;
+        struct vmeta_location takeoffLoc;
         memset(&takeoffLoc, 0, sizeof(takeoffLoc));
         takeoffLoc.latitude = metadata.takeoffLatitude;
         takeoffLoc.longitude = metadata.takeoffLongitude;
         takeoffLoc.altitude = metadata.takeoffAltitude;
-        takeoffLoc.isValid = 1;
+        takeoffLoc.valid = 1;
     }
 }
 

@@ -43,8 +43,6 @@
 #include <string>
 #include <vector>
 
-#include <video-metadata/vmeta.h>
-
 #include "pdraw_utils.hpp"
 
 
@@ -72,27 +70,27 @@ public:
     bool isPilot() { return mIsPilot; };
     void setPilot(bool isPilot) { mIsPilot = isPilot; };
 
-    void getLocation(struct pdraw_location *loc);
-    void setLocation(const struct pdraw_location *loc);
+    void getLocation(struct vmeta_location *loc);
+    void setLocation(const struct vmeta_location *loc);
 
     int getControllerBatteryLevel() { return mControllerBatteryLevel; };
     void setControllerBatteryLevel(int batteryLevel) { mControllerBatteryLevel = batteryLevel; };
 
-    bool getControllerOrientation(struct pdraw_quaternion *quat);
-    bool getControllerOrientation(struct pdraw_euler *euler);
+    bool getControllerOrientation(struct vmeta_quaternion *quat);
+    bool getControllerOrientation(struct vmeta_euler *euler);
 
-    void setControllerOrientation(const struct pdraw_quaternion *quat);
-    void setControllerOrientation(const struct pdraw_euler *euler);
+    void setControllerOrientation(const struct vmeta_quaternion *quat);
+    void setControllerOrientation(const struct vmeta_euler *euler);
 
-    bool getHeadOrientation(struct pdraw_quaternion *quat);
-    bool getHeadOrientation(struct pdraw_euler *euler);
-    void setHeadOrientation(const struct pdraw_quaternion *quat);
-    void setHeadOrientation(const struct pdraw_euler *euler);
+    bool getHeadOrientation(struct vmeta_quaternion *quat);
+    bool getHeadOrientation(struct vmeta_euler *euler);
+    void setHeadOrientation(const struct vmeta_quaternion *quat);
+    void setHeadOrientation(const struct vmeta_euler *euler);
 
-    bool getHeadRefOrientation(struct pdraw_quaternion *quat);
-    bool getHeadRefOrientation(struct pdraw_euler *euler);
-    void setHeadRefOrientation(const struct pdraw_quaternion *quat);
-    void setHeadRefOrientation(const struct pdraw_euler *euler);
+    bool getHeadRefOrientation(struct vmeta_quaternion *quat);
+    bool getHeadRefOrientation(struct vmeta_euler *euler);
+    void setHeadRefOrientation(const struct vmeta_quaternion *quat);
+    void setHeadRefOrientation(const struct vmeta_euler *euler);
     void resetHeadRefOrientation();
 
 private:
@@ -101,13 +99,13 @@ private:
     std::string mSerialNumber;
     std::string mSoftwareVersion;
     bool mIsPilot;
-    struct pdraw_location mLocation;
+    struct vmeta_location mLocation;
     int mControllerBatteryLevel;
-    struct pdraw_quaternion mControllerQuat;
+    struct vmeta_quaternion mControllerQuat;
     bool mIsControllerValid;
-    struct pdraw_quaternion mHeadQuat;
+    struct vmeta_quaternion mHeadQuat;
     bool mIsHeadValid;
-    struct pdraw_quaternion mHeadRefQuat;
+    struct vmeta_quaternion mHeadRefQuat;
     bool mIsHeadRefValid;
 };
 
@@ -163,11 +161,11 @@ public:
     std::string& getMediaDate(void) { return mMediaDate; };
     void setMediaDate(const std::string& mediaDate) { mMediaDate = mediaDate; };
 
-    void getTakeoffLocation(struct pdraw_location *loc);
-    void setTakeoffLocation(const struct pdraw_location *loc);
+    void getTakeoffLocation(struct vmeta_location *loc);
+    void setTakeoffLocation(const struct vmeta_location *loc);
 
-    void getHomeLocation(struct pdraw_location *loc);
-    void setHomeLocation(const struct pdraw_location *loc);
+    void getHomeLocation(struct vmeta_location *loc);
+    void setHomeLocation(const struct vmeta_location *loc);
 
     uint64_t getRecordingDuration(void);
     void setRecordingDuration(uint64_t duration);
@@ -188,8 +186,8 @@ private:
     std::string mRunDate;
     std::string mRunUuid;
     std::string mMediaDate;
-    struct pdraw_location mTakeoffLocation;
-    struct pdraw_location mHomeLocation;
+    struct vmeta_location mTakeoffLocation;
+    struct vmeta_location mHomeLocation;
     uint64_t mRecordingStartTime;
 };
 

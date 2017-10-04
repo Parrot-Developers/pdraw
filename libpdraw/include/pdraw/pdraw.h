@@ -217,12 +217,12 @@ int pdraw_set_self_pilot(
 
 int pdraw_get_self_location(
 	struct pdraw *pdraw,
-	struct pdraw_location *loc);
+	struct vmeta_location *loc);
 
 
 int pdraw_set_self_location(
 	struct pdraw *pdraw,
-	const struct pdraw_location *loc);
+	const struct vmeta_location *loc);
 
 
 int pdraw_get_self_controller_battery_level(
@@ -236,62 +236,62 @@ int pdraw_set_self_controller_battery_level(
 
 int pdraw_get_self_controller_orientation_quat(
 	struct pdraw *pdraw,
-	struct pdraw_quaternion *quat);
+	struct vmeta_quaternion *quat);
 
 
 int pdraw_get_self_controller_orientation_euler(
 	struct pdraw *pdraw,
-	struct pdraw_euler *euler);
+	struct vmeta_euler *euler);
 
 
 int pdraw_set_self_controller_orientation_quat(
 	struct pdraw *pdraw,
-	const struct pdraw_quaternion *quat);
+	const struct vmeta_quaternion *quat);
 
 
 int pdraw_set_self_controller_orientation_euler(
 	struct pdraw *pdraw,
-	const struct pdraw_euler *euler);
+	const struct vmeta_euler *euler);
 
 
 int pdraw_get_self_head_orientation_quat(
 	struct pdraw *pdraw,
-	struct pdraw_quaternion *quat);
+	struct vmeta_quaternion *quat);
 
 
 int pdraw_get_self_head_orientation_euler(
 	struct pdraw *pdraw,
-	struct pdraw_euler *euler);
+	struct vmeta_euler *euler);
 
 
 int pdraw_set_self_head_orientation_quat(
 	struct pdraw *pdraw,
-	const struct pdraw_quaternion *quat);
+	const struct vmeta_quaternion *quat);
 
 
 int pdraw_set_self_head_orientation_euler(
 	struct pdraw *pdraw,
-	const struct pdraw_euler *euler);
+	const struct vmeta_euler *euler);
 
 
 int pdraw_get_self_head_ref_orientation_quat(
 	struct pdraw *pdraw,
-	struct pdraw_quaternion *quat);
+	struct vmeta_quaternion *quat);
 
 
 int pdraw_get_self_head_ref_orientation_euler(
 	struct pdraw *pdraw,
-	struct pdraw_euler *euler);
+	struct vmeta_euler *euler);
 
 
 int pdraw_set_self_head_ref_orientation_quat(
 	struct pdraw *pdraw,
-	const struct pdraw_quaternion *quat);
+	const struct vmeta_quaternion *quat);
 
 
 int pdraw_set_self_head_ref_orientation_euler(
 	struct pdraw *pdraw,
-	const struct pdraw_euler *euler);
+	const struct vmeta_euler *euler);
 
 
 int pdraw_reset_self_head_ref_orientation(
@@ -356,22 +356,22 @@ const char *pdraw_get_peer_media_date(
 
 int pdraw_get_peer_takeoff_location(
 	struct pdraw *pdraw,
-	struct pdraw_location *loc);
+	struct vmeta_location *loc);
 
 
 int pdraw_set_peer_takeoff_location(
 	struct pdraw *pdraw,
-	const struct pdraw_location *loc);
+	const struct vmeta_location *loc);
 
 
 int pdraw_get_peer_home_location(
 	struct pdraw *pdraw,
-	struct pdraw_location *loc);
+	struct vmeta_location *loc);
 
 
 int pdraw_set_peer_home_location(
 	struct pdraw *pdraw,
-	const struct pdraw_location *loc);
+	const struct vmeta_location *loc);
 
 
 uint64_t pdraw_get_peer_recording_duration(
