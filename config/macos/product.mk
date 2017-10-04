@@ -1,0 +1,6 @@
+
+TARGET_OS := darwin
+TARGET_OS_FLAVOUR := native
+TARGET_GLOBAL_CFLAGS += -std=gnu99
+
+ARSDK_BUILD_FOR_APP := 1
