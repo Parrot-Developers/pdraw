@@ -118,7 +118,7 @@ public:
 
     int renderHud(unsigned int videoWidth, unsigned int videoHeight,
         unsigned int windowWidth, unsigned int windowHeight,
-        const video_frame_metadata_t *metadata,
+        const struct pdraw_video_frame_metadata *metadata,
         bool hmdDistorsionCorrection, bool headtracking);
 
     void setVideoMedia(VideoMedia *media);
@@ -136,7 +136,7 @@ private:
     void drawArc(float cx, float cy, float rx, float ry, float startAngle, float spanAngle, int numSegments, const float color[4], float lineWidth);
     void drawVuMeter(float x, float y, float r, float value, float minVal, float maxVal, float criticalMin, float criticalMax, const float color[4], const float criticalColor[4], float lineWidth);
     void drawCockpitMarks(float cameraPan, float cameraTilt, const float color[4], float lineWidth);
-    void drawArtificialHorizon(const euler_t *drone, const euler_t *frame, const float color[4]);
+    void drawArtificialHorizon(const struct pdraw_euler *drone, const struct pdraw_euler *frame, const float color[4]);
     void drawRoll(float droneRoll, const float color[4]);
     void drawHeading(float droneYaw, float speedHorizRho, float speedPsi, const float color[4]);
     void drawAltitude(double altitude, float groundDistance, float downSpeed, const float color[4]);
@@ -144,8 +144,8 @@ private:
     void drawControllerRadar(double distance, double bearing, float controllerYaw, float droneYaw, float controllerRadarAngle, const float color[4]);
     void drawRecordTimeline(uint64_t currentTime, uint64_t duration, const float color[4]);
     void drawRecordingStatus(uint64_t recordingDuration, const float color[4]);
-    void drawFlightPathVector(const euler_t *frame, float speedTheta, float speedPsi, const float color[4]);
-    void drawPositionPin(const euler_t *frame, double bearing, double elevation, const float color[4]);
+    void drawFlightPathVector(const struct pdraw_euler *frame, float speedTheta, float speedPsi, const float color[4]);
+    void drawPositionPin(const struct pdraw_euler *frame, double bearing, double elevation, const float color[4]);
 
     Session *mSession;
     VideoMedia *mMedia;

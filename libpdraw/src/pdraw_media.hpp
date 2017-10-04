@@ -52,9 +52,6 @@ namespace Pdraw
 {
 
 
-#define media_type_t pdraw_media_type_t
-
-
 typedef enum
 {
     ELEMENTARY_STREAM_TYPE_UNKNOWN = 0,
@@ -72,7 +69,7 @@ public:
 
     virtual ~Media() {};
 
-    virtual media_type_t getType() = 0;
+    virtual enum pdraw_media_type getType() = 0;
 
     virtual unsigned int getId() = 0;
 

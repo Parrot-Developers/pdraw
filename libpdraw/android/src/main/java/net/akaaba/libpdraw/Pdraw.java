@@ -885,7 +885,7 @@ public class Pdraw {
     private native int nativeGetMediaInfo(
         long pdrawCtx,
         unsigned int index,
-        pdraw_media_info_t *info);
+        struct pdraw_media_info *info);
 
     private native long nativeAddVideoFrameFilterCallback(
         long pdrawCtx,
@@ -909,7 +909,7 @@ public class Pdraw {
     private native int nativeGetProducerLastFrame(
         long pdrawCtx,
         long producerCtx,
-        pdraw_video_frame_t *frame,
+        struct pdraw_video_frame *frame,
         int timeout);
 */
 

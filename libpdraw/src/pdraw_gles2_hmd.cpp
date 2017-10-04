@@ -66,7 +66,7 @@ namespace Pdraw
 {
 
 
-Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit, pdraw_hmd_model_t hmdModel,
+Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit, enum pdraw_hmd_model hmdModel,
                          float scale, float panH, float panV,
                          float metricsWidth, float metricsHeight,
                          float eyeOffsetX, float eyeOffsetY)
@@ -399,7 +399,7 @@ int Gles2HmdEye::renderEye(GLuint texture, unsigned int textureWidth, unsigned i
 
 
 Gles2Hmd::Gles2Hmd(unsigned int firstTexUnit, unsigned int width, unsigned int height,
-                   pdraw_hmd_model_t hmdModel, float xdpi, float ydpi, float deviceMargin,
+                   enum pdraw_hmd_model hmdModel, float xdpi, float ydpi, float deviceMargin,
                    float ipd, float scale, float panH, float panV)
 {
     mHmdModel = hmdModel;

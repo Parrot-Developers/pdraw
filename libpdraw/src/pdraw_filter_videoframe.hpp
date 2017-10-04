@@ -70,7 +70,7 @@ public:
      * -1: wait forever
      * >0: wait time
      */
-    int getLastFrame(pdraw_video_frame_t *frame, int timeout = 0);
+    int getLastFrame(struct pdraw_video_frame *frame, int timeout = 0);
 
     Media *getMedia() { return mMedia; };
 
@@ -93,9 +93,9 @@ private:
     uint8_t *mBuffer[2];
     uint8_t *mUserData[2];
     unsigned int mUserDataBuferSize[2];
-    pdraw_video_frame_t mBufferData[2];
+    struct pdraw_video_frame mBufferData[2];
     unsigned int mBufferIndex;
-    pdraw_color_format_t mColorFormat;
+    enum pdraw_color_format mColorFormat;
     unsigned int mWidth;
     unsigned int mHeight;
     bool mFrameAvailable;

@@ -44,22 +44,16 @@
 #include <pdraw/pdraw_defs.h>
 
 
-#define location_t pdraw_location_t
-#define quaternion_t pdraw_quaternion_t
-#define euler_t pdraw_euler_t
-#define speed_t pdraw_speed_t
+void pdraw_quat_conj(const struct pdraw_quaternion *qSrc, struct pdraw_quaternion *qDst);
 
 
-void pdraw_quat_conj(const quaternion_t *qSrc, quaternion_t *qDst);
+void pdraw_quat_mult(const struct pdraw_quaternion *qA, const struct pdraw_quaternion *qB, struct pdraw_quaternion *qDst);
 
 
-void pdraw_quat_mult(const quaternion_t *qA, const quaternion_t *qB, quaternion_t *qDst);
+void pdraw_euler2quat(const struct pdraw_euler *euler, struct pdraw_quaternion *quat);
 
 
-void pdraw_euler2quat(const euler_t *euler, quaternion_t *quat);
-
-
-void pdraw_quat2euler(const quaternion_t *quat, euler_t *euler);
+void pdraw_quat2euler(const struct pdraw_quaternion *quat, struct pdraw_euler *euler);
 
 
 void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,
@@ -67,7 +61,7 @@ void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,
                                     double *distance, double *bearing);
 
 
-void pdraw_parseLocationString(char *locationStr, location_t *location);
+void pdraw_parseLocationString(char *locationStr, struct pdraw_location *location);
 
 
 void pdraw_friendlyTimeFromUs(uint64_t time, unsigned int *hrs, unsigned int *min,

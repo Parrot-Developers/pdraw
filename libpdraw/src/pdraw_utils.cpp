@@ -70,7 +70,7 @@ static const unsigned int pdraw_h264Sar[17][2] =
 };
 
 
-void pdraw_quat_conj(const quaternion_t *qSrc, quaternion_t *qDst)
+void pdraw_quat_conj(const struct pdraw_quaternion *qSrc, struct pdraw_quaternion *qDst)
 {
     if ((!qSrc) || (!qDst))
         return;
@@ -82,12 +82,12 @@ void pdraw_quat_conj(const quaternion_t *qSrc, quaternion_t *qDst)
 }
 
 
-void pdraw_quat_mult(const quaternion_t *qA, const quaternion_t *qB, quaternion_t *qDst)
+void pdraw_quat_mult(const struct pdraw_quaternion *qA, const struct pdraw_quaternion *qB, struct pdraw_quaternion *qDst)
 {
     if ((!qA) || (!qB) || (!qDst))
         return;
 
-    quaternion_t tmp;
+    struct pdraw_quaternion tmp;
 
     tmp.x = qA->x * qB->w + qA->y * qB->z - qA->z * qB->y + qA->w * qB->x;
     tmp.y = -qA->x * qB->z + qA->y * qB->w + qA->z * qB->x + qA->w * qB->y;
@@ -98,7 +98,7 @@ void pdraw_quat_mult(const quaternion_t *qA, const quaternion_t *qB, quaternion_
 }
 
 
-void pdraw_euler2quat(const euler_t *euler, quaternion_t *quat)
+void pdraw_euler2quat(const struct pdraw_euler *euler, struct pdraw_quaternion *quat)
 {
     if ((!euler) || (!quat))
         return;
@@ -134,7 +134,7 @@ void pdraw_euler2quat(const euler_t *euler, quaternion_t *quat)
 }
 
 
-void pdraw_quat2euler(const quaternion_t *quat, euler_t *euler)
+void pdraw_quat2euler(const struct pdraw_quaternion *quat, struct pdraw_euler *euler)
 {
     if ((!quat) || (!euler))
         return;
@@ -179,7 +179,7 @@ void pdraw_coordsDistanceAndBearing(double latitude1, double longitude1,
 }
 
 
-void pdraw_parseLocationString(char *locationStr, location_t *location)
+void pdraw_parseLocationString(char *locationStr, struct pdraw_location *location)
 {
     if ((!locationStr) || (!location))
         return;

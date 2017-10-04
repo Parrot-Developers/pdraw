@@ -118,9 +118,9 @@ struct pdraw_app
     int scRestream;
     int receiveStream;
     int hmd;
-    pdraw_hmd_model_t hmdModel;
+    enum pdraw_hmd_model hmdModel;
     int headtracking;
-    pdraw_euler_t headOrientation;
+    struct pdraw_euler headOrientation;
     uint64_t lastCameraOrientationTime;
 
     ARDISCOVERY_AvahiDiscovery_BrowserData_t *ardiscoveryBrowserData;

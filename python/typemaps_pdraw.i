@@ -61,11 +61,11 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
 
 }
 
-%newobject pdraw_video_frame_t;
-%newobject pdraw_media_info_t;
+%newobject pdraw_video_frame;
+%newobject pdraw_media_info;
 
-%typemap(newfree) pdraw_video_frame_t * { delete $1; }
-%typemap(newfree) pdraw_media_info_t * { delete $1; }
+%typemap(newfree) pdraw_video_frame * { delete $1; }
+%typemap(newfree) pdraw_media_info * { delete $1; }
 
 %extend Pdraw::IPdraw {
     /*
@@ -98,9 +98,9 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
         return self->open(url_);
     }
 
-    pdraw_video_frame_t* getProducerLastFrame(void *producerCtx, int timeout = 0)
+    pdraw_video_frame* getProducerLastFrame(void *producerCtx, int timeout = 0)
     {
-        pdraw_video_frame_t* frame = new pdraw_video_frame_t();
+        pdraw_video_frame* frame = new pdraw_video_frame();
         int ret = self->getProducerLastFrame(producerCtx, frame, timeout);
 
         if (ret) {
@@ -111,9 +111,9 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
         }
     }
 
-    pdraw_media_info_t* getMediaInfo(unsigned int index)
+    pdraw_media_info* getMediaInfo(unsigned int index)
     {
-        pdraw_media_info_t* info = new pdraw_media_info_t();
+        pdraw_media_info* info = new pdraw_media_info();
         int ret = self->getMediaInfo(index, info);
         if (ret) {
             delete info;
@@ -124,7 +124,7 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
     }
 }
 
-%extend pdraw_video_frame_t {
+%extend pdraw_video_frame {
     /* replace plane list with plane() method */
     PyObject* plane(size_t i) {
         int planeNb = self->colorFormat == PDRAW_COLOR_FORMAT_YUV420PLANAR ? 3 : 2;

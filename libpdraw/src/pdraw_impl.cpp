@@ -404,7 +404,7 @@ int PdrawImpl::render(uint64_t lastRenderTime)
 }
 
 
-pdraw_session_type_t PdrawImpl::getSessionType(void)
+enum pdraw_session_type PdrawImpl::getSessionType(void)
 {
     return mSession.getSessionType();
 }
@@ -463,14 +463,14 @@ void PdrawImpl::setSelfPilot
 
 
 void PdrawImpl::getSelfLocation
-        (location_t *loc)
+        (struct pdraw_location *loc)
 {
     mSession.getSelfMetadata()->getLocation(loc);
 }
 
 
 void PdrawImpl::setSelfLocation
-        (const location_t *loc)
+        (const struct pdraw_location *loc)
 {
     mSession.getSelfMetadata()->setLocation(loc);
 }
@@ -489,84 +489,84 @@ void PdrawImpl::setControllerBatteryLevel(int batteryLevel)
 
 
 void PdrawImpl::getSelfControllerOrientation
-        (quaternion_t *quat)
+        (struct pdraw_quaternion *quat)
 {
     mSession.getSelfMetadata()->getControllerOrientation(quat);
 }
 
 
 void PdrawImpl::getSelfControllerOrientation
-        (euler_t *euler)
+        (struct pdraw_euler *euler)
 {
     mSession.getSelfMetadata()->getControllerOrientation(euler);
 }
 
 
 void PdrawImpl::setSelfControllerOrientation
-        (const quaternion_t *quat)
+        (const struct pdraw_quaternion *quat)
 {
     mSession.getSelfMetadata()->setControllerOrientation(quat);
 }
 
 
 void PdrawImpl::setSelfControllerOrientation
-        (const euler_t *euler)
+        (const struct pdraw_euler *euler)
 {
     mSession.getSelfMetadata()->setControllerOrientation(euler);
 }
 
 
 void PdrawImpl::getSelfHeadOrientation
-        (quaternion_t *quat)
+        (struct pdraw_quaternion *quat)
 {
     mSession.getSelfMetadata()->getHeadOrientation(quat);
 }
 
 
 void PdrawImpl::getSelfHeadOrientation
-        (euler_t *euler)
+        (struct pdraw_euler *euler)
 {
     mSession.getSelfMetadata()->getHeadOrientation(euler);
 }
 
 
 void PdrawImpl::setSelfHeadOrientation
-        (const quaternion_t *quat)
+        (const struct pdraw_quaternion *quat)
 {
     mSession.getSelfMetadata()->setHeadOrientation(quat);
 }
 
 
 void PdrawImpl::setSelfHeadOrientation
-        (const euler_t *euler)
+        (const struct pdraw_euler *euler)
 {
     mSession.getSelfMetadata()->setHeadOrientation(euler);
 }
 
 
 void PdrawImpl::getSelfHeadRefOrientation
-        (quaternion_t *quat)
+        (struct pdraw_quaternion *quat)
 {
     mSession.getSelfMetadata()->getHeadRefOrientation(quat);
 }
 
 
 void PdrawImpl::getSelfHeadRefOrientation
-        (euler_t *euler)
+        (struct pdraw_euler *euler)
 {
     mSession.getSelfMetadata()->getHeadRefOrientation(euler);
 }
 
 
 void PdrawImpl::setSelfHeadRefOrientation
-        (const quaternion_t *quat)
+        (const struct pdraw_quaternion *quat)
 {
     mSession.getSelfMetadata()->setHeadRefOrientation(quat);
 }
 
 
 void PdrawImpl::setSelfHeadRefOrientation
-        (const euler_t *euler)
+        (const struct pdraw_euler *euler)
 {
     mSession.getSelfMetadata()->setHeadRefOrientation(euler);
 }
@@ -602,7 +602,7 @@ std::string& PdrawImpl::getPeerModelId(void)
 }
 
 
-pdraw_drone_model_t PdrawImpl::getPeerDroneModel(void)
+enum pdraw_drone_model PdrawImpl::getPeerDroneModel(void)
 {
     return mSession.getPeerMetadata()->getDroneModel();
 }
@@ -662,25 +662,25 @@ std::string& PdrawImpl::getPeerMediaDate(void)
 }
 
 
-void PdrawImpl::getPeerTakeoffLocation(pdraw_location_t *loc)
+void PdrawImpl::getPeerTakeoffLocation(struct pdraw_location *loc)
 {
     mSession.getPeerMetadata()->getTakeoffLocation(loc);
 }
 
 
-void PdrawImpl::setPeerTakeoffLocation(const pdraw_location_t *loc)
+void PdrawImpl::setPeerTakeoffLocation(const struct pdraw_location *loc)
 {
     mSession.getPeerMetadata()->setTakeoffLocation(loc);
 }
 
 
-void PdrawImpl::getPeerHomeLocation(pdraw_location_t *loc)
+void PdrawImpl::getPeerHomeLocation(struct pdraw_location *loc)
 {
     mSession.getPeerMetadata()->getHomeLocation(loc);
 }
 
 
-void PdrawImpl::setPeerHomeLocation(const pdraw_location_t *loc)
+void PdrawImpl::setPeerHomeLocation(const struct pdraw_location *loc)
 {
     mSession.getPeerMetadata()->setHomeLocation(loc);
 }
@@ -710,7 +710,7 @@ int PdrawImpl::getMediaCount()
 }
 
 
-int PdrawImpl::getMediaInfo(unsigned int index, pdraw_media_info_t *info)
+int PdrawImpl::getMediaInfo(unsigned int index, struct pdraw_media_info *info)
 {
     if (!info)
     {
@@ -850,7 +850,7 @@ int PdrawImpl::removeVideoFrameProducer(void *producerCtx)
 }
 
 
-int PdrawImpl::getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, int timeout)
+int PdrawImpl::getProducerLastFrame(void *producerCtx, struct pdraw_video_frame *frame, int timeout)
 {
     if (!producerCtx)
     {
@@ -893,13 +893,13 @@ void PdrawImpl::setDisplayScreenSettings(float xdpi, float ydpi, float deviceMar
 }
 
 
-void PdrawImpl::getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV)
+void PdrawImpl::getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV)
 {
     mSettings.getHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
 }
 
 
-void PdrawImpl::setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV)
+void PdrawImpl::setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV)
 {
     mSettings.setHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
 }

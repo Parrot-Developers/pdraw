@@ -69,7 +69,7 @@ SessionSelfMetadata::~SessionSelfMetadata()
 }
 
 
-void SessionSelfMetadata::getLocation(location_t *loc)
+void SessionSelfMetadata::getLocation(struct pdraw_location *loc)
 {
     if (!loc)
         return;
@@ -77,7 +77,7 @@ void SessionSelfMetadata::getLocation(location_t *loc)
 }
 
 
-void SessionSelfMetadata::setLocation(const location_t *loc)
+void SessionSelfMetadata::setLocation(const struct pdraw_location *loc)
 {
     if (!loc)
         return;
@@ -85,7 +85,7 @@ void SessionSelfMetadata::setLocation(const location_t *loc)
 }
 
 
-bool SessionSelfMetadata::getControllerOrientation(quaternion_t *quat)
+bool SessionSelfMetadata::getControllerOrientation(struct pdraw_quaternion *quat)
 {
     if (!quat)
         return false;
@@ -94,7 +94,7 @@ bool SessionSelfMetadata::getControllerOrientation(quaternion_t *quat)
 }
 
 
-bool SessionSelfMetadata::getControllerOrientation(euler_t *euler)
+bool SessionSelfMetadata::getControllerOrientation(struct pdraw_euler *euler)
 {
     if (!euler)
         return false;
@@ -103,7 +103,7 @@ bool SessionSelfMetadata::getControllerOrientation(euler_t *euler)
 }
 
 
-void SessionSelfMetadata::setControllerOrientation(const quaternion_t *quat)
+void SessionSelfMetadata::setControllerOrientation(const struct pdraw_quaternion *quat)
 {
     if (!quat)
         return;
@@ -112,7 +112,7 @@ void SessionSelfMetadata::setControllerOrientation(const quaternion_t *quat)
 }
 
 
-void SessionSelfMetadata::setControllerOrientation(const euler_t *euler)
+void SessionSelfMetadata::setControllerOrientation(const struct pdraw_euler *euler)
 {
     if (!euler)
         return;
@@ -121,7 +121,7 @@ void SessionSelfMetadata::setControllerOrientation(const euler_t *euler)
 }
 
 
-bool SessionSelfMetadata::getHeadOrientation(quaternion_t *quat)
+bool SessionSelfMetadata::getHeadOrientation(struct pdraw_quaternion *quat)
 {
     if (!quat)
         return false;
@@ -130,7 +130,7 @@ bool SessionSelfMetadata::getHeadOrientation(quaternion_t *quat)
 }
 
 
-bool SessionSelfMetadata::getHeadOrientation(euler_t *euler)
+bool SessionSelfMetadata::getHeadOrientation(struct pdraw_euler *euler)
 {
     if (!euler)
         return false;
@@ -139,7 +139,7 @@ bool SessionSelfMetadata::getHeadOrientation(euler_t *euler)
 }
 
 
-void SessionSelfMetadata::setHeadOrientation(const quaternion_t *quat)
+void SessionSelfMetadata::setHeadOrientation(const struct pdraw_quaternion *quat)
 {
     if (!quat)
         return;
@@ -148,7 +148,7 @@ void SessionSelfMetadata::setHeadOrientation(const quaternion_t *quat)
 }
 
 
-void SessionSelfMetadata::setHeadOrientation(const euler_t *euler)
+void SessionSelfMetadata::setHeadOrientation(const struct pdraw_euler *euler)
 {
     if (!euler)
         return;
@@ -157,7 +157,7 @@ void SessionSelfMetadata::setHeadOrientation(const euler_t *euler)
 }
 
 
-bool SessionSelfMetadata::getHeadRefOrientation(quaternion_t *quat)
+bool SessionSelfMetadata::getHeadRefOrientation(struct pdraw_quaternion *quat)
 {
     if (!quat)
         return false;
@@ -166,7 +166,7 @@ bool SessionSelfMetadata::getHeadRefOrientation(quaternion_t *quat)
 }
 
 
-bool SessionSelfMetadata::getHeadRefOrientation(euler_t *euler)
+bool SessionSelfMetadata::getHeadRefOrientation(struct pdraw_euler *euler)
 {
     if (!euler)
         return false;
@@ -175,7 +175,7 @@ bool SessionSelfMetadata::getHeadRefOrientation(euler_t *euler)
 }
 
 
-void SessionSelfMetadata::setHeadRefOrientation(const quaternion_t *quat)
+void SessionSelfMetadata::setHeadRefOrientation(const struct pdraw_quaternion *quat)
 {
     if (!quat)
         return;
@@ -184,7 +184,7 @@ void SessionSelfMetadata::setHeadRefOrientation(const quaternion_t *quat)
 }
 
 
-void SessionSelfMetadata::setHeadRefOrientation(const euler_t *euler)
+void SessionSelfMetadata::setHeadRefOrientation(const struct pdraw_euler *euler)
 {
     if (!euler)
         return;
@@ -248,7 +248,7 @@ void SessionPeerMetadata::set(struct vmeta_session *meta)
     setRunUuid(std::string(meta->run_id));
     if (meta->takeoff_loc.valid)
     {
-        location_t loc;
+        struct pdraw_location loc;
         loc.isValid = meta->takeoff_loc.valid;
         loc.latitude = meta->takeoff_loc.latitude;
         loc.longitude = meta->takeoff_loc.longitude;
@@ -301,7 +301,7 @@ void SessionPeerMetadata::setModelId(const std::string& modelId)
 }
 
 
-void SessionPeerMetadata::getTakeoffLocation(location_t *loc)
+void SessionPeerMetadata::getTakeoffLocation(struct pdraw_location *loc)
 {
     if (!loc)
         return;
@@ -309,7 +309,7 @@ void SessionPeerMetadata::getTakeoffLocation(location_t *loc)
 }
 
 
-void SessionPeerMetadata::setTakeoffLocation(const location_t *loc)
+void SessionPeerMetadata::setTakeoffLocation(const struct pdraw_location *loc)
 {
     if (!loc)
         return;
@@ -317,7 +317,7 @@ void SessionPeerMetadata::setTakeoffLocation(const location_t *loc)
 }
 
 
-void SessionPeerMetadata::getHomeLocation(location_t *loc)
+void SessionPeerMetadata::getHomeLocation(struct pdraw_location *loc)
 {
     if (!loc)
         return;
@@ -325,7 +325,7 @@ void SessionPeerMetadata::getHomeLocation(location_t *loc)
 }
 
 
-void SessionPeerMetadata::setHomeLocation(const location_t *loc)
+void SessionPeerMetadata::setHomeLocation(const struct pdraw_location *loc)
 {
     if (!loc)
         return;

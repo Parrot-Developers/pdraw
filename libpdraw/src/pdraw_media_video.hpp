@@ -56,9 +56,6 @@ namespace Pdraw
 {
 
 
-#define video_type_t pdraw_video_type_t
-
-
 class VideoMedia : public Media
 {
 public:
@@ -69,12 +66,12 @@ public:
 
     ~VideoMedia();
 
-    media_type_t getType() { return PDRAW_MEDIA_TYPE_VIDEO; };
+    enum pdraw_media_type getType() { return PDRAW_MEDIA_TYPE_VIDEO; };
 
     unsigned int getId() { return mId; };
 
-    video_type_t getVideoType() { return mVideoType; };
-    void setVideoType(video_type_t type) { mVideoType = type; };
+    enum pdraw_video_type getVideoType() { return mVideoType; };
+    void setVideoType(enum pdraw_video_type type) { mVideoType = type; };
 
     void getDimensions(unsigned int *width, unsigned int *height,
         unsigned int *cropLeft, unsigned int *cropRight,
@@ -105,7 +102,7 @@ private:
     bool isVideoFrameFilterValid(VideoFrameFilter *filter);
 
     elementary_stream_type_t mEsType;
-    video_type_t mVideoType;
+    enum pdraw_video_type mVideoType;
     unsigned int mWidth;
     unsigned int mHeight;
     unsigned int mCropLeft;

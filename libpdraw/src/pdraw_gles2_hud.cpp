@@ -376,7 +376,7 @@ Gles2Hud::~Gles2Hud()
 
 int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         unsigned int windowWidth, unsigned int windowHeight,
-        const video_frame_metadata_t *metadata, bool hmdDistorsionCorrection, bool headtracking)
+        const struct pdraw_video_frame_metadata *metadata, bool hmdDistorsionCorrection, bool headtracking)
 {
     if ((videoWidth <= 0) || (videoHeight <= 0) || (windowWidth <= 0) || (windowHeight <= 0) || (!metadata))
     {
@@ -460,13 +460,13 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
                            + metadata->groundSpeed.down * metadata->groundSpeed.down);
     float speedPsi = atan2f(metadata->groundSpeed.east, metadata->groundSpeed.north);
     float speedTheta = M_PI / 2 - acosf(metadata->groundSpeed.down / speedRho);
-    session_type_t sessionType = PDRAW_SESSION_TYPE_UNKNOWN;
-    drone_model_t droneModel = PDRAW_DRONE_MODEL_UNKNOWN;
+    enum pdraw_session_type sessionType = PDRAW_SESSION_TYPE_UNKNOWN;
+    enum pdraw_drone_model droneModel = PDRAW_DRONE_MODEL_UNKNOWN;
     const char *friendlyName = NULL;
     int controllerBattery = 256;
-    euler_t controllerOrientation;
+    struct pdraw_euler controllerOrientation;
     bool isControllerOrientationValid = false;
-    location_t takeoffLocation, selfLocation;
+    struct pdraw_location takeoffLocation, selfLocation;
     takeoffLocation.isValid = 0;
     selfLocation.isValid = 0;
     uint64_t recordingDuration = 0;
@@ -534,15 +534,15 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
     float angle = 0., cy;
     if ((headtracking) && (mSession))
     {
-        quaternion_t headQuat, headRefQuat;
+        struct pdraw_quaternion headQuat, headRefQuat;
         mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
         mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
 
         /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        quaternion_t headDiff, headRefQuatInv;
+        struct pdraw_quaternion headDiff, headRefQuatInv;
         pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
         pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
-        euler_t headOrientation;
+        struct pdraw_euler headOrientation;
         pdraw_quat2euler(&headDiff, &headOrientation);
         deltaX = (headOrientation.psi - metadata->cameraPan) / mHfov * mRatioW * 2.;
         deltaY = (headOrientation.theta - metadata->cameraTilt) / mVfov * mRatioH * 2.;
@@ -1412,7 +1412,7 @@ void Gles2Hud::drawCockpitMarks(float cameraPan, float cameraTilt, const float c
 }
 
 
-void Gles2Hud::drawArtificialHorizon(const euler_t *drone, const euler_t *frame, const float color[4])
+void Gles2Hud::drawArtificialHorizon(const struct pdraw_euler *drone, const struct pdraw_euler *frame, const float color[4])
 {
     int i;
     float x1, y1, x2, y2;
@@ -1831,7 +1831,7 @@ void Gles2Hud::drawRecordingStatus(uint64_t recordingDuration, const float color
 }
 
 
-void Gles2Hud::drawFlightPathVector(const euler_t *frame, float speedTheta, float speedPsi, const float color[4])
+void Gles2Hud::drawFlightPathVector(const struct pdraw_euler *frame, float speedTheta, float speedPsi, const float color[4])
 {
     float x = (speedPsi - frame->psi) / mHfov * 2. * mRatioW;
     float y = (speedTheta - frame->theta) / mVfov * 2. * mRatioH;
@@ -1872,7 +1872,7 @@ void Gles2Hud::drawFlightPathVector(const euler_t *frame, float speedTheta, floa
 }
 
 
-void Gles2Hud::drawPositionPin(const euler_t *frame, double bearing, double elevation, const float color[4])
+void Gles2Hud::drawPositionPin(const struct pdraw_euler *frame, double bearing, double elevation, const float color[4])
 {
     float x = (bearing - frame->psi) / mHfov * 2. * mScaleW;
     float y = (elevation - frame->theta) / mVfov * 2. * mScaleH;

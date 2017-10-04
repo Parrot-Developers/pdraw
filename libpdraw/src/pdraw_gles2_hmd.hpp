@@ -67,7 +67,7 @@ class Gles2HmdEye
 {
 public:
 
-    Gles2HmdEye(unsigned int firstTexUnit, pdraw_hmd_model_t hmdModel,
+    Gles2HmdEye(unsigned int firstTexUnit, enum pdraw_hmd_model hmdModel,
                 float scale, float panH, float panV,
                 float metricsWidth, float metricsHeight,
                 float eyeOffsetX, float eyeOffsetY);
@@ -79,7 +79,7 @@ public:
 private:
 
     unsigned int mRotation;
-    pdraw_hmd_model_t mHmdModel;
+    enum pdraw_hmd_model mHmdModel;
     float mScale;
     float mPanH;
     float mPanV;
@@ -117,7 +117,7 @@ class Gles2Hmd
 public:
 
     Gles2Hmd(unsigned int firstTexUnit, unsigned int width, unsigned int height,
-            pdraw_hmd_model_t hmdModel = PDRAW_HMD_MODEL_UNKNOWN,
+            enum pdraw_hmd_model hmdModel = PDRAW_HMD_MODEL_UNKNOWN,
             float xdpi = SETTINGS_DISPLAY_XDPI, float ydpi = SETTINGS_DISPLAY_YDPI,
             float deviceMargin = SETTINGS_DISPLAY_DEVICE_MARGIN,
             float ipd = SETTINGS_HMD_IPD, float scale = SETTINGS_HMD_SCALE,
@@ -131,7 +131,7 @@ public:
 
 private:
 
-    pdraw_hmd_model_t mHmdModel;
+    enum pdraw_hmd_model mHmdModel;
     float mDeviceMargin;
     float mIpd;
     float mScale;

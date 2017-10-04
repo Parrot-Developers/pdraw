@@ -52,9 +52,6 @@ namespace Pdraw
 {
 
 
-#define drone_model_t pdraw_drone_model_t
-
-
 class SessionSelfMetadata
 {
 public:
@@ -75,27 +72,27 @@ public:
     bool isPilot() { return mIsPilot; };
     void setPilot(bool isPilot) { mIsPilot = isPilot; };
 
-    void getLocation(location_t *loc);
-    void setLocation(const location_t *loc);
+    void getLocation(struct pdraw_location *loc);
+    void setLocation(const struct pdraw_location *loc);
 
     int getControllerBatteryLevel() { return mControllerBatteryLevel; };
     void setControllerBatteryLevel(int batteryLevel) { mControllerBatteryLevel = batteryLevel; };
 
-    bool getControllerOrientation(quaternion_t *quat);
-    bool getControllerOrientation(euler_t *euler);
+    bool getControllerOrientation(struct pdraw_quaternion *quat);
+    bool getControllerOrientation(struct pdraw_euler *euler);
 
-    void setControllerOrientation(const quaternion_t *quat);
-    void setControllerOrientation(const euler_t *euler);
+    void setControllerOrientation(const struct pdraw_quaternion *quat);
+    void setControllerOrientation(const struct pdraw_euler *euler);
 
-    bool getHeadOrientation(quaternion_t *quat);
-    bool getHeadOrientation(euler_t *euler);
-    void setHeadOrientation(const quaternion_t *quat);
-    void setHeadOrientation(const euler_t *euler);
+    bool getHeadOrientation(struct pdraw_quaternion *quat);
+    bool getHeadOrientation(struct pdraw_euler *euler);
+    void setHeadOrientation(const struct pdraw_quaternion *quat);
+    void setHeadOrientation(const struct pdraw_euler *euler);
 
-    bool getHeadRefOrientation(quaternion_t *quat);
-    bool getHeadRefOrientation(euler_t *euler);
-    void setHeadRefOrientation(const quaternion_t *quat);
-    void setHeadRefOrientation(const euler_t *euler);
+    bool getHeadRefOrientation(struct pdraw_quaternion *quat);
+    bool getHeadRefOrientation(struct pdraw_euler *euler);
+    void setHeadRefOrientation(const struct pdraw_quaternion *quat);
+    void setHeadRefOrientation(const struct pdraw_euler *euler);
     void resetHeadRefOrientation();
 
 private:
@@ -104,13 +101,13 @@ private:
     std::string mSerialNumber;
     std::string mSoftwareVersion;
     bool mIsPilot;
-    location_t mLocation;
+    struct pdraw_location mLocation;
     int mControllerBatteryLevel;
-    quaternion_t mControllerQuat;
+    struct pdraw_quaternion mControllerQuat;
     bool mIsControllerValid;
-    quaternion_t mHeadQuat;
+    struct pdraw_quaternion mHeadQuat;
     bool mIsHeadValid;
-    quaternion_t mHeadRefQuat;
+    struct pdraw_quaternion mHeadRefQuat;
     bool mIsHeadRefValid;
 };
 
@@ -137,7 +134,7 @@ public:
     std::string& getModelId(void) { return mModelId; };
     void setModelId(const std::string& modelId);
 
-    drone_model_t getDroneModel(void) { return mDroneModel; };
+    enum pdraw_drone_model getDroneModel(void) { return mDroneModel; };
 
     std::string& getSerialNumber(void) { return mSerialNumber; };
     void setSerialNumber(const std::string& serialNumber) { mSerialNumber = serialNumber; };
@@ -166,11 +163,11 @@ public:
     std::string& getMediaDate(void) { return mMediaDate; };
     void setMediaDate(const std::string& mediaDate) { mMediaDate = mediaDate; };
 
-    void getTakeoffLocation(location_t *loc);
-    void setTakeoffLocation(const location_t *loc);
+    void getTakeoffLocation(struct pdraw_location *loc);
+    void setTakeoffLocation(const struct pdraw_location *loc);
 
-    void getHomeLocation(location_t *loc);
-    void setHomeLocation(const location_t *loc);
+    void getHomeLocation(struct pdraw_location *loc);
+    void setHomeLocation(const struct pdraw_location *loc);
 
     uint64_t getRecordingDuration(void);
     void setRecordingDuration(uint64_t duration);
@@ -181,7 +178,7 @@ private:
     std::string mMaker;
     std::string mModel;
     std::string mModelId;
-    drone_model_t mDroneModel;
+    enum pdraw_drone_model mDroneModel;
     std::string mSerialNumber;
     std::string mSoftwareVersion;
     std::string mBuildId;
@@ -191,8 +188,8 @@ private:
     std::string mRunDate;
     std::string mRunUuid;
     std::string mMediaDate;
-    location_t mTakeoffLocation;
-    location_t mHomeLocation;
+    struct pdraw_location mTakeoffLocation;
+    struct pdraw_location mHomeLocation;
     uint64_t mRecordingStartTime;
 };
 

@@ -72,8 +72,8 @@ public:
     void getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin);
     void setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin);
 
-    void getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV);
-    void setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV);
+    void getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV);
+    void setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV);
 
 private:
 
@@ -81,7 +81,7 @@ private:
     float mDisplayXdpi;
     float mDisplayYdpi;
     float mDisplayDeviceMargin;
-    pdraw_hmd_model_t mHmdModel;
+    enum pdraw_hmd_model mHmdModel;
     float mHmdIpd;
     float mHmdScale;
     float mHmdPanH;

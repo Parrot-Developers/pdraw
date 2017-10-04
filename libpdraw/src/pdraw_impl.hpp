@@ -134,7 +134,7 @@ public:
     int render
             (uint64_t lastRenderTime);
 
-    pdraw_session_type_t getSessionType(void);
+    enum pdraw_session_type getSessionType(void);
 
     std::string& getSelfFriendlyName(void);
     void setSelfFriendlyName
@@ -153,39 +153,39 @@ public:
             (bool isPilot);
 
     void getSelfLocation
-            (location_t *loc);
+            (struct pdraw_location *loc);
     void setSelfLocation
-            (const location_t *loc);
+            (const struct pdraw_location *loc);
 
     int getControllerBatteryLevel();
     void setControllerBatteryLevel(int batteryLevel);
 
     void getSelfControllerOrientation
-            (quaternion_t *quat);
+            (struct pdraw_quaternion *quat);
     void getSelfControllerOrientation
-            (euler_t *euler);
+            (struct pdraw_euler *euler);
     void setSelfControllerOrientation
-            (const quaternion_t *quat);
+            (const struct pdraw_quaternion *quat);
     void setSelfControllerOrientation
-            (const euler_t *euler);
+            (const struct pdraw_euler *euler);
 
     void getSelfHeadOrientation
-            (quaternion_t *quat);
+            (struct pdraw_quaternion *quat);
     void getSelfHeadOrientation
-            (euler_t *euler);
+            (struct pdraw_euler *euler);
     void setSelfHeadOrientation
-            (const quaternion_t *quat);
+            (const struct pdraw_quaternion *quat);
     void setSelfHeadOrientation
-            (const euler_t *euler);
+            (const struct pdraw_euler *euler);
 
     void getSelfHeadRefOrientation
-            (quaternion_t *quat);
+            (struct pdraw_quaternion *quat);
     void getSelfHeadRefOrientation
-            (euler_t *euler);
+            (struct pdraw_euler *euler);
     void setSelfHeadRefOrientation
-            (const quaternion_t *quat);
+            (const struct pdraw_quaternion *quat);
     void setSelfHeadRefOrientation
-            (const euler_t *euler);
+            (const struct pdraw_euler *euler);
     void resetSelfHeadRefOrientation(void);
 
     std::string& getPeerFriendlyName(void);
@@ -196,7 +196,7 @@ public:
 
     std::string& getPeerModelId(void);
 
-    pdraw_drone_model_t getPeerDroneModel(void);
+    enum pdraw_drone_model getPeerDroneModel(void);
 
     std::string& getPeerSerialNumber(void);
 
@@ -217,14 +217,14 @@ public:
     std::string& getPeerMediaDate(void);
 
     void getPeerTakeoffLocation
-            (pdraw_location_t *loc);
+            (struct pdraw_location *loc);
     void setPeerTakeoffLocation
-            (const pdraw_location_t *loc);
+            (const struct pdraw_location *loc);
 
     void getPeerHomeLocation
-            (pdraw_location_t *loc);
+            (struct pdraw_location *loc);
     void setPeerHomeLocation
-            (const pdraw_location_t *loc);
+            (const struct pdraw_location *loc);
 
     uint64_t getPeerRecordingDuration(void);
     void setPeerRecordingDuration(uint64_t duration);
@@ -233,7 +233,7 @@ public:
 
     int getMediaCount();
 
-    int getMediaInfo(unsigned int index, pdraw_media_info_t *info);
+    int getMediaInfo(unsigned int index, struct pdraw_media_info *info);
 
     void *addVideoFrameFilterCallback(unsigned int mediaId, pdraw_video_frame_filter_callback_t cb, void *userPtr);
 
@@ -251,7 +251,7 @@ public:
      * -1: wait forever
      * >0: wait time
      */
-    int getProducerLastFrame(void *producerCtx, pdraw_video_frame_t *frame, int timeout = 0);
+    int getProducerLastFrame(void *producerCtx, struct pdraw_video_frame *frame, int timeout = 0);
 
     float getControllerRadarAngleSetting(void);
     void setControllerRadarAngleSetting(float angle);
@@ -259,8 +259,8 @@ public:
     void getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin);
     void setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin);
 
-    void getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV);
-    void setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV);
+    void getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV);
+    void setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV);
 
     inline static IPdraw *create(void)
     {

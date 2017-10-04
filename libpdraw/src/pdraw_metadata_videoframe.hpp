@@ -57,18 +57,12 @@ typedef enum
 } video_frame_metadata_source_t;
 
 
-#define video_frame_metadata_t pdraw_video_frame_metadata_t
-#define flying_state_t pdraw_flying_state_t
-#define piloting_mode_t pdraw_piloting_mode_t
-#define followme_anim_t pdraw_followme_anim_t
-
-
 class VideoFrameMetadata
 {
 public:
 
     static bool decodeMetadata(const void *metadataBuffer, unsigned int metadataSize,
-                               video_frame_metadata_source_t source, const char *mimeType, video_frame_metadata_t *metadata);
+                               video_frame_metadata_source_t source, const char *mimeType, struct pdraw_video_frame_metadata *metadata);
 
 };
 

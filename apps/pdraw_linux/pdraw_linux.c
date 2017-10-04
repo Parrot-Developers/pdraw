@@ -244,7 +244,7 @@ int main(int argc, char *argv[])
     int failed = 0;
     int idx, c, mouseDown = 0, isRecording = 0;
     int mouseDownX = 0, mouseDownY = 0;
-    pdraw_euler_t mouseDownHeadOrientation;
+    struct pdraw_euler mouseDownHeadOrientation;
     uint64_t lastRenderTime = 0;
     struct pdraw_app *app;
 
@@ -1793,7 +1793,7 @@ void skyControllerSkyControllerStateGpsPositionChangedCallback(double latitude, 
     struct pdraw_app *app = (struct pdraw_app*)custom;
     if (app)
     {
-        pdraw_location_t loc;
+        struct pdraw_location loc;
         loc.isValid = ((latitude != 500.) && (longitude != 500.)) ? 1 : 0;
         loc.latitude = latitude;
         loc.longitude = longitude;
@@ -1813,7 +1813,7 @@ void skyControllerSkyControllerStateAttitudeChangedCallback(float q0, float q1, 
     struct pdraw_app *app = (struct pdraw_app*)custom;
     if (app)
     {
-        pdraw_quaternion_t quat;
+        struct pdraw_quaternion quat;
         quat.w = q0;
         quat.x = q1;
         quat.y = q2;

@@ -51,7 +51,7 @@ namespace Pdraw
 {
 
 
-static void mapFrameMetadataV1rec(const struct vmeta_frame_v1_recording *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV1rec(const struct vmeta_frame_v1_recording *meta, struct pdraw_video_frame_metadata *metadata)
 {
     metadata->groundDistance = meta->altitude;
     metadata->location.isValid = (meta->location.valid) ? 1 : 0;
@@ -124,7 +124,7 @@ static void mapFrameMetadataV1rec(const struct vmeta_frame_v1_recording *meta, v
 }
 
 
-static void mapFrameMetadataV1strmext(const struct vmeta_frame_v1_streaming_extended *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV1strmext(const struct vmeta_frame_v1_streaming_extended *meta, struct pdraw_video_frame_metadata *metadata)
 {
     metadata->groundDistance = meta->altitude;
     metadata->location.isValid = (meta->location.valid) ? 1 : 0;
@@ -197,7 +197,7 @@ static void mapFrameMetadataV1strmext(const struct vmeta_frame_v1_streaming_exte
 }
 
 
-static void mapFrameMetadataV1strmbasic(const struct vmeta_frame_v1_streaming_basic *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV1strmbasic(const struct vmeta_frame_v1_streaming_basic *meta, struct pdraw_video_frame_metadata *metadata)
 {
     metadata->location.isValid = false;
     metadata->droneAttitude.phi = meta->droneAttitude.roll;
@@ -218,7 +218,7 @@ static void mapFrameMetadataV1strmbasic(const struct vmeta_frame_v1_streaming_ba
 }
 
 
-static void mapFrameMetadataV2(const struct vmeta_frame_v2 *meta, video_frame_metadata_t *metadata)
+static void mapFrameMetadataV2(const struct vmeta_frame_v2 *meta, struct pdraw_video_frame_metadata *metadata)
 {
     metadata->groundDistance = meta->base.groundDistance;
     metadata->location.isValid = (meta->base.location.valid) ? 1 : 0;
@@ -330,7 +330,7 @@ static void mapFrameMetadataV2(const struct vmeta_frame_v2 *meta, video_frame_me
 
 
 bool VideoFrameMetadata::decodeMetadata(const void *metadataBuffer, unsigned int metadataSize,
-                                        video_frame_metadata_source_t source, const char *mimeType, video_frame_metadata_t *metadata)
+                                        video_frame_metadata_source_t source, const char *mimeType, struct pdraw_video_frame_metadata *metadata)
 {
     bool ret = false;
     struct vmeta_buffer buf;
@@ -342,7 +342,7 @@ bool VideoFrameMetadata::decodeMetadata(const void *metadataBuffer, unsigned int
         return false;
     }
 
-    memset(metadata, 0, sizeof(video_frame_metadata_t));
+    memset(metadata, 0, sizeof(struct pdraw_video_frame_metadata));
     vmeta_buffer_set_cdata(&buf, (const uint8_t *)metadataBuffer, metadataSize, 0);
 
     if (source == FRAME_METADATA_SOURCE_STREAMING)

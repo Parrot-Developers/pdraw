@@ -91,7 +91,7 @@ public:
                     unsigned int sarWidth, unsigned int sarHeight,
                     unsigned int windowWidth, unsigned int windowHeight,
                     gles2_video_color_conversion_t colorConversion,
-                    const video_frame_metadata_t *metadata,
+                    const struct pdraw_video_frame_metadata *metadata,
                     bool headtracking);
 
     void setVideoMedia(VideoMedia *media);

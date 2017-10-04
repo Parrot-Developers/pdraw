@@ -311,11 +311,11 @@ int pdraw_render(struct pdraw *pdraw, uint64_t lastRenderTime)
 }
 
 
-pdraw_session_type_t pdraw_get_session_type(struct pdraw *pdraw)
+enum pdraw_session_type pdraw_get_session_type(struct pdraw *pdraw)
 {
     if (pdraw == NULL)
     {
-        return (pdraw_session_type_t)-EINVAL;
+        return (enum pdraw_session_type)-EINVAL;
     }
     return toPdraw(pdraw)->getSessionType();
 }
@@ -408,7 +408,7 @@ int pdraw_set_self_pilot(struct pdraw *pdraw, int isPilot)
 }
 
 
-int pdraw_get_self_location(struct pdraw *pdraw, pdraw_location_t *loc)
+int pdraw_get_self_location(struct pdraw *pdraw, struct pdraw_location *loc)
 {
     if (pdraw == NULL)
     {
@@ -419,7 +419,7 @@ int pdraw_get_self_location(struct pdraw *pdraw, pdraw_location_t *loc)
 }
 
 
-int pdraw_set_self_location(struct pdraw *pdraw, const pdraw_location_t *loc)
+int pdraw_set_self_location(struct pdraw *pdraw, const struct pdraw_location *loc)
 {
     if (pdraw == NULL)
     {
@@ -451,7 +451,7 @@ int pdraw_set_self_controller_battery_level(struct pdraw *pdraw, int batteryLeve
 }
 
 
-int pdraw_get_self_controller_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t *quat)
+int pdraw_get_self_controller_orientation_quat(struct pdraw *pdraw, struct pdraw_quaternion *quat)
 {
     if (pdraw == NULL)
     {
@@ -462,7 +462,7 @@ int pdraw_get_self_controller_orientation_quat(struct pdraw *pdraw, pdraw_quater
 }
 
 
-int pdraw_get_self_controller_orientation_euler(struct pdraw *pdraw, pdraw_euler_t *euler)
+int pdraw_get_self_controller_orientation_euler(struct pdraw *pdraw, struct pdraw_euler *euler)
 {
     if (pdraw == NULL)
     {
@@ -473,7 +473,7 @@ int pdraw_get_self_controller_orientation_euler(struct pdraw *pdraw, pdraw_euler
 }
 
 
-int pdraw_set_self_controller_orientation_quat(struct pdraw *pdraw, const pdraw_quaternion_t *quat)
+int pdraw_set_self_controller_orientation_quat(struct pdraw *pdraw, const struct pdraw_quaternion *quat)
 {
     if (pdraw == NULL)
     {
@@ -484,7 +484,7 @@ int pdraw_set_self_controller_orientation_quat(struct pdraw *pdraw, const pdraw_
 }
 
 
-int pdraw_set_self_controller_orientation_euler(struct pdraw *pdraw, const pdraw_euler_t *euler)
+int pdraw_set_self_controller_orientation_euler(struct pdraw *pdraw, const struct pdraw_euler *euler)
 {
     if (pdraw == NULL)
     {
@@ -495,7 +495,7 @@ int pdraw_set_self_controller_orientation_euler(struct pdraw *pdraw, const pdraw
 }
 
 
-int pdraw_get_self_head_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t *quat)
+int pdraw_get_self_head_orientation_quat(struct pdraw *pdraw, struct pdraw_quaternion *quat)
 {
     if (pdraw == NULL)
     {
@@ -506,7 +506,7 @@ int pdraw_get_self_head_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t
 }
 
 
-int pdraw_get_self_head_orientation_euler(struct pdraw *pdraw, pdraw_euler_t *euler)
+int pdraw_get_self_head_orientation_euler(struct pdraw *pdraw, struct pdraw_euler *euler)
 {
     if (pdraw == NULL)
     {
@@ -517,7 +517,7 @@ int pdraw_get_self_head_orientation_euler(struct pdraw *pdraw, pdraw_euler_t *eu
 }
 
 
-int pdraw_set_self_head_orientation_quat(struct pdraw *pdraw, const pdraw_quaternion_t *quat)
+int pdraw_set_self_head_orientation_quat(struct pdraw *pdraw, const struct pdraw_quaternion *quat)
 {
     if (pdraw == NULL)
     {
@@ -528,7 +528,7 @@ int pdraw_set_self_head_orientation_quat(struct pdraw *pdraw, const pdraw_quater
 }
 
 
-int pdraw_set_self_head_orientation_euler(struct pdraw *pdraw, const pdraw_euler_t *euler)
+int pdraw_set_self_head_orientation_euler(struct pdraw *pdraw, const struct pdraw_euler *euler)
 {
     if (pdraw == NULL)
     {
@@ -539,7 +539,7 @@ int pdraw_set_self_head_orientation_euler(struct pdraw *pdraw, const pdraw_euler
 }
 
 
-int pdraw_get_self_head_ref_orientation_quat(struct pdraw *pdraw, pdraw_quaternion_t *quat)
+int pdraw_get_self_head_ref_orientation_quat(struct pdraw *pdraw, struct pdraw_quaternion *quat)
 {
     if (pdraw == NULL)
     {
@@ -550,7 +550,7 @@ int pdraw_get_self_head_ref_orientation_quat(struct pdraw *pdraw, pdraw_quaterni
 }
 
 
-int pdraw_get_self_head_ref_orientation_euler(struct pdraw *pdraw, pdraw_euler_t *euler)
+int pdraw_get_self_head_ref_orientation_euler(struct pdraw *pdraw, struct pdraw_euler *euler)
 {
     if (pdraw == NULL)
     {
@@ -561,7 +561,7 @@ int pdraw_get_self_head_ref_orientation_euler(struct pdraw *pdraw, pdraw_euler_t
 }
 
 
-int pdraw_set_self_head_ref_orientation_quat(struct pdraw *pdraw, const pdraw_quaternion_t *quat)
+int pdraw_set_self_head_ref_orientation_quat(struct pdraw *pdraw, const struct pdraw_quaternion *quat)
 {
     if (pdraw == NULL)
     {
@@ -572,7 +572,7 @@ int pdraw_set_self_head_ref_orientation_quat(struct pdraw *pdraw, const pdraw_qu
 }
 
 
-int pdraw_set_self_head_ref_orientation_euler(struct pdraw *pdraw, const pdraw_euler_t *euler)
+int pdraw_set_self_head_ref_orientation_euler(struct pdraw *pdraw, const struct pdraw_euler *euler)
 {
     if (pdraw == NULL)
     {
@@ -634,11 +634,11 @@ const char *pdraw_get_peer_model_id(struct pdraw *pdraw)
 }
 
 
-pdraw_drone_model_t pdraw_get_peer_drone_model(struct pdraw *pdraw)
+enum pdraw_drone_model pdraw_get_peer_drone_model(struct pdraw *pdraw)
 {
     if (pdraw == NULL)
     {
-        return (pdraw_drone_model_t)-EINVAL;
+        return (enum pdraw_drone_model)-EINVAL;
     }
     return toPdraw(pdraw)->getPeerDroneModel();
 }
@@ -734,7 +734,7 @@ const char *pdraw_get_peer_media_date(struct pdraw *pdraw)
 }
 
 
-int pdraw_get_peer_takeoff_location(struct pdraw *pdraw, pdraw_location_t *loc)
+int pdraw_get_peer_takeoff_location(struct pdraw *pdraw, struct pdraw_location *loc)
 {
     if (pdraw == NULL)
     {
@@ -745,7 +745,7 @@ int pdraw_get_peer_takeoff_location(struct pdraw *pdraw, pdraw_location_t *loc)
 }
 
 
-int pdraw_set_peer_takeoff_location(struct pdraw *pdraw, const pdraw_location_t *loc)
+int pdraw_set_peer_takeoff_location(struct pdraw *pdraw, const struct pdraw_location *loc)
 {
     if (pdraw == NULL)
     {
@@ -756,7 +756,7 @@ int pdraw_set_peer_takeoff_location(struct pdraw *pdraw, const pdraw_location_t 
 }
 
 
-int pdraw_get_peer_home_location(struct pdraw *pdraw, pdraw_location_t *loc)
+int pdraw_get_peer_home_location(struct pdraw *pdraw, struct pdraw_location *loc)
 {
     if (pdraw == NULL)
     {
@@ -767,7 +767,7 @@ int pdraw_get_peer_home_location(struct pdraw *pdraw, pdraw_location_t *loc)
 }
 
 
-int pdraw_set_peer_home_location(struct pdraw *pdraw, const pdraw_location_t *loc)
+int pdraw_set_peer_home_location(struct pdraw *pdraw, const struct pdraw_location *loc)
 {
     if (pdraw == NULL)
     {
@@ -823,7 +823,7 @@ int pdraw_get_media_count(struct pdraw *pdraw)
 }
 
 
-int pdraw_get_media_info(struct pdraw *pdraw, unsigned int index, pdraw_media_info_t *info)
+int pdraw_get_media_info(struct pdraw *pdraw, unsigned int index, struct pdraw_media_info *info)
 {
     if (pdraw == NULL)
     {
@@ -874,7 +874,7 @@ int pdraw_remove_video_frame_producer(struct pdraw *pdraw, void *producerCtx)
 }
 
 
-int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, pdraw_video_frame_t *frame, int timeout)
+int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, struct pdraw_video_frame *frame, int timeout)
 {
     if (pdraw == NULL)
     {
@@ -937,7 +937,7 @@ int pdraw_set_display_screen_settings
 
 int pdraw_get_hmd_distorsion_correction_settings
         (struct pdraw *pdraw,
-         pdraw_hmd_model_t *hmdModel,
+         enum pdraw_hmd_model *hmdModel,
          float *ipd,
          float *scale,
          float *panH,
@@ -954,7 +954,7 @@ int pdraw_get_hmd_distorsion_correction_settings
 
 int pdraw_set_hmd_distorsion_correction_settings
         (struct pdraw *pdraw,
-         pdraw_hmd_model_t hmdModel,
+         enum pdraw_hmd_model hmdModel,
          float ipd,
          float scale,
          float panH,

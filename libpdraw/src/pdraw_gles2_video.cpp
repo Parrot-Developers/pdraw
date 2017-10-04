@@ -368,7 +368,7 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                            unsigned int sarWidth, unsigned int sarHeight,
                            unsigned int windowWidth, unsigned int windowHeight,
                            gles2_video_color_conversion_t colorConversion,
-                           const video_frame_metadata_t *metadata,
+                           const struct pdraw_video_frame_metadata *metadata,
                            bool headtracking)
 {
     unsigned int i;
@@ -447,15 +447,15 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
     float angle = 0.;
     if ((headtracking) && (mSession))
     {
-        quaternion_t headQuat, headRefQuat;
+        struct pdraw_quaternion headQuat, headRefQuat;
         mSession->getSelfMetadata()->getHeadOrientation(&headQuat);
         mSession->getSelfMetadata()->getHeadRefOrientation(&headRefQuat);
 
         /* diff * headRefQuat = headQuat  --->  diff = headQuat * inverse(headRefQuat) */
-        quaternion_t headDiff, headRefQuatInv;
+        struct pdraw_quaternion headDiff, headRefQuatInv;
         pdraw_quat_conj(&headRefQuat, &headRefQuatInv);
         pdraw_quat_mult(&headQuat, &headRefQuatInv, &headDiff);
-        euler_t headOrientation;
+        struct pdraw_euler headOrientation;
         pdraw_quat2euler(&headDiff, &headOrientation);
         float hFov = 0.;
         float vFov = 0.;

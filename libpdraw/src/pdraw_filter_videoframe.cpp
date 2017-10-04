@@ -190,7 +190,7 @@ static void getTimeFromTimeout(struct timespec* ts, int timeout)
 }
 
 
-int VideoFrameFilter::getLastFrame(pdraw_video_frame_t *frame, int timeout)
+int VideoFrameFilter::getLastFrame(struct pdraw_video_frame *frame, int timeout)
 {
     if (!frame)
     {
@@ -247,7 +247,7 @@ void* VideoFrameFilter::runThread(void *ptr)
             if (ret == 0)
             {
                 avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
-                pdraw_video_frame_t frame;
+                struct pdraw_video_frame frame;
                 memset(&frame, 0, sizeof(frame));
                 switch(data->colorFormat)
                 {

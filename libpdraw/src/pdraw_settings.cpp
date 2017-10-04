@@ -82,7 +82,7 @@ void Settings::setDisplayScreenSettings(float xdpi, float ydpi, float deviceMarg
 }
 
 
-void Settings::getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, float *ipd, float *scale, float *panH, float *panV)
+void Settings::getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV)
 {
     if (hmdModel)
         *hmdModel = mHmdModel;
@@ -97,7 +97,7 @@ void Settings::getHmdDistorsionCorrectionSettings(pdraw_hmd_model_t *hmdModel, f
 }
 
 
-void Settings::setHmdDistorsionCorrectionSettings(pdraw_hmd_model_t hmdModel, float ipd, float scale, float panH, float panV)
+void Settings::setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV)
 {
     mHmdModel = hmdModel;
     mHmdIpd = ipd;
