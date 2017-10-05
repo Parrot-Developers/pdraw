@@ -1,7 +1,7 @@
 /**
- * @file pdraw_gles2_hmd_indices.cpp
- * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 HMD distorsion correction
- * @date 11/02/2017
+ * @file pdraw_gles2_hmd_cockpitglasses2_indices.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 HMD distorsion correction - Parrot Cockpitglasses 2
+ * @date 30/06/2017
  * @author aurelien.barre@akaaba.net
  *
  * Copyright (c) 2016 Aurelien Barre <aurelien.barre@akaaba.net>.
@@ -36,15 +36,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Extracted from FPVToolbox by Frédéric Bertolus
- * https://github.com/niavok/fpvtoolbox
- * and converted from Java to C++ */
-
 #ifdef USE_GLES2
 
 #include <inttypes.h>
 
-extern const uint32_t pdraw_gles2HmdCockpitGlassesIndices[21600] =
+extern const uint32_t pdraw_gles2HmdCockpitglasses2Indices[21600] =
 {
     0, 61, 1, 1, 61, 62, 61, 122, 62, 62, 122, 123, 122, 183, 123, 123, 183, 184, 183, 244,
     184, 184, 244, 245, 244, 305, 245, 245, 305, 306, 305, 366, 306, 306, 366, 367, 366, 427, 367, 367,

@@ -52,12 +52,20 @@
 #define GLES2_HMD_OFFSET                 (34.66f)
 
 
-extern const float pdraw_gles2HmdCockpitGlassesColors[14884];
-extern const uint32_t pdraw_gles2HmdCockpitGlassesIndices[21600];
-extern const float pdraw_gles2HmdCockpitGlassesPositions[7442];
-extern const float pdraw_gles2HmdCockpitGlassesTexCoordsRed[7450];
-extern const float pdraw_gles2HmdCockpitGlassesTexCoordsGreen[7450];
-extern const float pdraw_gles2HmdCockpitGlassesTexCoordsBlue[7450];
+extern const float pdraw_gles2HmdCockpitglassesColors[14884];
+extern const uint32_t pdraw_gles2HmdCockpitglassesIndices[21600];
+extern const float pdraw_gles2HmdCockpitglassesPositions[7442];
+extern const float pdraw_gles2HmdCockpitglassesTexCoordsRed[7450];
+extern const float pdraw_gles2HmdCockpitglassesTexCoordsGreen[7450];
+extern const float pdraw_gles2HmdCockpitglassesTexCoordsBlue[7450];
+
+extern const float pdraw_gles2HmdCockpitglasses2Colors[14884];
+extern const uint32_t pdraw_gles2HmdCockpitglasses2Indices[21600];
+extern const float pdraw_gles2HmdCockpitglasses2Positions[7442];
+extern const float pdraw_gles2HmdCockpitglasses2TexCoordsRed[7450];
+extern const float pdraw_gles2HmdCockpitglasses2TexCoordsGreen[7450];
+extern const float pdraw_gles2HmdCockpitglasses2TexCoordsBlue[7450];
+
 extern const GLchar *pdraw_gles2HmdVertexShader;
 extern const GLchar *pdraw_gles2HmdFragmentShader;
 
@@ -162,35 +170,60 @@ Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit, enum pdraw_hmd_model hmdMode
         glGenBuffers(6, buffer);
 
         //TODO: support different HMD models
-        mIndicesBufferHandle = buffer[0];
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesIndices), pdraw_gles2HmdCockpitGlassesIndices, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdIndices loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesIndices));
+        switch (mHmdModel)
+        {
+        default:
+        case PDRAW_HMD_MODEL_COCKPITGLASSES:
+            mIndicesBufferHandle = buffer[0];
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesIndices), pdraw_gles2HmdCockpitglassesIndices, GL_STATIC_DRAW);
 
-        mPositionBufferHandle = buffer[1];
-        glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesPositions), pdraw_gles2HmdCockpitGlassesPositions, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdPositions loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesPositions));
+            mPositionBufferHandle = buffer[1];
+            glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesPositions), pdraw_gles2HmdCockpitglassesPositions, GL_STATIC_DRAW);
 
-        mColorBufferHandle = buffer[2];
-        glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesColors), pdraw_gles2HmdCockpitGlassesColors, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdColors loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesColors));
+            mColorBufferHandle = buffer[2];
+            glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesColors), pdraw_gles2HmdCockpitglassesColors, GL_STATIC_DRAW);
 
-        mTexCoord0BufferHandle = buffer[3];
-        glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsRed), pdraw_gles2HmdCockpitGlassesTexCoordsRed, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdTexCoordsRed loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsRed));
+            mTexCoord0BufferHandle = buffer[3];
+            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesTexCoordsRed), pdraw_gles2HmdCockpitglassesTexCoordsRed, GL_STATIC_DRAW);
 
-        mTexCoord1BufferHandle = buffer[4];
-        glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsGreen), pdraw_gles2HmdCockpitGlassesTexCoordsGreen, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdTexCoordsGreen loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsGreen));
+            mTexCoord1BufferHandle = buffer[4];
+            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesTexCoordsGreen), pdraw_gles2HmdCockpitglassesTexCoordsGreen, GL_STATIC_DRAW);
 
-        mTexCoord2BufferHandle = buffer[5];
-        glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsBlue), pdraw_gles2HmdCockpitGlassesTexCoordsBlue, GL_STATIC_DRAW);
-        ULOGD("Gles2HmdEye: glesHmdTexCoordsBlue loaded, size=%zu", sizeof(pdraw_gles2HmdCockpitGlassesTexCoordsBlue));
+            mTexCoord2BufferHandle = buffer[5];
+            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesTexCoordsBlue), pdraw_gles2HmdCockpitglassesTexCoordsBlue, GL_STATIC_DRAW);
+            break;
+        case PDRAW_HMD_MODEL_COCKPITGLASSES_2:
+            mIndicesBufferHandle = buffer[0];
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2Indices), pdraw_gles2HmdCockpitglasses2Indices, GL_STATIC_DRAW);
+
+            mPositionBufferHandle = buffer[1];
+            glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2Positions), pdraw_gles2HmdCockpitglasses2Positions, GL_STATIC_DRAW);
+
+            mColorBufferHandle = buffer[2];
+            glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2Colors), pdraw_gles2HmdCockpitglasses2Colors, GL_STATIC_DRAW);
+
+            mTexCoord0BufferHandle = buffer[3];
+            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsRed), pdraw_gles2HmdCockpitglasses2TexCoordsRed, GL_STATIC_DRAW);
+
+            mTexCoord1BufferHandle = buffer[4];
+            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsGreen), pdraw_gles2HmdCockpitglasses2TexCoordsGreen, GL_STATIC_DRAW);
+
+            mTexCoord2BufferHandle = buffer[5];
+            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsBlue), pdraw_gles2HmdCockpitglasses2TexCoordsBlue, GL_STATIC_DRAW);
+            break;
+        }
     }
 
     if (ret == 0)
@@ -383,7 +416,7 @@ int Gles2HmdEye::renderEye(GLuint texture, unsigned int textureWidth, unsigned i
     glUniform2f(mProgramEyeToSourceScale, 2.f / mMetricsWidth, -2.f / mMetricsHeight);
     glUniform2f(mProgramEyeToSourceOffset, 2.f * mEyeOffsetX / mMetricsWidth, 2.f * mEyeOffsetY / mMetricsHeight - 1.f);
 
-    glDrawElements(GL_TRIANGLES, sizeof(pdraw_gles2HmdCockpitGlassesIndices) / sizeof(float), GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, sizeof(pdraw_gles2HmdCockpitglassesIndices) / sizeof(float), GL_UNSIGNED_INT, 0);
 
     glDisableVertexAttribArray(mProgramPosition);
     glDisableVertexAttribArray(mProgramColor);

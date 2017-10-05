@@ -195,7 +195,7 @@ static void usage(int argc, char *argv[])
             "-S | --dststrmp <port>             Destination stream port for direct RTP/AVP reception\n"
             "-C | --dstctrlp <port>             Destination control port for direct RTP/AVP reception\n"
             "-n | --screstream <ip_address>     Connexion to a RTP restream from a SkyController\n"
-            "     --hmd <model>                 HMD distorsion correction with model id (0=Parrot Cockpit Glasses)\n"
+            "     --hmd <model>                 HMD distorsion correction with model id (0='Parrot Cockpitglasses', 1='Parrot Cockpitglasses 2')\n"
             "     --headtrack                   Enable headtracking\n"
             "\n",
             argv[0]);

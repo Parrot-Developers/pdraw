@@ -1,7 +1,7 @@
 /**
- * @file pdraw_gles2_hmd_colors.cpp
- * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 HMD distorsion correction
- * @date 11/02/2017
+ * @file pdraw_gles2_hmd_cockpitglasses2_colors.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 HMD distorsion correction - Parrot Cockpitglasses 2
+ * @date 30/06/2017
  * @author aurelien.barre@akaaba.net
  *
  * Copyright (c) 2016 Aurelien Barre <aurelien.barre@akaaba.net>.
@@ -36,13 +36,9 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/* Extracted from FPVToolbox by Frédéric Bertolus
- * https://github.com/niavok/fpvtoolbox
- * and converted from Java to C++ */
-
 #ifdef USE_GLES2
 
-extern const float pdraw_gles2HmdCockpitGlassesColors[14884] =
+extern const float pdraw_gles2HmdCockpitglasses2Colors[14884] =
 {
     0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000,
     0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000, 0.000000000000,

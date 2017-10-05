@@ -1,6 +1,6 @@
 /**
- * @file pdraw_gles2_hmd_positions.cpp
- * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 HMD distorsion correction
+ * @file pdraw_gles2_hmd_cockpitglasses_positions.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - OpenGL ES 2.0 HMD distorsion correction - Parrot Cockpitglasses
  * @date 11/02/2017
  * @author aurelien.barre@akaaba.net
  *
@@ -42,7 +42,7 @@
 
 #ifdef USE_GLES2
 
-extern const float pdraw_gles2HmdCockpitGlassesPositions[7442] =
+extern const float pdraw_gles2HmdCockpitglassesPositions[7442] =
 {
     -23.5111310930, 23.5111310930, -23.7241376585, 22.9333330699, -23.9451203098, 22.3487789558, -24.1725069799, 21.7552562819, -24.4047807621, 21.1508099938,
     -24.6404799100, 20.5337332583, -24.8781978372, 19.9025582698, -25.1165831179, 19.2560470571, -25.3543394862, 18.5931822899, -25.5902258367, 17.9131580857,
