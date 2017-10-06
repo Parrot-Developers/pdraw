@@ -62,11 +62,13 @@ if dragon.VARIANT == "android":
     dragon.add_meta_task(
         name="build",
         desc="Build libs & app",
-        subtasks=["build-app"]
+        # Should be "build-app" when app is available
+        subtasks=["build-jni"]
     )
 
     dragon.add_meta_task(
         name="clean",
         desc="Clean libs & app",
-        subtasks=["clean-app"]
+        # Should be "clean-app" when app is available
+        subtasks=["clean-jni"]
     )
