@@ -41,6 +41,7 @@
 
 #ifdef USE_AMEDIACODEC
 
+#include <pthread.h>
 #include <vector>
 #include <media/NdkMediaCodec.h>
 
@@ -93,12 +94,17 @@ private:
 
     int pollDecoderOutput();
 
+    static void* runOutputPollThread(void *ptr);
+
     AMediaCodec *mCodec;
     avc_decoder_color_format_t mOutputColorFormat;
     BufferPool *mInputBufferPool;
     BufferQueue *mInputBufferQueue;
     BufferPool *mOutputBufferPool;
     std::vector<BufferQueue*> mOutputBufferQueues;
+    pthread_t mOutputPollThread;
+    bool mOutputPollThreadLaunched;
+    bool mThreadShouldStop;
     unsigned int mWidth;
     unsigned int mHeight;
     unsigned int mCropLeft;

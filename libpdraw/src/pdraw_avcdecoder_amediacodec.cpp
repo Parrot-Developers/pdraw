@@ -62,6 +62,8 @@ AMediaCodecAvcDecoder::AMediaCodecAvcDecoder(VideoMedia *media)
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
     mOutputBufferPool = NULL;
+    mThreadShouldStop = false;
+    mOutputPollThreadLaunched = false;
     mWidth = 0;
     mHeight = 0;
     mCropLeft = 0;
@@ -74,11 +76,35 @@ AMediaCodecAvcDecoder::AMediaCodecAvcDecoder(VideoMedia *media)
     mSarHeight = 0;
 
     mCodec = AMediaCodec_createDecoderByType(PDRAW_AMEDIACODEC_MIME_TYPE);
+    if (mCodec == NULL)
+    {
+        ULOGE("AMediaCodec: failed to create decoder");
+    }
+
+    int thErr = pthread_create(&mOutputPollThread, NULL, runOutputPollThread, (void*)this);
+    if (thErr != 0)
+    {
+        ULOGE("AMediaCodec: output poll thread creation failed (%d)", thErr);
+    }
+    else
+    {
+        mOutputPollThreadLaunched = true;
+    }
 }
 
 
 AMediaCodecAvcDecoder::~AMediaCodecAvcDecoder()
 {
+    mThreadShouldStop = true;
+    if (mOutputPollThreadLaunched)
+    {
+        int thErr = pthread_join(mOutputPollThread, NULL);
+        if (thErr != 0)
+        {
+            ULOGE("AMediaCodec: pthread_join() failed (%d)", thErr);
+        }
+    }
+
     media_status_t err = AMediaCodec_delete(mCodec);
     if (err != AMEDIA_OK)
     {
@@ -351,12 +377,6 @@ int AMediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
         return -1;
     }
 
-    int pollRet = pollDecoderOutput();
-    if (pollRet != 0)
-    {
-        ULOGE("AMediaCodec: pollDecoderOutput() failed (%d)", pollRet);
-    }
-
     return 0;
 }
 
@@ -446,12 +466,6 @@ int AMediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buff
         return -1;
     }
 
-    int pollRet = pollDecoderOutput();
-    if (pollRet != 0)
-    {
-        ULOGE("AMediaCodec: pollDecoderOutput() failed (%d)", pollRet);
-    }
-
     if (isOutputQueueValid(queue))
     {
         Buffer *buf = queue->popBuffer(blocking);
@@ -517,6 +531,7 @@ int AMediaCodecAvcDecoder::stop()
         return -1;
     }
 
+    mThreadShouldStop = true;
     mConfigured = false;
 
     media_status_t err = AMediaCodec_stop(mCodec);
@@ -538,7 +553,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
 {
     int ret = 0;
     AMediaCodecBufferInfo info;
-    ssize_t bufIdx = AMediaCodec_dequeueOutputBuffer(mCodec, &info, 0);
+    ssize_t bufIdx = AMediaCodec_dequeueOutputBuffer(mCodec, &info, 5000);
     while (bufIdx >= 0)
     {
         bool pushed = false;
@@ -759,6 +774,30 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
     }
 
     return ret;
+}
+
+
+void* AMediaCodecAvcDecoder::runOutputPollThread(void *ptr)
+{
+    AMediaCodecAvcDecoder *decoder = (AMediaCodecAvcDecoder*)ptr;
+
+    while (!decoder->mThreadShouldStop)
+    {
+        if (decoder->mConfigured)
+        {
+            int pollRet = decoder->pollDecoderOutput();
+            if (pollRet != 0)
+            {
+                ULOGE("AMediaCodec: pollDecoderOutput() failed (%d)", pollRet);
+            }
+        }
+        else
+        {
+            usleep(5000); //TODO: do something better (cond?)
+        }
+    }
+
+    return NULL;
 }
 
 }
