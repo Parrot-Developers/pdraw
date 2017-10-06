@@ -555,10 +555,9 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             if (err != AMEDIA_OK)
             {
                 ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
             }
             ret = -1;
-            continue;
+            break;
         }
 
         Buffer *inputBuffer = NULL, *outputBuffer = NULL;
@@ -611,16 +610,15 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             if (err != AMEDIA_OK)
             {
                 ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
             }
             ret = -1;
-            continue;
+            break;
         }
 
         outputBuffer = mOutputBufferPool->getBuffer(false);
         if (!outputBuffer)
         {
-            ULOGE("videoCoreOmx: failed to get an output buffer");
+            ULOGE("AMediaCodec: failed to get an output buffer");
             if (inputBuffer)
             {
                 inputBuffer->unref();
@@ -629,10 +627,9 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             if (err != AMEDIA_OK)
             {
                 ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
             }
             ret = -1;
-            continue;
+            break;
         }
 
         outputBuffer->setResPtr((void*)bufIdx);
@@ -707,7 +704,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
                 int ret = outputBuffer->setUserDataCapacity(userDataSize);
                 if (ret < (signed)userDataSize)
                 {
-                    ULOGE("ffmpeg: failed to realloc user data buffer");
+                    ULOGE("AMediaCodec: failed to realloc user data buffer");
                 }
                 else
                 {
@@ -732,7 +729,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
         }
         else
         {
-            ULOGW("videoCoreOmx: invalid output buffer data");
+            ULOGW("AMediaCodec: invalid output buffer data");
         }
 
         if (!pushed)
@@ -741,7 +738,13 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             if (err != AMEDIA_OK)
             {
                 ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
+                ret = -1;
+                outputBuffer->unref();
+                if (inputBuffer)
+                {
+                    inputBuffer->unref();
+                }
+                break;
             }
         }
 
