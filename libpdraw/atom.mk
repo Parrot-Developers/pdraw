@@ -55,8 +55,7 @@ LOCAL_LIBRARIES := \
 ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
   LOCAL_CFLAGS += -DUSE_FFMPEG -DUSE_GLES2
   LOCAL_LIBRARIES += \
-	libavcodec \
-	libavutil \
+	ffmpeg-libav \
 	gl \
 	glfw3
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")

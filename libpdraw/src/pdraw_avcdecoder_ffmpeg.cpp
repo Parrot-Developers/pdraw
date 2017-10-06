@@ -58,17 +58,35 @@ namespace Pdraw
 FfmpegAvcDecoder::FfmpegAvcDecoder(VideoMedia *media)
 {
     mConfigured = false;
-    mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+    mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
     mMedia = (Media*)media;
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
     mOutputBufferPool = NULL;
     mThreadShouldStop = false;
     mDecoderThreadLaunched = false;
+    mCodecH264 = NULL;
 
     avcodec_register_all();
     av_log_set_level(FFMPEG_LOG_LEVEL);
-    mCodecH264 = avcodec_find_decoder(AV_CODEC_ID_H264);
+    if (mCodecH264 == NULL)
+    {
+        mCodecH264 = avcodec_find_decoder_by_name("h264_cuvid");
+        if (mCodecH264 != NULL)
+        {
+            ULOGI("ffmpeg: using NVDec (cuvid) hardware acceleration");
+            mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR;
+        }
+    }
+    if (mCodecH264 == NULL)
+    {
+        mCodecH264 = avcodec_find_decoder(AV_CODEC_ID_H264);
+        if (mCodecH264 != NULL)
+        {
+            ULOGI("ffmpeg: using CPU H.264 decoding");
+            mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+        }
+    }
     if (NULL == mCodecH264)
     {
         ULOGE("ffmpeg: codec not found");
@@ -545,17 +563,27 @@ int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
             mSarHeight = (mCodecCtxH264->sample_aspect_ratio.den > 0) ? mCodecCtxH264->sample_aspect_ratio.den : 1;
         }
         outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
-        outputData->plane[0] = frame->data[0];
-        outputData->plane[1] = frame->data[1];
-        outputData->plane[2] = frame->data[2];
-        outputData->stride[0] = frame->linesize[0];
-        outputData->stride[1] = frame->linesize[1];
-        outputData->stride[2] = frame->linesize[2];
+        outputData->colorFormat = mOutputColorFormat;
+        if (mOutputColorFormat == AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR)
+        {
+            outputData->plane[0] = frame->data[0];
+            outputData->plane[1] = frame->data[1];
+            outputData->stride[0] = frame->linesize[0];
+            outputData->stride[1] = frame->linesize[1];
+        }
+        else if (mOutputColorFormat == AVCDECODER_COLORFORMAT_YUV420PLANAR)
+        {
+            outputData->plane[0] = frame->data[0];
+            outputData->plane[1] = frame->data[1];
+            outputData->plane[2] = frame->data[2];
+            outputData->stride[0] = frame->linesize[0];
+            outputData->stride[1] = frame->linesize[1];
+            outputData->stride[2] = frame->linesize[2];
+        }
         outputData->width = mFrameWidth;
         outputData->height = mFrameHeight;
         outputData->sarWidth = mSarWidth;
         outputData->sarHeight = mSarHeight;
-        outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
 
         outputData->isComplete = inputData->isComplete;
         outputData->hasErrors = inputData->hasErrors;
