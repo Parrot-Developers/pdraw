@@ -695,6 +695,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
                 outputData->isComplete = inputData->isComplete;
                 outputData->hasErrors = inputData->hasErrors;
                 outputData->isRef = inputData->isRef;
+                outputData->isSilent = inputData->isSilent;
                 outputData->auNtpTimestamp = inputData->auNtpTimestamp;
                 outputData->auNtpTimestampRaw = inputData->auNtpTimestampRaw;
                 outputData->auNtpTimestampLocal = inputData->auNtpTimestampLocal;
@@ -733,13 +734,20 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
                 outputBuffer->setUserDataSize(0);
             }
 
-            std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
-            while (q != mOutputBufferQueues.end())
+            if (!outputData->isSilent)
             {
-                outputBuffer->ref();
-                (*q)->pushBuffer(outputBuffer);
-                q++;
-                pushed = true;
+                std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+                while (q != mOutputBufferQueues.end())
+                {
+                    outputBuffer->ref();
+                    (*q)->pushBuffer(outputBuffer);
+                    q++;
+                    pushed = true;
+                }
+            }
+            else
+            {
+                ULOGI("AMediaCodec: silent frame (ignored)");
             }
         }
         else

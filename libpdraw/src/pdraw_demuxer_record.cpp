@@ -775,6 +775,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     data->isComplete = true; //TODO?
                     data->hasErrors = false; //TODO?
                     data->isRef = true; //TODO?
+                    data->isSilent = (sample.silent) ? true : false;
                     data->auNtpTimestamp = sample.sample_dts;
                     data->auNtpTimestampRaw = sample.sample_dts;
                     //TODO: auSyncType

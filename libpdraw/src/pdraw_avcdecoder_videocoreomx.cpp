@@ -860,6 +860,7 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
                 outputData->isComplete = inputData->isComplete;
                 outputData->hasErrors = inputData->hasErrors;
                 outputData->isRef = inputData->isRef;
+                outputData->isSilent = inputData->isSilent;
                 outputData->auNtpTimestamp = inputData->auNtpTimestamp;
                 outputData->auNtpTimestampRaw = inputData->auNtpTimestampRaw;
                 outputData->auNtpTimestampLocal = inputData->auNtpTimestampLocal;
@@ -898,12 +899,19 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
                 outputBuffer->setUserDataSize(0);
             }
 
-            std::vector<BufferQueue*>::iterator q = decoder->mOutputBufferQueues.begin();
-            while (q != decoder->mOutputBufferQueues.end())
+            if (!outputData->isSilent)
             {
-                outputBuffer->ref();
-                (*q)->pushBuffer(outputBuffer);
-                q++;
+                std::vector<BufferQueue*>::iterator q = decoder->mOutputBufferQueues.begin();
+                while (q != decoder->mOutputBufferQueues.end())
+                {
+                    outputBuffer->ref();
+                    (*q)->pushBuffer(outputBuffer);
+                    q++;
+                }
+            }
+            else
+            {
+                ULOGI("videoCoreOmx: silent frame (ignored)");
             }
         }
         else

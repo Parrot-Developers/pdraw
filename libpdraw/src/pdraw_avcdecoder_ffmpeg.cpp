@@ -500,7 +500,7 @@ void* FfmpegAvcDecoder::runDecoderThread(void *ptr)
                 if (outputBuffer != NULL)
                 {
                     int ret = decoder->decode(inputBuffer, outputBuffer);
-                    if (ret == 0)
+                    if (ret == 1)
                     {
                         std::vector<BufferQueue*>::iterator q = decoder->mOutputBufferQueues.begin();
                         while (q != decoder->mOutputBufferQueues.end())
@@ -509,6 +509,10 @@ void* FfmpegAvcDecoder::runDecoderThread(void *ptr)
                             (*q)->pushBuffer(outputBuffer);
                             q++;
                         }
+                    }
+                    else if (ret == 0)
+                    {
+                        ULOGI("ffmpeg: silent frame (ignored)");
                     }
                     outputBuffer->unref();
                 }
@@ -588,6 +592,7 @@ int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
         outputData->isComplete = inputData->isComplete;
         outputData->hasErrors = inputData->hasErrors;
         outputData->isRef = inputData->isRef;
+        outputData->isSilent = inputData->isSilent;
         outputData->auNtpTimestamp = inputData->auNtpTimestamp;
         outputData->auNtpTimestampRaw = inputData->auNtpTimestampRaw;
         outputData->auNtpTimestampLocal = inputData->auNtpTimestampLocal;
@@ -625,11 +630,11 @@ int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
             outputBuffer->setUserDataSize(0);
         }
 
-        return 0;
+        return (outputData->isSilent) ? 0 : 1;
     }
     else
     {
-        ULOGI("ffmpeg: frame not complete");
+        ULOGI("ffmpeg: failed to decode frame");
         return -1;
     }
 }

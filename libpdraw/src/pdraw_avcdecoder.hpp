@@ -63,6 +63,7 @@ typedef struct
     bool isComplete;
     bool hasErrors;
     bool isRef;
+    bool isSilent;
     uint64_t auNtpTimestamp;
     uint64_t auNtpTimestampRaw;
     uint64_t auNtpTimestampLocal;
@@ -85,6 +86,7 @@ typedef struct
     bool isComplete;
     bool hasErrors;
     bool isRef;
+    bool isSilent;
     uint64_t auNtpTimestamp;
     uint64_t auNtpTimestampRaw;
     uint64_t auNtpTimestampLocal;
