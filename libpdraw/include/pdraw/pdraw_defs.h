@@ -101,12 +101,15 @@ struct pdraw_video_info {
 };
 
 
+union pdraw_media_info_union {
+	struct pdraw_video_info video;
+};
+
+
 struct pdraw_media_info {
 	enum pdraw_media_type type;
 	unsigned int id;
-	union {
-		struct pdraw_video_info video;
-	} info;
+	union pdraw_media_info_union info;
 };
 
 

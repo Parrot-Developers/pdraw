@@ -25,7 +25,7 @@ portStreamDst = 55004
 portCtrlDst = 55005
 
 mypdraw = pdraw.createPdraw()
-mypdraw.setup("python test", "python Test", "python tEst")
+mypdraw.setSelfSerialNumber("00000000")
 mypdraw.open(ipSrc, "", portStreamSrc, portCtrlSrc, portStreamDst, portCtrlDst, 0)
 
 pdrawProd = mypdraw.addVideoFrameProducer(0)
