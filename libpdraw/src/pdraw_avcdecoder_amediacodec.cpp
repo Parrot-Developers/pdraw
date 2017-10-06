@@ -566,7 +566,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
         avc_decoder_output_buffer_t *outputData = NULL;
         uint64_t ts = (uint64_t)info.presentationTimeUs;
 
-        if (ts > 0)
+        if (info.presentationTimeUs >= 0)
         {
             Buffer *b;
             while ((b = mInputBufferQueue->peekBuffer(false)) != NULL)
