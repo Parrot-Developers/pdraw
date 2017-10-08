@@ -93,9 +93,11 @@ public:
 
     int setElementaryStreamDecoder(int esIndex, Decoder *decoder);
 
-    int start();
+    int play(float speed = 1.0f);
 
     int pause();
+
+    bool isPaused();
 
     int stop();
 
@@ -163,6 +165,7 @@ private:
     bool mStreamNetworkThreadLaunched;
     pthread_t mStreamOutputThread;
     bool mStreamOutputThreadLaunched;
+    int mRunning;
     ARSTREAM2_StreamReceiver_Handle mStreamReceiver;
     ARSTREAM2_StreamReceiver_ResenderHandle mResender;
     uint64_t mStartTime;

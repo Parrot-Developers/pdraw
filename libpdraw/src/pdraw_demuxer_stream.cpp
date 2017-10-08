@@ -93,6 +93,7 @@ StreamDemuxer::StreamDemuxer(Session *session)
     mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
     mSarWidth = mSarHeight = 0;
     mHfov = mVfov = 0.;
+    mRunning = false;
 
     int ret = 0;
     SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
@@ -902,7 +903,7 @@ int StreamDemuxer::setElementaryStreamDecoder(int esIndex, Decoder *decoder)
 }
 
 
-int StreamDemuxer::start()
+int StreamDemuxer::play(float speed)
 {
     if (!mConfigured)
     {
@@ -917,6 +918,8 @@ int StreamDemuxer::start()
     {
         ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StartAppOutput() failed: %s", ARSTREAM2_Error_ToString(ret));
     }
+
+    mRunning = true;
 
     return (ret == ARSTREAM2_OK) ? 0 : -1;
 }
@@ -936,7 +939,21 @@ int StreamDemuxer::pause()
         ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StopAppOutput() failed: %s", ARSTREAM2_Error_ToString(ret));
     }
 
+    mRunning = false;
+
     return (ret == ARSTREAM2_OK) ? 0 : -1;
+}
+
+
+bool StreamDemuxer::isPaused()
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return false;
+    }
+
+    return !mRunning;
 }
 
 
@@ -981,6 +998,7 @@ int StreamDemuxer::stop()
         }
     }
 
+    mRunning = false;
     mThreadShouldStop = true;
     if (mLoop)
         pomp_loop_wakeup(mLoop);

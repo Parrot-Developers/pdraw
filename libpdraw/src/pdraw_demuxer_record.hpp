@@ -80,9 +80,11 @@ public:
 
     int setElementaryStreamDecoder(int esIndex, Decoder *decoder);
 
-    int start();
+    int play(float speed = 1.0f);
 
     int pause();
+
+    bool isPaused();
 
     int stop();
 
@@ -143,6 +145,7 @@ private:
     float mHfov;
     float mVfov;
     struct h264_reader *mH264Reader;
+    float mSpeed;
 };
 
 }

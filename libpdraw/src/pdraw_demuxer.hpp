@@ -85,9 +85,11 @@ public:
 
     virtual int setElementaryStreamDecoder(int esIndex, Decoder *decoder) = 0;
 
-    virtual int start() = 0;
+    virtual int play(float speed = 1.0f) = 0;
 
     virtual int pause() = 0;
+
+    virtual bool isPaused() = 0;
 
     virtual int stop() = 0;
 

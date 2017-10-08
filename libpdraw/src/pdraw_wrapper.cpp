@@ -133,15 +133,23 @@ int pdraw_open_sdp(struct pdraw *pdraw, const char *sdp, const char *ifaceAddr)
 }
 
 
-int pdraw_start(struct pdraw *pdraw)
+int pdraw_play(struct pdraw *pdraw)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->start();
+    return toPdraw(pdraw)->play();
 }
 
+int pdraw_play_with_speed(struct pdraw *pdraw, float speed)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->play(speed);
+}
 
 int pdraw_pause(struct pdraw *pdraw)
 {

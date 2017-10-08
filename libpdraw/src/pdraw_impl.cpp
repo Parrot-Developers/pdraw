@@ -65,7 +65,6 @@ IPdraw *createPdraw()
 
 PdrawImpl::PdrawImpl() : mSession(&mSettings)
 {
-    mPaused = false;
     mGotRendererParams = false;
     mUiHandler = NULL;
 }
@@ -111,19 +110,15 @@ int PdrawImpl::openSdp(const std::string &sdp, const std::string &ifaceAddr)
 }
 
 
-int PdrawImpl::start()
+int PdrawImpl::play(float speed)
 {
     if (mSession.getDemuxer())
     {
-        int ret = mSession.getDemuxer()->start();
+        int ret = mSession.getDemuxer()->play(speed);
         if (ret != 0)
         {
             ULOGE("Failed to start demuxer");
             return -1;
-        }
-        else
-        {
-            mPaused = false;
         }
     }
     else
@@ -146,10 +141,6 @@ int PdrawImpl::pause()
             ULOGE("Failed to pause demuxer");
             return -1;
         }
-        else
-        {
-            mPaused = true;
-        }
     }
     else
     {
@@ -163,7 +154,14 @@ int PdrawImpl::pause()
 
 bool PdrawImpl::isPaused()
 {
-    return mPaused;
+    if (mSession.getDemuxer())
+    {
+        return mSession.getDemuxer()->isPaused();
+    }
+    else
+    {
+        return false;
+    }
 }
 
 
@@ -176,10 +174,6 @@ int PdrawImpl::stop()
         {
             ULOGE("Failed to stop demuxer");
             return -1;
-        }
-        else
-        {
-            mPaused = false;
         }
     }
     else

@@ -145,7 +145,9 @@ RecordDemuxer::RecordDemuxer(Session *session)
 
 RecordDemuxer::~RecordDemuxer()
 {
-    mThreadShouldStop = true;
+    int ret = stop();
+    if (ret != 0)
+        ULOGE("RecordDemuxer: stop() failed (%d)", ret);
 
     if (mDemuxerThreadLaunched)
     {
@@ -455,7 +457,7 @@ int RecordDemuxer::setElementaryStreamDecoder(int esIndex, Decoder *decoder)
 }
 
 
-int RecordDemuxer::start()
+int RecordDemuxer::play(float speed)
 {
     if (!mConfigured)
     {
@@ -463,7 +465,12 @@ int RecordDemuxer::start()
         return -1;
     }
 
+    pthread_mutex_lock(&mDemuxerMutex);
+
     mRunning = true;
+    mSpeed = speed;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
 
     return 0;
 }
@@ -477,9 +484,31 @@ int RecordDemuxer::pause()
         return -1;
     }
 
+    pthread_mutex_lock(&mDemuxerMutex);
+
     mRunning = false;
 
+    pthread_mutex_unlock(&mDemuxerMutex);
+
     return 0;
+}
+
+
+bool RecordDemuxer::isPaused()
+{
+    if (!mConfigured)
+    {
+        ULOGE("RecordDemuxer: demuxer is not configured");
+        return false;
+    }
+
+    pthread_mutex_lock(&mDemuxerMutex);
+
+    bool running = mRunning;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
+
+    return !running;
 }
 
 
@@ -491,7 +520,12 @@ int RecordDemuxer::stop()
         return -1;
     }
 
+    pthread_mutex_lock(&mDemuxerMutex);
+
+    mRunning = false;
     mThreadShouldStop = true;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
 
     return 0;
 }
@@ -605,6 +639,17 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
     {
         if ((demuxer->mDecoder) && (demuxer->mRunning))
         {
+            pthread_mutex_lock(&demuxer->mDemuxerMutex);
+            bool running = demuxer->mRunning;
+            float speed = demuxer->mSpeed;
+            pthread_mutex_unlock(&demuxer->mDemuxerMutex);
+
+            if (!running)
+            {
+                usleep(5000); //TODO
+                continue;
+            }
+
             uint8_t *spsBuffer = NULL, *ppsBuffer = NULL;
             unsigned int spsSize = 0, ppsSize = 0;
             struct mp4_track_sample sample;
@@ -742,7 +787,13 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     {
                         clock_gettime(CLOCK_MONOTONIC, &t1);
                         curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-                        int32_t sleepTime = (int32_t)((int64_t)(sample.sample_dts - demuxer->mLastFrameTimestamp) - (int64_t)(curTime - demuxer->mLastFrameOutputTime)) + outputTimeError;
+                        int32_t sleepTime = 0;
+
+                        if ((speed > 0.) && (speed <= 1000.0))
+                        {
+                            sleepTime = (int32_t)((int64_t)((sample.sample_dts - demuxer->mLastFrameTimestamp) / speed) -
+                                (int64_t)(curTime - demuxer->mLastFrameOutputTime)) + outputTimeError;
+                        }
                         if (sleepTime >= 1000)
                         {
                             usleep(sleepTime);
@@ -752,8 +803,9 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     clock_gettime(CLOCK_MONOTONIC, &t1);
                     data->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
                     data->auNtpTimestampLocal = data->demuxOutputTimestamp;
-                    outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp)) ?
-                                        (int32_t)((int64_t)(sample.sample_dts - demuxer->mLastFrameTimestamp) - (int64_t)(data->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
+                    outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp) && (speed > 0.) && (speed <= 1000.0)) ?
+                                        (int32_t)((int64_t)((sample.sample_dts - demuxer->mLastFrameTimestamp) / speed) -
+                                        (int64_t)(data->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
 
                     ret = demuxer->mDecoder->queueInputBuffer(demuxer->mCurrentBuffer);
                     if (ret != 0)

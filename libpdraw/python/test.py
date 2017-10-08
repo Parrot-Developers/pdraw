@@ -29,7 +29,7 @@ mypdraw.setSelfSerialNumber("00000000")
 mypdraw.open(ipSrc, "", portStreamSrc, portCtrlSrc, portStreamDst, portCtrlDst, 0)
 
 pdrawProd = mypdraw.addVideoFrameProducer(0)
-mypdraw.start()
+mypdraw.play()
 
 nb = 1000
 frame = None

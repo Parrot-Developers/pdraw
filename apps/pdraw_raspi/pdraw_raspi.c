@@ -1205,10 +1205,10 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        ret = pdraw_start(app->pdraw);
+        ret = pdraw_play(app->pdraw);
         if (ret != 0)
         {
-            ULOGE("pdraw_start() failed (%d)", ret);
+            ULOGE("pdraw_play() failed (%d)", ret);
         }
     }
 

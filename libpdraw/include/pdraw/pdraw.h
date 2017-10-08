@@ -91,8 +91,13 @@ int pdraw_open_sdp(
 	const char *ifaceAddr);
 
 
-int pdraw_start(
+int pdraw_play(
 	struct pdraw *pdraw);
+
+
+int pdraw_play_with_speed(
+	struct pdraw *pdraw,
+	float speed);
 
 
 int pdraw_pause(

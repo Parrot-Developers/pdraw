@@ -82,7 +82,7 @@ public:
             (const std::string &sdp,
              const std::string &ifaceAddr);
 
-    int start(void);
+    int play(float speed = 1.0f);
 
     int pause(void);
 
@@ -279,7 +279,6 @@ private:
 
     Settings mSettings;
     Session mSession;
-    bool mPaused;
     bool mGotRendererParams;
     int mWindowWidth;
     int mWindowHeight;

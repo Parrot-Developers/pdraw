@@ -876,7 +876,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenSdp(
 
 
 JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStart(
+Java_net_akaaba_libpdraw_Pdraw_nativePlay(
     JNIEnv *env,
     jobject thizz,
     jlong jctx)
@@ -889,7 +889,26 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStart(
         return (jint)-1;
     }
 
-    return (jint)pdraw_start(ctx->pdraw);
+    return (jint)pdraw_play(ctx->pdraw);
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativePlayWithSpeed(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jfloat speed)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return (jint)pdraw_play_with_speed(ctx->pdraw, (float)speed);
 }
 
 

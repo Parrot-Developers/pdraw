@@ -160,11 +160,18 @@ public class Pdraw {
         nativeOpenSdp(pdrawCtx, sdp, ifaceAddr);
     }
 
-    public void start() {
+    public void play() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeStart(pdrawCtx);
+        nativePlay(pdrawCtx);
+    }
+
+    public void playWithSpeed(float speed) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativePlayWithSpeed(pdrawCtx, speed);
     }
 
     public void pause() {
@@ -681,8 +688,12 @@ public class Pdraw {
         String sdp,
         String ifaceAddr);
 
-    private native int nativeStart(
+    private native int nativePlay(
         long pdrawCtx);
+
+    private native int nativePlayWithSpeed(
+        long pdrawCtx,
+        float speed);
 
     private native int nativePause(
         long pdrawCtx);

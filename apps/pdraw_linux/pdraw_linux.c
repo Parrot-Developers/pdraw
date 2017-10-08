@@ -634,10 +634,10 @@ int main(int argc, char *argv[])
                             }
                             else
                             {
-                                int ret = pdraw_start(app->pdraw);
+                                int ret = pdraw_play(app->pdraw);
                                 if (ret != 0)
                                 {
-                                    ULOGW("pdraw_start() failed (%d)", ret);
+                                    ULOGW("pdraw_play() failed (%d)", ret);
                                 }
                             }
                             break;
@@ -958,10 +958,10 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        ret = pdraw_start(app->pdraw);
+        ret = pdraw_play(app->pdraw);
         if (ret != 0)
         {
-            ULOGE("pdraw_start() failed (%d)", ret);
+            ULOGE("pdraw_play() failed (%d)", ret);
         }
     }
 

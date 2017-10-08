@@ -74,8 +74,8 @@ public:
 		const std::string &sdp,
 		const std::string &ifaceAddr) = 0;
 
-	virtual int start(
-		void) = 0;
+	virtual int play(
+		float speed = 1.0f) = 0;
 
 	virtual int pause(
 		void) = 0;
