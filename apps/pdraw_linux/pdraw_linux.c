@@ -267,6 +267,7 @@ int main(int argc, char *argv[])
         app->dstStreamPort = PDRAW_ARSDK_VIDEO_DST_STREAM_PORT;
         app->dstControlPort = PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT;
         app->run = 1;
+        app->speed = 1.0;
 #ifdef BUILD_SDL
         app->windowWidth = PDRAW_WINDOW_WIDTH;
         app->windowHeight = PDRAW_WINDOW_HEIGHT;
@@ -674,6 +675,26 @@ int main(int argc, char *argv[])
                             if (ret != 0)
                             {
                                 ULOGW("pdraw_seek_to() failed (%d)", ret);
+                            }
+                            break;
+                        }
+                        case SDLK_KP_PLUS:
+                        {
+                            app->speed *= 2;
+                            int ret = pdraw_play_with_speed(app->pdraw, app->speed);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_play_with_speed() failed (%d)", ret);
+                            }
+                            break;
+                        }
+                        case SDLK_KP_MINUS:
+                        {
+                            app->speed /= 2;
+                            int ret = pdraw_play_with_speed(app->pdraw, app->speed);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_play_with_speed() failed (%d)", ret);
                             }
                             break;
                         }

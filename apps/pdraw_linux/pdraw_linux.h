@@ -106,6 +106,7 @@ struct pdraw_app
 {
     struct pdraw *pdraw;
     int run;
+    float speed;
 
     char url[500];
     char ipAddr[16];
