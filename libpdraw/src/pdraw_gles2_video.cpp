@@ -440,6 +440,53 @@ static void createProjectionMatrix(Eigen::Matrix4f &projMat, float viewHFov, flo
 }
 
 
+int Gles2Video::loadFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
+                           unsigned int frameWidth, unsigned int frameHeight,
+                           gles2_video_color_conversion_t colorConversion)
+{
+    unsigned int i;
+
+    if ((frameWidth == 0) || (frameHeight == 0) || (frameStride[0] == 0))
+    {
+        ULOGE("Gles2Video: invalid dimensions");
+        return -1;
+    }
+
+    switch (colorConversion)
+    {
+        default:
+        case GLES2_VIDEO_COLOR_CONVERSION_NONE:
+            glUniform1i(mUniformSamplers[colorConversion][0], mFirstTexUnit + (long int)framePlane[0]);
+            break;
+        case GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB:
+            for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++)
+            {
+                glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
+                glBindTexture(GL_TEXTURE_2D, mTextures[i]);
+                glUniform1i(mUniformSamplers[colorConversion][i], mFirstTexUnit + i);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, frameStride[i], frameHeight / ((i > 0) ? 2 : 1),
+                             0, GL_LUMINANCE, GL_UNSIGNED_BYTE, framePlane[i]);
+            }
+            break;
+        case GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB:
+            glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0);
+            glBindTexture(GL_TEXTURE_2D, mTextures[0]);
+            glUniform1i(mUniformSamplers[colorConversion][0],  mFirstTexUnit + 0);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, frameStride[0], frameHeight,
+                         0, GL_LUMINANCE, GL_UNSIGNED_BYTE, framePlane[0]);
+
+            glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1);
+            glBindTexture(GL_TEXTURE_2D, mTextures[1]);
+            glUniform1i(mUniformSamplers[colorConversion][1], mFirstTexUnit + 1);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, frameStride[1] / 2, frameHeight / 2,
+                         0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, framePlane[1]);
+            break;
+    }
+
+    return 0;
+}
+
+
 int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                            unsigned int frameWidth, unsigned int frameHeight,
                            unsigned int sarWidth, unsigned int sarHeight,
@@ -476,22 +523,16 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                 glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
                 glBindTexture(GL_TEXTURE_2D, mTextures[i]);
                 glUniform1i(mUniformSamplers[colorConversion][i], mFirstTexUnit + i);
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, frameStride[i], frameHeight / ((i > 0) ? 2 : 1),
-                             0, GL_LUMINANCE, GL_UNSIGNED_BYTE, framePlane[i]);
             }
             break;
         case GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB:
             glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0);
             glBindTexture(GL_TEXTURE_2D, mTextures[0]);
             glUniform1i(mUniformSamplers[colorConversion][0],  mFirstTexUnit + 0);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, frameStride[0], frameHeight,
-                         0, GL_LUMINANCE, GL_UNSIGNED_BYTE, framePlane[0]);
 
             glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1);
             glBindTexture(GL_TEXTURE_2D, mTextures[1]);
             glUniform1i(mUniformSamplers[colorConversion][1], mFirstTexUnit + 1);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, frameStride[1] / 2, frameHeight / 2,
-                         0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, framePlane[1]);
             break;
     }
 

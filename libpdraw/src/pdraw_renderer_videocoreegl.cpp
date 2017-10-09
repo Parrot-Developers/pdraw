@@ -297,34 +297,30 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
         return 0;
     }
 
-    Buffer *buffer = NULL, *prevBuffer = NULL;
+    Buffer *buffer = NULL;
     avc_decoder_output_buffer_t *data = NULL;
     int dequeueRet;
+    bool load = false;
 
-    while ((dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false)) == 0)
+    dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false);
+    while ((dequeueRet == 0) && (buffer))
     {
-        if (prevBuffer)
+        if (mCurrentBuffer)
         {
-            int releaseRet = mDecoder->releaseOutputBuffer(prevBuffer);
+            int releaseRet = mDecoder->releaseOutputBuffer(mCurrentBuffer);
             if (releaseRet != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to release buffer (%d)", releaseRet);
             }
         }
-        prevBuffer = buffer;
-    }
+        mCurrentBuffer = buffer;
+        load = true;
+        dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false);
 
-    if (!buffer)
-    {
-        if (dequeueRet != -2)
+        if ((dequeueRet < 0) && (dequeueRet != -2))
         {
             ULOGE("VideoCoreEglRenderer: failed to get buffer from queue (%d)", dequeueRet);
         }
-        usleep(5000); //TODO
-    }
-    else
-    {
-        mCurrentBuffer = buffer;
     }
 
     if (mCurrentBuffer)
@@ -343,6 +339,12 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
             {
                 swapRendererEglImage();
 
+                if (load)
+                {
+                    ret = mGles2Video->loadFrame(data->plane, data->stride,
+                                                 data->width, data->height,
+                                                 GLES2_VIDEO_COLOR_CONVERSION_NONE);
+                }
                 ret = mGles2Video->renderFrame(data->plane, data->stride,
                                                data->width, data->height,
                                                data->sarWidth, data->sarHeight,
@@ -410,15 +412,6 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
                       (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.,
                       (renderTimestamp - lastRenderTime > 0) ? 1000000. / ((float)(renderTimestamp - lastRenderTime)) : 0.);
             }
-        }
-    }
-
-    if (buffer)
-    {
-        ret = mDecoder->releaseOutputBuffer(buffer);
-        if (ret != 0)
-        {
-            ULOGE("VideoCoreEglRenderer: failed to release buffer (%d)", ret);
         }
     }
 

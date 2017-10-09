@@ -88,6 +88,10 @@ public:
 
     int allocTextures(unsigned int videoWidth, unsigned int videoHeight);
 
+    int loadFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
+                  unsigned int frameWidth, unsigned int frameHeight,
+                  gles2_video_color_conversion_t colorConversion);
+
     int renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
                     unsigned int frameWidth, unsigned int frameHeight,
                     unsigned int sarWidth, unsigned int sarHeight,

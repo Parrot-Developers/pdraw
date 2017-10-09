@@ -305,6 +305,16 @@ int Gles2Renderer::removeAvcDecoder(AvcDecoder *decoder)
         return -1;
     }
 
+    if (mCurrentBuffer)
+    {
+        int ret = mDecoder->releaseOutputBuffer(mCurrentBuffer);
+        if (ret != 0)
+        {
+            ULOGE("Gles2Renderer: failed to release buffer (%d)", ret);
+        }
+        mCurrentBuffer = NULL;
+    }
+
     if (mDecoderOutputBufferQueue)
     {
         int ret = decoder->removeOutputQueue(mDecoderOutputBufferQueue);
@@ -384,38 +394,35 @@ int Gles2Renderer::setRendererParams
 int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
 {
     int ret = 0;
-    Buffer *buffer = NULL, *prevBuffer = NULL;
+    Buffer *buffer = NULL;
     int dequeueRet = 0;
+    bool load = false;
 
     if ((mDecoder) && (mDecoder->isConfigured()))
     {
-        while ((dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false)) == 0)
+        dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false);
+        while ((dequeueRet == 0) && (buffer))
         {
-            if (prevBuffer)
+            if (mCurrentBuffer)
             {
-                int releaseRet = mDecoder->releaseOutputBuffer(prevBuffer);
+                int releaseRet = mDecoder->releaseOutputBuffer(mCurrentBuffer);
                 if (releaseRet != 0)
                 {
                     ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
                 }
             }
-            prevBuffer = buffer;
+            mCurrentBuffer = buffer;
+            load = true;
+            dequeueRet = mDecoder->dequeueOutputBuffer(mDecoderOutputBufferQueue, &buffer, false);
         }
-    }
 
-    if (!buffer)
-    {
         if ((dequeueRet < 0) && (dequeueRet != -2))
         {
             ULOGE("Gles2Renderer: failed to get buffer from queue (%d)", dequeueRet);
         }
     }
-    else
-    {
-        mCurrentBuffer = buffer;
-    }
 
-    if ((mCurrentBuffer) && (ret == 0))
+    if (mCurrentBuffer)
     {
         avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)mCurrentBuffer->getMetadataPtr();
 
@@ -442,6 +449,10 @@ int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
                         case AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR:
                             colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB;
                             break;
+                    }
+                    if (load)
+                    {
+                        ret = mGles2Video->loadFrame(data->plane, data->stride, data->width, data->height, colorConversion);
                     }
                     ret = mGles2Video->renderFrame(data->plane, data->stride, data->width, data->height,
                         data->sarWidth, data->sarHeight, (mHmdDistorsionCorrection) ? mRenderWidth / 2 : mRenderWidth, mRenderHeight,
@@ -508,16 +519,6 @@ int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
             }
 
             ret = 1;
-        }
-    }
-
-    if (buffer)
-    {
-        int releaseRet = mDecoder->releaseOutputBuffer(buffer);
-        if (releaseRet != 0)
-        {
-            ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
-            ret = releaseRet;
         }
     }
 
