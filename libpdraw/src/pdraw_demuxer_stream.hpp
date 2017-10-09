@@ -99,6 +99,10 @@ public:
 
     bool isPaused();
 
+    int previous();
+
+    int next();
+
     int stop();
 
     int seekTo

@@ -58,9 +58,9 @@ class VideoFrameFilter
 {
 public:
 
-    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder);
+    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, bool frameByFrame = false);
 
-    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw_video_frame_filter_callback_t cb, void *userPtr);
+    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw_video_frame_filter_callback_t cb, void *userPtr, bool frameByFrame = false);
 
     ~VideoFrameFilter();
 
@@ -88,6 +88,7 @@ private:
     pthread_cond_t mCondition;
     bool mThreadLaunched;
     bool mThreadShouldStop;
+    bool mFrameByFrame;
     pdraw_video_frame_filter_callback_t mCb;
     void *mUserPtr;
     uint8_t *mBuffer[2];

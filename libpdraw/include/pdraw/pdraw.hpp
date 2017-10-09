@@ -83,6 +83,12 @@ public:
 	virtual bool isPaused(
 		void) = 0;
 
+	virtual int previousFrame(
+		void) = 0;
+
+	virtual int nextFrame(
+		void) = 0;
+
 	virtual int stop(
 		void) = 0;
 
@@ -275,7 +281,8 @@ public:
 		void *filterCtx) = 0;
 
 	virtual void *addVideoFrameProducer(
-		unsigned int mediaId) = 0;
+		unsigned int mediaId,
+		bool frameByFrame = false) = 0;
 
 	virtual int removeVideoFrameProducer(
 		void *producerCtx) = 0;

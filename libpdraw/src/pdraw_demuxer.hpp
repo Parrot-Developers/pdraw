@@ -91,6 +91,10 @@ public:
 
     virtual bool isPaused() = 0;
 
+    virtual int previous() = 0;
+
+    virtual int next() = 0;
+
     virtual int stop() = 0;
 
     virtual int seekTo

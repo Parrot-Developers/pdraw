@@ -644,19 +644,43 @@ int main(int argc, char *argv[])
                             break;
                         case SDLK_RIGHT:
                         {
-                            int ret = pdraw_seek_forward(app->pdraw, 10000000);
-                            if (ret != 0)
+                            int ret;
+                            if (pdraw_is_paused(app->pdraw))
                             {
-                                ULOGW("pdraw_seek_forward() failed (%d)", ret);
+                                ret = pdraw_next_frame(app->pdraw);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_next_frame() failed (%d)", ret);
+                                }
+                            }
+                            else
+                            {
+                                ret = pdraw_seek_forward(app->pdraw, 10000000);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_seek_forward() failed (%d)", ret);
+                                }
                             }
                             break;
                         }
                         case SDLK_LEFT:
                         {
-                            int ret = pdraw_seek_back(app->pdraw, 10000000);
-                            if (ret != 0)
+                            int ret;
+                            if (pdraw_is_paused(app->pdraw))
                             {
-                                ULOGW("pdraw_seek_back() failed (%d)", ret);
+                                ret = pdraw_previous_frame(app->pdraw);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_previous_frame() failed (%d)", ret);
+                                }
+                            }
+                            else
+                            {
+                                int ret = pdraw_seek_back(app->pdraw, 10000000);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_seek_back() failed (%d)", ret);
+                                }
                             }
                             break;
                         }

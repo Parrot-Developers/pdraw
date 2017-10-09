@@ -86,6 +86,10 @@ public:
 
     bool isPaused();
 
+    int previous();
+
+    int next();
+
     int stop();
 
     int seekTo
@@ -119,20 +123,22 @@ private:
     pthread_t mDemuxerThread;
     bool mDemuxerThreadLaunched;
     pthread_mutex_t mDemuxerMutex;
-    int mRunning;
-    int mThreadShouldStop;
+    bool mRunning;
+    bool mFrameByFrame;
+    bool mThreadShouldStop;
     struct mp4_demux *mDemux;
     uint64_t mDuration;
     uint64_t mCurrentTime;
     int mVideoTrackCount;
     unsigned int mVideoTrackId;
     char *mMetadataMimeType;
-    int mFirstFrame;
+    bool mFirstFrame;
     unsigned int mMetadataBufferSize;
     uint8_t *mMetadataBuffer;
     uint64_t mLastFrameOutputTime;
     uint64_t mLastFrameTimestamp;
     int64_t mPendingSeekTs;
+    bool mPendingSeekToPrevSample;
     Buffer *mCurrentBuffer;
     unsigned int mWidth;
     unsigned int mHeight;

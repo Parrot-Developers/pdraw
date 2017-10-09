@@ -1128,6 +1128,42 @@ Java_net_akaaba_libpdraw_Pdraw_nativeIsPaused(
 
 
 JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativePreviousFrame(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return (jint)pdraw_previous_frame(ctx->pdraw);
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeNextFrame(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    return (jint)pdraw_next_frame(ctx->pdraw);
+}
+
+
+JNIEXPORT jint JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeStop(
     JNIEnv *env,
     jobject thizz,

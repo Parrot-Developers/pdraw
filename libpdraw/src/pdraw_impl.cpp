@@ -163,6 +163,48 @@ bool PdrawImpl::isPaused()
 }
 
 
+int PdrawImpl::previousFrame()
+{
+    if (mSession.getDemuxer())
+    {
+        int ret = mSession.getDemuxer()->previous();
+        if (ret != 0)
+        {
+            ULOGE("Failed to go to previous frame in the demuxer");
+            return -1;
+        }
+    }
+    else
+    {
+        ULOGE("Invalid demuxer");
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int PdrawImpl::nextFrame()
+{
+    if (mSession.getDemuxer())
+    {
+        int ret = mSession.getDemuxer()->next();
+        if (ret != 0)
+        {
+            ULOGE("Failed to go to next frame in the demuxer");
+            return -1;
+        }
+    }
+    else
+    {
+        ULOGE("Invalid demuxer");
+        return -1;
+    }
+
+    return 0;
+}
+
+
 int PdrawImpl::stop()
 {
     if (mSession.getDemuxer())
@@ -783,7 +825,7 @@ int PdrawImpl::removeVideoFrameFilterCallback(unsigned int mediaId, void *filter
 }
 
 
-void *PdrawImpl::addVideoFrameProducer(unsigned int mediaId)
+void *PdrawImpl::addVideoFrameProducer(unsigned int mediaId, bool frameByFrame)
 {
     Media *media = mSession.getMediaById(mediaId);
 
@@ -799,7 +841,7 @@ void *PdrawImpl::addVideoFrameProducer(unsigned int mediaId)
         return NULL;
     }
 
-    VideoFrameFilter *filter = ((VideoMedia*)media)->addVideoFrameFilter();
+    VideoFrameFilter *filter = ((VideoMedia*)media)->addVideoFrameFilter(frameByFrame);
     if (!filter)
     {
         ULOGE("Failed to create video frame filter");

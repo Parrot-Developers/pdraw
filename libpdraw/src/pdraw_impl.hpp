@@ -88,6 +88,10 @@ public:
 
     bool isPaused(void);
 
+    int previousFrame(void);
+
+    int nextFrame(void);
+
     int stop(void);
 
     int seekTo
@@ -239,7 +243,7 @@ public:
 
     int removeVideoFrameFilterCallback(unsigned int mediaId, void *filterCtx);
 
-    void *addVideoFrameProducer(unsigned int mediaId);
+    void *addVideoFrameProducer(unsigned int mediaId, bool frameByFrame = false);
 
     int removeVideoFrameProducer(void *producerCtx);
 

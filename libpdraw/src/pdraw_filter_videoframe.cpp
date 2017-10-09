@@ -37,6 +37,9 @@
  */
 
 #include "pdraw_filter_videoframe.hpp"
+#include "pdraw_session.hpp"
+#include "pdraw_media.hpp"
+#include "pdraw_demuxer.hpp"
 
 #include <sys/time.h>
 #include <unistd.h>
@@ -53,12 +56,12 @@ namespace Pdraw
 {
 
 
-VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder) : VideoFrameFilter(media, decoder, NULL, NULL)
+VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, bool frameByFrame) : VideoFrameFilter(media, decoder, NULL, NULL, frameByFrame)
 {
 }
 
 
-VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw_video_frame_filter_callback_t cb, void *userPtr)
+VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw_video_frame_filter_callback_t cb, void *userPtr, bool frameByFrame)
 {
     int ret = 0;
     mMedia = (Media*)media;
@@ -66,6 +69,7 @@ VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw
     mDecoderOutputBufferQueue = NULL;
     mThreadLaunched = false;
     mThreadShouldStop = false;
+    mFrameByFrame = frameByFrame;
     mCb = cb;
     mUserPtr = userPtr;
     mBuffer[0] = NULL;
@@ -227,6 +231,16 @@ int VideoFrameFilter::getLastFrame(struct pdraw_video_frame *frame, int timeout)
 
     mFrameAvailable = false;
     pthread_mutex_unlock(&mMutex);
+
+    if ((mFrameByFrame) && (mMedia) && (mMedia->getSession()))
+    {
+        Demuxer *demuxer = mMedia->getSession()->getDemuxer();
+        int ret = demuxer->next();
+        if (ret < 0)
+        {
+            ULOGE("VideoFrameFilter: failed to advance to next frame");
+        }
+    }
 
     return 0;
 }

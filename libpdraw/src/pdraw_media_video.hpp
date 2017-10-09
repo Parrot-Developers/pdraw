@@ -93,8 +93,8 @@ public:
 
     Decoder *getDecoder() { return mDecoder; };
 
-    VideoFrameFilter *addVideoFrameFilter();
-    VideoFrameFilter *addVideoFrameFilter(pdraw_video_frame_filter_callback_t cb, void *userPtr);
+    VideoFrameFilter *addVideoFrameFilter(bool frameByFrame = false);
+    VideoFrameFilter *addVideoFrameFilter(pdraw_video_frame_filter_callback_t cb, void *userPtr, bool frameByFrame = false);
     int removeVideoFrameFilter(VideoFrameFilter *filter);
 
 private:

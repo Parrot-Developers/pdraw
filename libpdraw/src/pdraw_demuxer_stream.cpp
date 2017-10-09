@@ -957,6 +957,30 @@ bool StreamDemuxer::isPaused()
 }
 
 
+int StreamDemuxer::previous()
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    return 0;
+}
+
+
+int StreamDemuxer::next()
+{
+    if (!mConfigured)
+    {
+        ULOGE("StreamDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    return 0;
+}
+
+
 int StreamDemuxer::stop()
 {
     if (!mConfigured)

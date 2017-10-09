@@ -108,6 +108,14 @@ int pdraw_is_paused(
 	struct pdraw *pdraw);
 
 
+int pdraw_previous_frame(
+        struct pdraw *pdraw);
+
+
+int pdraw_next_frame(
+        struct pdraw *pdraw);
+
+
 int pdraw_stop(
 	struct pdraw *pdraw);
 
@@ -419,7 +427,8 @@ int pdraw_remove_video_frame_filter_callback(
 
 void *pdraw_add_video_frame_producer(
 	struct pdraw *pdraw,
-	unsigned int mediaId);
+	unsigned int mediaId,
+        int frameByFrame);
 
 
 int pdraw_remove_video_frame_producer(

@@ -253,6 +253,20 @@ public class Pdraw {
         return (ret == 1) ? true : false;
     }
 
+    public void previousFrame() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativePreviousFrame(pdrawCtx);
+    }
+
+    public void nextFrame() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeNextFrame(pdrawCtx);
+    }
+
     public void stop() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -774,6 +788,12 @@ public class Pdraw {
         long pdrawCtx);
 
     private native int nativeIsPaused(
+        long pdrawCtx);
+
+    private native int nativePreviousFrame(
+        long pdrawCtx);
+
+    private native int nativeNextFrame(
         long pdrawCtx);
 
     private native int nativeStop(

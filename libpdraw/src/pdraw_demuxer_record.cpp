@@ -100,6 +100,7 @@ RecordDemuxer::RecordDemuxer(Session *session)
     mConfigured = false;
     mDemux = NULL;
     mRunning = false;
+    mFrameByFrame = false;
     mDemuxerThreadLaunched = false;
     mThreadShouldStop = false;
     mVideoTrackCount = 0;
@@ -112,6 +113,7 @@ RecordDemuxer::RecordDemuxer(Session *session)
     mDuration = 0;
     mCurrentTime = 0;
     mPendingSeekTs = -1;
+    mPendingSeekToPrevSample = false;
     mCurrentBuffer = NULL;
     mWidth = mHeight = 0;
     mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
@@ -468,6 +470,8 @@ int RecordDemuxer::play(float speed)
     pthread_mutex_lock(&mDemuxerMutex);
 
     mRunning = true;
+    mFrameByFrame = false;
+    mPendingSeekToPrevSample = false;
     mSpeed = speed;
 
     pthread_mutex_unlock(&mDemuxerMutex);
@@ -487,6 +491,7 @@ int RecordDemuxer::pause()
     pthread_mutex_lock(&mDemuxerMutex);
 
     mRunning = false;
+    mFrameByFrame = true;
 
     pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -504,11 +509,48 @@ bool RecordDemuxer::isPaused()
 
     pthread_mutex_lock(&mDemuxerMutex);
 
-    bool running = mRunning;
+    bool running = mRunning && !mFrameByFrame;
 
     pthread_mutex_unlock(&mDemuxerMutex);
 
     return !running;
+}
+
+
+int RecordDemuxer::previous()
+{
+    if (!mConfigured)
+    {
+        ULOGE("RecordDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    pthread_mutex_lock(&mDemuxerMutex);
+
+    mPendingSeekToPrevSample = true;
+    mRunning = true;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
+
+    return 0;
+}
+
+
+int RecordDemuxer::next()
+{
+    if (!mConfigured)
+    {
+        ULOGE("RecordDemuxer: demuxer is not configured");
+        return -1;
+    }
+
+    pthread_mutex_lock(&mDemuxerMutex);
+
+    mRunning = true;
+
+    pthread_mutex_unlock(&mDemuxerMutex);
+
+    return 0;
 }
 
 
@@ -544,6 +586,8 @@ int RecordDemuxer::seekTo(uint64_t timestamp)
 
     if (timestamp > mDuration) timestamp = mDuration;
     mPendingSeekTs = (int64_t)timestamp;
+    mPendingSeekToPrevSample = false;
+    mRunning = true;
 
     pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -566,6 +610,8 @@ int RecordDemuxer::seekForward(uint64_t delta)
     if (ts < 0) ts = 0;
     if (ts > (int64_t)mDuration) ts = mDuration;
     mPendingSeekTs = ts;
+    mPendingSeekToPrevSample = false;
+    mRunning = true;
 
     pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -588,6 +634,8 @@ int RecordDemuxer::seekBack(uint64_t delta)
     if (ts < 0) ts = 0;
     if (ts > (int64_t)mDuration) ts = mDuration;
     mPendingSeekTs = ts;
+    mPendingSeekToPrevSample = false;
+    mRunning = true;
 
     pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -718,7 +766,9 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
 
                 pthread_mutex_lock(&demuxer->mDemuxerMutex);
                 int64_t seekTs = demuxer->mPendingSeekTs;
+                bool pendingSeekToPrevSample = demuxer->mPendingSeekToPrevSample;
                 demuxer->mPendingSeekTs = -1;
+                demuxer->mPendingSeekToPrevSample = false;
                 pthread_mutex_unlock(&demuxer->mDemuxerMutex);
 
                 if (seekTs >= 0)
@@ -727,6 +777,19 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     if (ret != 0)
                     {
                         ULOGW("RecordDemuxer: mp4_demux_seek() failed (%d)", ret);
+                    }
+                    else
+                    {
+                        demuxer->mLastFrameTimestamp = 0;
+                        outputTimeError = 0;
+                    }
+                }
+                else if (pendingSeekToPrevSample)
+                {
+                    ret = mp4_demux_seek_to_track_prev_sample(demuxer->mDemux, demuxer->mVideoTrackId);
+                    if (ret != 0)
+                    {
+                        ULOGW("RecordDemuxer: mp4_demux_seek_to_track_prev_sample() failed (%d)", ret);
                     }
                     else
                     {
@@ -820,6 +883,13 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         demuxer->mCurrentTime = sample.sample_dts;
                         demuxer->mCurrentBuffer->unref();
                         demuxer->mCurrentBuffer = NULL;
+
+                        pthread_mutex_lock(&demuxer->mDemuxerMutex);
+                        if ((demuxer->mFrameByFrame) && (!sample.silent))
+                        {
+                            demuxer->mRunning = false;
+                        }
+                        pthread_mutex_unlock(&demuxer->mDemuxerMutex);
                     }
                 }
             }

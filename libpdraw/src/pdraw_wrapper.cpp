@@ -171,6 +171,26 @@ int pdraw_is_paused(struct pdraw *pdraw)
 }
 
 
+int pdraw_previous_frame(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->previousFrame();
+}
+
+
+int pdraw_next_frame(struct pdraw *pdraw)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    return toPdraw(pdraw)->nextFrame();
+}
+
+
 int pdraw_stop(struct pdraw *pdraw)
 {
     if (pdraw == NULL)
@@ -862,13 +882,13 @@ int pdraw_remove_video_frame_filter_callback(struct pdraw *pdraw, unsigned int m
 }
 
 
-void *pdraw_add_video_frame_producer(struct pdraw *pdraw, unsigned int mediaId)
+void *pdraw_add_video_frame_producer(struct pdraw *pdraw, unsigned int mediaId, int frameByFrame)
 {
     if (pdraw == NULL)
     {
         return NULL;
     }
-    return toPdraw(pdraw)->addVideoFrameProducer(mediaId);
+    return toPdraw(pdraw)->addVideoFrameProducer(mediaId, (frameByFrame) ? true : false);
 }
 
 

@@ -217,7 +217,7 @@ int VideoMedia::disableDecoder()
 }
 
 
-VideoFrameFilter *VideoMedia::addVideoFrameFilter()
+VideoFrameFilter *VideoMedia::addVideoFrameFilter(bool frameByFrame)
 {
     if (!mDecoder)
     {
@@ -225,7 +225,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter()
         return NULL;
     }
 
-    VideoFrameFilter *p = new VideoFrameFilter(this, (AvcDecoder*)mDecoder);
+    VideoFrameFilter *p = new VideoFrameFilter(this, (AvcDecoder*)mDecoder, frameByFrame);
     if (p == NULL)
     {
         ULOGE("VideoMedia: video frame filter allocation failed");
@@ -237,7 +237,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter()
 }
 
 
-VideoFrameFilter *VideoMedia::addVideoFrameFilter(pdraw_video_frame_filter_callback_t cb, void *userPtr)
+VideoFrameFilter *VideoMedia::addVideoFrameFilter(pdraw_video_frame_filter_callback_t cb, void *userPtr, bool frameByFrame)
 {
     if (!mDecoder)
     {
@@ -250,7 +250,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(pdraw_video_frame_filter_callb
         return NULL;
     }
 
-    VideoFrameFilter *p = new VideoFrameFilter(this, (AvcDecoder*)mDecoder, cb, userPtr);
+    VideoFrameFilter *p = new VideoFrameFilter(this, (AvcDecoder*)mDecoder, cb, userPtr, frameByFrame);
     if (p == NULL)
     {
         ULOGE("VideoMedia: video frame filter allocation failed");
