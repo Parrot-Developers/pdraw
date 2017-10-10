@@ -113,6 +113,7 @@ RecordDemuxer::RecordDemuxer(Session *session)
     mDuration = 0;
     mCurrentTime = 0;
     mPendingSeekTs = -1;
+    mPendingSeekExact = false;
     mPendingSeekToPrevSample = false;
     mCurrentBuffer = NULL;
     mWidth = mHeight = 0;
@@ -527,8 +528,14 @@ int RecordDemuxer::previous()
 
     pthread_mutex_lock(&mDemuxerMutex);
 
-    mPendingSeekToPrevSample = true;
-    mRunning = true;
+    if (!mPendingSeekExact)
+    {
+        /* Avoid seeking back to much if a seek to a
+         * previous frame is already in progress */
+        mPendingSeekToPrevSample = true;
+        mPendingSeekExact = true;
+        mRunning = true;
+    }
 
     pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -573,7 +580,7 @@ int RecordDemuxer::stop()
 }
 
 
-int RecordDemuxer::seekTo(uint64_t timestamp)
+int RecordDemuxer::seekTo(uint64_t timestamp, bool exact)
 {
     pthread_mutex_lock(&mDemuxerMutex);
 
@@ -586,6 +593,7 @@ int RecordDemuxer::seekTo(uint64_t timestamp)
 
     if (timestamp > mDuration) timestamp = mDuration;
     mPendingSeekTs = (int64_t)timestamp;
+    mPendingSeekExact = exact;
     mPendingSeekToPrevSample = false;
     mRunning = true;
 
@@ -595,7 +603,7 @@ int RecordDemuxer::seekTo(uint64_t timestamp)
 }
 
 
-int RecordDemuxer::seekForward(uint64_t delta)
+int RecordDemuxer::seekForward(uint64_t delta, bool exact)
 {
     pthread_mutex_lock(&mDemuxerMutex);
 
@@ -610,6 +618,7 @@ int RecordDemuxer::seekForward(uint64_t delta)
     if (ts < 0) ts = 0;
     if (ts > (int64_t)mDuration) ts = mDuration;
     mPendingSeekTs = ts;
+    mPendingSeekExact = exact;
     mPendingSeekToPrevSample = false;
     mRunning = true;
 
@@ -619,7 +628,7 @@ int RecordDemuxer::seekForward(uint64_t delta)
 }
 
 
-int RecordDemuxer::seekBack(uint64_t delta)
+int RecordDemuxer::seekBack(uint64_t delta, bool exact)
 {
     pthread_mutex_lock(&mDemuxerMutex);
 
@@ -634,6 +643,7 @@ int RecordDemuxer::seekBack(uint64_t delta)
     if (ts < 0) ts = 0;
     if (ts > (int64_t)mDuration) ts = mDuration;
     mPendingSeekTs = ts;
+    mPendingSeekExact = exact;
     mPendingSeekToPrevSample = false;
     mRunning = true;
 
@@ -766,6 +776,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
 
                 pthread_mutex_lock(&demuxer->mDemuxerMutex);
                 int64_t seekTs = demuxer->mPendingSeekTs;
+                bool pendingSeekExact = demuxer->mPendingSeekExact;
                 bool pendingSeekToPrevSample = demuxer->mPendingSeekToPrevSample;
                 demuxer->mPendingSeekTs = -1;
                 demuxer->mPendingSeekToPrevSample = false;
@@ -805,6 +816,9 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     demuxer->mCurrentBuffer->setSize(sample.sample_size);
                     demuxer->mCurrentBuffer->setUserDataSize(0);
 
+                    bool silent = ((sample.silent) && (pendingSeekExact)) ? true : false;
+                    demuxer->mPendingSeekExact = (silent) ? pendingSeekExact : false;
+
                     /* Fix the H.264 bitstream: replace NALU size by byte stream start codes */
                     uint32_t offset = 0, naluSize, naluCount = 0;
                     uint8_t *_buf = buf;
@@ -838,7 +852,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     data->isComplete = true; //TODO?
                     data->hasErrors = false; //TODO?
                     data->isRef = true; //TODO?
-                    data->isSilent = (sample.silent) ? true : false;
+                    data->isSilent = silent;
                     data->auNtpTimestamp = sample.sample_dts;
                     data->auNtpTimestampRaw = sample.sample_dts;
                     //TODO: auSyncType
@@ -853,7 +867,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
                         int32_t sleepTime = 0;
 
-                        if ((speed > 0.) && (speed <= 1000.0))
+                        if ((speed > 0.) && (speed <= 1000.0) && (!silent))
                         {
                             sleepTime = (int32_t)((int64_t)((sample.sample_dts - demuxer->mLastFrameTimestamp) / speed) -
                                 (int64_t)(curTime - demuxer->mLastFrameOutputTime)) + outputTimeError;
@@ -867,7 +881,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     clock_gettime(CLOCK_MONOTONIC, &t1);
                     data->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
                     data->auNtpTimestampLocal = data->demuxOutputTimestamp;
-                    outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp) && (speed > 0.) && (speed <= 1000.0)) ?
+                    outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp) && (speed > 0.) && (speed <= 1000.0) && (!silent)) ?
                                         (int32_t)((int64_t)((sample.sample_dts - demuxer->mLastFrameTimestamp) / speed) -
                                         (int64_t)(data->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
 
@@ -885,7 +899,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         demuxer->mCurrentBuffer = NULL;
 
                         pthread_mutex_lock(&demuxer->mDemuxerMutex);
-                        if ((demuxer->mFrameByFrame) && (!sample.silent))
+                        if ((demuxer->mFrameByFrame) && (!silent))
                         {
                             demuxer->mRunning = false;
                         }

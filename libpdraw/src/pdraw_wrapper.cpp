@@ -201,33 +201,33 @@ int pdraw_stop(struct pdraw *pdraw)
 }
 
 
-int pdraw_seek_to(struct pdraw *pdraw, uint64_t timestamp)
+int pdraw_seek_to(struct pdraw *pdraw, uint64_t timestamp, int exact)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->seekTo(timestamp);
+    return toPdraw(pdraw)->seekTo(timestamp, exact ? true : false);
 }
 
 
-int pdraw_seek_forward(struct pdraw *pdraw, uint64_t delta)
+int pdraw_seek_forward(struct pdraw *pdraw, uint64_t delta, int exact)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->seekForward(delta);
+    return toPdraw(pdraw)->seekForward(delta, exact ? true : false);
 }
 
 
-int pdraw_seek_back(struct pdraw *pdraw, uint64_t delta)
+int pdraw_seek_back(struct pdraw *pdraw, uint64_t delta, int exact)
 {
     if (pdraw == NULL)
     {
         return -EINVAL;
     }
-    return toPdraw(pdraw)->seekBack(delta);
+    return toPdraw(pdraw)->seekBack(delta, exact ? true : false);
 }
 
 

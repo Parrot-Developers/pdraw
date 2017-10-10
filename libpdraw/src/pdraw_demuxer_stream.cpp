@@ -1031,7 +1031,7 @@ int StreamDemuxer::stop()
 }
 
 
-int StreamDemuxer::seekTo(uint64_t timestamp)
+int StreamDemuxer::seekTo(uint64_t timestamp, bool exact)
 {
     if (!mConfigured)
     {
@@ -1043,7 +1043,7 @@ int StreamDemuxer::seekTo(uint64_t timestamp)
 }
 
 
-int StreamDemuxer::seekForward(uint64_t delta)
+int StreamDemuxer::seekForward(uint64_t delta, bool exact)
 {
     if (!mConfigured)
     {
@@ -1055,7 +1055,7 @@ int StreamDemuxer::seekForward(uint64_t delta)
 }
 
 
-int StreamDemuxer::seekBack(uint64_t delta)
+int StreamDemuxer::seekBack(uint64_t delta, bool exact)
 {
     if (!mConfigured)
     {

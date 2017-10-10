@@ -106,13 +106,13 @@ public:
     int stop();
 
     int seekTo
-            (uint64_t timestamp);
+            (uint64_t timestamp, bool exact = false);
 
     int seekForward
-            (uint64_t delta);
+            (uint64_t delta, bool exact = false);
 
     int seekBack
-            (uint64_t delta);
+            (uint64_t delta, bool exact = false);
 
     int startRecorder(const std::string &fileName);
 

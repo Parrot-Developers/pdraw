@@ -1186,7 +1186,8 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSeekTo(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
-    jlong timestamp)
+    jlong timestamp,
+    jboolean exact)
 {
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
 
@@ -1196,7 +1197,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSeekTo(
         return (jint)-1;
     }
 
-    return (jint)pdraw_seek_to(ctx->pdraw, (uint64_t)timestamp);
+    return (jint)pdraw_seek_to(ctx->pdraw, (uint64_t)timestamp, (exact == JNI_TRUE) ? 1 : 0);
 }
 
 
@@ -1205,7 +1206,8 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSeekForward(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
-    jlong delta)
+    jlong delta,
+    jboolean exact)
 {
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
 
@@ -1215,7 +1217,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSeekForward(
         return (jint)-1;
     }
 
-    return (jint)pdraw_seek_forward(ctx->pdraw, (uint64_t)delta);
+    return (jint)pdraw_seek_forward(ctx->pdraw, (uint64_t)delta, (exact == JNI_TRUE) ? 1 : 0);
 }
 
 
@@ -1224,7 +1226,8 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSeekBack(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
-    jlong delta)
+    jlong delta,
+    jboolean exact)
 {
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
 
@@ -1234,7 +1237,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSeekBack(
         return (jint)-1;
     }
 
-    return (jint)pdraw_seek_back(ctx->pdraw, (uint64_t)delta);
+    return (jint)pdraw_seek_back(ctx->pdraw, (uint64_t)delta, (exact == JNI_TRUE) ? 1 : 0);
 }
 
 

@@ -98,13 +98,13 @@ public:
     virtual int stop() = 0;
 
     virtual int seekTo
-            (uint64_t timestamp) = 0;
+            (uint64_t timestamp, bool exact = false) = 0;
 
     virtual int seekForward
-            (uint64_t delta) = 0;
+            (uint64_t delta, bool exact = false) = 0;
 
     virtual int seekBack
-            (uint64_t delta) = 0;
+            (uint64_t delta, bool exact = false) = 0;
 
     virtual uint64_t getDuration() = 0;
 

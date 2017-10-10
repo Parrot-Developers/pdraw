@@ -122,17 +122,20 @@ int pdraw_stop(
 
 int pdraw_seek_to(
 	struct pdraw *pdraw,
-	uint64_t timestamp);
+	uint64_t timestamp,
+        int exact);
 
 
 int pdraw_seek_forward(
 	struct pdraw *pdraw,
-	uint64_t delta);
+	uint64_t delta,
+        int exact);
 
 
 int pdraw_seek_back(
 	struct pdraw *pdraw,
-	uint64_t delta);
+	uint64_t delta,
+        int exact);
 
 
 uint64_t pdraw_get_duration(

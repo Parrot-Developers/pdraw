@@ -226,11 +226,11 @@ int PdrawImpl::stop()
 }
 
 
-int PdrawImpl::seekTo(uint64_t timestamp)
+int PdrawImpl::seekTo(uint64_t timestamp, bool exact)
 {
     if (mSession.getDemuxer())
     {
-        int ret = mSession.getDemuxer()->seekTo(timestamp);
+        int ret = mSession.getDemuxer()->seekTo(timestamp, exact);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -247,11 +247,11 @@ int PdrawImpl::seekTo(uint64_t timestamp)
 }
 
 
-int PdrawImpl::seekForward(uint64_t delta)
+int PdrawImpl::seekForward(uint64_t delta, bool exact)
 {
     if (mSession.getDemuxer())
     {
-        int ret = mSession.getDemuxer()->seekForward(delta);
+        int ret = mSession.getDemuxer()->seekForward(delta, exact);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");
@@ -268,11 +268,11 @@ int PdrawImpl::seekForward(uint64_t delta)
 }
 
 
-int PdrawImpl::seekBack(uint64_t delta)
+int PdrawImpl::seekBack(uint64_t delta, bool exact)
 {
     if (mSession.getDemuxer())
     {
-        int ret = mSession.getDemuxer()->seekBack(delta);
+        int ret = mSession.getDemuxer()->seekBack(delta, exact);
         if (ret != 0)
         {
             ULOGE("Failed to seek with demuxer");

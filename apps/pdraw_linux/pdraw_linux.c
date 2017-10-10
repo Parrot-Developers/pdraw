@@ -655,7 +655,7 @@ int main(int argc, char *argv[])
                             }
                             else
                             {
-                                ret = pdraw_seek_forward(app->pdraw, 10000000);
+                                ret = pdraw_seek_forward(app->pdraw, 10000000, 0);
                                 if (ret != 0)
                                 {
                                     ULOGW("pdraw_seek_forward() failed (%d)", ret);
@@ -676,7 +676,7 @@ int main(int argc, char *argv[])
                             }
                             else
                             {
-                                int ret = pdraw_seek_back(app->pdraw, 10000000);
+                                int ret = pdraw_seek_back(app->pdraw, 10000000, 0);
                                 if (ret != 0)
                                 {
                                     ULOGW("pdraw_seek_back() failed (%d)", ret);
@@ -686,7 +686,7 @@ int main(int argc, char *argv[])
                         }
                         case SDLK_HOME:
                         {
-                            int ret = pdraw_seek_to(app->pdraw, 0);
+                            int ret = pdraw_seek_to(app->pdraw, 0, 1);
                             if (ret != 0)
                             {
                                 ULOGW("pdraw_seek_to() failed (%d)", ret);
@@ -695,7 +695,7 @@ int main(int argc, char *argv[])
                         }
                         case SDLK_END:
                         {
-                            int ret = pdraw_seek_to(app->pdraw, (uint64_t)-1);
+                            int ret = pdraw_seek_to(app->pdraw, (uint64_t)-1, 1);
                             if (ret != 0)
                             {
                                 ULOGW("pdraw_seek_to() failed (%d)", ret);

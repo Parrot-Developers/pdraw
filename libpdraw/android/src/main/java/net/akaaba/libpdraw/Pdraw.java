@@ -274,25 +274,25 @@ public class Pdraw {
         nativeStop(pdrawCtx);
     }
 
-    public void seekTo(long timestamp) {
+    public void seekTo(long timestamp, boolean exact) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeSeekTo(pdrawCtx, timestamp);
+        nativeSeekTo(pdrawCtx, timestamp, exact);
     }
 
-    public void seekForward(long delta) {
+    public void seekForward(long delta, boolean exact) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeSeekForward(pdrawCtx, delta);
+        nativeSeekForward(pdrawCtx, delta, exact);
     }
 
-    public void seekBack(long delta) {
+    public void seekBack(long delta, boolean exact) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeSeekBack(pdrawCtx, delta);
+        nativeSeekBack(pdrawCtx, delta, exact);
     }
 
     public long getDuration() {
@@ -801,15 +801,18 @@ public class Pdraw {
 
     private native int nativeSeekTo(
         long pdrawCtx,
-        long timestamp);
+        long timestamp,
+        boolean exact);
 
     private native int nativeSeekForward(
         long pdrawCtx,
-        long delta);
+        long delta,
+        boolean exact);
 
     private native int nativeSeekBack(
         long pdrawCtx,
-        long delta);
+        long delta,
+        boolean exact);
 
     private native long nativeGetDuration(
         long pdrawCtx);

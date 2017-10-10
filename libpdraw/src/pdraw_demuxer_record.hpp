@@ -93,13 +93,13 @@ public:
     int stop();
 
     int seekTo
-            (uint64_t timestamp);
+            (uint64_t timestamp, bool exact = false);
 
     int seekForward
-            (uint64_t delta);
+            (uint64_t delta, bool exact = false);
 
     int seekBack
-            (uint64_t delta);
+            (uint64_t delta, bool exact = false);
 
     uint64_t getDuration() { return mDuration; };
 
@@ -138,6 +138,7 @@ private:
     uint64_t mLastFrameOutputTime;
     uint64_t mLastFrameTimestamp;
     int64_t mPendingSeekTs;
+    bool mPendingSeekExact;
     bool mPendingSeekToPrevSample;
     Buffer *mCurrentBuffer;
     unsigned int mWidth;
