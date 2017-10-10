@@ -510,16 +510,19 @@ uint64_t Session::getCurrentTime()
 
 void Session::getCameraOrientationForHeadtracking(float *pan, float *tilt)
 {
-    struct vmeta_euler headOrientation;
-    mSelfMetadata.getDebiasedHeadOrientation(&headOrientation);
-
-    float _pan = headOrientation.psi;
-    float _tilt = headOrientation.theta;
+    Eigen::Quaternionf headQuat = mSelfMetadata.getDebiasedHeadOrientation();
+    vmeta_quaternion quat;
+    quat.w = headQuat.w();
+    quat.x = headQuat.x();
+    quat.y = headQuat.y();
+    quat.z = headQuat.z();
+    vmeta_euler euler;
+    pdraw_quat2euler(&quat, &euler);
 
     if (pan)
-        *pan = _pan;
+        *pan = euler.yaw;
     if (tilt)
-        *tilt = _tilt;
+        *tilt = euler.pitch;
 }
 
 }

@@ -538,9 +538,7 @@ int Gles2Video::renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
 
     if ((headtracking) && (mSession))
     {
-        struct vmeta_quaternion head;
-        mSession->getSelfMetadata()->getDebiasedHeadOrientation(&head);
-        Eigen::Quaternionf headQuat = Eigen::Quaternionf(head.w, head.x, head.y, head.z);
+        Eigen::Quaternionf headQuat = mSession->getSelfMetadata()->getDebiasedHeadOrientation();
         Eigen::Matrix3f headRotNed = headQuat.toRotationMatrix();
 
         Eigen::Matrix3f camRot1 = Eigen::AngleAxisf(-metadata->base.cameraPan, Eigen::Vector3f::UnitZ()).matrix();

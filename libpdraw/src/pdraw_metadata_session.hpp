@@ -90,8 +90,7 @@ public:
     void setHeadOrientation(const struct vmeta_quaternion *quat);
     void setHeadOrientation(const struct vmeta_euler *euler);
 
-    void getDebiasedHeadOrientation(struct vmeta_quaternion *quat);
-    void getDebiasedHeadOrientation(struct vmeta_euler *euler);
+    Eigen::Quaternionf getDebiasedHeadOrientation(void);
 
     bool getHeadRefOrientation(struct vmeta_quaternion *quat);
     bool getHeadRefOrientation(struct vmeta_euler *euler);
@@ -102,22 +101,25 @@ public:
 
 private:
 
+    void setControllerOrientation(Eigen::Quaternionf &quat);
+    void setHeadOrientation(Eigen::Quaternionf &quat);
+
     std::string mFriendlyName;
     std::string mSerialNumber;
     std::string mSoftwareVersion;
     bool mIsPilot;
     struct vmeta_location mLocation;
     int mControllerBatteryLevel;
-    struct vmeta_quaternion mControllerQuat;
+    Eigen::Quaternionf mControllerQuat;
     bool mIsControllerValid;
-    struct vmeta_quaternion mHeadQuat;
+    Eigen::Quaternionf mHeadQuat;
     bool mIsHeadValid;
-    struct vmeta_quaternion mHeadRefQuat;
+    Eigen::Quaternionf mHeadRefQuat;
     bool mIsHeadRefValid;
     float mHeadPsiSpeed;
     uint64_t mLastHeadPsiTimestamp;
-    struct vmeta_quaternion mPrevControllerQuat;
-    struct vmeta_quaternion mControllerQuatRef;
+    Eigen::Quaternionf mPrevControllerQuat;
+    Eigen::Quaternionf mControllerQuatRef;
     uint64_t mLastControllerQuatTimestamp;
     uint64_t mPrevControllerQuatTimestamp;
     bool mTracking;

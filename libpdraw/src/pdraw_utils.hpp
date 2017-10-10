@@ -45,12 +45,6 @@
 #include <Eigen/Eigen>
 
 
-void pdraw_quatConj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternion *qDst);
-
-
-void pdraw_quatMult(const struct vmeta_quaternion *qA, const struct vmeta_quaternion *qB, struct vmeta_quaternion *qDst);
-
-
 void pdraw_euler2quat(const struct vmeta_euler *euler, struct vmeta_quaternion *quat);
 
 

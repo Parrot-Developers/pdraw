@@ -70,34 +70,6 @@ static const unsigned int pdraw_h264Sar[17][2] =
 };
 
 
-void pdraw_quatConj(const struct vmeta_quaternion *qSrc, struct vmeta_quaternion *qDst)
-{
-    if ((!qSrc) || (!qDst))
-        return;
-
-    qDst->w = qSrc->w;
-    qDst->x = -qSrc->x;
-    qDst->y = -qSrc->y;
-    qDst->z = -qSrc->z;
-}
-
-
-void pdraw_quatMult(const struct vmeta_quaternion *qA, const struct vmeta_quaternion *qB, struct vmeta_quaternion *qDst)
-{
-    if ((!qA) || (!qB) || (!qDst))
-        return;
-
-    struct vmeta_quaternion tmp;
-
-    tmp.x = qA->x * qB->w + qA->y * qB->z - qA->z * qB->y + qA->w * qB->x;
-    tmp.y = -qA->x * qB->z + qA->y * qB->w + qA->z * qB->x + qA->w * qB->y;
-    tmp.z = qA->x * qB->y - qA->y * qB->x + qA->z * qB->w + qA->w * qB->z;
-    tmp.w = -qA->x * qB->x - qA->y * qB->y - qA->z * qB->z + qA->w * qB->w;
-
-    *qDst = tmp;
-}
-
-
 void pdraw_euler2quat(const struct vmeta_euler *euler, struct vmeta_quaternion *quat)
 {
     if ((!euler) || (!quat))
