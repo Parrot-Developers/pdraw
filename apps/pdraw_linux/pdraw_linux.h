@@ -48,9 +48,9 @@
 #include <pdraw/pdraw.h>
 #include <json-c/json.h>
 #include <curl/curl.h>
-#ifdef BUILD_SDL
+#ifdef BUILD_SDL2
 #include <SDL.h>
-#endif /* BUILD_SDL */
+#endif /* BUILD_SDL2 */
 
 
 #define PDRAW_WINDOW_WIDTH      (1280)
@@ -152,12 +152,12 @@ struct pdraw_app
     int qosMode;
     int disconnected;
 
-#ifdef BUILD_SDL
-    SDL_Surface *surface;
+#ifdef BUILD_SDL2
+    SDL_Window *window;
+    SDL_GLContext glContext;
     int windowWidth;
     int windowHeight;
-    int sdlFlags;
-#endif /* BUILD_SDL */
+#endif /* BUILD_SDL2 */
 };
 
 

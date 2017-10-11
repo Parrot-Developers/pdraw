@@ -242,11 +242,14 @@ static void summary(struct pdraw_app* app, int afterBrowse)
 int main(int argc, char *argv[])
 {
     int failed = 0;
-    int idx, c, mouseDown = 0, isRecording = 0;
+    int idx, c;
+    struct pdraw_app *app;
+#ifdef BUILD_SDL2
+    int mouseDown = 0, isRecording = 0, fullScreen = 0;
     int mouseDownX = 0, mouseDownY = 0;
     struct vmeta_euler mouseDownHeadOrientation;
     uint64_t lastRenderTime = 0;
-    struct pdraw_app *app;
+#endif /* BUILD_SDL2 */
 
     welcome();
 
@@ -268,10 +271,10 @@ int main(int argc, char *argv[])
         app->dstControlPort = PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT;
         app->run = 1;
         app->speed = 1.0;
-#ifdef BUILD_SDL
+#ifdef BUILD_SDL2
         app->windowWidth = PDRAW_WINDOW_WIDTH;
         app->windowHeight = PDRAW_WINDOW_HEIGHT;
-#endif /* BUILD_SDL */
+#endif /* BUILD_SDL2 */
     }
     else
     {
@@ -407,7 +410,7 @@ int main(int argc, char *argv[])
         {
             if (!strlen(app->ipAddr))
             {
-#ifdef BUILD_SDL
+#ifdef BUILD_SDL2
                 SDL_Event event;
                 while ((!failed) && (!stopping) && (!selected) && (SDL_PollEvent(&event)))
                 {
@@ -416,17 +419,6 @@ int main(int argc, char *argv[])
                         case SDL_QUIT:
                             stopping = 1;
                             break;
-                        case SDL_VIDEORESIZE:
-                        {
-                            app->windowWidth = event.resize.w;
-                            app->windowHeight = event.resize.h;
-                            app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
-                            if (app->surface == NULL)
-                            {
-                                ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
-                            }
-                            break;
-                        }
                         case SDL_KEYDOWN:
                         {
                             int idx = -1;
@@ -438,9 +430,9 @@ int main(int argc, char *argv[])
                             {
                                 idx = event.key.keysym.sym - SDLK_1;
                             }
-                            else if ((event.key.keysym.sym >= SDLK_KP1) && (event.key.keysym.sym <= SDLK_KP9))
+                            else if ((event.key.keysym.sym >= SDLK_KP_1) && (event.key.keysym.sym <= SDLK_KP_9))
                             {
-                                idx = event.key.keysym.sym - SDLK_KP1;
+                                idx = event.key.keysym.sym - SDLK_KP_1;
                             }
 
                             pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
@@ -481,9 +473,9 @@ int main(int argc, char *argv[])
                         }
                     }
                 }
-#else /* BUILD_SDL */
+#else /* BUILD_SDL2 */
                 sleep(1);
-#endif /* BUILD_SDL */
+#endif /* BUILD_SDL2 */
             }
             else
             {
@@ -586,7 +578,7 @@ int main(int argc, char *argv[])
     /* Run until interrupted */
     while ((!failed) && (!stopping) && (!app->disconnected))
     {
-#ifdef BUILD_SDL
+#ifdef BUILD_SDL2
         SDL_Event event;
         while ((!failed) && (!stopping) && (SDL_PollEvent(&event)))
         {
@@ -595,17 +587,12 @@ int main(int argc, char *argv[])
                 case SDL_QUIT:
                     stopping = 1;
                     break;
-                case SDL_VIDEORESIZE:
+                case SDL_WINDOWEVENT:
                 {
-                    app->windowWidth = event.resize.w;
-                    app->windowHeight = event.resize.h;
-                    app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
-                    if (app->surface == NULL)
+                    if (event.window.event == SDL_WINDOWEVENT_RESIZED)
                     {
-                        ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
-                    }
-                    else
-                    {
+                        app->windowWidth = event.window.data1;
+                        app->windowHeight = event.window.data2;
                         int ret = pdraw_start_renderer(app->pdraw,
                                                        app->windowWidth, app->windowHeight, 0, 0,
                                                        app->windowWidth, app->windowHeight,
@@ -614,7 +601,10 @@ int main(int argc, char *argv[])
                         {
                             ULOGE("pdraw_start_renderer() failed (%d)", ret);
                         }
-                        ret = 0;
+                        else
+                        {
+                            ret = 0;
+                        }
                     }
                     break;
                 }
@@ -751,9 +741,16 @@ int main(int argc, char *argv[])
                             break;
                         }
                         case SDLK_RETURN:
-                            /*options ^= SDL_FULLSCREEN;
-                            screen = SDL_SetVideoMode(width, height, 0, options);*/
+                        {
+                            fullScreen ^= 1;
+                            int ret = SDL_SetWindowFullscreen(app->window,
+                                (fullScreen) ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                            if (ret < 0)
+                            {
+                                ULOGW("SDL_SetWindowFullscreen() failed (%d)", ret);
+                            }
                             break;
+                        }
                         default:
                             break;
                     }
@@ -820,12 +817,12 @@ int main(int argc, char *argv[])
             }
         }
 
-        SDL_GL_SwapBuffers();
+        SDL_GL_SwapWindow(app->window);
         clock_gettime(CLOCK_MONOTONIC, &t1);
         lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-#else /* BUILD_SDL */
+#else /* BUILD_SDL2 */
         sleep(1);
-#endif /* BUILD_SDL */
+#endif /* BUILD_SDL2 */
     }
 
     printf("Terminating PDrAW...\n");
@@ -854,7 +851,7 @@ int startUi(struct pdraw_app *app)
 {
     int ret = 0;
 
-#ifdef BUILD_SDL
+#ifdef BUILD_SDL2
     ULOGI("Start UI");
 
     if (ret == 0)
@@ -869,26 +866,28 @@ int startUi(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        app->sdlFlags = SDL_HWSURFACE | SDL_GL_DOUBLEBUFFER | SDL_OPENGL | SDL_RESIZABLE;
-
-        SDL_GL_SetAttribute(SDL_GL_SWAP_CONTROL, 1);
-        SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
-        SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
-        SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
-        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 2);
-        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-
-        app->surface = SDL_SetVideoMode(app->windowWidth, app->windowHeight, 0, app->sdlFlags);
-        if (app->surface == NULL)
+        app->window = SDL_CreateWindow("PDrAW", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                                       app->windowWidth, app->windowHeight,
+                                       SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+        if (app->window == NULL)
         {
-            ULOGE("SDL_SetVideoMode() failed: %s", SDL_GetError());
+            ULOGE("SDL_CreateWindow() failed: %s", SDL_GetError());
             ret = -1;
         }
-        SDL_WM_SetCaption("PDrAW", "PDrAW");
+        app->glContext = SDL_GL_CreateContext(app->window);
+        if (app->glContext == NULL)
+        {
+            ULOGE("SDL_GL_CreateContext() failed: %s", SDL_GetError());
+            ret = -1;
+        }
+        int sdlRet = SDL_GL_SetSwapInterval(1);
+        if (sdlRet < 0)
+        {
+            ULOGE("SDL_GL_SetSwapInterval() failed: %s", SDL_GetError());
+            ret = -1;
+        }
     }
-#endif /* BUILD_SDL */
+#endif /* BUILD_SDL2 */
 
     return ret;
 }
@@ -896,9 +895,11 @@ int startUi(struct pdraw_app *app)
 
 void stopUi(struct pdraw_app *app)
 {
-#ifdef BUILD_SDL
+#ifdef BUILD_SDL2
+    if (app->glContext)
+        SDL_GL_DeleteContext(app->glContext);
     SDL_Quit();
-#endif /* BUILD_SDL */
+#endif /* BUILD_SDL2 */
 }
 
 
@@ -988,6 +989,7 @@ int startPdraw(struct pdraw_app *app)
         }
     }
 
+#ifdef BUILD_SDL2
     if (ret == 0)
     {
         ret = pdraw_start_renderer(app->pdraw,
@@ -998,8 +1000,12 @@ int startPdraw(struct pdraw_app *app)
         {
             ULOGE("pdraw_start_renderer() failed (%d)", ret);
         }
-        ret = 0;
+        else
+        {
+            ret = 0;
+        }
     }
+#endif /* BUILD_SDL2 */
 
     if (ret == 0)
     {
