@@ -754,6 +754,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
             {
                 uint8_t *buf = (uint8_t*)demuxer->mCurrentBuffer->getPtr();
                 unsigned int bufSize = demuxer->mCurrentBuffer->getCapacity();
+                unsigned int outSize = 0;
 
                 if (demuxer->mFirstFrame)
                 {
@@ -763,6 +764,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         memcpy(buf + 4, spsBuffer, spsSize);
                         buf += (spsSize + 4);
                         bufSize -= (spsSize + 4);
+                        outSize += (spsSize + 4);
                     }
                     if ((ppsBuffer) && (ppsSize + 4 <= bufSize))
                     {
@@ -770,6 +772,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         memcpy(buf + 4, ppsBuffer, ppsSize);
                         buf += (ppsSize + 4);
                         bufSize -= (ppsSize + 4);
+                        outSize += (ppsSize + 4);
                     }
                     demuxer->mFirstFrame = false;
                 }
@@ -813,7 +816,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                                                       buf, bufSize, demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize, &sample);
                 if ((ret == 0) && (sample.sample_size))
                 {
-                    demuxer->mCurrentBuffer->setSize(sample.sample_size);
+                    demuxer->mCurrentBuffer->setSize(outSize + sample.sample_size);
                     demuxer->mCurrentBuffer->setUserDataSize(0);
 
                     bool silent = ((sample.silent) && (pendingSeekExact)) ? true : false;
@@ -905,6 +908,10 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         }
                         pthread_mutex_unlock(&demuxer->mDemuxerMutex);
                     }
+                }
+                else if (ret != 0)
+                {
+                    ULOGW("RecordDemuxer: failed to get sample (%d)", ret);
                 }
             }
             else
