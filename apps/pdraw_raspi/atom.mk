@@ -5,7 +5,7 @@ ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)-$(TARGET_PRODUCT_VARIANT)","linux-gener
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := pdraw_raspi
+LOCAL_MODULE := pdraw
 LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer RaspberryPi Application
 LOCAL_CATEGORY_PATH := multimedia
 LOCAL_SRC_FILES := pdraw_raspi.c
