@@ -90,7 +90,7 @@ ifneq ("$(shell which swig)","")
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := pdraw_python
+LOCAL_MODULE := libpdraw_python
 LOCAL_DESCRIPTION := PDrAW wrapper to python using SWIG
 LOCAL_CATEGORY_PATH := multimedia
 
@@ -112,7 +112,7 @@ LOCAL_DESTDIR := usr/lib/python
 
 PDRAW_PYTHON_DESTDIR := $(TARGET_OUT_STAGING)/usr/lib/python
 
-ifeq ($(CONFIG_PDRAW_PYTHON_PYTHON3),y)
+ifeq ($(CONFIG_LIBPDRAW_PYTHON_PYTHON3),y)
   PDRAW_PYTHON_PYTHONCONFIG := python3-config
 else
   PDRAW_PYTHON_PYTHONCONFIG := python-config
@@ -123,7 +123,7 @@ LOCAL_CXXFLAGS += $(shell $(PDRAW_PYTHON_PYTHONCONFIG) --includes)
 
 LOCAL_LDLIBS := $(shell $(PDRAW_PYTHON_PYTHONCONFIG) --ldflags)
 
-PDRAW_PYTHON_SWIG_SOURCE := python/$(LOCAL_MODULE).i
+PDRAW_PYTHON_SWIG_SOURCE := python/pdraw_python.i
 PDRAW_PYTHON_NAME := $(LOCAL_MODULE)
 
 PDRAW_PYTHON_SWIG_DEPENDS := $(addsuffix /*,$(LOCAL_C_INCLUDES)) $(shell find $(LOCAL_PATH)/python/*i)

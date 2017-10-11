@@ -38,7 +38,7 @@
 
 
 
-%module pdraw_python
+%module libpdraw_python
 
 %{
 #include <iostream>

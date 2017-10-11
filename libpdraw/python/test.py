@@ -10,7 +10,7 @@ try:
     l = os.environ['LD_LIBRARY_PATH']
     path = l.split(":")[1] + "/python"
     sys.path.insert(0, path)
-    import pdraw_python as pdraw
+    import libpdraw_python as pdraw
 except:
     print "launch me with native_wrapper please"
     sys.exit(-1)
