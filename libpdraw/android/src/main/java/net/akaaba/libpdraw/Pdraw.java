@@ -43,6 +43,8 @@ import com.parrot.mux.Mux;
 import java.nio.ByteBuffer;
 
 public class Pdraw {
+    public static final float PDRAW_PLAY_SPEED_MAX = 1000.f;
+
     private static final String LIBRARY_NAME = "pdraw_android";
     private long pdrawCtx;
     private VideoFrameListener mListener;

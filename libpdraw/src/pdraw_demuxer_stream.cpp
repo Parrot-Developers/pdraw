@@ -911,17 +911,24 @@ int StreamDemuxer::play(float speed)
         return -1;
     }
 
-    eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StartAppOutput(mStreamReceiver, h264FilterSpsPpsCallback, this,
-                                                                   h264FilterGetAuBufferCallback, this,
-                                                                   h264FilterAuReadyCallback, this);
-    if (ret != ARSTREAM2_OK)
+    if (speed <= 0.)
     {
-        ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StartAppOutput() failed: %s", ARSTREAM2_Error_ToString(ret));
+        return pause();
     }
+    else
+    {
+        eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StartAppOutput(mStreamReceiver, h264FilterSpsPpsCallback, this,
+                                                                       h264FilterGetAuBufferCallback, this,
+                                                                       h264FilterAuReadyCallback, this);
+        if (ret != ARSTREAM2_OK)
+        {
+            ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StartAppOutput() failed: %s", ARSTREAM2_Error_ToString(ret));
+        }
 
-    mRunning = true;
+        mRunning = true;
 
-    return (ret == ARSTREAM2_OK) ? 0 : -1;
+        return (ret == ARSTREAM2_OK) ? 0 : -1;
+    }
 }
 
 

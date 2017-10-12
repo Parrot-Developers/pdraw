@@ -43,6 +43,9 @@
 #include <video-metadata/vmeta.h>
 
 
+#define PDRAW_PLAY_SPEED_MAX        1000.f
+
+
 enum pdraw_drone_model {
 	PDRAW_DRONE_MODEL_UNKNOWN = 0,
 	PDRAW_DRONE_MODEL_BEBOP,

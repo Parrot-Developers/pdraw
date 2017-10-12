@@ -470,10 +470,19 @@ int RecordDemuxer::play(float speed)
 
     pthread_mutex_lock(&mDemuxerMutex);
 
-    mRunning = true;
-    mFrameByFrame = false;
-    mPendingSeekToPrevSample = false;
-    mSpeed = speed;
+    if (speed > 0.)
+    {
+        mRunning = true;
+        mFrameByFrame = false;
+        mPendingSeekToPrevSample = false;
+        mSpeed = speed;
+    }
+    else
+    {
+        /* speed is null or negative => pause */
+        mRunning = false;
+        mFrameByFrame = true;
+    }
 
     pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -870,7 +879,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
                         int32_t sleepTime = 0;
 
-                        if ((speed > 0.) && (speed <= 1000.0) && (!silent))
+                        if ((speed > 0.) && (speed <= PDRAW_PLAY_SPEED_MAX) && (!silent))
                         {
                             sleepTime = (int32_t)((int64_t)((sample.sample_dts - demuxer->mLastFrameTimestamp) / speed) -
                                 (int64_t)(curTime - demuxer->mLastFrameOutputTime)) + outputTimeError;
@@ -884,7 +893,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                     clock_gettime(CLOCK_MONOTONIC, &t1);
                     data->demuxOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
                     data->auNtpTimestampLocal = data->demuxOutputTimestamp;
-                    outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp) && (speed > 0.) && (speed <= 1000.0) && (!silent)) ?
+                    outputTimeError = ((demuxer->mLastFrameOutputTime) && (demuxer->mLastFrameTimestamp) && (speed > 0.) && (speed <= PDRAW_PLAY_SPEED_MAX) && (!silent)) ?
                                         (int32_t)((int64_t)((sample.sample_dts - demuxer->mLastFrameTimestamp) / speed) -
                                         (int64_t)(data->demuxOutputTimestamp - demuxer->mLastFrameOutputTime)) : 0;
 
