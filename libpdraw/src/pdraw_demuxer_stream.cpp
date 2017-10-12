@@ -1322,9 +1322,11 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
 
         buffer->setSize(auSize);
         buffer->setMetadataSize(sizeof(avc_decoder_input_buffer_t));
+        memset(data, 0, sizeof(*data));
         data->isComplete = (auMetadata->isComplete) ? true : false;
         data->hasErrors = (auMetadata->hasErrors) ? true : false;
         data->isRef = (auMetadata->isRef) ? true : false;
+        data->isSilent = false; //TODO
         data->auNtpTimestamp = auTimestamps->auNtpTimestamp;
         data->auNtpTimestampRaw = auTimestamps->auNtpTimestampRaw;
         data->auNtpTimestampLocal = auTimestamps->auNtpTimestampLocal;

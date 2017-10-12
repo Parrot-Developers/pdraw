@@ -845,6 +845,7 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
             outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
             struct timespec t1;
             clock_gettime(CLOCK_MONOTONIC, &t1);
+            memset(outputData, 0, sizeof(*outputData));
             outputData->plane[0] = (uint8_t*)decoder->mCurrentEglImageIndex;
             outputData->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
             outputData->width = decoder->mFrameWidth;

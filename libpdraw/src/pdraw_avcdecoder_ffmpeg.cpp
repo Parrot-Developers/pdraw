@@ -567,6 +567,7 @@ int FfmpegAvcDecoder::decode(Buffer *inputBuffer, Buffer *outputBuffer)
             mSarHeight = (mCodecCtxH264->sample_aspect_ratio.den > 0) ? mCodecCtxH264->sample_aspect_ratio.den : 1;
         }
         outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
+        memset(outputData, 0, sizeof(*outputData));
         outputData->colorFormat = mOutputColorFormat;
         if (mOutputColorFormat == AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR)
         {

@@ -861,6 +861,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
 
                     avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)demuxer->mCurrentBuffer->getMetadataPtr();
                     demuxer->mCurrentBuffer->setMetadataSize(sizeof(avc_decoder_input_buffer_t));
+                    memset(data, 0, sizeof(*data));
                     data->isComplete = true; //TODO?
                     data->hasErrors = false; //TODO?
                     data->isRef = true; //TODO?
