@@ -21,7 +21,7 @@ LOCAL_SRC_FILES := \
 	src/pdraw_avcdecoder.cpp \
 	src/pdraw_avcdecoder_ffmpeg.cpp \
 	src/pdraw_avcdecoder_videocoreomx.cpp \
-	src/pdraw_avcdecoder_amediacodec.cpp \
+	src/pdraw_avcdecoder_mediacodec.cpp \
 	src/pdraw_gles2_hud.cpp \
 	src/pdraw_gles2_video.cpp \
 	src/pdraw_gles2_hmd.cpp \
@@ -65,7 +65,7 @@ ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
 	gl \
 	glfw3
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
-  LOCAL_CFLAGS += -DUSE_AMEDIACODEC -DUSE_ANATIVEWINDOW -DUSE_GLES2
+  LOCAL_CFLAGS += -DUSE_MEDIACODEC -DUSE_ANATIVEWINDOW -DUSE_GLES2
   LOCAL_LDLIBS += -lmediandk -lEGL -lGLESv2 -landroid
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)-$(TARGET_PRODUCT_VARIANT)","linux-generic-raspi")
   LOCAL_CFLAGS += -DBCM_VIDEOCORE -DUSE_VIDEOCOREOMX -DUSE_VIDEOCOREEGL \

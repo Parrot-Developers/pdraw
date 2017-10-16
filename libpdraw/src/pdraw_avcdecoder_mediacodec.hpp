@@ -1,6 +1,6 @@
 /**
- * @file pdraw_avcdecoder_amediacodec.hpp
- * @brief Parrot Drones Awesome Video Viewer Library - Android NDK MediaCodec H.264/AVC video decoder
+ * @file pdraw_avcdecoder_mediacodec.hpp
+ * @brief Parrot Drones Awesome Video Viewer Library - Android MediaCodec H.264/AVC video decoder
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,10 +36,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_AVCDECODER_AMEDIACODEC_HPP_
-#define _PDRAW_AVCDECODER_AMEDIACODEC_HPP_
+#ifndef _PDRAW_AVCDECODER_MEDIACODEC_HPP_
+#define _PDRAW_AVCDECODER_MEDIACODEC_HPP_
 
-#ifdef USE_AMEDIACODEC
+#ifdef USE_MEDIACODEC
 
 #include <pthread.h>
 #include <vector>
@@ -48,21 +48,21 @@
 #include "pdraw_avcdecoder.hpp"
 
 
-#define AMEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT 10
-#define AMEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT 10
+#define MEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT 10
+#define MEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT 10
 
 
 namespace Pdraw
 {
 
 
-class AMediaCodecAvcDecoder : public AvcDecoder
+class MediaCodecAvcDecoder : public AvcDecoder
 {
 public:
 
-    AMediaCodecAvcDecoder(VideoMedia *media);
+    MediaCodecAvcDecoder(VideoMedia *media);
 
-    ~AMediaCodecAvcDecoder();
+    ~MediaCodecAvcDecoder();
 
     bool isConfigured() { return mConfigured; };
 
@@ -119,6 +119,6 @@ private:
 
 }
 
-#endif /* USE_AMEDIACODEC */
+#endif /* USE_MEDIACODEC */
 
-#endif /* !_PDRAW_AVCDECODER_AMEDIACODEC_HPP_ */
+#endif /* !_PDRAW_AVCDECODER_MEDIACODEC_HPP_ */

@@ -1,6 +1,6 @@
 /**
- * @file pdraw_avcdecoder_amediacodec.cpp
- * @brief Parrot Drones Awesome Video Viewer Library - Android NDK MediaCodec H.264/AVC video decoder
+ * @file pdraw_avcdecoder_mediacodec.cpp
+ * @brief Parrot Drones Awesome Video Viewer Library - Android MediaCodec H.264/AVC video decoder
  * @date 05/11/2016
  * @author aurelien.barre@akaaba.net
  *
@@ -36,10 +36,10 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_avcdecoder_amediacodec.hpp"
+#include "pdraw_avcdecoder_mediacodec.hpp"
 #include "pdraw_media_video.hpp"
 
-#ifdef USE_AMEDIACODEC
+#ifdef USE_MEDIACODEC
 
 #include <unistd.h>
 #include <time.h>
@@ -47,14 +47,14 @@
 #define ULOG_TAG libpdraw
 #include <ulog.h>
 
-#define PDRAW_AMEDIACODEC_MIME_TYPE "video/avc"
+#define PDRAW_MEDIACODEC_MIME_TYPE "video/avc"
 
 
 namespace Pdraw
 {
 
 
-AMediaCodecAvcDecoder::AMediaCodecAvcDecoder(VideoMedia *media)
+MediaCodecAvcDecoder::MediaCodecAvcDecoder(VideoMedia *media)
 {
     mConfigured = false;
     mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
@@ -75,16 +75,16 @@ AMediaCodecAvcDecoder::AMediaCodecAvcDecoder(VideoMedia *media)
     mSarWidth = 0;
     mSarHeight = 0;
 
-    mCodec = AMediaCodec_createDecoderByType(PDRAW_AMEDIACODEC_MIME_TYPE);
+    mCodec = AMediaCodec_createDecoderByType(PDRAW_MEDIACODEC_MIME_TYPE);
     if (mCodec == NULL)
     {
-        ULOGE("AMediaCodec: failed to create decoder");
+        ULOGE("MediaCodec: failed to create decoder");
     }
 
     int thErr = pthread_create(&mOutputPollThread, NULL, runOutputPollThread, (void*)this);
     if (thErr != 0)
     {
-        ULOGE("AMediaCodec: output poll thread creation failed (%d)", thErr);
+        ULOGE("MediaCodec: output poll thread creation failed (%d)", thErr);
     }
     else
     {
@@ -93,7 +93,7 @@ AMediaCodecAvcDecoder::AMediaCodecAvcDecoder(VideoMedia *media)
 }
 
 
-AMediaCodecAvcDecoder::~AMediaCodecAvcDecoder()
+MediaCodecAvcDecoder::~MediaCodecAvcDecoder()
 {
     mThreadShouldStop = true;
     if (mOutputPollThreadLaunched)
@@ -101,14 +101,14 @@ AMediaCodecAvcDecoder::~AMediaCodecAvcDecoder()
         int thErr = pthread_join(mOutputPollThread, NULL);
         if (thErr != 0)
         {
-            ULOGE("AMediaCodec: pthread_join() failed (%d)", thErr);
+            ULOGE("MediaCodec: pthread_join() failed (%d)", thErr);
         }
     }
 
     media_status_t err = AMediaCodec_delete(mCodec);
     if (err != AMEDIA_OK)
     {
-        ULOGE("AMediaCodec: AMediaCodec_delete() failed (%d)", err);
+        ULOGE("MediaCodec: AMediaCodec_delete() failed (%d)", err);
     }
 
     if (mInputBufferQueue) delete mInputBufferQueue;
@@ -124,7 +124,7 @@ AMediaCodecAvcDecoder::~AMediaCodecAvcDecoder()
 }
 
 
-int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize)
+int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize)
 {
     int ret = 0;
     media_status_t err;
@@ -133,12 +133,12 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
 
     if (mConfigured)
     {
-        ULOGE("AMediaCodec: decoder is already configured");
+        ULOGE("MediaCodec: decoder is already configured");
         return -1;
     }
     if ((!pSps) || (spsSize == 0) || (!pPps) || (ppsSize == 0))
     {
-        ULOGE("AMediaCodec: invalid SPS/PPS");
+        ULOGE("MediaCodec: invalid SPS/PPS");
         return -1;
     }
 
@@ -147,7 +147,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
         format = AMediaFormat_new();
         if (!format)
         {
-            ULOGE("AMediaCodec: AMediaFormat_new() failed");
+            ULOGE("MediaCodec: AMediaFormat_new() failed");
             ret = -1;
         }
         else
@@ -155,13 +155,13 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
             sps = (uint8_t*)malloc(spsSize + 4);
             if (!sps)
             {
-                ULOGE("AMediaCodec: allocation failed (size %d)", spsSize + 4);
+                ULOGE("MediaCodec: allocation failed (size %d)", spsSize + 4);
                 ret = -1;
             }
             pps = (uint8_t*)malloc(ppsSize + 4);
             if (!pps)
             {
-                ULOGE("AMediaCodec: allocation failed (size %d)", ppsSize + 4);
+                ULOGE("MediaCodec: allocation failed (size %d)", ppsSize + 4);
                 ret = -1;
             }
             if (ret == 0)
@@ -171,7 +171,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
                 pps[0] = pps[1] = pps[2] = 0; pps[3] = 1;
                 memcpy(sps + 4, pSps, spsSize);
                 memcpy(pps + 4, pPps, ppsSize);
-                AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, PDRAW_AMEDIACODEC_MIME_TYPE);
+                AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, PDRAW_MEDIACODEC_MIME_TYPE);
                 AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 480); //TODO
                 AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 360); //TODO
                 AMediaFormat_setBuffer(format, "csd-0", sps, spsSize + 4);
@@ -186,7 +186,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
         err = AMediaCodec_configure(mCodec, format, NULL /*(ANativeWindow*)mUiHandler*/, NULL, 0);
         if (err != AMEDIA_OK)
         {
-            ULOGE("AMediaCodec: AMediaCodec_configure() failed (%d)", err);
+            ULOGE("MediaCodec: AMediaCodec_configure() failed (%d)", err);
             ret = -1;
         }
         else
@@ -194,7 +194,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
             int32_t colorFormat = 0;
             AMediaFormat *outFormat = AMediaCodec_getOutputFormat(mCodec);
             AMediaFormat_getInt32(outFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, &colorFormat);
-            ULOGI("AMediaCodec: AMediaCodec_configure() OK, output color format = %d", colorFormat);
+            ULOGI("MediaCodec: AMediaCodec_configure() OK, output color format = %d", colorFormat);
             switch (colorFormat)
             {
                 //TODO: where are these constants defined in NDK?
@@ -214,12 +214,12 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
     /* Input buffers pool allocation */
     if (ret == 0)
     {
-        mInputBufferPool = new BufferPool(AMEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT, 0,
+        mInputBufferPool = new BufferPool(MEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT, 0,
                                           sizeof(avc_decoder_input_buffer_t), 0,
                                           NULL, NULL); //TODO: number of buffers
         if (mInputBufferPool == NULL)
         {
-            ULOGE("AMediaCodec: failed to allocate decoder input buffers pool");
+            ULOGE("MediaCodec: failed to allocate decoder input buffers pool");
             ret = -1;
         }
     }
@@ -230,7 +230,7 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
         mInputBufferQueue = new BufferQueue();
         if (mInputBufferQueue == NULL)
         {
-            ULOGE("AMediaCodec: failed to allocate decoder input buffers queue");
+            ULOGE("MediaCodec: failed to allocate decoder input buffers queue");
             ret = -1;
         }
     }
@@ -238,12 +238,12 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
     /* Output buffers pool allocation */
     if (ret == 0)
     {
-        mOutputBufferPool = new BufferPool(AMEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
+        mOutputBufferPool = new BufferPool(MEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
                                            sizeof(avc_decoder_output_buffer_t), 0,
                                            NULL, NULL); //TODO: number of buffers
         if (mOutputBufferPool == NULL)
         {
-            ULOGE("AMediaCodec: failed to allocate decoder output buffers pool");
+            ULOGE("MediaCodec: failed to allocate decoder output buffers pool");
             ret = -1;
         }
     }
@@ -253,12 +253,12 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
         err = AMediaCodec_start(mCodec);
         if (err != AMEDIA_OK)
         {
-            ULOGE("AMediaCodec: AMediaCodec_start() failed (%d)", err);
+            ULOGE("MediaCodec: AMediaCodec_start() failed (%d)", err);
             ret = -1;
         }
         else
         {
-            ULOGI("AMediaCodec: AMediaCodec_start() OK");
+            ULOGI("MediaCodec: AMediaCodec_start() OK");
         }
     }
 
@@ -275,24 +275,24 @@ int AMediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, 
 
     if (mConfigured)
     {
-        ULOGI("AMediaCodec: decoder is configured");
+        ULOGI("MediaCodec: decoder is configured");
     }
 
     return ret;
 }
 
 
-int AMediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
+int MediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 {
     if (!buffer)
     {
-        ULOGE("AMediaCodec: invalid buffer pointer");
+        ULOGE("MediaCodec: invalid buffer pointer");
         return -1;
     }
 
     if (!mConfigured)
     {
-        ULOGE("AMediaCodec: decoder is not configured");
+        ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
 
@@ -304,7 +304,7 @@ int AMediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
             ssize_t bufIdx = AMediaCodec_dequeueInputBuffer(mCodec, (blocking) ? -1 : 0);
             if (bufIdx < 0)
             {
-                ULOGE("AMediaCodec: failed to dequeue an input buffer");
+                ULOGE("MediaCodec: failed to dequeue an input buffer");
                 buf->unref();
                 return -2;
             }
@@ -313,7 +313,7 @@ int AMediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
             uint8_t *pBuf = AMediaCodec_getInputBuffer(mCodec, bufIdx, &bufSize);
             if ((pBuf == NULL) || (bufSize <= 0))
             {
-                ULOGE("AMediaCodec: failed to get input buffer #%zu", bufIdx);
+                ULOGE("MediaCodec: failed to get input buffer #%zu", bufIdx);
                 buf->unref();
                 return -1;
             }
@@ -326,13 +326,13 @@ int AMediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
         }
         else
         {
-            ULOGD("videoCoreOmx: failed to get an input buffer");
+            ULOGD("MediaCodec: failed to get an input buffer");
             return -2;
         }
     }
     else
     {
-        ULOGE("videoCoreOmx: input buffer pool has not been created");
+        ULOGE("MediaCodec: input buffer pool has not been created");
         return -1;
     }
 
@@ -340,17 +340,17 @@ int AMediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 }
 
 
-int AMediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
+int MediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
 {
     if (!buffer)
     {
-        ULOGE("AMediaCodec: invalid buffer pointer");
+        ULOGE("MediaCodec: invalid buffer pointer");
         return -1;
     }
 
     if (!mConfigured)
     {
-        ULOGE("AMediaCodec: decoder is not configured");
+        ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
 
@@ -367,13 +367,13 @@ int AMediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
         media_status_t err = AMediaCodec_queueInputBuffer(mCodec, (size_t)buffer->getResPtr(), 0, buffer->getSize(), ts, 0);
         if (err != AMEDIA_OK)
         {
-            ULOGE("AMediaCodec: failed to queue input buffer #%zu", (size_t)buffer->getResPtr());
+            ULOGE("MediaCodec: failed to queue input buffer #%zu", (size_t)buffer->getResPtr());
             return -1;
         }
     }
     else
     {
-        ULOGE("AMediaCodec: input queue has not been created");
+        ULOGE("MediaCodec: input queue has not been created");
         return -1;
     }
 
@@ -381,12 +381,12 @@ int AMediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
 }
 
 
-BufferQueue *AMediaCodecAvcDecoder::addOutputQueue()
+BufferQueue *MediaCodecAvcDecoder::addOutputQueue()
 {
     BufferQueue *q = new BufferQueue();
     if (q == NULL)
     {
-        ULOGE("AMediaCodec: queue allocation failed");
+        ULOGE("MediaCodec: queue allocation failed");
         return NULL;
     }
 
@@ -395,11 +395,11 @@ BufferQueue *AMediaCodecAvcDecoder::addOutputQueue()
 }
 
 
-int AMediaCodecAvcDecoder::removeOutputQueue(BufferQueue *queue)
+int MediaCodecAvcDecoder::removeOutputQueue(BufferQueue *queue)
 {
     if (!queue)
     {
-        ULOGE("AMediaCodec: invalid queue pointer");
+        ULOGE("MediaCodec: invalid queue pointer");
         return -1;
     }
 
@@ -422,11 +422,11 @@ int AMediaCodecAvcDecoder::removeOutputQueue(BufferQueue *queue)
 }
 
 
-bool AMediaCodecAvcDecoder::isOutputQueueValid(BufferQueue *queue)
+bool MediaCodecAvcDecoder::isOutputQueueValid(BufferQueue *queue)
 {
     if (!queue)
     {
-        ULOGE("AMediaCodec: invalid queue pointer");
+        ULOGE("MediaCodec: invalid queue pointer");
         return false;
     }
 
@@ -447,22 +447,22 @@ bool AMediaCodecAvcDecoder::isOutputQueueValid(BufferQueue *queue)
 }
 
 
-int AMediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking)
+int MediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking)
 {
     if (!queue)
     {
-        ULOGE("AMediaCodec: invalid buffer pointer");
+        ULOGE("MediaCodec: invalid buffer pointer");
         return -1;
     }
     if (!buffer)
     {
-        ULOGE("AMediaCodec: invalid buffer pointer");
+        ULOGE("MediaCodec: invalid buffer pointer");
         return -1;
     }
 
     if (!mConfigured)
     {
-        ULOGE("AMediaCodec: decoder is not configured");
+        ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
 
@@ -479,13 +479,13 @@ int AMediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buff
         }
         else
         {
-            ULOGD("AMediaCodec: failed to dequeue an output buffer");
+            ULOGD("MediaCodec: failed to dequeue an output buffer");
             return -2;
         }
     }
     else
     {
-        ULOGE("AMediaCodec: invalid output queue");
+        ULOGE("MediaCodec: invalid output queue");
         return -1;
     }
 
@@ -493,17 +493,17 @@ int AMediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buff
 }
 
 
-int AMediaCodecAvcDecoder::releaseOutputBuffer(Buffer *buffer)
+int MediaCodecAvcDecoder::releaseOutputBuffer(Buffer *buffer)
 {
     if (!buffer)
     {
-        ULOGE("AMediaCodec: invalid buffer pointer");
+        ULOGE("MediaCodec: invalid buffer pointer");
         return -1;
     }
 
     if (!mConfigured)
     {
-        ULOGE("AMediaCodec: decoder is not configured");
+        ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
 
@@ -514,7 +514,7 @@ int AMediaCodecAvcDecoder::releaseOutputBuffer(Buffer *buffer)
         media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, (size_t)buffer->getResPtr(), false);
         if (err != AMEDIA_OK)
         {
-            ULOGE("AMediaCodec: failed to release output buffer #%zu", (size_t)buffer->getResPtr());
+            ULOGE("MediaCodec: failed to release output buffer #%zu", (size_t)buffer->getResPtr());
             return -1;
         }
     }
@@ -523,11 +523,11 @@ int AMediaCodecAvcDecoder::releaseOutputBuffer(Buffer *buffer)
 }
 
 
-int AMediaCodecAvcDecoder::stop()
+int MediaCodecAvcDecoder::stop()
 {
     if (!mConfigured)
     {
-        ULOGE("AMediaCodec: decoder is not configured");
+        ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
 
@@ -537,7 +537,7 @@ int AMediaCodecAvcDecoder::stop()
     media_status_t err = AMediaCodec_stop(mCodec);
     if (err != AMEDIA_OK)
     {
-        ULOGE("AMediaCodec: AMediaCodec_stop() failed (%d)", err);
+        ULOGE("MediaCodec: MediaCodec_stop() failed (%d)", err);
     }
 
     //TODO
@@ -549,7 +549,7 @@ int AMediaCodecAvcDecoder::stop()
 }
 
 
-int AMediaCodecAvcDecoder::pollDecoderOutput()
+int MediaCodecAvcDecoder::pollDecoderOutput()
 {
     int ret = 0;
     AMediaCodecBufferInfo info;
@@ -565,11 +565,12 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
         uint8_t *pBuf = AMediaCodec_getOutputBuffer(mCodec, bufIdx, &bufSize);
         if ((pBuf == NULL) || (bufSize <= 0))
         {
-            ULOGE("AMediaCodec: failed to get output buffer #%zu", bufIdx);
+            ULOGE("MediaCodec: failed to get output buffer #%zu", bufIdx);
             media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
             if (err != AMEDIA_OK)
             {
-                ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
+                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
+                return -1;
             }
             ret = -1;
             break;
@@ -606,12 +607,12 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
 
             if ((inputBuffer == NULL) || (inputData == NULL))
             {
-                ULOGW("AMediaCodec: failed to find buffer for TS %" PRIu64, ts);
+                ULOGW("MediaCodec: failed to find buffer for TS %" PRIu64, ts);
             }
         }
         else
         {
-            ULOGW("AMediaCodec: invalid timestamp in buffer callback");
+            ULOGW("MediaCodec: invalid timestamp in buffer callback");
         }
 #if 0
         inputBuffer = mInputBufferQueue->popBuffer(false);
@@ -624,7 +625,8 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
             if (err != AMEDIA_OK)
             {
-                ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
+                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
+                return -1;
             }
             ret = -1;
             break;
@@ -633,7 +635,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
         outputBuffer = mOutputBufferPool->getBuffer(false);
         if (!outputBuffer)
         {
-            ULOGE("AMediaCodec: failed to get an output buffer");
+            ULOGE("MediaCodec: failed to get an output buffer");
             if (inputBuffer)
             {
                 inputBuffer->unref();
@@ -641,7 +643,8 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
             if (err != AMEDIA_OK)
             {
-                ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
+                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
+                return -1;
             }
             ret = -1;
             break;
@@ -721,7 +724,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
                 int ret = outputBuffer->setUserDataCapacity(userDataSize);
                 if (ret < (signed)userDataSize)
                 {
-                    ULOGE("AMediaCodec: failed to realloc user data buffer");
+                    ULOGE("MediaCodec: failed to realloc user data buffer");
                 }
                 else
                 {
@@ -748,12 +751,12 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             }
             else
             {
-                ULOGI("AMediaCodec: silent frame (ignored)");
+                ULOGI("MediaCodec: silent frame (ignored)");
             }
         }
         else
         {
-            ULOGW("AMediaCodec: invalid output buffer data");
+            ULOGW("MediaCodec: invalid output buffer data");
         }
 
         if (!pushed)
@@ -761,7 +764,7 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
             media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
             if (err != AMEDIA_OK)
             {
-                ULOGE("AMediaCodec: failed to release output buffer #%zu", bufIdx);
+                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
                 ret = -1;
                 outputBuffer->unref();
                 if (inputBuffer)
@@ -786,9 +789,9 @@ int AMediaCodecAvcDecoder::pollDecoderOutput()
 }
 
 
-void* AMediaCodecAvcDecoder::runOutputPollThread(void *ptr)
+void* MediaCodecAvcDecoder::runOutputPollThread(void *ptr)
 {
-    AMediaCodecAvcDecoder *decoder = (AMediaCodecAvcDecoder*)ptr;
+    MediaCodecAvcDecoder *decoder = (MediaCodecAvcDecoder*)ptr;
 
     while (!decoder->mThreadShouldStop)
     {
@@ -797,7 +800,7 @@ void* AMediaCodecAvcDecoder::runOutputPollThread(void *ptr)
             int pollRet = decoder->pollDecoderOutput();
             if (pollRet != 0)
             {
-                ULOGE("AMediaCodec: pollDecoderOutput() failed (%d)", pollRet);
+                ULOGE("MediaCodec: pollDecoderOutput() failed (%d)", pollRet);
             }
         }
         else
@@ -811,4 +814,4 @@ void* AMediaCodecAvcDecoder::runOutputPollThread(void *ptr)
 
 }
 
-#endif /* USE_AMEDIACODEC */
+#endif /* USE_MEDIACODEC */
