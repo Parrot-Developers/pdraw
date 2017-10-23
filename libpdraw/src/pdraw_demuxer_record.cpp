@@ -233,14 +233,14 @@ int RecordDemuxer::fetchSessionMetadata()
                 ULOGE("RecordDemuxer: vmeta_session_recording_read() failed: %d(%s)\n", ret, strerror(-ret));
                 continue;
             }
-
-            peerMeta->set(&meta);
-            if (meta.picture_fov.has_horz)
-                mHfov = meta.picture_fov.horz;
-            if (meta.picture_fov.has_vert)
-                mVfov = meta.picture_fov.vert;
         }
     }
+
+    peerMeta->set(&meta);
+    if (meta.picture_fov.has_horz)
+        mHfov = meta.picture_fov.horz;
+    if (meta.picture_fov.has_vert)
+        mVfov = meta.picture_fov.vert;
 
     return 0;
 }
