@@ -922,6 +922,12 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                 else if (ret != 0)
                 {
                     ULOGW("RecordDemuxer: failed to get sample (%d)", ret);
+                    if (ret == -ENOBUFS)
+                    {
+                        /* Go to the next sample */
+                        ret = mp4_demux_get_track_next_sample(demuxer->mDemux, demuxer->mVideoTrackId,
+                                                          NULL, 0, NULL, 0, &sample);
+                    }
                 }
             }
             else
