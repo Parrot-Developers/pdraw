@@ -41,6 +41,7 @@
 #ifdef USE_VIDEOCOREOMX
 
 #include <unistd.h>
+#include <video-buffers/vbuf_ilclient.h>
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
@@ -54,6 +55,8 @@ namespace Pdraw
 
 VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
 {
+    int ret;
+    struct vbuf_cbs cbs;
     mConfigured = false;
     mConfigured2 = false;
     mFirstFrame = true;
@@ -183,17 +186,25 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
                       def.format.video.nFrameWidth, def.format.video.nFrameHeight, def.format.video.nSliceHeight,
                       def.format.video.nStride, def.format.video.eColorFormat);
 
-                /* Input buffers pool allocation */
-                mInputBufferPool = new BufferPool(def.nBufferCountActual, 0,
-                                                  sizeof(avc_decoder_input_buffer_t), 0,
-                                                  NULL, NULL);
-                if (mInputBufferPool == NULL)
+                ret = vbuf_ilclient_get_input_cbs(mVideoDecode, &cbs);
+                if (ret != 0)
                 {
-                    ULOGE("videoCoreOmx: failed to allocate decoder input buffers pool");
+                    ULOGE("AMediaCodec: failed to get allocation callbacks");
+                }
+                else
+                {
+                    /* Input buffers pool allocation */
+                    mInputBufferPool = vbuf_pool_new(def.nBufferCountActual, 0,
+                                                     sizeof(avc_decoder_input_buffer_t), 0,
+                                                     &cbs);
+                    if (mInputBufferPool == NULL)
+                    {
+                        ULOGE("videoCoreOmx: failed to allocate decoder input buffers pool");
+                    }
                 }
 
                 /* Input buffers queue allocation */
-                mInputBufferQueue = new BufferQueue();
+                mInputBufferQueue = vbuf_queue_new();
                 if (mInputBufferQueue == NULL)
                 {
                     ULOGE("videoCoreOmx: failed to allocate decoder input buffers queue");
@@ -202,12 +213,21 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
         }
     }
 
-    /* Output buffers pool allocation */
-    mOutputBufferPool = new BufferPool(VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
-                                       sizeof(avc_decoder_output_buffer_t), 0, NULL, NULL);
-    if (mOutputBufferPool == NULL)
+    ret = vbuf_generic_get_cbs(&cbs);
+    if (ret != 0)
     {
-        ULOGE("videoCoreOmx: failed to allocate decoder output buffers pool");
+        ULOGE("videoCoreOmx: failed to get allocation callbacks");
+    }
+    else
+    {
+        /* Output buffers pool allocation */
+        mOutputBufferPool = vbuf_pool_new(VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
+                                          sizeof(avc_decoder_output_buffer_t), 0,
+                                          &cbs);
+        if (mOutputBufferPool == NULL)
+        {
+            ULOGE("videoCoreOmx: failed to allocate decoder output buffers pool");
+        }
     }
 
     ULOGI("videoCoreOmx: initialization complete");
@@ -229,14 +249,14 @@ VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder()
 
     ilclient_destroy(mClient);
 
-    if (mInputBufferQueue) delete mInputBufferQueue;
-    if (mInputBufferPool) delete mInputBufferPool;
-    if (mOutputBufferPool) delete mOutputBufferPool;
+    if (mInputBufferQueue) vbuf_queue_destroy(mInputBufferQueue);
+    if (mInputBufferPool) vbuf_pool_destroy(mInputBufferPool);
+    if (mOutputBufferPool) vbuf_pool_destroy(mOutputBufferPool);
 
-    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
     while (q != mOutputBufferQueues.end())
     {
-        delete *q;
+        vbuf_queue_destroy(*q);
         q++;
     }
 }
@@ -501,7 +521,7 @@ int VideoCoreOmxAvcDecoder::portSettingsChanged()
 }
 
 
-int VideoCoreOmxAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
+int VideoCoreOmxAvcDecoder::getInputBuffer(struct vbuf_buffer **buffer, bool blocking)
 {
     if (!buffer)
     {
@@ -528,26 +548,15 @@ int VideoCoreOmxAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 
     if (mInputBufferPool)
     {
-        Buffer *buf = mInputBufferPool->getBuffer(blocking);
-        if (buf != NULL)
+        struct vbuf_buffer *buf = NULL;
+        int ret = vbuf_pool_get(mInputBufferPool, (blocking) ? -1 : 0, &buf);
+        if ((ret == 0) && (buf != NULL))
         {
-            OMX_BUFFERHEADERTYPE *omxBuf = ilclient_get_input_buffer(mVideoDecode, 130, (blocking) ? 1 : 0);
-            if (omxBuf == NULL)
-            {
-                buf->unref();
-                ULOGE("videoCoreOmx: failed to dequeue an input buffer");
-                return -2;
-            }
-
-            buf->setSize(0);
-            buf->setCapacity(omxBuf->nAllocLen);
-            buf->setPtr(omxBuf->pBuffer);
-            buf->setResPtr((void*)omxBuf);
             *buffer = buf;
         }
         else
         {
-            ULOGD("videoCoreOmx: failed to get an input buffer");
+            ULOGW("videoCoreOmx: failed to get an input buffer (%d)", ret);
             return -2;
         }
     }
@@ -561,7 +570,7 @@ int VideoCoreOmxAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 }
 
 
-int VideoCoreOmxAvcDecoder::queueInputBuffer(Buffer *buffer)
+int VideoCoreOmxAvcDecoder::queueInputBuffer(struct vbuf_buffer *buffer)
 {
     if (!buffer)
     {
@@ -577,38 +586,23 @@ int VideoCoreOmxAvcDecoder::queueInputBuffer(Buffer *buffer)
 
     if (mInputBufferQueue)
     {
-        OMX_BUFFERHEADERTYPE *omxBuf = (OMX_BUFFERHEADERTYPE*)buffer->getResPtr();
-        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)buffer->getMetadataPtr();
+        uint64_t ts = 0;
+        uint32_t flags = 0;
+        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(buffer);
+        if (data)
+        {
+            ts = data->auNtpTimestampRaw;
+        }
 
-        omxBuf->nFilledLen = buffer->getSize();
-        omxBuf->nOffset = 0;
-        omxBuf->nFlags = OMX_BUFFERFLAG_ENDOFFRAME;
+        flags = OMX_BUFFERFLAG_ENDOFFRAME;
         if (mFirstFrame)
         {
-            omxBuf->nFlags |= OMX_BUFFERFLAG_STARTTIME;
+            flags |= OMX_BUFFERFLAG_STARTTIME;
             mFirstFrame = false;
         }
 
-        if (data)
-        {
-            omxBuf->nTimeStamp.nHighPart = (uint32_t)(data->auNtpTimestampRaw >> 32);
-            omxBuf->nTimeStamp.nLowPart = (uint32_t)(data->auNtpTimestampRaw & 0xFFFFFFFF);
-        }
-        else
-        {
-            ULOGW("videoCoreOmx: invalid buffer metadata");
-            omxBuf->nTimeStamp.nHighPart = 0;
-            omxBuf->nTimeStamp.nLowPart = 0;
-        }
-
-        buffer->ref();
-        mInputBufferQueue->pushBuffer(buffer);
-
-        if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(mVideoDecode), omxBuf) != OMX_ErrorNone)
-        {
-            ULOGE("videoCoreOmx: failed to release input buffer");
-            return -1;
-        }
+        vbuf_ilclient_set_info(buffer, ts, flags);
+        vbuf_queue_push(mInputBufferQueue, buffer);
     }
     else
     {
@@ -631,9 +625,9 @@ int VideoCoreOmxAvcDecoder::queueInputBuffer(Buffer *buffer)
 }
 
 
-BufferQueue *VideoCoreOmxAvcDecoder::addOutputQueue()
+struct vbuf_queue *VideoCoreOmxAvcDecoder::addOutputQueue()
 {
-    BufferQueue *q = new BufferQueue();
+    struct vbuf_queue *q = vbuf_queue_new();
     if (q == NULL)
     {
         ULOGE("videoCoreOmx: queue allocation failed");
@@ -645,7 +639,7 @@ BufferQueue *VideoCoreOmxAvcDecoder::addOutputQueue()
 }
 
 
-int VideoCoreOmxAvcDecoder::removeOutputQueue(BufferQueue *queue)
+int VideoCoreOmxAvcDecoder::removeOutputQueue(struct vbuf_queue *queue)
 {
     if (!queue)
     {
@@ -654,14 +648,17 @@ int VideoCoreOmxAvcDecoder::removeOutputQueue(BufferQueue *queue)
     }
 
     bool found = false;
-    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    int ret;
+    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
 
     while (q != mOutputBufferQueues.end())
     {
         if (*q == queue)
         {
             mOutputBufferQueues.erase(q);
-            delete *q;
+            ret = vbuf_queue_destroy(*q);
+            if (ret != 0)
+                ULOGE("videoCoreOmx: vbuf_queue_destroy() failed (%d)", ret);
             found = true;
             break;
         }
@@ -672,7 +669,7 @@ int VideoCoreOmxAvcDecoder::removeOutputQueue(BufferQueue *queue)
 }
 
 
-bool VideoCoreOmxAvcDecoder::isOutputQueueValid(BufferQueue *queue)
+bool VideoCoreOmxAvcDecoder::isOutputQueueValid(struct vbuf_queue *queue)
 {
     if (!queue)
     {
@@ -681,7 +678,7 @@ bool VideoCoreOmxAvcDecoder::isOutputQueueValid(BufferQueue *queue)
     }
 
     bool found = false;
-    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
 
     while (q != mOutputBufferQueues.end())
     {
@@ -697,7 +694,7 @@ bool VideoCoreOmxAvcDecoder::isOutputQueueValid(BufferQueue *queue)
 }
 
 
-int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking)
+int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking)
 {
     if (!queue)
     {
@@ -724,18 +721,15 @@ int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buf
 
     if (isOutputQueueValid(queue))
     {
-        Buffer *buf = queue->popBuffer(blocking);
-        if (buf != NULL)
+        struct vbuf_buffer *buf = NULL;
+        int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
+        if ((ret == 0) && (buf != NULL))
         {
-            avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buf->getMetadataPtr();
-            struct timespec t1;
-            clock_gettime(CLOCK_MONOTONIC, &t1);
-            data->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
             *buffer = buf;
         }
         else
         {
-            ULOGD("videoCoreOmx: failed to dequeue an output buffer");
+            ULOGD("videoCoreOmx: failed to dequeue an output buffer (%d)", ret);
             return -2;
         }
     }
@@ -749,7 +743,7 @@ int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buf
 }
 
 
-int VideoCoreOmxAvcDecoder::releaseOutputBuffer(Buffer *buffer)
+int VideoCoreOmxAvcDecoder::releaseOutputBuffer(struct vbuf_buffer **buffer)
 {
     if (!buffer)
     {
@@ -763,7 +757,7 @@ int VideoCoreOmxAvcDecoder::releaseOutputBuffer(Buffer *buffer)
         return -1;
     }
 
-    buffer->unref();
+    vbuf_unref(buffer);
 
     return 0;
 }
@@ -780,9 +774,9 @@ int VideoCoreOmxAvcDecoder::stop()
     //TODO
     mConfigured = false;
 
-    if (mInputBufferPool) mInputBufferPool->signal();
-    if (mOutputBufferPool) mOutputBufferPool->signal();
-    if (mInputBufferQueue) mInputBufferQueue->signal();
+    if (mInputBufferPool) vbuf_pool_abort(mInputBufferPool);
+    if (mOutputBufferPool) vbuf_pool_abort(mOutputBufferPool);
+    if (mInputBufferQueue) vbuf_queue_abort(mInputBufferQueue);
 
     return 0;
 }
@@ -790,59 +784,54 @@ int VideoCoreOmxAvcDecoder::stop()
 
 void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *comp, OMX_BUFFERHEADERTYPE *omxBuf)
 {
+    int _ret;
     VideoCoreOmxAvcDecoder *decoder = (VideoCoreOmxAvcDecoder*)data;
-    Buffer *inputBuffer = NULL, *outputBuffer = NULL;
+    struct vbuf_buffer *inputBuffer = NULL, *outputBuffer = NULL;
     avc_decoder_input_buffer_t *inputData = NULL;
     avc_decoder_output_buffer_t *outputData = NULL;
     uint64_t ts = ((uint64_t)omxBuf->nTimeStamp.nHighPart << 32) | ((uint64_t)omxBuf->nTimeStamp.nLowPart & 0xFFFFFFFF);
 
     if (!decoder->mConfigured)
     {
-        decoder->mInputBufferQueue->flush();
-        return;
+        vbuf_queue_flush(decoder->mInputBufferQueue);
+        goto out;
     }
 
-    if (ts > 0)
+    struct vbuf_buffer *b;
+    while ((_ret = vbuf_queue_peek(decoder->mInputBufferQueue, 0, &b)) == 0)
     {
-        Buffer *b;
-        while ((b = decoder->mInputBufferQueue->peekBuffer(false)) != NULL)
-        {
-            avc_decoder_input_buffer_t *d = (avc_decoder_input_buffer_t*)b->getMetadataPtr();
+        avc_decoder_input_buffer_t *d = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(b);
 
-            if (ts > d->auNtpTimestampRaw)
-            {
-                b = decoder->mInputBufferQueue->popBuffer(false);
-                b->unref();
-            }
-            else if (ts == d->auNtpTimestampRaw)
-            {
-                inputBuffer = decoder->mInputBufferQueue->popBuffer(false);
-                inputData = d;
-                break;
-            }
-            else
-            {
-                break;
-            }
+        if (ts > d->auNtpTimestampRaw)
+        {
+            int _ret = vbuf_queue_pop(decoder->mInputBufferQueue, 0, &b);
+            if ((_ret == 0) && (b))
+                vbuf_unref(&b);
         }
-
-        if ((inputBuffer == NULL) || (inputData == NULL))
+        else if (ts == d->auNtpTimestampRaw)
         {
-            ULOGW("videoCoreOmx: failed to find buffer for TS %llu", ts);
+            vbuf_queue_pop(decoder->mInputBufferQueue, 0, &inputBuffer);
+            inputData = d;
+            break;
+        }
+        else
+        {
+            break;
         }
     }
-    else
+
+    if ((inputBuffer == NULL) || (inputData == NULL))
     {
-        ULOGW("videoCoreOmx: invalid timestamp in buffer callback");
+        ULOGW("videoCoreOmx: failed to find buffer for TS %llu", ts);
+        goto out;
     }
 
-    outputBuffer = decoder->mOutputBufferPool->getBuffer(false);
-    if (outputBuffer)
+    _ret = vbuf_pool_get(decoder->mOutputBufferPool, 0, &outputBuffer);
+    if ((_ret == 0) && (outputBuffer))
     {
-        outputData = (avc_decoder_output_buffer_t*)outputBuffer->getMetadataPtr();
+        outputData = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(outputBuffer);
         if (outputData)
         {
-            outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
             struct timespec t1;
             clock_gettime(CLOCK_MONOTONIC, &t1);
             memset(outputData, 0, sizeof(*outputData));
@@ -879,34 +868,33 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
             }
 
             /* User data */
-            unsigned int userDataSize = inputBuffer->getUserDataSize();
-            void *userData = inputBuffer->getUserDataPtr();
+            unsigned int userDataSize = vbuf_get_userdata_size(inputBuffer);
+            uint8_t *userData = vbuf_get_userdata_ptr(inputBuffer);
             if ((userData) && (userDataSize > 0))
             {
-                int ret = outputBuffer->setUserDataCapacity(userDataSize);
+                int ret = vbuf_set_userdata_capacity(outputBuffer, userDataSize);
                 if (ret < (signed)userDataSize)
                 {
                     ULOGE("ffmpeg: failed to realloc user data buffer");
                 }
                 else
                 {
-                    void *dstBuf = outputBuffer->getUserDataPtr();
+                    uint8_t *dstBuf = vbuf_get_userdata_ptr(outputBuffer);
                     memcpy(dstBuf, userData, userDataSize);
-                    outputBuffer->setUserDataSize(userDataSize);
+                    vbuf_set_userdata_size(outputBuffer, userDataSize);
                 }
             }
             else
             {
-                outputBuffer->setUserDataSize(0);
+                vbuf_set_userdata_size(outputBuffer, 0);
             }
 
             if (!outputData->isSilent)
             {
-                std::vector<BufferQueue*>::iterator q = decoder->mOutputBufferQueues.begin();
+                std::vector<struct vbuf_queue*>::iterator q = decoder->mOutputBufferQueues.begin();
                 while (q != decoder->mOutputBufferQueues.end())
                 {
-                    outputBuffer->ref();
-                    (*q)->pushBuffer(outputBuffer);
+                    vbuf_queue_push(*q, outputBuffer);
                     q++;
                 }
             }
@@ -919,16 +907,17 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *com
         {
             ULOGE("videoCoreOmx: invalid output buffer");
         }
-        outputBuffer->unref();
+        vbuf_unref(&outputBuffer);
     }
     else
     {
-        ULOGE("videoCoreOmx: failed to get an output buffer");
+        ULOGE("videoCoreOmx: failed to get an output buffer (%d)", _ret);
     }
 
+out:
     if (inputBuffer)
     {
-        inputBuffer->unref();
+        vbuf_unref(&inputBuffer);
     }
 
     decoder->mCurrentEglImageIndex = ((VideoCoreEglRenderer*)decoder->mRenderer)->swapDecoderEglImage();

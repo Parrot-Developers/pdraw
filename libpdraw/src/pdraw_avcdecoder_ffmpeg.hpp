@@ -49,6 +49,7 @@ extern "C" {
 }
 
 #include <pthread.h>
+#include <vector>
 
 #include "pdraw_avcdecoder.hpp"
 
@@ -76,17 +77,17 @@ public:
 
     avc_decoder_color_format_t getOutputColorFormat() { return mOutputColorFormat; };
 
-    int getInputBuffer(Buffer **buffer, bool blocking);
+    int getInputBuffer(struct vbuf_buffer **buffer, bool blocking);
 
-    int queueInputBuffer(Buffer *buffer);
+    int queueInputBuffer(struct vbuf_buffer *buffer);
 
-    BufferQueue *addOutputQueue();
+    struct vbuf_queue *addOutputQueue();
 
-    int removeOutputQueue(BufferQueue *queue);
+    int removeOutputQueue(struct vbuf_queue *queue);
 
-    int dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking);
+    int dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking);
 
-    int releaseOutputBuffer(Buffer *buffer);
+    int releaseOutputBuffer(struct vbuf_buffer **buffer);
 
     int stop();
 
@@ -96,20 +97,16 @@ public:
 
 private:
 
-    bool isOutputQueueValid(BufferQueue *queue);
-
-    static int outputBufferCreationCb(Buffer *buffer);
-
-    static int outputBufferDeletionCb(Buffer *buffer);
+    bool isOutputQueueValid(struct vbuf_queue *queue);
 
     static void* runDecoderThread(void *ptr);
 
-    int decode(Buffer *inputBuffer, Buffer *outputBuffer);
+    int decode(struct vbuf_buffer *inputBuffer, struct vbuf_buffer *outputBuffer);
 
-    BufferPool *mInputBufferPool;
-    BufferQueue *mInputBufferQueue;
-    BufferPool *mOutputBufferPool;
-    std::vector<BufferQueue*> mOutputBufferQueues;
+    struct vbuf_pool *mInputBufferPool;
+    struct vbuf_queue *mInputBufferQueue;
+    struct vbuf_pool *mOutputBufferPool;
+    std::vector<struct vbuf_queue*> mOutputBufferQueues;
     pthread_t mDecoderThread;
     bool mDecoderThreadLaunched;
     bool mThreadShouldStop;

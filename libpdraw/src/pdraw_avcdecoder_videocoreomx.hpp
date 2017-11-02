@@ -73,17 +73,17 @@ public:
 
     avc_decoder_color_format_t getOutputColorFormat() { return mOutputColorFormat; };
 
-    int getInputBuffer(Buffer **buffer, bool blocking);
+    int getInputBuffer(struct vbuf_buffer **buffer, bool blocking);
 
-    int queueInputBuffer(Buffer *buffer);
+    int queueInputBuffer(struct vbuf_buffer *buffer);
 
-    BufferQueue *addOutputQueue();
+    struct vbuf_queue *addOutputQueue();
 
-    int removeOutputQueue(BufferQueue *queue);
+    int removeOutputQueue(struct vbuf_queue *queue);
 
-    int dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking);
+    int dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking);
 
-    int releaseOutputBuffer(Buffer *buffer);
+    int releaseOutputBuffer(struct vbuf_buffer **buffer);
 
     int stop();
 
@@ -95,7 +95,7 @@ public:
 
 private:
 
-    bool isOutputQueueValid(BufferQueue *queue);
+    bool isOutputQueueValid(struct vbuf_queue *queue);
 
     int portSettingsChanged();
 
@@ -116,10 +116,10 @@ private:
     int mFrameHeight;
     int mSliceHeight;
     int mStride;
-    BufferPool *mInputBufferPool;
-    BufferQueue *mInputBufferQueue;
-    BufferPool *mOutputBufferPool;
-    std::vector<BufferQueue*> mOutputBufferQueues;
+    struct vbuf_pool *mInputBufferPool;
+    struct vbuf_queue *mInputBufferQueue;
+    struct vbuf_pool *mOutputBufferPool;
+    std::vector<struct vbuf_queue*> mOutputBufferQueues;
 };
 
 }

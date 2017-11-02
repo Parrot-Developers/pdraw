@@ -82,7 +82,7 @@ private:
 
     Media *mMedia;
     AvcDecoder *mDecoder;
-    BufferQueue *mDecoderOutputBufferQueue;
+    struct vbuf_queue *mDecoderOutputBufferQueue;
     pthread_mutex_t mMutex;
     pthread_t mThread;
     pthread_cond_t mCondition;

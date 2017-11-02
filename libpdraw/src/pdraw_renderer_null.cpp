@@ -179,7 +179,7 @@ void* NullRenderer::runRendererThread(void *ptr)
     {
         if ((renderer->mDecoder) && (renderer->mDecoder->isConfigured()))
         {
-            Buffer *buffer;
+            struct vbuf_buffer *buffer;
 
             ret = renderer->mDecoder->dequeueOutputBuffer(renderer->mDecoderOutputBufferQueue, &buffer, true);
             if (ret != 0)
@@ -189,7 +189,7 @@ void* NullRenderer::runRendererThread(void *ptr)
             }
             else
             {
-                avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
+                avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(buffer);
                 struct timespec t1;
                 clock_gettime(CLOCK_MONOTONIC, &t1);
                 uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
@@ -199,7 +199,7 @@ void* NullRenderer::runRendererThread(void *ptr)
                       (float)(renderTimestamp - data->decoderOutputTimestamp) / 1000.,
                       (data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp - data->auNtpTimestampLocal) / 1000. : 0.);
 
-                ret = renderer->mDecoder->releaseOutputBuffer(buffer);
+                ret = renderer->mDecoder->releaseOutputBuffer(&buffer);
                 if (ret != 0)
                 {
                     ULOGE("NullRenderer: failed to release buffer (%d)", ret);

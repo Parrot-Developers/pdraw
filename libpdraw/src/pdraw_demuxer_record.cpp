@@ -162,7 +162,7 @@ RecordDemuxer::~RecordDemuxer()
     pthread_mutex_destroy(&mDemuxerMutex);
 
     if (mCurrentBuffer)
-        mCurrentBuffer->unref();
+        vbuf_unref(&mCurrentBuffer);
 
     if (mDemux)
         mp4_demux_close(mDemux);
@@ -682,16 +682,16 @@ void RecordDemuxer::h264UserDataSeiCb(struct h264_ctx *ctx, const uint8_t *buf, 
         return;
     }
 
-    ret = demuxer->mCurrentBuffer->setUserDataCapacity(len);
+    ret = vbuf_set_userdata_capacity(demuxer->mCurrentBuffer, len);
     if (ret < (signed)len)
     {
         ULOGE("RecordDemuxer: failed to realloc user data buffer");
         return;
     }
 
-    void *dstBuf = demuxer->mCurrentBuffer->getUserDataPtr();
+    uint8_t *dstBuf = vbuf_get_userdata_ptr(demuxer->mCurrentBuffer);
     memcpy(dstBuf, buf, len);
-    demuxer->mCurrentBuffer->setUserDataSize(len);
+    vbuf_set_userdata_size(demuxer->mCurrentBuffer, len);
 }
 
 
@@ -761,8 +761,8 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
 
             if (demuxer->mCurrentBuffer)
             {
-                uint8_t *buf = (uint8_t*)demuxer->mCurrentBuffer->getPtr();
-                unsigned int bufSize = demuxer->mCurrentBuffer->getCapacity();
+                uint8_t *buf = vbuf_get_ptr(demuxer->mCurrentBuffer);
+                unsigned int bufSize = vbuf_get_capacity(demuxer->mCurrentBuffer);
                 unsigned int outSize = 0;
 
                 if (demuxer->mFirstFrame)
@@ -825,8 +825,8 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                                                       buf, bufSize, demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize, &sample);
                 if ((ret == 0) && (sample.sample_size))
                 {
-                    demuxer->mCurrentBuffer->setSize(outSize + sample.sample_size);
-                    demuxer->mCurrentBuffer->setUserDataSize(0);
+                    vbuf_set_size(demuxer->mCurrentBuffer, outSize + sample.sample_size);
+                    vbuf_set_userdata_size(demuxer->mCurrentBuffer, 0);
 
                     bool silent = ((sample.silent) && (pendingSeekExact)) ? true : false;
                     demuxer->mPendingSeekExact = (silent) ? pendingSeekExact : false;
@@ -859,8 +859,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         }
                     }
 
-                    avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)demuxer->mCurrentBuffer->getMetadataPtr();
-                    demuxer->mCurrentBuffer->setMetadataSize(sizeof(avc_decoder_input_buffer_t));
+                    avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(demuxer->mCurrentBuffer);
                     memset(data, 0, sizeof(*data));
                     data->isComplete = true; //TODO?
                     data->hasErrors = false; //TODO?
@@ -908,7 +907,7 @@ void* RecordDemuxer::runDemuxerThread(void *ptr)
                         demuxer->mLastFrameOutputTime = data->demuxOutputTimestamp;
                         demuxer->mLastFrameTimestamp = sample.sample_dts;
                         demuxer->mCurrentTime = sample.sample_dts;
-                        demuxer->mCurrentBuffer->unref();
+                        vbuf_unref(&demuxer->mCurrentBuffer);
                         demuxer->mCurrentBuffer = NULL;
 
                         pthread_mutex_lock(&demuxer->mDemuxerMutex);

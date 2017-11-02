@@ -140,7 +140,8 @@ VideoFrameFilter::VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw
 VideoFrameFilter::~VideoFrameFilter()
 {
     mThreadShouldStop = true;
-    if (mDecoderOutputBufferQueue) mDecoderOutputBufferQueue->signal();
+    if (mDecoderOutputBufferQueue)
+        vbuf_queue_abort(mDecoderOutputBufferQueue);
 
     if (mThreadLaunched)
     {
@@ -255,12 +256,12 @@ void* VideoFrameFilter::runThread(void *ptr)
     {
         if ((filter->mDecoder) && (filter->mDecoder->isConfigured()))
         {
-            Buffer *buffer;
+            struct vbuf_buffer *buffer;
 
             ret = filter->mDecoder->dequeueOutputBuffer(filter->mDecoderOutputBufferQueue, &buffer, true);
             if (ret == 0)
             {
-                avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buffer->getMetadataPtr();
+                avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(buffer);
                 struct pdraw_video_frame frame;
                 memset(&frame, 0, sizeof(frame));
                 switch(data->colorFormat)
@@ -294,8 +295,8 @@ void* VideoFrameFilter::runThread(void *ptr)
                 frame.auNtpTimestampLocal = data->auNtpTimestampLocal;
                 frame.hasMetadata = (data->hasMetadata) ? 1 : 0;
                 memcpy(&frame.metadata, &data->metadata, sizeof(frame.metadata));
-                frame.userData = (uint8_t *)buffer->getUserDataPtr();
-                frame.userDataSize = buffer->getUserDataSize();
+                frame.userData = vbuf_get_userdata_ptr(buffer);
+                frame.userDataSize = vbuf_get_userdata_size(buffer);
 
                 if (filter->mCb)
                 {
@@ -427,7 +428,7 @@ void* VideoFrameFilter::runThread(void *ptr)
                     }
                 }
 
-                ret = filter->mDecoder->releaseOutputBuffer(buffer);
+                ret = filter->mDecoder->releaseOutputBuffer(&buffer);
                 if (ret != 0)
                 {
                     ULOGE("VideoFrameFilter: failed to release buffer (%d)", ret);

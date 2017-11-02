@@ -80,7 +80,7 @@ private:
     static void* runRendererThread(void *ptr);
 
     AvcDecoder *mDecoder;
-    BufferQueue *mDecoderOutputBufferQueue;
+    struct vbuf_queue *mDecoderOutputBufferQueue;
     pthread_t mRendererThread;
     bool mRendererThreadLaunched;
     bool mThreadShouldStop;

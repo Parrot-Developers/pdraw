@@ -297,7 +297,7 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
         return 0;
     }
 
-    Buffer *buffer = NULL;
+    struct vbuf_buffer *buffer = NULL;
     avc_decoder_output_buffer_t *data = NULL;
     int dequeueRet;
     bool load = false;
@@ -307,7 +307,7 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
     {
         if (mCurrentBuffer)
         {
-            int releaseRet = mDecoder->releaseOutputBuffer(mCurrentBuffer);
+            int releaseRet = mDecoder->releaseOutputBuffer(&mCurrentBuffer);
             if (releaseRet != 0)
             {
                 ULOGE("VideoCoreEglRenderer: failed to release buffer (%d)", releaseRet);
@@ -325,7 +325,7 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
 
     if (mCurrentBuffer)
     {
-        data = (avc_decoder_output_buffer_t*)mCurrentBuffer->getMetadataPtr();
+        data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(mCurrentBuffer);
 
         if (data)
         {

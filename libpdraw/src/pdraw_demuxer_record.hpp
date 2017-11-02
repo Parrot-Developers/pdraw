@@ -140,7 +140,7 @@ private:
     int64_t mPendingSeekTs;
     bool mPendingSeekExact;
     bool mPendingSeekToPrevSample;
-    Buffer *mCurrentBuffer;
+    struct vbuf_buffer *mCurrentBuffer;
     unsigned int mWidth;
     unsigned int mHeight;
     unsigned int mCropLeft;

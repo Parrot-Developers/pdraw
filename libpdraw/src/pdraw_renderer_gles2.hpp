@@ -98,8 +98,8 @@ protected:
     pthread_mutex_t mMutex;
     bool mRunning;
     AvcDecoder *mDecoder;
-    BufferQueue *mDecoderOutputBufferQueue;
-    Buffer *mCurrentBuffer;
+    struct vbuf_queue *mDecoderOutputBufferQueue;
+    struct vbuf_buffer *mCurrentBuffer;
     int mWindowWidth;
     int mWindowHeight;
     int mRenderX;

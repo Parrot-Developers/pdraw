@@ -307,12 +307,11 @@ int Gles2Renderer::removeAvcDecoder(AvcDecoder *decoder)
 
     if (mCurrentBuffer)
     {
-        int ret = mDecoder->releaseOutputBuffer(mCurrentBuffer);
+        int ret = mDecoder->releaseOutputBuffer(&mCurrentBuffer);
         if (ret != 0)
         {
             ULOGE("Gles2Renderer: failed to release buffer (%d)", ret);
         }
-        mCurrentBuffer = NULL;
     }
 
     if (mDecoderOutputBufferQueue)
@@ -394,7 +393,7 @@ int Gles2Renderer::setRendererParams
 int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
 {
     int ret = 0;
-    Buffer *buffer = NULL;
+    struct vbuf_buffer *buffer = NULL;
     int dequeueRet = 0;
     bool load = false;
 
@@ -405,7 +404,7 @@ int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
         {
             if (mCurrentBuffer)
             {
-                int releaseRet = mDecoder->releaseOutputBuffer(mCurrentBuffer);
+                int releaseRet = mDecoder->releaseOutputBuffer(&mCurrentBuffer);
                 if (releaseRet != 0)
                 {
                     ULOGE("Gles2Renderer: failed to release buffer (%d)", releaseRet);
@@ -424,7 +423,7 @@ int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
 
     if (mCurrentBuffer)
     {
-        avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)mCurrentBuffer->getMetadataPtr();
+        avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(mCurrentBuffer);
 
         if ((data) && (mRenderWidth) && (mRenderHeight))
         {

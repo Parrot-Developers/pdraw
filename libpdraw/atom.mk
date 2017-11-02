@@ -9,7 +9,6 @@ LOCAL_CATEGORY_PATH := libs
 LOCAL_SRC_FILES := \
 	src/pdraw_impl.cpp \
 	src/pdraw_wrapper.cpp \
-	src/pdraw_buffer.cpp \
 	src/pdraw_settings.cpp \
 	src/pdraw_session.cpp \
 	src/pdraw_media_video.cpp \
@@ -49,6 +48,7 @@ LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_LIBRARIES := \
 	libulog \
 	libpomp \
+	libvideo-buffers \
 	libvideo-metadata \
 	libvideo-streaming \
 	libARStream2 \

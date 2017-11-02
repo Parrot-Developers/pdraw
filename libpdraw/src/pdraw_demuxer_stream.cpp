@@ -161,7 +161,7 @@ StreamDemuxer::~StreamDemuxer()
     }
 
     if (mCurrentBuffer)
-        mCurrentBuffer->unref();
+        vbuf_unref(&mCurrentBuffer);
 
     if (mRtspClient) {
         do {
@@ -1236,7 +1236,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterGetAuBufferCallback(uint8_t **auBuffer
 {
     eARSTREAM2_ERROR ret = ARSTREAM2_ERROR_RESOURCE_UNAVAILABLE;
     StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
-    Buffer *buffer = NULL;
+    struct vbuf_buffer *buffer = NULL;
     int err = 0;
 
     if ((!demuxer) || (!auBuffer) || (!auBufferSize))
@@ -1266,8 +1266,8 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterGetAuBufferCallback(uint8_t **auBuffer
 
     if (buffer)
     {
-        *auBuffer = (uint8_t*)buffer->getPtr();
-        *auBufferSize = buffer->getCapacity();
+        *auBuffer = vbuf_get_ptr(buffer);
+        *auBufferSize = vbuf_get_capacity(buffer);
         ret = ARSTREAM2_OK;
     }
 
@@ -1283,7 +1283,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
 {
     eARSTREAM2_ERROR ret = ARSTREAM2_ERROR_RESYNC_REQUIRED;
     StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
-    Buffer* buffer;
+    struct vbuf_buffer* buffer;
     int err = 0;
 
     if ((!demuxer) || (!auBuffer) || (!auSize))
@@ -1317,11 +1317,10 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
     if (demuxer->mCurrentBuffer)
     {
         buffer = demuxer->mCurrentBuffer;
-        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)buffer->getMetadataPtr();
+        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(buffer);
         struct timespec t1;
 
-        buffer->setSize(auSize);
-        buffer->setMetadataSize(sizeof(avc_decoder_input_buffer_t));
+        vbuf_set_size(buffer, auSize);
         memset(data, 0, sizeof(*data));
         data->isComplete = (auMetadata->isComplete) ? true : false;
         data->hasErrors = (auMetadata->hasErrors) ? true : false;
@@ -1343,21 +1342,21 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
         /* User data */
         if ((auMetadata->auUserData) && (auMetadata->auUserDataSize > 0))
         {
-            err = buffer->setUserDataCapacity(auMetadata->auUserDataSize);
+            err = vbuf_set_userdata_capacity(buffer, auMetadata->auUserDataSize);
             if (err < auMetadata->auUserDataSize)
             {
                 ULOGE("StreamDemuxer: failed to realloc user data buffer");
             }
             else
             {
-                void *dstBuf = buffer->getUserDataPtr();
+                uint8_t *dstBuf = vbuf_get_userdata_ptr(buffer);
                 memcpy(dstBuf, auMetadata->auUserData, auMetadata->auUserDataSize);
-                buffer->setUserDataSize(auMetadata->auUserDataSize);
+                vbuf_set_userdata_size(buffer, auMetadata->auUserDataSize);
             }
         }
         else
         {
-            buffer->setUserDataSize(0);
+            vbuf_set_userdata_size(buffer, 0);
         }
 
         //TODO: use auNtpTimestamp
@@ -1383,7 +1382,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
         }
         else
         {
-            buffer->unref();
+            vbuf_unref(&demuxer->mCurrentBuffer);
             demuxer->mCurrentBuffer = NULL;
         }
 

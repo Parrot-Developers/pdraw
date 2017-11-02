@@ -47,6 +47,7 @@
 
 #include <unistd.h>
 #include <time.h>
+#include <video-buffers/vbuf_mediacodec.h>
 
 #define ULOG_TAG libpdraw
 #include <ulog.h>
@@ -131,14 +132,14 @@ MediaCodecAvcDecoder::~MediaCodecAvcDecoder()
         mcw_destroy(mMcw);
     }
 
-    if (mInputBufferQueue) delete mInputBufferQueue;
-    if (mInputBufferPool) delete mInputBufferPool;
-    if (mOutputBufferPool) delete mOutputBufferPool;
+    if (mInputBufferQueue) vbuf_queue_destroy(mInputBufferQueue);
+    if (mInputBufferPool) vbuf_pool_destroy(mInputBufferPool);
+    if (mOutputBufferPool) vbuf_pool_destroy(mOutputBufferPool);
 
-    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
     while (q != mOutputBufferQueues.end())
     {
-        delete *q;
+        vbuf_queue_destroy(*q);
         q++;
     }
 }
@@ -150,6 +151,7 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
     enum mcw_media_status err;
     struct mcw_mediaformat *format = NULL;
     uint8_t *sps = NULL, *pps = NULL;
+    struct vbuf_cbs cbs;
 
     if (mConfigured)
     {
@@ -217,12 +219,21 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
         }
     }
 
+    if (ret == 0)
+    {
+        ret = vbuf_mediacodec_get_input_cbs(mMcw, mCodec, &cbs);
+        if (ret != 0)
+        {
+            ULOGE("AMediaCodec: failed to get allocation callbacks");
+        }
+    }
+
     /* Input buffers pool allocation */
     if (ret == 0)
     {
-        mInputBufferPool = new BufferPool(MEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT, 0,
-                                          sizeof(avc_decoder_input_buffer_t), 0,
-                                          NULL, NULL); //TODO: number of buffers
+        mInputBufferPool = vbuf_pool_new(MEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT, 0,
+                                         sizeof(avc_decoder_input_buffer_t), 0,
+                                         &cbs); //TODO: number of buffers
         if (mInputBufferPool == NULL)
         {
             ULOGE("MediaCodec: failed to allocate decoder input buffers pool");
@@ -233,7 +244,7 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
     /* Input buffers queue allocation */
     if (ret == 0)
     {
-        mInputBufferQueue = new BufferQueue();
+        mInputBufferQueue = vbuf_queue_new();
         if (mInputBufferQueue == NULL)
         {
             ULOGE("MediaCodec: failed to allocate decoder input buffers queue");
@@ -241,12 +252,21 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
         }
     }
 
+    if (ret == 0)
+    {
+        ret = vbuf_mediacodec_get_output_cbs(mMcw, mCodec, &cbs);
+        if (ret != 0)
+        {
+            ULOGE("AMediaCodec: failed to get allocation callbacks");
+        }
+    }
+
     /* Output buffers pool allocation */
     if (ret == 0)
     {
-        mOutputBufferPool = new BufferPool(MEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
-                                           sizeof(avc_decoder_output_buffer_t), 0,
-                                           NULL, NULL); //TODO: number of buffers
+        mOutputBufferPool = vbuf_pool_new(MEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
+                                          sizeof(avc_decoder_output_buffer_t), 0,
+                                          &cbs); //TODO: number of buffers
         if (mOutputBufferPool == NULL)
         {
             ULOGE("MediaCodec: failed to allocate decoder output buffers pool");
@@ -288,7 +308,7 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
 }
 
 
-int MediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
+int MediaCodecAvcDecoder::getInputBuffer(struct vbuf_buffer **buffer, bool blocking)
 {
     if (!buffer)
     {
@@ -309,35 +329,15 @@ int MediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 
     if (mInputBufferPool)
     {
-        Buffer *buf = mInputBufferPool->getBuffer(blocking);
-        if (buf != NULL)
+        struct vbuf_buffer *buf = NULL;
+        int ret = vbuf_pool_get(mInputBufferPool, (blocking) ? -1 : 0, &buf);
+        if ((ret == 0) && (buf != NULL))
         {
-            ssize_t bufIdx = mMcw->mediacodec.dequeue_input_buffer(mCodec, (blocking) ? -1 : 0);
-            if (bufIdx < 0)
-            {
-                ULOGE("MediaCodec: failed to dequeue an input buffer");
-                buf->unref();
-                return -2;
-            }
-
-            size_t bufSize = 0;
-            uint8_t *pBuf = mMcw->mediacodec.get_input_buffer(mCodec, bufIdx, &bufSize);
-            if ((pBuf == NULL) || (bufSize <= 0))
-            {
-                ULOGE("MediaCodec: failed to get input buffer #%zu", bufIdx);
-                buf->unref();
-                return -1;
-            }
-
-            buf->setSize(0);
-            buf->setCapacity(bufSize);
-            buf->setPtr(pBuf);
-            buf->setResPtr((void*)bufIdx);
             *buffer = buf;
         }
         else
         {
-            ULOGD("MediaCodec: failed to get an input buffer");
+            ULOGW("MediaCodec: failed to get an input buffer (%d)", ret);
             return -2;
         }
     }
@@ -351,7 +351,7 @@ int MediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
 }
 
 
-int MediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
+int MediaCodecAvcDecoder::queueInputBuffer(struct vbuf_buffer *buffer)
 {
     if (!buffer)
     {
@@ -373,19 +373,12 @@ int MediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
     if (mInputBufferQueue)
     {
         uint64_t ts = 0;
-        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)buffer->getMetadataPtr();
+        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(buffer);
         if (data)
             ts = data->auNtpTimestampRaw;
 
-        buffer->ref();
-        mInputBufferQueue->pushBuffer(buffer);
-
-        enum mcw_media_status err = mMcw->mediacodec.queue_input_buffer(mCodec, (size_t)buffer->getResPtr(), 0, buffer->getSize(), ts, 0);
-        if (err != MCW_MEDIA_STATUS_OK)
-        {
-            ULOGE("MediaCodec: failed to queue input buffer #%zu", (size_t)buffer->getResPtr());
-            return -1;
-        }
+        vbuf_mediacodec_set_info(buffer, 0, ts, 0);
+        vbuf_queue_push(mInputBufferQueue, buffer);
     }
     else
     {
@@ -397,9 +390,9 @@ int MediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
 }
 
 
-BufferQueue *MediaCodecAvcDecoder::addOutputQueue()
+struct vbuf_queue *MediaCodecAvcDecoder::addOutputQueue()
 {
-    BufferQueue *q = new BufferQueue();
+    struct vbuf_queue *q = vbuf_queue_new();
     if (q == NULL)
     {
         ULOGE("MediaCodec: queue allocation failed");
@@ -411,7 +404,7 @@ BufferQueue *MediaCodecAvcDecoder::addOutputQueue()
 }
 
 
-int MediaCodecAvcDecoder::removeOutputQueue(BufferQueue *queue)
+int MediaCodecAvcDecoder::removeOutputQueue(struct vbuf_queue *queue)
 {
     if (!queue)
     {
@@ -420,14 +413,16 @@ int MediaCodecAvcDecoder::removeOutputQueue(BufferQueue *queue)
     }
 
     bool found = false;
-    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
 
     while (q != mOutputBufferQueues.end())
     {
         if (*q == queue)
         {
             mOutputBufferQueues.erase(q);
-            delete *q;
+            int ret = vbuf_queue_destroy(*q);
+            if (ret != 0)
+                ULOGE("videoCoreOmx: vbuf_queue_destroy() failed (%d)", ret);
             found = true;
             break;
         }
@@ -438,7 +433,7 @@ int MediaCodecAvcDecoder::removeOutputQueue(BufferQueue *queue)
 }
 
 
-bool MediaCodecAvcDecoder::isOutputQueueValid(BufferQueue *queue)
+bool MediaCodecAvcDecoder::isOutputQueueValid(struct vbuf_queue *queue)
 {
     if (!queue)
     {
@@ -447,7 +442,7 @@ bool MediaCodecAvcDecoder::isOutputQueueValid(BufferQueue *queue)
     }
 
     bool found = false;
-    std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
 
     while (q != mOutputBufferQueues.end())
     {
@@ -463,7 +458,7 @@ bool MediaCodecAvcDecoder::isOutputQueueValid(BufferQueue *queue)
 }
 
 
-int MediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffer, bool blocking)
+int MediaCodecAvcDecoder::dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking)
 {
     if (!queue)
     {
@@ -484,15 +479,23 @@ int MediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffe
 
     if (isOutputQueueValid(queue))
     {
-        Buffer *buf = queue->popBuffer(blocking);
-        if (buf != NULL)
+        struct vbuf_buffer *buf = NULL;
+        int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
+        if ((ret == 0) && (buf != NULL))
         {
             *buffer = buf;
         }
         else
         {
-            ULOGD("MediaCodec: failed to dequeue an output buffer");
-            return -2;
+            if (ret != -EAGAIN)
+            {
+                ULOGW("MediaCodec: failed to dequeue an output buffer (%d)", ret);
+                return -1;
+            }
+            else
+            {
+                return -2;
+            }
         }
     }
     else
@@ -505,9 +508,9 @@ int MediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffe
 }
 
 
-int MediaCodecAvcDecoder::releaseOutputBuffer(Buffer *buffer)
+int MediaCodecAvcDecoder::releaseOutputBuffer(struct vbuf_buffer **buffer)
 {
-    if (!buffer)
+    if ((!buffer) || (!*buffer))
     {
         ULOGE("MediaCodec: invalid buffer pointer");
         return -1;
@@ -524,17 +527,8 @@ int MediaCodecAvcDecoder::releaseOutputBuffer(Buffer *buffer)
         return -1;
     }
 
-    buffer->unref();
-
-    if (!buffer->isRef())
-    {
-        enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, (size_t)buffer->getResPtr(), false);
-        if (err != MCW_MEDIA_STATUS_OK)
-        {
-            ULOGE("MediaCodec: failed to release output buffer #%zu", (size_t)buffer->getResPtr());
-            return -1;
-        }
-    }
+    vbuf_mediacodec_set_render_time(*buffer, 0);
+    vbuf_unref(buffer);
 
     return 0;
 }
@@ -561,9 +555,9 @@ int MediaCodecAvcDecoder::stop()
     }
 
     //TODO
-    if (mInputBufferPool) mInputBufferPool->signal();
-    if (mOutputBufferPool) mOutputBufferPool->signal();
-    if (mInputBufferQueue) mInputBufferQueue->signal();
+    if (mInputBufferPool) vbuf_pool_abort(mInputBufferPool);
+    if (mOutputBufferPool) vbuf_pool_abort(mOutputBufferPool);
+    if (mInputBufferQueue) vbuf_queue_abort(mInputBufferQueue);
 
     return 0;
 }
@@ -571,13 +565,22 @@ int MediaCodecAvcDecoder::stop()
 
 int MediaCodecAvcDecoder::pollDecoderOutput()
 {
-    int ret = 0;
-    struct mcw_mediacodec_bufferinfo info;
-    ssize_t bufIdx = mMcw->mediacodec.dequeue_output_buffer(mCodec, &info, 5000);
-    while (bufIdx >= 0)
+    int ret = 0, _ret;
+    struct vbuf_buffer *inputBuffer = NULL, *outputBuffer = NULL;
+    avc_decoder_input_buffer_t *inputData = NULL;
+    avc_decoder_output_buffer_t *outputData = NULL;
+
+    _ret = vbuf_pool_get(mOutputBufferPool, 5, &outputBuffer);
+    while ((_ret == 0) && (outputBuffer))
     {
-        bool pushed = false;
-        int32_t colorFormat = 0x00000015;
+        int32_t colorFormat = MCW_COLOR_FORMAT_YUV420_SEMIPLANAR;
+        size_t bufIdx = 0;
+        off_t offset = 0;
+        uint64_t timestamp = 0;
+        uint32_t flags = 0;
+        uint8_t *pBuf = vbuf_get_ptr(outputBuffer);
+
+        vbuf_mediacodec_get_info(outputBuffer, &bufIdx, &offset, &timestamp, &flags);
 
         /* TODO: do this only on INFO_OUTPUT_FORMAT_CHANGED */
         struct mcw_mediaformat *format = mMcw->mediacodec.get_output_format(mCodec, bufIdx);
@@ -587,100 +590,49 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
             mMcw->mediaformat.ddelete(format);
         }
 
-        size_t bufSize = 0;
-        uint8_t *pBuf = mMcw->mediacodec.get_output_buffer(mCodec, bufIdx, &bufSize);
-        if ((pBuf == NULL) || (bufSize <= 0))
+        struct vbuf_buffer *b;
+        while ((_ret = vbuf_queue_peek(mInputBufferQueue, 0, &b)) == 0)
         {
-            ULOGE("MediaCodec: failed to get output buffer #%zu", bufIdx);
-            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
-            if (err != MCW_MEDIA_STATUS_OK)
+            avc_decoder_input_buffer_t *d = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(b);
+
+            if (timestamp > d->auNtpTimestampRaw)
             {
-                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
+                _ret = vbuf_queue_pop(mInputBufferQueue, 0, &b);
+                if ((_ret == 0) && (b))
+                    vbuf_unref(&b);
             }
-            ret = -1;
-            break;
-        }
-
-        Buffer *inputBuffer = NULL, *outputBuffer = NULL;
-        avc_decoder_input_buffer_t *inputData = NULL;
-        avc_decoder_output_buffer_t *outputData = NULL;
-        uint64_t ts = (uint64_t)info.presentation_time_us;
-
-        if (info.presentation_time_us >= 0)
-        {
-            Buffer *b;
-            while ((b = mInputBufferQueue->peekBuffer(false)) != NULL)
+            else if (timestamp == d->auNtpTimestampRaw)
             {
-                avc_decoder_input_buffer_t *d = (avc_decoder_input_buffer_t*)b->getMetadataPtr();
-
-                if (ts > d->auNtpTimestampRaw)
-                {
-                    b = mInputBufferQueue->popBuffer(false);
-                    b->unref();
-                }
-                else if (ts == d->auNtpTimestampRaw)
-                {
-                    inputBuffer = mInputBufferQueue->popBuffer(false);
-                    inputData = d;
-                    break;
-                }
-                else
-                {
-                    break;
-                }
+                vbuf_queue_pop(mInputBufferQueue, 0, &inputBuffer);
+                inputData = d;
+                break;
             }
-
-            if ((inputBuffer == NULL) || (inputData == NULL))
+            else
             {
-                ULOGW("MediaCodec: failed to find buffer for TS %" PRIu64, ts);
+                break;
             }
         }
-        else
+
+        if ((inputBuffer == NULL) || (inputData == NULL))
         {
-            ULOGW("MediaCodec: invalid timestamp in buffer callback");
+            ULOGW("MediaCodec: failed to find buffer for TS %" PRIu64, timestamp);
         }
 #if 0
-        inputBuffer = mInputBufferQueue->popBuffer(false);
-        if (inputBuffer)
-            inputData = (avc_decoder_input_buffer_t*)inputBuffer->getMetadataPtr();
+        _ret = vbuf_queue_pop(mInputBufferQueue, 0, &inputBuffer);
+        if ((_ret == 0) && (inputBuffer))
+            inputData = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(inputBuffer);
 #endif
 
         if ((inputBuffer == NULL) || (inputData == NULL))
         {
-            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
-            if (err != MCW_MEDIA_STATUS_OK)
-            {
-                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
-            }
+            vbuf_unref(&outputBuffer);
             ret = -1;
             break;
         }
 
-        outputBuffer = mOutputBufferPool->getBuffer(false);
-        if (!outputBuffer)
-        {
-            ULOGE("MediaCodec: failed to get an output buffer");
-            if (inputBuffer)
-            {
-                inputBuffer->unref();
-            }
-            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
-            if (err != MCW_MEDIA_STATUS_OK)
-            {
-                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
-                return -1;
-            }
-            ret = -1;
-            break;
-        }
-
-        outputBuffer->setResPtr((void*)bufIdx);
-        outputData = (avc_decoder_output_buffer_t*)outputBuffer->getMetadataPtr();
+        outputData = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(outputBuffer);
         if (outputData)
         {
-            outputBuffer->setMetadataSize(sizeof(avc_decoder_output_buffer_t));
             struct timespec t1;
             clock_gettime(CLOCK_MONOTONIC, &t1);
             memset(outputData, 0, sizeof(*outputData));
@@ -742,36 +694,34 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
             }
 
             /* User data */
-            unsigned int userDataSize = inputBuffer->getUserDataSize();
-            void *userData = inputBuffer->getUserDataPtr();
+            unsigned int userDataSize = vbuf_get_userdata_size(inputBuffer);
+            uint8_t *userData = vbuf_get_userdata_ptr(inputBuffer);
             if ((userData) && (userDataSize > 0))
             {
-                int ret = outputBuffer->setUserDataCapacity(userDataSize);
+                int ret = vbuf_set_userdata_capacity(outputBuffer, userDataSize);
                 if (ret < (signed)userDataSize)
                 {
                     ULOGE("MediaCodec: failed to realloc user data buffer");
                 }
                 else
                 {
-                    void *dstBuf = outputBuffer->getUserDataPtr();
+                    void *dstBuf = vbuf_get_userdata_ptr(outputBuffer);
                     memcpy(dstBuf, userData, userDataSize);
-                    outputBuffer->setUserDataSize(userDataSize);
+                    vbuf_set_userdata_size(outputBuffer, userDataSize);
                 }
             }
             else
             {
-                outputBuffer->setUserDataSize(0);
+                vbuf_set_userdata_size(outputBuffer, 0);
             }
 
             if (!outputData->isSilent)
             {
-                std::vector<BufferQueue*>::iterator q = mOutputBufferQueues.begin();
+                std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
                 while (q != mOutputBufferQueues.end())
                 {
-                    outputBuffer->ref();
-                    (*q)->pushBuffer(outputBuffer);
+                    vbuf_queue_push(*q, outputBuffer);
                     q++;
-                    pushed = true;
                 }
             }
             else
@@ -784,30 +734,14 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
             ULOGW("MediaCodec: invalid output buffer data");
         }
 
-        if (!pushed)
-        {
-            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
-            if (err != MCW_MEDIA_STATUS_OK)
-            {
-                ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
-                ret = -1;
-                outputBuffer->unref();
-                if (inputBuffer)
-                {
-                    inputBuffer->unref();
-                }
-                break;
-            }
-        }
-
-        outputBuffer->unref();
+        vbuf_unref(&outputBuffer);
 
         if (inputBuffer)
         {
-            inputBuffer->unref();
+            vbuf_unref(&inputBuffer);
         }
 
-        bufIdx = mMcw->mediacodec.dequeue_output_buffer(mCodec, &info, 0);
+        _ret = vbuf_pool_get(mOutputBufferPool, 0, &outputBuffer);
     }
 
     return ret;
