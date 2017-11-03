@@ -1381,6 +1381,8 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
+    jint windowWidth,
+    jint windowHeight,
     jint renderX,
     jint renderY,
     jint renderWidth,
@@ -1423,7 +1425,8 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
         }
 
         ret = pdraw_start_renderer(ctx->pdraw,
-            0, 0, (int)renderX, (int)renderY,
+            (int)windowWidth, (int)windowHeight,
+            (int)renderX, (int)renderY,
             (int)renderWidth, (int)renderHeight,
             (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
             (headtracking == JNI_TRUE) ? 1 : 0, (void*)ctx->window);

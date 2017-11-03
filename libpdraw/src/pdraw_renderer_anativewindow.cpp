@@ -60,6 +60,8 @@ ANativeWindowRenderer::ANativeWindowRenderer(Session *session) : Gles2Renderer(s
     mContext = EGL_NO_CONTEXT;
     mSurface = EGL_NO_SURFACE;
     mRendererThreadLaunched = false;
+    mVideoWidth = 1920; //TODO
+    mVideoHeight = 1080; //TODO
 
     if (ret == 0)
     {
@@ -191,7 +193,34 @@ int ANativeWindowRenderer::setRendererParams
      * ANativeWindow buffers to match, using EGL_NATIVE_VISUAL_ID. */
     eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
 
-    ANativeWindow_setBuffersGeometry(mWindow, 0, 0, format);
+    int geoW = mVideoWidth, geoH = mVideoHeight;
+    if (hmdDistorsionCorrection)
+    {
+        geoW = windowWidth;
+        geoH = windowHeight;
+    }
+    else
+    {
+        if (geoW > windowWidth)
+        {
+            geoW = windowWidth;
+            geoH = windowWidth * mVideoHeight / mVideoWidth;
+        }
+        if (geoH > windowHeight)
+        {
+            geoW = windowHeight * mVideoWidth / mVideoHeight;
+            geoH = windowHeight;
+        }
+        if (windowWidth * geoH > windowHeight * geoW)
+        {
+            geoW = geoH * windowWidth / windowHeight;
+        }
+        else
+        {
+            geoH = geoW * windowHeight / windowWidth;
+        }
+    }
+    ANativeWindow_setBuffersGeometry(mWindow, geoW, geoH, format);
 
     surface = eglCreateWindowSurface(display, config, mWindow, NULL);
 

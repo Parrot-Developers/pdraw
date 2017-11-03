@@ -347,6 +347,8 @@ public class Pdraw {
     }
 
     public void startRenderer(
+        int windowWidth,
+        int windowHeight,
         int renderX,
         int renderY,
         int renderWidth,
@@ -357,7 +359,7 @@ public class Pdraw {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeStartRenderer(pdrawCtx, renderX, renderY,
+        nativeStartRenderer(pdrawCtx, windowWidth, windowHeight, renderX, renderY,
             renderWidth, renderHeight, hmdDistorsionCorrection,
             headtracking, surface);
     }
@@ -843,6 +845,8 @@ public class Pdraw {
 
     private native int nativeStartRenderer(
         long pdrawCtx,
+        int windowWidth,
+        int windowHeight,
         int renderX,
         int renderY,
         int renderWidth,
