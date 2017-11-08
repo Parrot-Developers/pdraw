@@ -44,6 +44,12 @@
 #define ULOG_TAG libpdraw
 #include <ulog.h>
 
+#ifdef __APPLE__
+#ifndef sincosf
+#define sincosf __sincosf
+#endif
+#endif
+
 
 namespace Pdraw
 {
