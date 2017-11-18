@@ -3,7 +3,7 @@ TARGET_OS := linux
 TARGET_OS_FLAVOUR := android
 TARGET_LIBC := bionic
 
-TARGET_ANDROID_APILEVEL := 21
+TARGET_ANDROID_APILEVEL := 17
 
 # Setup arch/cpu based on abi
 ifeq ("$(ANDROID_ABI)","armeabi")
@@ -20,6 +20,7 @@ else ifeq ("$(ANDROID_ABI)","x86")
 else ifeq ("$(ANDROID_ABI)","arm64-v8a")
 	TARGET_ARCH := aarch64
 	TARGET_CPU :=
+	TARGET_ANDROID_APILEVEL := 21
 else ifeq ("$(ANDROID_ABI)","")
 	$(warning Missing ANDROID_ABI using armeabi-v7a)
 	TARGET_ARCH := arm
