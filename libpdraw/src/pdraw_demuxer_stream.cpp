@@ -87,6 +87,7 @@ StreamDemuxer::StreamDemuxer(Session *session)
     mQosMode = 0;
     mCurrentBuffer = NULL;
     mDecoder = NULL;
+    mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_UNKNOWN;
     mStartTime = mCurrentTime = 0;
     mLastSessionMetadataFetchTime = 0;
     mWidth = mHeight = 0;
@@ -295,7 +296,7 @@ int StreamDemuxer::configureRtpAvp(const char *srcAddr, const char *mcastIfaceAd
         streamReceiverConfig.outputIncompleteAu = 0;
         streamReceiverConfig.filterOutSpsPps = 0;
         streamReceiverConfig.filterOutSei = 1;
-        streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
+        streamReceiverConfig.replaceStartCodesWithNaluSize = 0; //TODO: set according to mDecoderBitstreamFormat (which is not set yet)
         streamReceiverConfig.generateSkippedPSlices = 1;
         streamReceiverConfig.generateFirstGrayIFrame = 1;
         streamReceiverConfig.debugPath = STREAM_DEMUXER_DEBUG_PATH;
@@ -697,7 +698,7 @@ int StreamDemuxer::configure(void *muxContext)
         streamReceiverConfig.outputIncompleteAu = 0;
         streamReceiverConfig.filterOutSpsPps = 0;
         streamReceiverConfig.filterOutSei = 1;
-        streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
+        streamReceiverConfig.replaceStartCodesWithNaluSize = 0; //TODO: set according to mDecoderBitstreamFormat (which is not set yet)
         streamReceiverConfig.generateSkippedPSlices = 1;
         streamReceiverConfig.generateFirstGrayIFrame = 1;
         streamReceiverConfig.debugPath = STREAM_DEMUXER_DEBUG_PATH;
@@ -898,6 +899,16 @@ int StreamDemuxer::setElementaryStreamDecoder(int esIndex, Decoder *decoder)
 
     //TODO: handle multiple streams
     mDecoder = (AvcDecoder*)decoder;
+    uint32_t formatCaps = mDecoder->getInputBitstreamFormatCaps();
+    if (formatCaps & AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
+        mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM;
+    /*else if (formatCaps & AVCDECODER_BITSTREAM_FORMAT_AVCC)
+        mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_AVCC;*/ //TODO
+    else
+    {
+        ULOGE("StreamDemuxer: unsupported decoder input bitstream format");
+        return -1;
+    }
 
     return 0;
 }
@@ -1222,7 +1233,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterSpsPpsCallback(uint8_t *spsBuffer, int
         }
     }
 
-    ret = demuxer->mDecoder->configure(spsBuffer, (unsigned int)spsSize, ppsBuffer, (unsigned int)ppsSize);
+    ret = demuxer->mDecoder->configure(demuxer->mDecoderBitstreamFormat, spsBuffer, (unsigned int)spsSize, ppsBuffer, (unsigned int)ppsSize);
     if (ret != 0)
     {
         ULOGE("StreamDemuxer: decoder configuration failed (%d)", ret);

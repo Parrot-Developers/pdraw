@@ -62,7 +62,6 @@ namespace Pdraw
 MediaCodecAvcDecoder::MediaCodecAvcDecoder(VideoMedia *media)
 {
     mConfigured = false;
-    mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
     mMedia = (Media*)media;
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
@@ -145,7 +144,9 @@ MediaCodecAvcDecoder::~MediaCodecAvcDecoder()
 }
 
 
-int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize)
+int MediaCodecAvcDecoder::configure(uint32_t inputBitstreamFormat,
+        const uint8_t *pSps, unsigned int spsSize,
+        const uint8_t *pPps, unsigned int ppsSize)
 {
     int ret = 0;
     enum mcw_media_status err;
@@ -163,9 +164,14 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
         ULOGE("MediaCodec: invalid mediacodec wrapper");
         return -1;
     }
-    if ((!pSps) || (spsSize == 0) || (!pPps) || (ppsSize == 0))
+    if ((!pSps) || (spsSize <= 4) || (!pPps) || (ppsSize <= 4))
     {
         ULOGE("MediaCodec: invalid SPS/PPS");
+        return -1;
+    }
+    if (inputBitstreamFormat != AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
+    {
+        ULOGE("MediaCodec: unsupported input bitstream format");
         return -1;
     }
 
@@ -179,32 +185,12 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
         }
         else
         {
-            sps = (uint8_t*)malloc(spsSize + 4);
-            if (!sps)
-            {
-                ULOGE("MediaCodec: allocation failed (size %d)", spsSize + 4);
-                ret = -1;
-            }
-            pps = (uint8_t*)malloc(ppsSize + 4);
-            if (!pps)
-            {
-                ULOGE("MediaCodec: allocation failed (size %d)", ppsSize + 4);
-                ret = -1;
-            }
-            if (ret == 0)
-            {
-                //TODO: demuxer should always output SPS/PPS with start codes
-                sps[0] = sps[1] = sps[2] = 0; sps[3] = 1;
-                pps[0] = pps[1] = pps[2] = 0; pps[3] = 1;
-                memcpy(sps + 4, pSps, spsSize);
-                memcpy(pps + 4, pPps, ppsSize);
-                mMcw->mediaformat.set_string(format, mMcw->mediaformat.KEY_MIME, PDRAW_MEDIACODEC_MIME_TYPE);
-                mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_WIDTH, 480); //TODO
-                mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_HEIGHT, 360); //TODO
-                mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_MAX_INPUT_SIZE, 1920 * 1088 * 3 / 4); //TODO
-                mMcw->mediaformat.set_buffer(format, "csd-0", sps, spsSize + 4);
-                mMcw->mediaformat.set_buffer(format, "csd-1", pps, ppsSize + 4);
-            }
+            mMcw->mediaformat.set_string(format, mMcw->mediaformat.KEY_MIME, PDRAW_MEDIACODEC_MIME_TYPE);
+            mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_WIDTH, 480); //TODO
+            mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_HEIGHT, 360); //TODO
+            mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_MAX_INPUT_SIZE, 1920 * 1088 * 3 / 4); //TODO
+            mMcw->mediaformat.set_buffer(format, "csd-0", pSps, spsSize);
+            mMcw->mediaformat.set_buffer(format, "csd-1", pPps, ppsSize);
         }
     }
 
@@ -290,8 +276,6 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
 
     if (format)
         mMcw->mediaformat.ddelete(format);
-    free(sps);
-    free(pps);
 
     ((VideoMedia*)mMedia)->getDimensions(&mWidth, &mHeight,
         &mCropLeft, &mCropRight, &mCropTop, &mCropBottom,
@@ -644,7 +628,7 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
             switch (colorFormat)
             {
                 case MCW_COLOR_FORMAT_YUV420_PLANAR:
-                    outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+                    outputData->colorFormat = AVCDECODER_COLOR_FORMAT_YUV420PLANAR;
                     outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
                     outputData->plane[1] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth / 2 + mCropLeft / 2;
                     outputData->plane[2] = pBuf + mWidth * mHeight * 5 / 4 + mCropTop / 2 * mWidth / 2 + mCropLeft / 2;
@@ -653,7 +637,7 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
                     outputData->stride[2] = mWidth / 2;
                     break;
                 case MCW_COLOR_FORMAT_YUV420_SEMIPLANAR:
-                    outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR;
+                    outputData->colorFormat = AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR;
                     outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
                     outputData->plane[1] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth + mCropLeft;
                     outputData->plane[2] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth + mCropLeft;
@@ -662,7 +646,7 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
                     outputData->stride[2] = mWidth;
                     break;
                 default:
-                    outputData->colorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
+                    outputData->colorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
                     outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
                     outputData->plane[1] = pBuf + mCropTop * mWidth + mCropLeft;
                     outputData->plane[2] = pBuf + mCropTop * mWidth + mCropLeft;

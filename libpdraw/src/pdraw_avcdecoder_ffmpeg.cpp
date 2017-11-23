@@ -59,7 +59,7 @@ namespace Pdraw
 FfmpegAvcDecoder::FfmpegAvcDecoder(VideoMedia *media)
 {
     mConfigured = false;
-    mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
+    mOutputColorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
     mMedia = (Media*)media;
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
@@ -76,7 +76,7 @@ FfmpegAvcDecoder::FfmpegAvcDecoder(VideoMedia *media)
         if (mCodecH264 != NULL)
         {
             ULOGI("ffmpeg: using NVDec (cuvid) hardware acceleration");
-            mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR;
+            mOutputColorFormat = AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR;
         }
     }
     if (mCodecH264 == NULL)
@@ -85,7 +85,7 @@ FfmpegAvcDecoder::FfmpegAvcDecoder(VideoMedia *media)
         if (mCodecH264 != NULL)
         {
             ULOGI("ffmpeg: using CPU H.264 decoding");
-            mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+            mOutputColorFormat = AVCDECODER_COLOR_FORMAT_YUV420PLANAR;
         }
     }
     if (NULL == mCodecH264)
@@ -160,7 +160,9 @@ FfmpegAvcDecoder::~FfmpegAvcDecoder()
 }
 
 
-int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize)
+int FfmpegAvcDecoder::configure(uint32_t inputBitstreamFormat,
+        const uint8_t *pSps, unsigned int spsSize,
+        const uint8_t *pPps, unsigned int ppsSize)
 {
     int ret = 0;
     struct vbuf_cbs cbs;
@@ -168,6 +170,11 @@ int FfmpegAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const
     if (mConfigured)
     {
         ULOGE("ffmpeg: decoder is already configured");
+        return -1;
+    }
+    if (inputBitstreamFormat != AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
+    {
+        ULOGE("ffmpeg: unsupported input bitstream format");
         return -1;
     }
 
@@ -551,14 +558,14 @@ int FfmpegAvcDecoder::decode(struct vbuf_buffer *inputBuffer, struct vbuf_buffer
         }
         memset(outputData, 0, sizeof(*outputData));
         outputData->colorFormat = mOutputColorFormat;
-        if (mOutputColorFormat == AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR)
+        if (mOutputColorFormat == AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR)
         {
             outputData->plane[0] = frame->data[0];
             outputData->plane[1] = frame->data[1];
             outputData->stride[0] = frame->linesize[0];
             outputData->stride[1] = frame->linesize[1];
         }
-        else if (mOutputColorFormat == AVCDECODER_COLORFORMAT_YUV420PLANAR)
+        else if (mOutputColorFormat == AVCDECODER_COLOR_FORMAT_YUV420PLANAR)
         {
             outputData->plane[0] = frame->data[0];
             outputData->plane[1] = frame->data[1];

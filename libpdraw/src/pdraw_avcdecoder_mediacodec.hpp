@@ -64,11 +64,13 @@ public:
 
     ~MediaCodecAvcDecoder();
 
+    uint32_t getInputBitstreamFormatCaps() { return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM; };
+
+    int configure(uint32_t inputBitstreamFormat,
+        const uint8_t *pSps, unsigned int spsSize,
+        const uint8_t *pPps, unsigned int ppsSize);
+
     bool isConfigured() { return mConfigured; };
-
-    int configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize);
-
-    avc_decoder_color_format_t getOutputColorFormat() { return mOutputColorFormat; };
 
     int getInputBuffer(struct vbuf_buffer **buffer, bool blocking);
 
@@ -98,7 +100,6 @@ private:
 
     struct mcw *mMcw;
     struct mcw_mediacodec *mCodec;
-    avc_decoder_color_format_t mOutputColorFormat;
     struct vbuf_pool *mInputBufferPool;
     struct vbuf_queue *mInputBufferQueue;
     struct vbuf_pool *mOutputBufferPool;

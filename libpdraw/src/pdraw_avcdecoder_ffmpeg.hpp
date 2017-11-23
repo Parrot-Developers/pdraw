@@ -71,11 +71,13 @@ public:
 
     ~FfmpegAvcDecoder();
 
+    uint32_t getInputBitstreamFormatCaps() { return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM; };
+
+    int configure(uint32_t inputBitstreamFormat,
+        const uint8_t *pSps, unsigned int spsSize,
+        const uint8_t *pPps, unsigned int ppsSize);
+
     bool isConfigured() { return mConfigured; };
-
-    int configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize);
-
-    avc_decoder_color_format_t getOutputColorFormat() { return mOutputColorFormat; };
 
     int getInputBuffer(struct vbuf_buffer **buffer, bool blocking);
 
@@ -113,7 +115,7 @@ private:
     AVCodec *mCodecH264;
     AVCodecContext *mCodecCtxH264;
     AVPacket mPacket;
-    avc_decoder_color_format_t mOutputColorFormat;
+    uint32_t mOutputColorFormat;
     unsigned int mFrameWidth;
     unsigned int mFrameHeight;
     unsigned int mSarWidth;

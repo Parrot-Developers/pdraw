@@ -442,10 +442,10 @@ int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
                     switch (data->colorFormat)
                     {
                         default:
-                        case AVCDECODER_COLORFORMAT_YUV420PLANAR:
+                        case AVCDECODER_COLOR_FORMAT_YUV420PLANAR:
                             colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB;
                             break;
-                        case AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR:
+                        case AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR:
                             colorConversion = GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB;
                             break;
                     }

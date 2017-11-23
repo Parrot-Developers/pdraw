@@ -60,7 +60,7 @@ VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
     mConfigured = false;
     mConfigured2 = false;
     mFirstFrame = true;
-    mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
+    mOutputColorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
     mMedia = (Media*)media;
     mInputBufferPool = NULL;
     mInputBufferQueue = NULL;
@@ -262,7 +262,9 @@ VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder()
 }
 
 
-int VideoCoreOmxAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize)
+int VideoCoreOmxAvcDecoder::configure(uint32_t inputBitstreamFormat,
+        const uint8_t *pSps, unsigned int spsSize,
+        const uint8_t *pPps, unsigned int ppsSize)
 {
     int ret = 0;
 
@@ -271,9 +273,14 @@ int VideoCoreOmxAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize,
         ULOGE("videoCoreOmx: decoder is already configured");
         return -1;
     }
-    if ((!pSps) || (spsSize == 0) || (!pPps) || (ppsSize == 0))
+    if ((!pSps) || (spsSize <= 4) || (!pPps) || (ppsSize <= 4))
     {
         ULOGE("videoCoreOmx: invalid SPS/PPS");
+        return -1;
+    }
+    if (inputBitstreamFormat != AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
+    {
+        ULOGE("videoCoreOmx: unsupported input bitstream format");
         return -1;
     }
 
@@ -300,15 +307,11 @@ int VideoCoreOmxAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize,
         OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(mVideoDecode, 130, 1);
         if (buf != NULL)
         {
-            //TODO: demuxer should always output SPS/PPS with start codes
-            if (buf->nAllocLen >= spsSize + 4 + ppsSize + 4)
+            if (buf->nAllocLen >= spsSize + ppsSize)
             {
-                uint8_t *sps = buf->pBuffer, *pps = buf->pBuffer + 4 + spsSize;
-                sps[0] = sps[1] = sps[2] = 0; sps[3] = 1;
-                pps[0] = pps[1] = pps[2] = 0; pps[3] = 1;
-                memcpy(sps + 4, pSps, spsSize);
-                memcpy(pps + 4, pPps, ppsSize);
-                buf->nFilledLen = spsSize + 4 + ppsSize + 4;
+                memcpy(buf->pBuffer, pSps, spsSize);
+                memcpy(buf->pBuffer + spsSize, pPps, ppsSize);
+                buf->nFilledLen = spsSize + ppsSize;
                 buf->nOffset = 0;
                 buf->nFlags = OMX_BUFFERFLAG_CODECCONFIG;
                 if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(mVideoDecode), buf) != OMX_ErrorNone)
@@ -374,10 +377,10 @@ int VideoCoreOmxAvcDecoder::portSettingsChanged()
         switch (def.format.video.eColorFormat)
         {
             case OMX_COLOR_FormatYUV420PackedPlanar:
-                mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
+                mOutputColorFormat = AVCDECODER_COLOR_FORMAT_YUV420PLANAR;
                 break;
             default:
-                mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
+                mOutputColorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
                 break;
         }
 

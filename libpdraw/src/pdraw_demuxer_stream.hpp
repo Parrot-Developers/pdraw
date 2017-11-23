@@ -158,6 +158,7 @@ private:
     int mMaxPacketSize;
     int mQosMode;
     AvcDecoder *mDecoder;
+    uint32_t mDecoderBitstreamFormat;
     struct vbuf_buffer *mCurrentBuffer;
     struct pomp_loop *mLoop;
     pthread_t mLoopThread;

@@ -120,6 +120,7 @@ private:
 
     std::string mFileName;
     AvcDecoder *mDecoder;
+    uint32_t mDecoderBitstreamFormat;
     pthread_t mDemuxerThread;
     bool mDemuxerThreadLaunched;
     pthread_mutex_t mDemuxerMutex;

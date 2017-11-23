@@ -267,13 +267,13 @@ void* VideoFrameFilter::runThread(void *ptr)
                 switch(data->colorFormat)
                 {
                     default:
-                    case AVCDECODER_COLORFORMAT_UNKNOWN:
+                    case AVCDECODER_COLOR_FORMAT_UNKNOWN:
                         frame.colorFormat = PDRAW_COLOR_FORMAT_UNKNOWN;
                         break;
-                    case AVCDECODER_COLORFORMAT_YUV420PLANAR:
+                    case AVCDECODER_COLOR_FORMAT_YUV420PLANAR:
                         frame.colorFormat = PDRAW_COLOR_FORMAT_YUV420PLANAR;
                         break;
-                    case AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR:
+                    case AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR:
                         frame.colorFormat = PDRAW_COLOR_FORMAT_YUV420SEMIPLANAR;
                         break;
                 }

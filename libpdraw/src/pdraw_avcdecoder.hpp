@@ -50,13 +50,14 @@ namespace Pdraw
 {
 
 
-typedef enum
-{
-    AVCDECODER_COLORFORMAT_UNKNOWN = 0,
-    AVCDECODER_COLORFORMAT_YUV420PLANAR,
-    AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR,
+#define AVCDECODER_BITSTREAM_FORMAT_UNKNOWN         (0)
+#define AVCDECODER_BITSTREAM_FORMAT_RAW_NALU        (1 << 0)
+#define AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM     (1 << 1)
+#define AVCDECODER_BITSTREAM_FORMAT_AVCC            (1 << 2)
 
-} avc_decoder_color_format_t;
+#define AVCDECODER_COLOR_FORMAT_UNKNOWN             (0)
+#define AVCDECODER_COLOR_FORMAT_YUV420PLANAR        (1 << 0)
+#define AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR    (1 << 1)
 
 
 typedef struct
@@ -83,7 +84,7 @@ typedef struct
     unsigned int height;
     unsigned int sarWidth;
     unsigned int sarHeight;
-    avc_decoder_color_format_t colorFormat;
+    uint32_t colorFormat;
     bool isComplete;
     bool hasErrors;
     bool isRef;
@@ -106,9 +107,11 @@ class AvcDecoder : public Decoder
 {
 public:
 
-    virtual int configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize) = 0;
+    virtual uint32_t getInputBitstreamFormatCaps() = 0;
 
-    virtual avc_decoder_color_format_t getOutputColorFormat() = 0;
+    virtual int configure(uint32_t inputBitstreamFormat,
+        const uint8_t *pSps, unsigned int spsSize,
+        const uint8_t *pPps, unsigned int ppsSize) = 0;
 
     virtual int getInputBuffer(struct vbuf_buffer **buffer, bool blocking) = 0;
 
