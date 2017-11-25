@@ -39,6 +39,7 @@
 #include "pdraw_avcdecoder.hpp"
 #include "pdraw_avcdecoder_ffmpeg.hpp"
 #include "pdraw_avcdecoder_videocoreomx.hpp"
+#include "pdraw_avcdecoder_videotoolbox.hpp"
 #include "pdraw_avcdecoder_mediacodec.hpp"
 
 
@@ -49,6 +50,8 @@ AvcDecoder *AvcDecoder::create(VideoMedia *media)
 {
 #if defined(USE_MEDIACODEC)
     return new MediaCodecAvcDecoder(media);
+#elif defined(USE_VIDEOTOOLBOX)
+    return new VideoToolboxAvcDecoder(media);
 #elif defined(USE_VIDEOCOREOMX)
     return new VideoCoreOmxAvcDecoder(media);
 #elif defined(USE_FFMPEG)

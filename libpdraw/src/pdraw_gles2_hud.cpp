@@ -69,7 +69,7 @@ static const GLchar *hudVertexShader =
     "}\n";
 
 static const GLchar *hudFragmentShader =
-#if defined(GL_ES_VERSION_2_0) && defined(ANDROID)
+#if defined(GL_ES_VERSION_2_0) && (defined(ANDROID) || defined(__APPLE__))
     "precision mediump float;\n"
 #endif
     "uniform vec4 vColor;\n"
@@ -90,7 +90,7 @@ static const GLchar *hudTexVertexShader =
     "}\n";
 
 static const GLchar *hudTexFragmentShader =
-#if defined(GL_ES_VERSION_2_0) && defined(ANDROID)
+#if defined(GL_ES_VERSION_2_0) && (defined(ANDROID) || defined(__APPLE__))
     "precision mediump float;\n"
 #endif
     "uniform vec4 vColor;\n"
@@ -140,7 +140,6 @@ static const char *pdraw_strPilotingMode[] =
     "FOLLOW ME",
 };
 
-static const float colorRed[4] = { 0.9f, 0.0f, 0.0f, 1.0f };
 static const float colorGreen[4] = { 0.0f, 0.9f, 0.0f, 1.0f };
 static const float colorDarkGreen[4] = { 0.0f, 0.5f, 0.0f, 1.0f };
 static const float colorBlue[4] = { 0.0f, 0.0f, 0.9f, 1.0f };
@@ -584,13 +583,9 @@ int Gles2Hud::renderHud(unsigned int videoWidth, unsigned int videoHeight,
         Eigen::Quaternionf headQuat = mSession->getSelfMetadata()->getDebiasedHeadOrientation();
         Eigen::Matrix3f headRotNed = headQuat.toRotationMatrix();
 
-        Eigen::Matrix3f camRot1 = Eigen::AngleAxisf(-metadata->base.cameraPan, Eigen::Vector3f::UnitZ()).matrix();
-        Eigen::Matrix3f camRot2 = Eigen::AngleAxisf(-metadata->base.cameraTilt, Eigen::Vector3f::UnitY()).matrix();
-        Eigen::Matrix3f camRot3 = Eigen::AngleAxisf(M_PI / 2., Eigen::Vector3f::UnitY()).matrix();
-
         Eigen::Matrix3f rot1 = Eigen::AngleAxisf(33. * M_PI / 180., Eigen::Vector3f::UnitY()).matrix();
 
-        Eigen::Matrix3f viewRotNed = /*camRot2 * camRot1 **/ /*camRot3 **/ rot1 * headRotNed;
+        Eigen::Matrix3f viewRotNed = rot1 * headRotNed;
 
         Eigen::Matrix3f viewRotLH;
         viewRotLH <<  viewRotNed(0, 0), -viewRotNed(1, 0), -viewRotNed(2, 0),

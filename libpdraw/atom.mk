@@ -21,6 +21,7 @@ LOCAL_SRC_FILES := \
 	src/pdraw_avcdecoder_ffmpeg.cpp \
 	src/pdraw_avcdecoder_videocoreomx.cpp \
 	src/pdraw_avcdecoder_mediacodec.cpp \
+	src/pdraw_avcdecoder_videotoolbox.cpp \
 	src/pdraw_gles2_hud.cpp \
 	src/pdraw_gles2_video.cpp \
 	src/pdraw_gles2_hmd.cpp \
@@ -69,6 +70,28 @@ else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
   LOCAL_LDLIBS += -lEGL -lGLESv2 -landroid
   LOCAL_LIBRARIES += \
 	libmediacodec-wrapper
+else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-native")
+  LOCAL_CFLAGS += -DUSE_VIDEOTOOLBOX -DUSE_GLES2
+  LOCAL_LDLIBS += \
+	-framework Foundation \
+	-framework CoreMedia \
+	-framework CoreVideo \
+	-framework VideoToolbox \
+	-framework OpenGL
+  LOCAL_LIBRARIES += \
+	glfw3
+else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-iphoneos")
+  LOCAL_CFLAGS += -DUSE_VIDEOTOOLBOX -DUSE_GLES2
+  LOCAL_LDLIBS += \
+	-framework Foundation \
+	-framework CoreMedia \
+	-framework CoreVideo \
+	-framework VideoToolbox \
+	-framework OpenGLES
+  LOCAL_INSTALL_HEADERS := \
+	$(LOCAL_PATH)/include/pdraw/pdraw.h:usr/include/pdraw/ \
+	$(LOCAL_PATH)/include/pdraw/pdraw.hpp:usr/include/pdraw/ \
+	$(LOCAL_PATH)/include/pdraw/pdraw_defs.h:usr/include/pdraw/
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)-$(TARGET_PRODUCT_VARIANT)","linux-generic-raspi")
   LOCAL_CFLAGS += -DBCM_VIDEOCORE -DUSE_VIDEOCOREOMX -DUSE_VIDEOCOREEGL \
 	-DUSE_GLES2 -I$(SDKSTAGE)/opt/vc/include

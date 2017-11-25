@@ -69,7 +69,7 @@ static const GLchar *videoVertexShader =
     "}\n";
 
 static const GLchar *videoNoconvFragmentShader =
-#if defined(GL_ES_VERSION_2_0) && defined(ANDROID)
+#if defined(GL_ES_VERSION_2_0) && (defined(ANDROID) || defined(__APPLE__))
     "precision mediump float;\n"
 #endif
     "varying vec2 v_texcoord;\n"
@@ -83,7 +83,7 @@ static const GLchar *videoNoconvFragmentShader =
     "}\n";
 
 static const GLchar *video420PlanarFragmentShader =
-#if defined(GL_ES_VERSION_2_0) && defined(ANDROID)
+#if defined(GL_ES_VERSION_2_0) && (defined(ANDROID) || defined(__APPLE__))
     "precision mediump float;\n"
 #endif
     "varying vec2 v_texcoord;\n"
@@ -105,7 +105,7 @@ static const GLchar *video420PlanarFragmentShader =
     "}\n";
 
 static const GLchar *video420SemiplanarFragmentShader =
-#if defined(GL_ES_VERSION_2_0) && defined(ANDROID)
+#if defined(GL_ES_VERSION_2_0) && (defined(ANDROID) || defined(__APPLE__))
     "precision mediump float;\n"
 #endif
     "varying vec2 v_texcoord;\n"
