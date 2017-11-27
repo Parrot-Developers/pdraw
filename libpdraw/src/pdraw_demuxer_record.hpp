@@ -30,123 +30,169 @@
 #ifndef _PDRAW_DEMUXER_RECORD_HPP_
 #define _PDRAW_DEMUXER_RECORD_HPP_
 
-#include <pthread.h>
-
-#include <libmp4.h>
-#include <h264/h264.h>
-
 #include "pdraw_demuxer.hpp"
 #include "pdraw_avcdecoder.hpp"
+#include <pthread.h>
+#include <libmp4.h>
+#include <h264/h264.h>
+#include <string>
+
+namespace Pdraw {
 
 
-namespace Pdraw
-{
-
-
-class RecordDemuxer : public Demuxer
-{
+class RecordDemuxer : public Demuxer {
 public:
+	RecordDemuxer(
+		Session *session);
 
-    RecordDemuxer(Session *session);
+	~RecordDemuxer(
+		void);
 
-    ~RecordDemuxer();
+	enum demuxer_type getType(
+		void) {
+		return DEMUXER_TYPE_RECORD;
+	}
 
-    demuxer_type_t getType() { return DEMUXER_TYPE_RECORD; };
+	bool isConfigured(
+		void) {
+		return mConfigured;
+	}
 
-    bool isConfigured() { return mConfigured; };
+	int configure(
+		const std::string &url);
 
-    int configure(const std::string &url);
+	int getElementaryStreamCount(
+		void);
 
-    int getElementaryStreamCount();
+	elementary_stream_type_t getElementaryStreamType(
+		int esIndex);
 
-    elementary_stream_type_t getElementaryStreamType(int esIndex);
+	int getElementaryStreamVideoDimensions(
+		int esIndex,
+		unsigned int *width,
+		unsigned int *height,
+		unsigned int *cropLeft,
+		unsigned int *cropRight,
+		unsigned int *cropTop,
+		unsigned int *cropBottom,
+		unsigned int *sarWidth,
+		unsigned int *sarHeight);
 
-    int getElementaryStreamVideoDimensions(int esIndex,
-        unsigned int *width, unsigned int *height,
-        unsigned int *cropLeft, unsigned int *cropRight,
-        unsigned int *cropTop, unsigned int *cropBottom,
-        unsigned int *sarWidth, unsigned int *sarHeight);
+	int getElementaryStreamVideoFov(
+		int esIndex,
+		float *hfov,
+		float *vfov);
 
-    int getElementaryStreamVideoFov(int esIndex, float *hfov, float *vfov);
+	int setElementaryStreamDecoder(
+		int esIndex, Decoder *decoder);
 
-    int setElementaryStreamDecoder(int esIndex, Decoder *decoder);
+	int play(
+		float speed = 1.0f);
 
-    int play(float speed = 1.0f);
+	int pause(
+		void);
 
-    int pause();
+	bool isPaused(
+		void);
 
-    bool isPaused();
+	int previous(
+		void);
 
-    int previous();
+	int next(
+		void);
 
-    int next();
+	int stop(
+		void);
 
-    int stop();
+	int seekTo(
+		uint64_t timestamp,
+		bool exact = false);
 
-    int seekTo
-            (uint64_t timestamp, bool exact = false);
+	int seekForward(
+		uint64_t delta,
+		bool exact = false);
 
-    int seekForward
-            (uint64_t delta, bool exact = false);
+	int seekBack(
+		uint64_t delta,
+		bool exact = false);
 
-    int seekBack
-            (uint64_t delta, bool exact = false);
+	uint64_t getDuration(
+		void) {
+		return mDuration;
+	}
 
-    uint64_t getDuration() { return mDuration; };
+	uint64_t getCurrentTime(
+		void) {
+		return mCurrentTime;
+	}
 
-    uint64_t getCurrentTime() { return mCurrentTime; };
-
-    Session *getSession() { return mSession; };
+	Session *getSession(
+		void) {
+		return mSession;
+	}
 
 private:
+	int fetchVideoDimensions(
+		void);
 
-    int fetchVideoDimensions();
+	int fetchSessionMetadata(
+		void);
 
-    int fetchSessionMetadata();
+	static int getAvcDecoderConfig(
+		RecordDemuxer *demuxer,
+		uint8_t **pSps,
+		unsigned int *spsSize,
+		uint8_t **pPps,
+		unsigned int *ppsSize);
 
-    static void h264UserDataSeiCb(struct h264_ctx *ctx, const uint8_t *buf, size_t len,
-                                  const struct h264_sei_user_data_unregistered *sei, void *userdata);
+	static void h264UserDataSeiCb(
+		struct h264_ctx *ctx,
+		const uint8_t *buf,
+		size_t len,
+		const struct h264_sei_user_data_unregistered *sei,
+		void *userdata);
 
-    static void* runDemuxerThread(void *ptr);
+	static void *runDemuxerThread(
+		void *ptr);
 
-    std::string mFileName;
-    AvcDecoder *mDecoder;
-    uint32_t mDecoderBitstreamFormat;
-    pthread_t mDemuxerThread;
-    bool mDemuxerThreadLaunched;
-    pthread_mutex_t mDemuxerMutex;
-    bool mRunning;
-    bool mFrameByFrame;
-    bool mThreadShouldStop;
-    struct mp4_demux *mDemux;
-    uint64_t mDuration;
-    uint64_t mCurrentTime;
-    int mVideoTrackCount;
-    unsigned int mVideoTrackId;
-    char *mMetadataMimeType;
-    bool mFirstFrame;
-    unsigned int mMetadataBufferSize;
-    uint8_t *mMetadataBuffer;
-    uint64_t mLastFrameOutputTime;
-    uint64_t mLastFrameTimestamp;
-    int64_t mPendingSeekTs;
-    bool mPendingSeekExact;
-    bool mPendingSeekToPrevSample;
-    struct vbuf_buffer *mCurrentBuffer;
-    unsigned int mWidth;
-    unsigned int mHeight;
-    unsigned int mCropLeft;
-    unsigned int mCropRight;
-    unsigned int mCropTop;
-    unsigned int mCropBottom;
-    unsigned int mSarWidth;
-    unsigned int mSarHeight;
-    float mHfov;
-    float mVfov;
-    struct h264_reader *mH264Reader;
-    float mSpeed;
+	std::string mFileName;
+	AvcDecoder *mDecoder;
+	uint32_t mDecoderBitstreamFormat;
+	pthread_t mDemuxerThread;
+	bool mDemuxerThreadLaunched;
+	pthread_mutex_t mDemuxerMutex;
+	bool mRunning;
+	bool mFrameByFrame;
+	bool mThreadShouldStop;
+	struct mp4_demux *mDemux;
+	uint64_t mDuration;
+	uint64_t mCurrentTime;
+	int mVideoTrackCount;
+	unsigned int mVideoTrackId;
+	char *mMetadataMimeType;
+	bool mFirstFrame;
+	unsigned int mMetadataBufferSize;
+	uint8_t *mMetadataBuffer;
+	uint64_t mLastFrameOutputTime;
+	uint64_t mLastFrameTimestamp;
+	int64_t mPendingSeekTs;
+	bool mPendingSeekExact;
+	bool mPendingSeekToPrevSample;
+	struct vbuf_buffer *mCurrentBuffer;
+	unsigned int mWidth;
+	unsigned int mHeight;
+	unsigned int mCropLeft;
+	unsigned int mCropRight;
+	unsigned int mCropTop;
+	unsigned int mCropBottom;
+	unsigned int mSarWidth;
+	unsigned int mSarHeight;
+	float mHfov;
+	float mVfov;
+	struct h264_reader *mH264Reader;
+	float mSpeed;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_DEMUXER_RECORD_HPP_ */

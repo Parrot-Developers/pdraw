@@ -34,81 +34,102 @@
 #include "pdraw_decoder.hpp"
 #include <string>
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
-typedef enum
-{
-    DEMUXER_TYPE_RECORD = 0,
-    DEMUXER_TYPE_STREAM,
-
-} demuxer_type_t;
+enum demuxer_type {
+	DEMUXER_TYPE_RECORD = 0,
+	DEMUXER_TYPE_STREAM,
+};
 
 
 class Session;
 
 
-class Demuxer
-{
+class Demuxer {
 public:
+	virtual ~Demuxer(
+		void) {}
 
-    virtual ~Demuxer() {};
+	virtual enum demuxer_type getType(
+		void) = 0;
 
-    virtual demuxer_type_t getType() = 0;
+	virtual bool isConfigured(
+		void) = 0;
 
-    virtual bool isConfigured() = 0;
+	virtual int configure(
+		const std::string &url) = 0;
 
-    virtual int configure(const std::string &url) = 0;
+	virtual int getElementaryStreamCount(
+		void) = 0;
 
-    virtual int getElementaryStreamCount() = 0;
+	virtual elementary_stream_type_t getElementaryStreamType(
+		int esIndex) = 0;
 
-    virtual elementary_stream_type_t getElementaryStreamType(int esIndex) = 0;
+	virtual int getElementaryStreamVideoDimensions(
+		int esIndex,
+		unsigned int *width,
+		unsigned int *height,
+		unsigned int *cropLeft,
+		unsigned int *cropRight,
+		unsigned int *cropTop,
+		unsigned int *cropBottom,
+		unsigned int *sarWidth,
+		unsigned int *sarHeight) = 0;
 
-    virtual int getElementaryStreamVideoDimensions(int esIndex,
-        unsigned int *width, unsigned int *height,
-        unsigned int *cropLeft, unsigned int *cropRight,
-        unsigned int *cropTop, unsigned int *cropBottom,
-        unsigned int *sarWidth, unsigned int *sarHeight) = 0;
+	virtual int getElementaryStreamVideoFov(
+		int esIndex,
+		float *hfov,
+		float *vfov) = 0;
 
-    virtual int getElementaryStreamVideoFov(int esIndex, float *hfov, float *vfov) = 0;
+	virtual int setElementaryStreamDecoder(
+		int esIndex,
+		Decoder *decoder) = 0;
 
-    virtual int setElementaryStreamDecoder(int esIndex, Decoder *decoder) = 0;
+	virtual int play(
+		float speed = 1.0f) = 0;
 
-    virtual int play(float speed = 1.0f) = 0;
+	virtual int pause(
+		void) = 0;
 
-    virtual int pause() = 0;
+	virtual bool isPaused(
+		void) = 0;
 
-    virtual bool isPaused() = 0;
+	virtual int previous(
+		void) = 0;
 
-    virtual int previous() = 0;
+	virtual int next(
+		void) = 0;
 
-    virtual int next() = 0;
+	virtual int stop(
+		void) = 0;
 
-    virtual int stop() = 0;
+	virtual int seekTo(
+		uint64_t timestamp,
+		bool exact = false) = 0;
 
-    virtual int seekTo
-            (uint64_t timestamp, bool exact = false) = 0;
+	virtual int seekForward(
+		uint64_t delta,
+		bool exact = false) = 0;
 
-    virtual int seekForward
-            (uint64_t delta, bool exact = false) = 0;
+	virtual int seekBack(
+		uint64_t delta,
+		bool exact = false) = 0;
 
-    virtual int seekBack
-            (uint64_t delta, bool exact = false) = 0;
+	virtual uint64_t getDuration(
+		void) = 0;
 
-    virtual uint64_t getDuration() = 0;
+	virtual uint64_t getCurrentTime(
+		void) = 0;
 
-    virtual uint64_t getCurrentTime() = 0;
-
-    virtual Session *getSession() = 0;
+	virtual Session *getSession(
+		void) = 0;
 
 protected:
-
-    bool mConfigured;
-    Session *mSession;
+	bool mConfigured;
+	Session *mSession;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_DEMUXER_HPP_ */
