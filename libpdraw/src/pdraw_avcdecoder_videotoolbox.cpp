@@ -36,13 +36,11 @@
 #include <time.h>
 #include <TargetConditionals.h>
 #include <video-buffers/vbuf_cvbuffer.h>
-
 #define ULOG_TAG libpdraw
 #include <ulog.h>
+#include <vector>
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
 VideoToolboxAvcDecoder::VideoToolboxAvcDecoder(
@@ -59,7 +57,8 @@ VideoToolboxAvcDecoder::VideoToolboxAvcDecoder(
 }
 
 
-VideoToolboxAvcDecoder::~VideoToolboxAvcDecoder()
+VideoToolboxAvcDecoder::~VideoToolboxAvcDecoder(
+	void)
 {
 	if (mInputBufferQueue)
 		vbuf_queue_destroy(mInputBufferQueue);
@@ -122,8 +121,7 @@ int VideoToolboxAvcDecoder::configure(
 	if (osstatus != noErr) {
 		ULOGE("VideoToolbox: CMVideoFormatDescriptionCreateFrom"
 			"H264ParameterSets() failed (%d)", (int)osstatus);
-		ret = -1;
-		goto out;
+		return -1;
 	}
 
 	VTDecompressionOutputCallbackRecord cb;
@@ -134,68 +132,64 @@ int VideoToolboxAvcDecoder::configure(
 		kCFAllocatorDefault, mFormatDescRef,
 		NULL, NULL, &cb, &mDecompressRef);
 	if (osstatus != noErr) {
-		ULOGE("VideoToolbox: VTDecompressionSessionCreate()"
-			" failed (%d)", (int)osstatus);
-		ret = -1;
-		goto out;
+		ULOGE("VideoToolbox: VTDecompressionSessionCreate() "
+			"failed (%d)", (int)osstatus);
+		return -1;
 	}
 
 	ret = vbuf_generic_get_cbs(&cbs);
 	if (ret != 0) {
-		ULOGE("VideoToolbox: failed to get input buffers allocation callbacks");
-		goto out;
+		ULOGE("VideoToolbox: failed to get "
+			"input buffers allocation callbacks");
+		return -1;
 	}
 
 	/* Input buffers pool allocation */
 	/* TODO: number of buffers and buffers size */
 	mInputBufferPool = vbuf_pool_new(
-		VIDEOTOOLBOX_AVC_DECODER_INPUT_BUFFER_COUNT,
-		VIDEOTOOLBOX_AVC_DECODER_INPUT_BUFFER_SIZE,
-		sizeof(avc_decoder_input_buffer_t), 0, &cbs);
+		AVCDECODER_VIDEOTOOLBOX_INPUT_BUFFER_COUNT,
+		AVCDECODER_VIDEOTOOLBOX_INPUT_BUFFER_SIZE,
+		sizeof(struct avcdecoder_input_buffer), 0, &cbs);
 	if (mInputBufferPool == NULL) {
-		ULOGE("VideoToolbox: failed to allocate decoder"
-			" input buffers pool");
-		ret = -1;
-		goto out;
+		ULOGE("VideoToolbox: failed to allocate decoder "
+			"input buffers pool");
+		return -1;
 	}
 
 	/* Input buffers queue allocation */
 	mInputBufferQueue = vbuf_queue_new();
 	if (mInputBufferQueue == NULL) {
-		ULOGE("VideoToolbox: failed to allocate decoder"
-			" input buffers queue");
-		ret = -1;
-		goto out;
+		ULOGE("VideoToolbox: failed to allocate decoder "
+			"input buffers queue");
+		return -1;
 	}
 
 	ret = vbuf_cvbuffer_get_cbs(&cbs);
 	if (ret != 0) {
-		ULOGE("VideoToolbox: failed to get output buffers allocation callbacks");
-		goto out;
+		ULOGE("VideoToolbox: failed to get "
+			"output buffers allocation callbacks");
+		return -1;
 	}
 
 	/* Output buffers pool allocation */
 	/* TODO: number of buffers */
 	mOutputBufferPool = vbuf_pool_new(
-		VIDEOTOOLBOX_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
-		sizeof(avc_decoder_output_buffer_t), 0, &cbs);
+		AVCDECODER_VIDEOTOOLBOX_OUTPUT_BUFFER_COUNT, 0,
+		sizeof(struct avcdecoder_output_buffer), 0, &cbs);
 	if (mOutputBufferPool == NULL) {
-		ULOGE("VideoToolbox: failed to allocate decoder"
-			" output buffers pool");
-		ret = -1;
+		ULOGE("VideoToolbox: failed to allocate decoder "
+			"output buffers pool");
+		return -1;
 	}
 
 	((VideoMedia *)mMedia)->getDimensions(&mWidth, &mHeight,
 		&mCropLeft, &mCropRight, &mCropTop, &mCropBottom,
 		&mCroppedWidth, &mCroppedHeight, &mSarWidth, &mSarHeight);
 
-out:
-	mConfigured = (ret == 0) ? true : false;
+	mConfigured = true;
+	ULOGI("VideoToolbox: decoder is configured");
 
-	if (mConfigured)
-		ULOGI("VideoToolbox: decoder is configured");
-
-	return ret;
+	return 0;
 }
 
 
@@ -207,12 +201,10 @@ int VideoToolboxAvcDecoder::getInputBuffer(
 		ULOGE("VideoToolbox: invalid buffer pointer");
 		return -1;
 	}
-
 	if (!mConfigured) {
 		ULOGE("VideoToolbox: decoder is not configured");
 		return -1;
 	}
-
 	if (mInputBufferPool == NULL) {
 		ULOGE("VideoToolbox: input buffer pool has not been created");
 		return -1;
@@ -245,25 +237,23 @@ int VideoToolboxAvcDecoder::queueInputBuffer(
 		ULOGE("VideoToolbox: invalid buffer pointer");
 		return -1;
 	}
-
 	if (!mConfigured) {
 		ULOGE("VideoToolbox: decoder is not configured");
 		return -1;
 	}
-
 	if (mInputBufferQueue == NULL) {
 		ULOGE("VideoToolbox: input queue has not been created");
 		return -1;
 	}
 
 	uint64_t timestamp = 0;
-	avc_decoder_input_buffer_t *data =
-		(avc_decoder_input_buffer_t *)vbuf_get_metadata_ptr(buffer);
+	struct avcdecoder_input_buffer *data =
+		(struct avcdecoder_input_buffer *)vbuf_get_metadata_ptr(buffer);
 	if (data)
 		timestamp = data->auNtpTimestampRaw;
 	OSStatus osstatus;
 	CMSampleTimingInfo timingInfo[1] = { {
-		.duration = kCMTimeInvalid, //CMTimeMake(33333, 1000000), //TODO
+		.duration = kCMTimeInvalid,
 		.presentationTimeStamp = CMTimeMake(timestamp, 1000000),
 		.decodeTimeStamp = kCMTimeInvalid
 	} };
@@ -313,20 +303,21 @@ int VideoToolboxAvcDecoder::queueInputBuffer(
 
 	ret = vbuf_queue_push(mInputBufferQueue, buffer);
 	if (ret != 0)
-		ULOGE("VideoToolbox: failed to push the buffer"
-			" into the input queue");
+		ULOGE("VideoToolbox: failed to push the buffer "
+			"into the input queue");
 
 out:
-	if (blockBufferRef)
+	if (blockBufferRef != NULL)
 		CFRelease(blockBufferRef);
-	if (sampleBufferRef)
+	if (sampleBufferRef != NULL)
 		CFRelease(sampleBufferRef);
 
 	return 0;
 }
 
 
-struct vbuf_queue *VideoToolboxAvcDecoder::addOutputQueue()
+struct vbuf_queue *VideoToolboxAvcDecoder::addOutputQueue(
+	void)
 {
 	struct vbuf_queue *q = vbuf_queue_new();
 	if (q == NULL) {
@@ -401,17 +392,14 @@ int VideoToolboxAvcDecoder::dequeueOutputBuffer(
 		ULOGE("VideoToolbox: invalid queue pointer");
 		return -1;
 	}
-
 	if (buffer == NULL) {
 		ULOGE("VideoToolbox: invalid buffer pointer");
 		return -1;
 	}
-
 	if (!mConfigured) {
 		ULOGE("VideoToolbox: decoder is not configured");
 		return -1;
 	}
-
 	if (!isOutputQueueValid(queue)) {
 		ULOGE("VideoToolbox: invalid output queue");
 		return -1;
@@ -420,13 +408,13 @@ int VideoToolboxAvcDecoder::dequeueOutputBuffer(
 	struct vbuf_buffer *buf = NULL;
 	int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
 	if ((ret != 0) || (buf == NULL)) {
-		ULOGD("VideoToolbox: failed to dequeue"
-			" an output buffer (%d)", ret);
+		ULOGD("VideoToolbox: failed to dequeue "
+			"an output buffer (%d)", ret);
 		return -2;
 	}
 
-	avc_decoder_output_buffer_t *data =
-		(avc_decoder_output_buffer_t *)vbuf_get_metadata_ptr(buf);
+	struct avcdecoder_output_buffer *data =
+		(struct avcdecoder_output_buffer *)vbuf_get_metadata_ptr(buf);
 	struct timespec t1;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 	data->decoderOutputTimestamp =
@@ -444,7 +432,6 @@ int VideoToolboxAvcDecoder::releaseOutputBuffer(
 		ULOGE("VideoToolbox: invalid buffer pointer");
 		return -1;
 	}
-
 	if (!mConfigured) {
 		ULOGE("VideoToolbox: decoder is not configured");
 		return -1;
@@ -456,7 +443,8 @@ int VideoToolboxAvcDecoder::releaseOutputBuffer(
 }
 
 
-int VideoToolboxAvcDecoder::stop()
+int VideoToolboxAvcDecoder::stop(
+	void)
 {
 	if (!mConfigured) {
 		ULOGE("VideoToolbox: decoder is not configured");
@@ -490,8 +478,8 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 	struct vbuf_buffer *buffer = (struct vbuf_buffer *)sourceFrameRefCon;
 	struct vbuf_buffer *inputBuffer = NULL;
 	struct vbuf_buffer *outputBuffer = NULL;
-	avc_decoder_input_buffer_t *inputMeta = NULL;
-	avc_decoder_output_buffer_t *outputMeta = NULL;
+	struct avcdecoder_input_buffer *inputMeta = NULL;
+	struct avcdecoder_output_buffer *outputMeta = NULL;
 	CVPixelBufferRef pixelBuffer = imageBuffer;
 	OSType pixelFormat;
 	uint8_t *userData;
@@ -502,12 +490,6 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 	if (!decoder->mConfigured) {
 		return;
 	}
-
-	if (status != noErr) {
-		ULOGE("VideoToolbox: decoder error %d", (int)status);
-		return;
-	}
-
 	if (imageBuffer == NULL) {
 		ULOGE("VideoToolbox: invalid buffer");
 		return;
@@ -515,8 +497,13 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 
 	ret = vbuf_queue_pop(decoder->mInputBufferQueue, -1, &inputBuffer);
 	if ((ret != 0) || (inputBuffer == NULL)) {
-		ULOGE("VideoToolbox: failed to dequeue"
-			" an input buffer (%d)", ret);
+		ULOGE("VideoToolbox: failed to dequeue "
+			"an input buffer (%d)", ret);
+		goto out;
+	}
+
+	if (status != noErr) {
+		ULOGE("VideoToolbox: decoder error %d", (int)status);
 		goto out;
 	}
 
@@ -526,7 +513,7 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 		goto out;
 	}
 
-	inputMeta = (avc_decoder_input_buffer_t *)vbuf_get_metadata_ptr(
+	inputMeta = (struct avcdecoder_input_buffer *)vbuf_get_metadata_ptr(
 		inputBuffer);
 	if (inputMeta == NULL) {
 		ULOGE("VideoToolbox: invalid input buffer metadata");
@@ -539,7 +526,7 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 		goto out;
 	}
 
-	outputMeta = (avc_decoder_output_buffer_t *)vbuf_get_metadata_ptr(
+	outputMeta = (struct avcdecoder_output_buffer *)vbuf_get_metadata_ptr(
 		outputBuffer);
 	if (outputMeta == NULL) {
 		ULOGE("VideoToolbox: invalid output buffer metadata");
@@ -563,8 +550,7 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 	outputMeta->height = decoder->mCroppedHeight;
 	outputMeta->sarWidth = decoder->mSarWidth;
 	outputMeta->sarHeight = decoder->mSarHeight;
-	switch (pixelFormat)
-	{
+	switch (pixelFormat) {
 	case kCVPixelFormatType_420YpCbCr8Planar:
 	case kCVPixelFormatType_420YpCbCr8PlanarFullRange:
 		outputMeta->colorFormat =
@@ -626,8 +612,9 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 		memcpy(&outputMeta->metadata, &inputMeta->metadata,
 			sizeof(outputMeta->metadata));
 		outputMeta->hasMetadata = true;
-	} else
+	} else {
 		outputMeta->hasMetadata = false;
+	}
 
 	/* User data */
 	userData = vbuf_get_userdata_ptr(inputBuffer);
@@ -635,15 +622,16 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 	if ((userData) && (userDataSize > 0)) {
 		ret = vbuf_set_userdata_capacity(outputBuffer, userDataSize);
 		if (ret < (ssize_t)userDataSize) {
-			ULOGE("VideoToolbox: failed to realloc"
-				" user data buffer");
+			ULOGE("VideoToolbox: failed to realloc "
+				"user data buffer");
 		} else {
 			uint8_t *dstBuf = vbuf_get_userdata_ptr(outputBuffer);
 			memcpy(dstBuf, userData, userDataSize);
 			vbuf_set_userdata_size(outputBuffer, userDataSize);
 		}
-	} else
+	} else {
 		vbuf_set_userdata_size(outputBuffer, 0);
+	}
 
 	/* Push the frame */
 	if (!outputMeta->isSilent) {
@@ -653,8 +641,9 @@ void VideoToolboxAvcDecoder::frameOutputCb(
 			vbuf_queue_push(*q, outputBuffer);
 			q++;
 		}
-	} else
+	} else {
 		ULOGI("VideoToolbox: silent frame (ignored)");
+	}
 
 out:
 	if (inputBuffer)
@@ -663,6 +652,6 @@ out:
 		vbuf_unref(&outputBuffer);
 }
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_VIDEOTOOLBOX */

@@ -180,7 +180,7 @@ void* NullRenderer::runRendererThread(void *ptr)
             }
             else
             {
-                avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(buffer);
+                struct avcdecoder_output_buffer *data = (struct avcdecoder_output_buffer*)vbuf_get_metadata_ptr(buffer);
                 struct timespec t1;
                 clock_gettime(CLOCK_MONOTONIC, &t1);
                 uint64_t renderTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;

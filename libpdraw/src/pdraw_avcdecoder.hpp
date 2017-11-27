@@ -31,102 +31,109 @@
 #define _PDRAW_AVCDECODER_HPP_
 
 #include <inttypes.h>
+#include <video-buffers/vbuf.h>
 #include "pdraw_decoder.hpp"
 #include "pdraw_metadata_videoframe.hpp"
 
-#include <video-buffers/vbuf.h>
+namespace Pdraw {
 
 
-namespace Pdraw
-{
+#define AVCDECODER_BITSTREAM_FORMAT_UNKNOWN		(0)
+#define AVCDECODER_BITSTREAM_FORMAT_RAW_NALU		(1 << 0)
+#define AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM		(1 << 1)
+#define AVCDECODER_BITSTREAM_FORMAT_AVCC		(1 << 2)
+
+#define AVCDECODER_COLOR_FORMAT_UNKNOWN			(0)
+#define AVCDECODER_COLOR_FORMAT_YUV420PLANAR		(1 << 0)
+#define AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR	(1 << 1)
 
 
-#define AVCDECODER_BITSTREAM_FORMAT_UNKNOWN         (0)
-#define AVCDECODER_BITSTREAM_FORMAT_RAW_NALU        (1 << 0)
-#define AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM     (1 << 1)
-#define AVCDECODER_BITSTREAM_FORMAT_AVCC            (1 << 2)
-
-#define AVCDECODER_COLOR_FORMAT_UNKNOWN             (0)
-#define AVCDECODER_COLOR_FORMAT_YUV420PLANAR        (1 << 0)
-#define AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR    (1 << 1)
-
-
-typedef struct
-{
-    bool isComplete;
-    bool hasErrors;
-    bool isRef;
-    bool isSilent;
-    uint64_t auNtpTimestamp;
-    uint64_t auNtpTimestampRaw;
-    uint64_t auNtpTimestampLocal;
-    bool hasMetadata;
-    struct vmeta_frame_v2 metadata;
-    uint64_t demuxOutputTimestamp;
-
-} avc_decoder_input_buffer_t;
+struct avcdecoder_input_buffer {
+	bool isComplete;
+	bool hasErrors;
+	bool isRef;
+	bool isSilent;
+	uint64_t auNtpTimestamp;
+	uint64_t auNtpTimestampRaw;
+	uint64_t auNtpTimestampLocal;
+	bool hasMetadata;
+	struct vmeta_frame_v2 metadata;
+	uint64_t demuxOutputTimestamp;
+};
 
 
-typedef struct
-{
-    uint8_t *plane[3];
-    unsigned int stride[3];
-    unsigned int width;
-    unsigned int height;
-    unsigned int sarWidth;
-    unsigned int sarHeight;
-    uint32_t colorFormat;
-    bool isComplete;
-    bool hasErrors;
-    bool isRef;
-    bool isSilent;
-    uint64_t auNtpTimestamp;
-    uint64_t auNtpTimestampRaw;
-    uint64_t auNtpTimestampLocal;
-    bool hasMetadata;
-    struct vmeta_frame_v2 metadata;
-    uint64_t demuxOutputTimestamp;
-    uint64_t decoderOutputTimestamp;
-
-} avc_decoder_output_buffer_t;
+struct avcdecoder_output_buffer {
+	uint8_t *plane[3];
+	unsigned int stride[3];
+	unsigned int width;
+	unsigned int height;
+	unsigned int sarWidth;
+	unsigned int sarHeight;
+	uint32_t colorFormat;
+	bool isComplete;
+	bool hasErrors;
+	bool isRef;
+	bool isSilent;
+	uint64_t auNtpTimestamp;
+	uint64_t auNtpTimestampRaw;
+	uint64_t auNtpTimestampLocal;
+	bool hasMetadata;
+	struct vmeta_frame_v2 metadata;
+	uint64_t demuxOutputTimestamp;
+	uint64_t decoderOutputTimestamp;
+};
 
 
 class VideoMedia;
 
 
-class AvcDecoder : public Decoder
-{
+class AvcDecoder : public Decoder {
 public:
+	virtual uint32_t getInputBitstreamFormatCaps(
+		void) = 0;
 
-    virtual uint32_t getInputBitstreamFormatCaps() = 0;
+	virtual int configure(
+		uint32_t inputBitstreamFormat,
+		const uint8_t *pSps,
+		unsigned int spsSize,
+		const uint8_t *pPps,
+		unsigned int ppsSize) = 0;
 
-    virtual int configure(uint32_t inputBitstreamFormat,
-        const uint8_t *pSps, unsigned int spsSize,
-        const uint8_t *pPps, unsigned int ppsSize) = 0;
+	virtual int getInputBuffer(
+		struct vbuf_buffer **buffer,
+		bool blocking) = 0;
 
-    virtual int getInputBuffer(struct vbuf_buffer **buffer, bool blocking) = 0;
+	virtual int queueInputBuffer(
+		struct vbuf_buffer *buffer) = 0;
 
-    virtual int queueInputBuffer(struct vbuf_buffer *buffer) = 0;
+	virtual struct vbuf_queue *addOutputQueue(
+		void) = 0;
 
-    virtual struct vbuf_queue *addOutputQueue() = 0;
+	virtual int removeOutputQueue(
+		struct vbuf_queue *queue) = 0;
 
-    virtual int removeOutputQueue(struct vbuf_queue *queue) = 0;
+	virtual int dequeueOutputBuffer(
+		struct vbuf_queue *queue,
+		struct vbuf_buffer **buffer,
+		bool blocking) = 0;
 
-    virtual int dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking) = 0;
+	virtual int releaseOutputBuffer(
+		struct vbuf_buffer **buffer) = 0;
 
-    virtual int releaseOutputBuffer(struct vbuf_buffer **buffer) = 0;
+	virtual int stop(
+		void) = 0;
 
-    virtual int stop() = 0;
+	virtual VideoMedia *getVideoMedia(
+		void) = 0;
 
-    virtual VideoMedia *getVideoMedia() = 0;
-
-    static AvcDecoder *create(VideoMedia *media);
+	static AvcDecoder *create(
+		VideoMedia *media);
 
 protected:
-
-    virtual bool isOutputQueueValid(struct vbuf_queue *queue) = 0;
+	virtual bool isOutputQueueValid(
+		struct vbuf_queue *queue) = 0;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_AVCDECODER_HPP_ */

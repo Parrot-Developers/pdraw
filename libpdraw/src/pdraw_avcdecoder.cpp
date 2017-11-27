@@ -33,23 +33,22 @@
 #include "pdraw_avcdecoder_videotoolbox.hpp"
 #include "pdraw_avcdecoder_mediacodec.hpp"
 
+namespace Pdraw {
 
-namespace Pdraw
-{
-
-AvcDecoder *AvcDecoder::create(VideoMedia *media)
+AvcDecoder *AvcDecoder::create(
+	VideoMedia *media)
 {
 #if defined(USE_MEDIACODEC)
-    return new MediaCodecAvcDecoder(media);
+	return new MediaCodecAvcDecoder(media);
 #elif defined(USE_VIDEOTOOLBOX)
-    return new VideoToolboxAvcDecoder(media);
+	return new VideoToolboxAvcDecoder(media);
 #elif defined(USE_VIDEOCOREOMX)
-    return new VideoCoreOmxAvcDecoder(media);
+	return new VideoCoreOmxAvcDecoder(media);
 #elif defined(USE_FFMPEG)
-    return new FfmpegAvcDecoder(media);
+	return new FfmpegAvcDecoder(media);
 #else
-    return NULL;
+	return NULL;
 #endif
 }
 
-}
+} /* namespace Pdraw */

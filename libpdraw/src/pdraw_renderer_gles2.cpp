@@ -414,7 +414,7 @@ int Gles2Renderer::render_nolock(uint64_t lastRenderTime)
 
     if (mCurrentBuffer)
     {
-        avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(mCurrentBuffer);
+        struct avcdecoder_output_buffer *data = (struct avcdecoder_output_buffer*)vbuf_get_metadata_ptr(mCurrentBuffer);
 
         if ((data) && (mRenderWidth) && (mRenderHeight))
         {

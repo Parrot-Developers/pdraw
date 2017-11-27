@@ -252,7 +252,7 @@ void* VideoFrameFilter::runThread(void *ptr)
             ret = filter->mDecoder->dequeueOutputBuffer(filter->mDecoderOutputBufferQueue, &buffer, true);
             if (ret == 0)
             {
-                avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(buffer);
+                struct avcdecoder_output_buffer *data = (struct avcdecoder_output_buffer*)vbuf_get_metadata_ptr(buffer);
                 struct pdraw_video_frame frame;
                 memset(&frame, 0, sizeof(frame));
                 switch(data->colorFormat)

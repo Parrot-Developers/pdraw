@@ -33,84 +33,108 @@
 #ifdef USE_MEDIACODEC
 
 #include <pthread.h>
-#include <vector>
 #include <mediacodec-wrapper/libmcw.h>
-
+#include <vector>
 #include "pdraw_avcdecoder.hpp"
 
-
-#define MEDIACODEC_AVC_DECODER_INPUT_BUFFER_COUNT 20
-#define MEDIACODEC_AVC_DECODER_OUTPUT_BUFFER_COUNT 20
+namespace Pdraw {
 
 
-namespace Pdraw
-{
+#define AVCDECODER_MEDIACODEC_INPUT_BUFFER_COUNT	(20)
+#define AVCDECODER_MEDIACODEC_OUTPUT_BUFFER_COUNT	(20)
 
 
-class MediaCodecAvcDecoder : public AvcDecoder
-{
+class MediaCodecAvcDecoder : public AvcDecoder {
 public:
+	MediaCodecAvcDecoder(
+		VideoMedia *media);
 
-    MediaCodecAvcDecoder(VideoMedia *media);
+	~MediaCodecAvcDecoder(
+		void);
 
-    ~MediaCodecAvcDecoder();
+	uint32_t getInputBitstreamFormatCaps(
+		void) {
+		return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM;
+	}
 
-    uint32_t getInputBitstreamFormatCaps() { return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM; };
+	int configure(
+		uint32_t inputBitstreamFormat,
+		const uint8_t *pSps,
+		unsigned int spsSize,
+		const uint8_t *pPps,
+		unsigned int ppsSize);
 
-    int configure(uint32_t inputBitstreamFormat,
-        const uint8_t *pSps, unsigned int spsSize,
-        const uint8_t *pPps, unsigned int ppsSize);
+	bool isConfigured(
+		void) {
+		return mConfigured;
+	}
 
-    bool isConfigured() { return mConfigured; };
+	int getInputBuffer(
+		struct vbuf_buffer **buffer,
+		bool blocking);
 
-    int getInputBuffer(struct vbuf_buffer **buffer, bool blocking);
+	int queueInputBuffer(
+		struct vbuf_buffer *buffer);
 
-    int queueInputBuffer(struct vbuf_buffer *buffer);
+	struct vbuf_queue *addOutputQueue(
+		void);
 
-    struct vbuf_queue *addOutputQueue();
+	int removeOutputQueue(
+		struct vbuf_queue *queue);
 
-    int removeOutputQueue(struct vbuf_queue *queue);
+	int dequeueOutputBuffer(
+		struct vbuf_queue *queue,
+		struct vbuf_buffer **buffer,
+		bool blocking);
 
-    int dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking);
+	int releaseOutputBuffer(
+		struct vbuf_buffer **buffer);
 
-    int releaseOutputBuffer(struct vbuf_buffer **buffer);
+	int stop(
+		void);
 
-    int stop();
+	Media *getMedia(
+		void) {
+		return mMedia;
+	}
 
-    Media *getMedia() { return mMedia; };
-
-    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+	VideoMedia *getVideoMedia(
+		void) {
+		return (VideoMedia *)mMedia;
+	}
 
 private:
+	bool isOutputQueueValid(
+		struct vbuf_queue *queue);
 
-    bool isOutputQueueValid(struct vbuf_queue *queue);
+	int pollDecoderOutput(
+		void);
 
-    int pollDecoderOutput();
+	static void* runOutputPollThread(
+		void *ptr);
 
-    static void* runOutputPollThread(void *ptr);
-
-    struct mcw *mMcw;
-    struct mcw_mediacodec *mCodec;
-    struct vbuf_pool *mInputBufferPool;
-    struct vbuf_queue *mInputBufferQueue;
-    struct vbuf_pool *mOutputBufferPool;
-    std::vector<struct vbuf_queue*> mOutputBufferQueues;
-    pthread_t mOutputPollThread;
-    bool mOutputPollThreadLaunched;
-    bool mThreadShouldStop;
-    unsigned int mWidth;
-    unsigned int mHeight;
-    unsigned int mCropLeft;
-    unsigned int mCropRight;
-    unsigned int mCropTop;
-    unsigned int mCropBottom;
-    unsigned int mCroppedWidth;
-    unsigned int mCroppedHeight;
-    unsigned int mSarWidth;
-    unsigned int mSarHeight;
+	struct mcw *mMcw;
+	struct mcw_mediacodec *mCodec;
+	struct vbuf_pool *mInputBufferPool;
+	struct vbuf_queue *mInputBufferQueue;
+	struct vbuf_pool *mOutputBufferPool;
+	std::vector<struct vbuf_queue*> mOutputBufferQueues;
+	pthread_t mOutputPollThread;
+	bool mOutputPollThreadLaunched;
+	bool mThreadShouldStop;
+	unsigned int mWidth;
+	unsigned int mHeight;
+	unsigned int mCropLeft;
+	unsigned int mCropRight;
+	unsigned int mCropTop;
+	unsigned int mCropBottom;
+	unsigned int mCroppedWidth;
+	unsigned int mCroppedHeight;
+	unsigned int mSarWidth;
+	unsigned int mSarHeight;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_MEDIACODEC */
 

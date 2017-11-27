@@ -33,18 +33,15 @@
 #ifdef USE_VIDEOTOOLBOX
 
 #include <VideoToolbox/VideoToolbox.h>
-
 #include <vector>
-
 #include "pdraw_avcdecoder.hpp"
 
-
-#define VIDEOTOOLBOX_AVC_DECODER_INPUT_BUFFER_COUNT 5
-#define VIDEOTOOLBOX_AVC_DECODER_INPUT_BUFFER_SIZE 1920 * 1080 / 2
-#define VIDEOTOOLBOX_AVC_DECODER_OUTPUT_BUFFER_COUNT 5
-
-
 namespace Pdraw {
+
+
+#define AVCDECODER_VIDEOTOOLBOX_INPUT_BUFFER_COUNT	(5)
+#define AVCDECODER_VIDEOTOOLBOX_INPUT_BUFFER_SIZE	(1920 * 1080 / 2)
+#define AVCDECODER_VIDEOTOOLBOX_OUTPUT_BUFFER_COUNT	(5)
 
 
 class VideoToolboxAvcDecoder : public AvcDecoder {
@@ -58,7 +55,7 @@ public:
 	uint32_t getInputBitstreamFormatCaps(
 		void) {
 		return AVCDECODER_BITSTREAM_FORMAT_AVCC;
-	};
+	}
 
 	int configure(
 		uint32_t inputBitstreamFormat,
@@ -70,7 +67,7 @@ public:
 	bool isConfigured(
 		void) {
 		return mConfigured;
-	};
+	}
 
 	int getInputBuffer(
 		struct vbuf_buffer **buffer,
@@ -99,12 +96,12 @@ public:
 	Media *getMedia(
 		void) {
 		return mMedia;
-	};
+	}
 
 	VideoMedia *getVideoMedia(
 		void) {
-		return (VideoMedia*)mMedia;
-	};
+		return (VideoMedia *)mMedia;
+	}
 
 private:
 	bool isOutputQueueValid(
@@ -123,7 +120,7 @@ private:
 	struct vbuf_queue *mInputBufferQueue;
 	struct vbuf_pool *mOutputBufferPool;
 	std::vector<struct vbuf_queue *> mOutputBufferQueues;
-	avc_decoder_color_format_t mOutputColorFormat;
+	uint32_t mOutputColorFormat;
 	CMVideoFormatDescriptionRef mFormatDescRef;
 	VTDecompressionSessionRef mDecompressRef;
 	unsigned int mWidth;
@@ -138,7 +135,7 @@ private:
 	unsigned int mSarHeight;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_VIDEOTOOLBOX */
 

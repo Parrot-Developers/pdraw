@@ -32,90 +32,119 @@
 
 #ifdef USE_VIDEOCOREOMX
 
-#include <vector>
-#include <queue>
 #include <pthread.h>
 extern "C" {
 #include <ilclient.h>
 }
-
+#include <vector>
+#include <queue>
 #include "pdraw_avcdecoder.hpp"
 #include "pdraw_renderer.hpp"
 
-
-#define VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT 3
-
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
-class VideoCoreOmxAvcDecoder : public AvcDecoder
-{
+#define AVCDECODER_VIDEOCOREOMX_OUTPUT_BUFFER_COUNT	(3)
+
+
+class VideoCoreOmxAvcDecoder : public AvcDecoder {
 public:
+	VideoCoreOmxAvcDecoder(
+		VideoMedia *media);
 
-    VideoCoreOmxAvcDecoder(VideoMedia *media);
+	~VideoCoreOmxAvcDecoder(
+		void);
 
-    ~VideoCoreOmxAvcDecoder();
+	uint32_t getInputBitstreamFormatCaps(
+		void) {
+		return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM;
+	}
 
-    uint32_t getInputBitstreamFormatCaps() { return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM; };
+	int configure(
+		uint32_t inputBitstreamFormat,
+		const uint8_t *pSps,
+		unsigned int spsSize,
+		const uint8_t *pPps,
+		unsigned int ppsSize);
 
-    int configure(uint32_t inputBitstreamFormat,
-        const uint8_t *pSps, unsigned int spsSize,
-        const uint8_t *pPps, unsigned int ppsSize);
+	bool isConfigured(
+		void) {
+		return mConfigured;
+	}
 
-    bool isConfigured() { return mConfigured; };
+	int getInputBuffer(
+		struct vbuf_buffer **buffer,
+		bool blocking);
 
-    int getInputBuffer(struct vbuf_buffer **buffer, bool blocking);
+	int queueInputBuffer(
+		struct vbuf_buffer *buffer);
 
-    int queueInputBuffer(struct vbuf_buffer *buffer);
+	struct vbuf_queue *addOutputQueue(
+		void);
 
-    struct vbuf_queue *addOutputQueue();
+	int removeOutputQueue(
+		struct vbuf_queue *queue);
 
-    int removeOutputQueue(struct vbuf_queue *queue);
+	int dequeueOutputBuffer(
+		struct vbuf_queue *queue,
+		struct vbuf_buffer **buffer,
+		bool blocking);
 
-    int dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking);
+	int releaseOutputBuffer(
+		struct vbuf_buffer **buffer);
 
-    int releaseOutputBuffer(struct vbuf_buffer **buffer);
+	int stop(
+		void);
 
-    int stop();
+	void setRenderer(
+		Renderer *renderer);
 
-    void setRenderer(Renderer *renderer);
+	Media *getMedia(
+		void) {
+		return mMedia;
+	}
 
-    Media *getMedia() { return mMedia; };
-
-    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+	VideoMedia *getVideoMedia(
+		void) {
+		return (VideoMedia *)mMedia;
+	}
 
 private:
+	bool isOutputQueueValid(
+		struct vbuf_queue *queue);
 
-    bool isOutputQueueValid(struct vbuf_queue *queue);
+	int portSettingsChanged(
+		void);
 
-    int portSettingsChanged();
+	static void fillBufferDoneCallback(
+		void *data,
+		COMPONENT_T *comp,
+		OMX_BUFFERHEADERTYPE *omxBuf);
 
-    static void fillBufferDoneCallback(void *data, COMPONENT_T *comp, OMX_BUFFERHEADERTYPE *omxBuf);
-
-    bool mConfigured2;
-    bool mFirstFrame;
-    ILCLIENT_T *mClient;
-    COMPONENT_T *mVideoDecode;
-    COMPONENT_T *mEglRender;
-    TUNNEL_T mTunnel[3];
-    Renderer *mRenderer;
-    OMX_BUFFERHEADERTYPE *mEglBuffer[VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT];
-    int mCurrentEglImageIndex;
-    void *mEglImage[VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT];
-    uint32_t mOutputColorFormat;
-    int mFrameWidth;
-    int mFrameHeight;
-    int mSliceHeight;
-    int mStride;
-    struct vbuf_pool *mInputBufferPool;
-    struct vbuf_queue *mInputBufferQueue;
-    struct vbuf_pool *mOutputBufferPool;
-    std::vector<struct vbuf_queue*> mOutputBufferQueues;
+	bool mConfigured2;
+	bool mFirstFrame;
+	ILCLIENT_T *mClient;
+	COMPONENT_T *mVideoDecode;
+	COMPONENT_T *mEglRender;
+	TUNNEL_T mTunnel[3];
+	Renderer *mRenderer;
+	OMX_BUFFERHEADERTYPE *mEglBuffer[
+		AVCDECODER_VIDEOCOREOMX_OUTPUT_BUFFER_COUNT];
+	int mCurrentEglImageIndex;
+	void *mEglImage[
+		AVCDECODER_VIDEOCOREOMX_OUTPUT_BUFFER_COUNT];
+	uint32_t mOutputColorFormat;
+	int mFrameWidth;
+	int mFrameHeight;
+	int mSliceHeight;
+	int mStride;
+	struct vbuf_pool *mInputBufferPool;
+	struct vbuf_queue *mInputBufferQueue;
+	struct vbuf_pool *mOutputBufferPool;
+	std::vector<struct vbuf_queue*> mOutputBufferQueues;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_VIDEOCOREOMX */
 

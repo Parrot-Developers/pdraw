@@ -30,30 +30,26 @@
 #ifndef _PDRAW_DECODER_HPP_
 #define _PDRAW_DECODER_HPP_
 
-
-namespace Pdraw
-{
-
+namespace Pdraw {
 
 class Media;
 
-
-class Decoder
-{
+class Decoder {
 public:
+	virtual ~Decoder(
+		void) {}
 
-    virtual ~Decoder() {};
+	virtual bool isConfigured(
+		void) = 0;
 
-    virtual bool isConfigured() = 0;
-
-    virtual Media *getMedia() = 0;
+	virtual Media *getMedia(
+		void) = 0;
 
 protected:
-
-    bool mConfigured;
-    Media *mMedia;
+	bool mConfigured;
+	Media *mMedia;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_DECODER_HPP_ */

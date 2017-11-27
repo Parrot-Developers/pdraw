@@ -31,896 +31,884 @@
 
 #ifdef USE_VIDEOCOREOMX
 
+#include "pdraw_renderer_videocoreegl.hpp"
 #include <unistd.h>
 #include <video-buffers/vbuf_ilclient.h>
-
 #define ULOG_TAG libpdraw
 #include <ulog.h>
+#include <vector>
 
-#include "pdraw_renderer_videocoreegl.hpp"
+namespace Pdraw {
 
 
-namespace Pdraw
+VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(
+	VideoMedia *media)
 {
+	int ret;
+	struct vbuf_cbs cbs;
+	OMX_ERRORTYPE omxErr;
+	OMX_VIDEO_PARAM_PORTFORMATTYPE format;
+	OMX_NALSTREAMFORMATTYPE nal;
+	OMX_PARAM_PORTDEFINITIONTYPE def;
 
+	mConfigured = false;
+	mConfigured2 = false;
+	mFirstFrame = true;
+	mOutputColorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
+	mMedia = (Media*)media;
+	mInputBufferPool = NULL;
+	mInputBufferQueue = NULL;
+	mOutputBufferPool = NULL;
+	mClient = NULL;
+	mVideoDecode = NULL;
+	mEglRender = NULL;
+	int i;
+	for (i = 0; i < AVCDECODER_VIDEOCOREOMX_OUTPUT_BUFFER_COUNT; i++) {
+		mEglBuffer[i] = NULL;
+		mEglImage[i] = NULL;
+	}
+	mRenderer = NULL;
+	mFrameWidth = 0;
+	mFrameHeight = 0;
+	mSliceHeight = 0;
+	mStride = 0;
+	memset(&mTunnel, 0, sizeof(mTunnel));
 
-VideoCoreOmxAvcDecoder::VideoCoreOmxAvcDecoder(VideoMedia *media)
-{
-    int ret;
-    struct vbuf_cbs cbs;
-    mConfigured = false;
-    mConfigured2 = false;
-    mFirstFrame = true;
-    mOutputColorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
-    mMedia = (Media*)media;
-    mInputBufferPool = NULL;
-    mInputBufferQueue = NULL;
-    mOutputBufferPool = NULL;
-    mClient = NULL;
-    mVideoDecode = NULL;
-    mEglRender = NULL;
-    int i;
-    for (i = 0; i < VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT; i++)
-    {
-        mEglBuffer[i] = NULL;
-        mEglImage[i] = NULL;
-    }
-    mRenderer = NULL;
-    mFrameWidth = 0;
-    mFrameHeight = 0;
-    mSliceHeight = 0;
-    mStride = 0;
-    memset(&mTunnel, 0, sizeof(mTunnel));
+	mClient = ilclient_init();
+	if (mClient == NULL) {
+		ULOGE("VideoCoreOmx: ilclient_init() failed");
+		goto err;
+	}
 
-    if ((mClient = ilclient_init()) == NULL)
-    {
-        ULOGE("videoCoreOmx: ilclient_init() failed");
-        return;
-    }
+	omxErr = OMX_Init();
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: OMX_Init() failed (%d)", omxErr);
+		goto err;
+	}
 
-    if (OMX_Init() != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: OMX_Init() failed");
-        ilclient_destroy(mClient);
-        return;
-    }
+	ilclient_set_fill_buffer_done_callback(
+		mClient, fillBufferDoneCallback, this);
 
-    ilclient_set_fill_buffer_done_callback(mClient, fillBufferDoneCallback, this);
+	ret = ilclient_create_component(mClient,
+		&mVideoDecode, (char *)"video_decode",
+		(ILCLIENT_CREATE_FLAGS_T)(ILCLIENT_DISABLE_ALL_PORTS |
+			ILCLIENT_ENABLE_INPUT_BUFFERS));
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: ilclient_create_component() "
+			"failed on video_decode (%d)", ret);
+		goto err;
+	}
 
-    if (ilclient_create_component(mClient, &mVideoDecode, (char*)"video_decode",
-                                  (ILCLIENT_CREATE_FLAGS_T)(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_INPUT_BUFFERS)) != 0)
-    {
-        ULOGE("videoCoreOmx: ilclient_create_component() failed on video_decode");
-        ilclient_destroy(mClient);
-        return;
-    }
+	ret = ilclient_create_component(mClient,
+		&mEglRender, (char *)"egl_render",
+		(ILCLIENT_CREATE_FLAGS_T)(ILCLIENT_DISABLE_ALL_PORTS |
+			ILCLIENT_ENABLE_OUTPUT_BUFFERS));
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: ilclient_create_component() "
+			"failed on egl_render (%d)", ret);
+		goto err;
+	}
 
-    if (ilclient_create_component(mClient, &mEglRender, (char*)"egl_render",
-                                  (ILCLIENT_CREATE_FLAGS_T)(ILCLIENT_DISABLE_ALL_PORTS | ILCLIENT_ENABLE_OUTPUT_BUFFERS)) != 0)
-    {
-        ULOGE("videoCoreOmx: ilclient_create_component() failed on egl_render");
-        ilclient_destroy(mClient);
-        return;
-    }
+	set_tunnel(mTunnel, mVideoDecode, 131, mEglRender, 220);
 
-    set_tunnel(mTunnel, mVideoDecode, 131, mEglRender, 220);
+	ret = ilclient_change_component_state(mVideoDecode, OMX_StateIdle);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: failed to change "
+			"OMX component state to 'idle' (%d)", ret);
+		goto err;
+	}
 
-    if (ilclient_change_component_state(mVideoDecode, OMX_StateIdle) != 0)
-    {
-        ULOGE("videoCoreOmx: failed to change OMX component state to 'idle'");
-        ilclient_destroy(mClient);
-        return;
-    }
+	memset(&format, 0, sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE));
+	format.nSize = sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE);
+	format.nVersion.nVersion = OMX_VERSION;
+	format.nPortIndex = 130;
+	format.eCompressionFormat = OMX_VIDEO_CodingAVC;
+	omxErr = OMX_SetParameter(ILC_GET_HANDLE(mVideoDecode),
+		OMX_IndexParamVideoPortFormat, &format);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to set input port format (%d)",
+			omxErr);
+		goto err;
+	}
 
-    OMX_VIDEO_PARAM_PORTFORMATTYPE format;
-    memset(&format, 0, sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE));
-    format.nSize = sizeof(OMX_VIDEO_PARAM_PORTFORMATTYPE);
-    format.nVersion.nVersion = OMX_VERSION;
-    format.nPortIndex = 130;
-    format.eCompressionFormat = OMX_VIDEO_CodingAVC;
-    if (OMX_SetParameter(ILC_GET_HANDLE(mVideoDecode), OMX_IndexParamVideoPortFormat, &format) != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: OMX_SetParameter() failed");
-        return;
-    }
+	memset(&nal, 0, sizeof(OMX_NALSTREAMFORMATTYPE));
+	nal.nSize = sizeof(OMX_NALSTREAMFORMATTYPE);
+	nal.nVersion.nVersion = OMX_VERSION;
+	nal.nPortIndex = 130;
+	nal.eNaluFormat = OMX_NaluFormatStartCodes;
+	omxErr = OMX_SetParameter(ILC_GET_HANDLE(mVideoDecode),
+		(OMX_INDEXTYPE)OMX_IndexParamNalStreamFormatSelect, &nal);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to set H.264 bitstream format (%d)",
+			omxErr);
+		goto err;
+	}
 
-    OMX_NALSTREAMFORMATTYPE nal;
-    memset(&nal, 0, sizeof(OMX_NALSTREAMFORMATTYPE));
-    nal.nSize = sizeof(OMX_NALSTREAMFORMATTYPE);
-    nal.nVersion.nVersion = OMX_VERSION;
-    nal.nPortIndex = 130;
-    nal.eNaluFormat = OMX_NaluFormatStartCodes;
-    if (OMX_SetParameter(ILC_GET_HANDLE(mVideoDecode), (OMX_INDEXTYPE)OMX_IndexParamNalStreamFormatSelect, &nal) != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: failed to set NAL stream format");
-        return;
-    }
+	memset(&def, 0, sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
+	def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
+	def.nVersion.nVersion = OMX_VERSION;
+	def.nPortIndex = 130;
+	omxErr = OMX_GetParameter(ILC_GET_HANDLE(mVideoDecode),
+		OMX_IndexParamPortDefinition, &def);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to get input port definition (%d)",
+			omxErr);
+		goto err;
+	}
 
-    OMX_PARAM_PORTDEFINITIONTYPE def;
-    memset(&def, 0, sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
-    def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
-    def.nVersion.nVersion = OMX_VERSION;
-    def.nPortIndex = 130;
-    if (OMX_GetParameter(ILC_GET_HANDLE(mVideoDecode), OMX_IndexParamPortDefinition, &def) != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: failed to get input port definition");
-        return;
-    }
-    else
-    {
-        ULOGI("videoCoreOmx: nBufferCountActual=%d, nBufferCountMin=%d, nBufferSize=%d",
-              def.nBufferCountActual, def.nBufferCountMin, def.nBufferSize);
-        ULOGI("videoCoreOmx: width=%d, height=%d, sliceHeight=%d, stride=%d, colorFormat=%d",
-              def.format.video.nFrameWidth, def.format.video.nFrameHeight, def.format.video.nSliceHeight,
-              def.format.video.nStride, def.format.video.eColorFormat);
-        def.format.video.nFrameWidth = 640;
-        def.format.video.nFrameHeight = 480;
-        def.nBufferSize = 1024 * 1024;
-        def.nBufferCountActual = 20;
-        if (OMX_SetParameter(ILC_GET_HANDLE(mVideoDecode), OMX_IndexParamPortDefinition, &def) != OMX_ErrorNone)
-        {
-            ULOGE("videoCoreOmx: failed to set input port definition");
-            return;
-        }
-        else
-        {
-            if (OMX_GetParameter(ILC_GET_HANDLE(mVideoDecode), OMX_IndexParamPortDefinition, &def) != OMX_ErrorNone)
-            {
-                ULOGE("videoCoreOmx: failed to get input port definition");
-                return;
-            }
-            else
-            {
-                ULOGI("videoCoreOmx: nBufferCountActual=%d, nBufferCountMin=%d, nBufferSize=%d",
-                      def.nBufferCountActual, def.nBufferCountMin, def.nBufferSize);
-                ULOGI("videoCoreOmx: width=%d, height=%d, sliceHeight=%d, stride=%d, colorFormat=%d",
-                      def.format.video.nFrameWidth, def.format.video.nFrameHeight, def.format.video.nSliceHeight,
-                      def.format.video.nStride, def.format.video.eColorFormat);
+	def.format.video.nFrameWidth = 640;
+	def.format.video.nFrameHeight = 480;
+	def.nBufferSize = 1024 * 1024;
+	def.nBufferCountActual = 20;
+	omxErr = OMX_SetParameter(ILC_GET_HANDLE(mVideoDecode),
+		OMX_IndexParamPortDefinition, &def);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to set input port definition (%d)",
+			omxErr);
+		goto err;
+	}
 
-                ret = vbuf_ilclient_get_input_cbs(mVideoDecode, &cbs);
-                if (ret != 0)
-                {
-                    ULOGE("AMediaCodec: failed to get allocation callbacks");
-                }
-                else
-                {
-                    /* Input buffers pool allocation */
-                    mInputBufferPool = vbuf_pool_new(def.nBufferCountActual, 0,
-                                                     sizeof(avc_decoder_input_buffer_t), 0,
-                                                     &cbs);
-                    if (mInputBufferPool == NULL)
-                    {
-                        ULOGE("videoCoreOmx: failed to allocate decoder input buffers pool");
-                    }
-                }
+	omxErr = OMX_GetParameter(ILC_GET_HANDLE(mVideoDecode),
+		OMX_IndexParamPortDefinition, &def);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to get input port definition (%d)",
+			omxErr);
+		goto err;
+	}
 
-                /* Input buffers queue allocation */
-                mInputBufferQueue = vbuf_queue_new();
-                if (mInputBufferQueue == NULL)
-                {
-                    ULOGE("videoCoreOmx: failed to allocate decoder input buffers queue");
-                }
-            }
-        }
-    }
+	ULOGI("VideoCoreOmx: nBufferCountActual=%d, "
+		"nBufferCountMin=%d, nBufferSize=%d",
+		def.nBufferCountActual, def.nBufferCountMin, def.nBufferSize);
+	ULOGI("VideoCoreOmx: width=%d, height=%d, "
+		"sliceHeight=%d, stride=%d, colorFormat=%d",
+		def.format.video.nFrameWidth, def.format.video.nFrameHeight,
+		def.format.video.nSliceHeight, def.format.video.nStride,
+		def.format.video.eColorFormat);
 
-    ret = vbuf_generic_get_cbs(&cbs);
-    if (ret != 0)
-    {
-        ULOGE("videoCoreOmx: failed to get allocation callbacks");
-    }
-    else
-    {
-        /* Output buffers pool allocation */
-        mOutputBufferPool = vbuf_pool_new(VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT, 0,
-                                          sizeof(avc_decoder_output_buffer_t), 0,
-                                          &cbs);
-        if (mOutputBufferPool == NULL)
-        {
-            ULOGE("videoCoreOmx: failed to allocate decoder output buffers pool");
-        }
-    }
+	ret = vbuf_ilclient_get_input_cbs(mVideoDecode, &cbs);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: failed to get "
+			"input buffers allocation callbacks");
+		goto err;
+	}
 
-    ULOGI("videoCoreOmx: initialization complete");
+	/* Input buffers pool allocation */
+	mInputBufferPool = vbuf_pool_new(def.nBufferCountActual, 0,
+		sizeof(struct avcdecoder_input_buffer), 0, &cbs);
+	if (mInputBufferPool == NULL) {
+		ULOGE("VideoCoreOmx: failed to allocate "
+			"decoder input buffers pool");
+		goto err;
+	}
+
+	/* Input buffers queue allocation */
+	mInputBufferQueue = vbuf_queue_new();
+	if (mInputBufferQueue == NULL) {
+		ULOGE("VideoCoreOmx: failed to allocate "
+			"decoder input buffers queue");
+		goto err;
+	}
+
+	ret = vbuf_generic_get_cbs(&cbs);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: failed to get "
+			"output buffers allocation callbacks");
+		goto err;
+	}
+
+	/* Output buffers pool allocation */
+	mOutputBufferPool = vbuf_pool_new(
+		AVCDECODER_VIDEOCOREOMX_OUTPUT_BUFFER_COUNT + 2, 0, /* TODO */
+		sizeof(struct avcdecoder_output_buffer), 0, &cbs);
+	if (mOutputBufferPool == NULL) {
+		ULOGE("VideoCoreOmx: failed to allocate "
+			"decoder output buffers pool");
+		goto err;
+	}
+
+	return;
+
+err:
+	COMPONENT_T *list[4] = { mVideoDecode, mEglRender };
+	if (mTunnel)
+		ilclient_flush_tunnels(mTunnel, 0);
+	if (mVideoDecode)
+		ilclient_disable_port_buffers(mVideoDecode,
+			130, NULL, NULL, NULL);
+	if (mTunnel) {
+		ilclient_disable_tunnel(mTunnel);
+		ilclient_teardown_tunnels(mTunnel);
+		memset(mTunnel, 0, sizeof(mTunnel));
+	}
+	ilclient_state_transition(list, OMX_StateIdle);
+	ilclient_cleanup_components(list);
+	mVideoDecode = NULL;
+	mEglRender = NULL;
+
+	OMX_Deinit();
+
+	if (mClient != NULL) {
+		ilclient_destroy(mClient);
+		mClient = NULL;
+	}
 }
 
 
-VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder()
+VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder(
+	void)
 {
-    COMPONENT_T *list[4] = { mVideoDecode, mEglRender }; //, mClock, mVideoScheduler };
-    ilclient_flush_tunnels(mTunnel, 0);
-    ilclient_disable_port_buffers(mVideoDecode, 130, NULL, NULL, NULL);
-    ilclient_disable_tunnel(mTunnel);
-    ilclient_teardown_tunnels(mTunnel);
-    ilclient_state_transition(list, OMX_StateIdle);
+	COMPONENT_T *list[4] = { mVideoDecode, mEglRender };
+	ilclient_flush_tunnels(mTunnel, 0);
+	ilclient_disable_port_buffers(mVideoDecode, 130, NULL, NULL, NULL);
+	ilclient_disable_tunnel(mTunnel);
+	ilclient_teardown_tunnels(mTunnel);
+	ilclient_state_transition(list, OMX_StateIdle);
 
-    ilclient_cleanup_components(list);
+	ilclient_cleanup_components(list);
 
-    OMX_Deinit();
+	OMX_Deinit();
 
-    ilclient_destroy(mClient);
+	ilclient_destroy(mClient);
 
-    if (mInputBufferQueue) vbuf_queue_destroy(mInputBufferQueue);
-    if (mInputBufferPool) vbuf_pool_destroy(mInputBufferPool);
-    if (mOutputBufferPool) vbuf_pool_destroy(mOutputBufferPool);
+	if (mInputBufferQueue)
+		vbuf_queue_destroy(mInputBufferQueue);
+	if (mInputBufferPool)
+		vbuf_pool_destroy(mInputBufferPool);
+	if (mOutputBufferPool)
+		vbuf_pool_destroy(mOutputBufferPool);
 
-    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
-    while (q != mOutputBufferQueues.end())
-    {
-        vbuf_queue_destroy(*q);
-        q++;
-    }
+	std::vector<struct vbuf_queue *>::iterator q =
+		mOutputBufferQueues.begin();
+	while (q != mOutputBufferQueues.end()) {
+		vbuf_queue_destroy(*q);
+		q++;
+	}
 }
 
 
-int VideoCoreOmxAvcDecoder::configure(uint32_t inputBitstreamFormat,
-        const uint8_t *pSps, unsigned int spsSize,
-        const uint8_t *pPps, unsigned int ppsSize)
+int VideoCoreOmxAvcDecoder::configure(
+	uint32_t inputBitstreamFormat,
+	const uint8_t *pSps,
+	unsigned int spsSize,
+	const uint8_t *pPps,
+	unsigned int ppsSize)
 {
-    int ret = 0;
+	int ret;
+	OMX_ERRORTYPE omxErr;
 
-    if (mConfigured)
-    {
-        ULOGE("videoCoreOmx: decoder is already configured");
-        return -1;
-    }
-    if ((!pSps) || (spsSize <= 4) || (!pPps) || (ppsSize <= 4))
-    {
-        ULOGE("videoCoreOmx: invalid SPS/PPS");
-        return -1;
-    }
-    if (inputBitstreamFormat != AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
-    {
-        ULOGE("videoCoreOmx: unsupported input bitstream format");
-        return -1;
-    }
+	if (mConfigured) {
+		ULOGE("VideoCoreOmx: decoder is already configured");
+		return -1;
+	}
+	if ((pSps == NULL) || (spsSize <= 4) ||
+		(pPps == NULL) || (ppsSize <= 4)) {
+		ULOGE("VideoCoreOmx: invalid SPS/PPS");
+		return -1;
+	}
+	if (inputBitstreamFormat != AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) {
+		ULOGE("VideoCoreOmx: unsupported input bitstream format");
+		return -1;
+	}
 
-    if (ret == 0)
-    {
-        if (ilclient_enable_port_buffers(mVideoDecode, 130, NULL, NULL, NULL) != 0)
-        {
-            ULOGE("videoCoreOmx: ilclient_enable_port_buffers() failed on input");
-            ret = -1;
-        }
-    }
+	ret = ilclient_enable_port_buffers(mVideoDecode, 130, NULL, NULL, NULL);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: ilclient_enable_port_buffers() "
+			"failed on input (%d)", ret);
+		return -1;
+	}
 
-    if (ret == 0)
-    {
-        if (ilclient_change_component_state(mVideoDecode, OMX_StateExecuting) != 0)
-        {
-            ULOGE("videoCoreOmx: failed to change OMX component state to 'executing'");
-            ret = -1;
-        }
-    }
+	ret = ilclient_change_component_state(mVideoDecode, OMX_StateExecuting);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: failed to change "
+			"OMX component state to 'executing' (%d)", ret);
+		return -1;
+	}
 
-    if (ret == 0)
-    {
-        OMX_BUFFERHEADERTYPE *buf = ilclient_get_input_buffer(mVideoDecode, 130, 1);
-        if (buf != NULL)
-        {
-            if (buf->nAllocLen >= spsSize + ppsSize)
-            {
-                memcpy(buf->pBuffer, pSps, spsSize);
-                memcpy(buf->pBuffer + spsSize, pPps, ppsSize);
-                buf->nFilledLen = spsSize + ppsSize;
-                buf->nOffset = 0;
-                buf->nFlags = OMX_BUFFERFLAG_CODECCONFIG;
-                if (OMX_EmptyThisBuffer(ILC_GET_HANDLE(mVideoDecode), buf) != OMX_ErrorNone)
-                {
-                    ULOGE("videoCoreOmx: failed to release input buffer");
-                    ret = -1;
-                }
-            }
-            else
-            {
-                ULOGE("videoCoreOmx: buffer too small for SPS/PPS");
-                ret = -1;
-            }
-        }
-        else
-        {
-            ULOGE("videoCoreOmx: failed to dequeue an input buffer");
-            ret = -1;
-        }
-    }
+	OMX_BUFFERHEADERTYPE *buf =
+		ilclient_get_input_buffer(mVideoDecode, 130, 1);
+	if (buf == NULL) {
+		ULOGE("VideoCoreOmx: failed to dequeue an input buffer");
+		return -1;
+	}
 
-    mConfigured = (ret == 0) ? true : false;
+	if (buf->nAllocLen < spsSize + ppsSize) {
+		ULOGE("VideoCoreOmx: buffer too small for SPS/PPS");
+		return -1;
+	}
 
-    if (mConfigured)
-    {
-        ULOGI("videoCoreOmx: decoder is configured");
-    }
+	memcpy(buf->pBuffer, pSps, spsSize);
+	memcpy(buf->pBuffer + spsSize, pPps, ppsSize);
+	buf->nFilledLen = spsSize + ppsSize;
+	buf->nOffset = 0;
+	buf->nFlags = OMX_BUFFERFLAG_CODECCONFIG;
+	omxErr = OMX_EmptyThisBuffer(ILC_GET_HANDLE(mVideoDecode), buf);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to release input buffer");
+		return -1;
+	}
 
-    return ret;
+	mConfigured = true;
+	ULOGI("VideoCoreOmx: decoder is configured");
+
+	return 0;
 }
 
 
-void VideoCoreOmxAvcDecoder::setRenderer(Renderer *renderer)
+void VideoCoreOmxAvcDecoder::setRenderer(
+	Renderer *renderer)
 {
-    mRenderer = renderer;
+	mRenderer = renderer;
 }
 
 
-int VideoCoreOmxAvcDecoder::portSettingsChanged()
+int VideoCoreOmxAvcDecoder::portSettingsChanged(
+	void)
 {
-    int ret = 0;
-    ULOGI("videoCoreOmx: port settings changed event");
+	int ret = 0, i;
+	OMX_ERRORTYPE omxErr;
+	OMX_PARAM_PORTDEFINITIONTYPE def;
 
-    OMX_PARAM_PORTDEFINITIONTYPE def;
-    memset(&def, 0, sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
-    def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
-    def.nVersion.nVersion = OMX_VERSION;
-    def.nPortIndex = 131;
-    if (OMX_GetParameter(ILC_GET_HANDLE(mVideoDecode), OMX_IndexParamPortDefinition, &def) != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: failed to get output port definition");
-        return -1;
-    }
-    else
-    {
-        ULOGI("videoCoreOmx: width=%d, height=%d, sliceHeight=%d, stride=%d, colorFormat=%d",
-              def.format.video.nFrameWidth, def.format.video.nFrameHeight, def.format.video.nSliceHeight,
-              def.format.video.nStride, def.format.video.eColorFormat);
-        mFrameWidth = def.format.video.nFrameWidth;
-        mFrameHeight = def.format.video.nFrameHeight;
-        mSliceHeight = def.format.video.nSliceHeight;
-        mStride = def.format.video.nStride;
-        switch (def.format.video.eColorFormat)
-        {
-            case OMX_COLOR_FormatYUV420PackedPlanar:
-                mOutputColorFormat = AVCDECODER_COLOR_FORMAT_YUV420PLANAR;
-                break;
-            default:
-                mOutputColorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
-                break;
-        }
+	ULOGI("VideoCoreOmx: port settings changed event");
 
-        if (ret == 0)
-        {
-            if (mRenderer == NULL)
-            {
-                ULOGE("videoCoreOmx: invalid renderer");
-                ret = -1;
-            }
-        }
+	memset(&def, 0, sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
+	def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
+	def.nVersion.nVersion = OMX_VERSION;
+	def.nPortIndex = 131;
+	omxErr = OMX_GetParameter(ILC_GET_HANDLE(mVideoDecode),
+		OMX_IndexParamPortDefinition, &def);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to get output port definition (%d)",
+			omxErr);
+		return -1;
+	}
 
+	mFrameWidth = def.format.video.nFrameWidth;
+	mFrameHeight = def.format.video.nFrameHeight;
+	mSliceHeight = def.format.video.nSliceHeight;
+	mStride = def.format.video.nStride;
+	switch (def.format.video.eColorFormat) {
+	case OMX_COLOR_FormatYUV420PackedPlanar:
+		mOutputColorFormat = AVCDECODER_COLOR_FORMAT_YUV420PLANAR;
+		break;
+	default:
+		mOutputColorFormat = AVCDECODER_COLOR_FORMAT_UNKNOWN;
+		break;
+	}
 
-        if (ret == 0)
-        {
-            if (ilclient_setup_tunnel(mTunnel, 0, 0) != 0)
-            {
-                ULOGE("videoCoreOmx: ilclient_setup_tunnel() failed");
-                ret = -1;
-            }
-        }
+	if (mRenderer == NULL) {
+		ULOGE("VideoCoreOmx: invalid renderer");
+		return -1;
+	}
 
-        if (ret == 0)
-        {
-            if (ilclient_change_component_state(mEglRender, OMX_StateIdle) != 0)
-            {
-                ULOGE("videoCoreOmx: failed to change egl_render OMX component state to 'idle'");
-                ret = -1;
-            }
-        }
+	ret = ilclient_setup_tunnel(mTunnel, 0, 0);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: ilclient_setup_tunnel() failed (%d)", ret);
+		return -1;
+	}
 
-        if (ret == 0)
-        {
-            OMX_PARAM_PORTDEFINITIONTYPE def;
-            memset(&def, 0, sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
-            def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
-            def.nVersion.nVersion = OMX_VERSION;
-            def.nPortIndex = 221;
-            if (OMX_GetParameter(ILC_GET_HANDLE(mEglRender), OMX_IndexParamPortDefinition, &def) != OMX_ErrorNone)
-            {
-                ULOGE("videoCoreOmx: failed to get egl_render input port definition");
-                ret = -1;
-            }
-            else
-            {
-                ULOGI("videoCoreOmx: nBufferCountActual=%d, nBufferCountMin=%d, nBufferSize=%d",
-                      def.nBufferCountActual, def.nBufferCountMin, def.nBufferSize);
-                ULOGI("videoCoreOmx: width=%d, height=%d, sliceHeight=%d, stride=%d, colorFormat=%d",
-                      def.format.video.nFrameWidth, def.format.video.nFrameHeight, def.format.video.nSliceHeight,
-                      def.format.video.nStride, def.format.video.eColorFormat);
-                def.nBufferCountActual = 3;
-                if (OMX_SetParameter(ILC_GET_HANDLE(mEglRender), OMX_IndexParamPortDefinition, &def) != OMX_ErrorNone)
-                {
-                    ULOGE("videoCoreOmx: failed to set egl_render input port definition");
-                    ret = -1;
-                }
-                else
-                {
-                    if (OMX_GetParameter(ILC_GET_HANDLE(mEglRender), OMX_IndexParamPortDefinition, &def) != OMX_ErrorNone)
-                    {
-                        ULOGE("videoCoreOmx: failed to get egl_render input port definition");
-                        ret = -1;
-                    }
-                    else
-                    {
-                        ULOGI("videoCoreOmx: nBufferCountActual=%d, nBufferCountMin=%d, nBufferSize=%d",
-                              def.nBufferCountActual, def.nBufferCountMin, def.nBufferSize);
-                        ULOGI("videoCoreOmx: width=%d, height=%d, sliceHeight=%d, stride=%d, colorFormat=%d",
-                              def.format.video.nFrameWidth, def.format.video.nFrameHeight, def.format.video.nSliceHeight,
-                              def.format.video.nStride, def.format.video.eColorFormat);
-                    }
-                }
-            }
-        }
+	ret = ilclient_change_component_state(mEglRender, OMX_StateIdle);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: failed to change egl_render OMX component "
+			"state to 'idle' (%d)", ret);
+		return -1;
+	}
 
-        if (ret == 0)
-        {
-            //ilclient_enable_port(mEglRender, 221); THIS BLOCKS SO CAN'T BE USED
-            if (OMX_SendCommand(ILC_GET_HANDLE(mEglRender), OMX_CommandPortEnable, 221, NULL) != OMX_ErrorNone)
-            {
-                ULOGE("videoCoreOmx: failed to enable output port on egl_render");
-                ret = -1;
-            }
-        }
+	memset(&def, 0, sizeof(OMX_PARAM_PORTDEFINITIONTYPE));
+	def.nSize = sizeof(OMX_PARAM_PORTDEFINITIONTYPE);
+	def.nVersion.nVersion = OMX_VERSION;
+	def.nPortIndex = 221;
+	omxErr = OMX_GetParameter(ILC_GET_HANDLE(mEglRender),
+		OMX_IndexParamPortDefinition, &def);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to get egl_render "
+			"input port definition (%d)", omxErr);
+		return -1;
+	}
 
-        if (ret == 0)
-        {
-            ret = ((VideoCoreEglRenderer*)mRenderer)->setVideoDimensions(mFrameWidth, mFrameHeight);
-            if (ret != 0)
-            {
-                ULOGE("videoCoreOmx: renderer->setVideoDimensions() failed");
-            }
-        }
+	def.nBufferCountActual = 3;
+	omxErr = OMX_SetParameter(ILC_GET_HANDLE(mEglRender),
+		OMX_IndexParamPortDefinition, &def);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to set egl_render input "
+			"port definition (%d)", omxErr);
+		return -1;
+	}
 
-        int i;
-        for (i = 0; i < VIDEOCORE_OMX_AVC_DECODER_OUTPUT_BUFFER_COUNT; i++)
-        {
-            if (ret == 0)
-            {
-                mEglImage[i] = ((VideoCoreEglRenderer*)mRenderer)->getVideoEglImage(i);
-                if (mEglImage[i] == EGL_NO_IMAGE_KHR)
-                {
-                    ULOGE("videoCoreOmx: failed to get EGL image #%d", i);
-                    ret = -1;
-                }
-            }
+	omxErr = OMX_GetParameter(ILC_GET_HANDLE(mEglRender),
+		OMX_IndexParamPortDefinition, &def);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to get egl_render input "
+			"port definition (%d)", omxErr);
+		return -1;
+	}
 
-            if (ret == 0)
-            {
-                if (OMX_UseEGLImage(ILC_GET_HANDLE(mEglRender), &mEglBuffer[i], 221, NULL, mEglImage[i]) != OMX_ErrorNone)
-                {
-                    ULOGE("videoCoreOmx: OMX_UseEGLImage() failed on image #%d", i);
-                    ret = -1;
-                }
-            }
-        }
+	ULOGI("VideoCoreOmx: nBufferCountActual=%d, "
+		"nBufferCountMin=%d, nBufferSize=%d",
+		def.nBufferCountActual, def.nBufferCountMin,
+		def.nBufferSize);
+	ULOGI("VideoCoreOmx: width=%d, height=%d, "
+		"sliceHeight=%d, stride=%d, colorFormat=%d",
+		def.format.video.nFrameWidth, def.format.video.nFrameHeight,
+		def.format.video.nSliceHeight, def.format.video.nStride,
+		def.format.video.eColorFormat);
 
-        if (ret == 0)
-        {
-            if (ilclient_change_component_state(mEglRender, OMX_StateExecuting) != 0)
-            {
-                ULOGE("videoCoreOmx: failed to change egl_render OMX component state to 'executing'");
-                ret = -1;
-            }
-        }
+	/* ilclient_enable_port(mEglRender, 221);
+	 * THIS BLOCKS SO CAN'T BE USED */
+	omxErr = OMX_SendCommand(ILC_GET_HANDLE(mEglRender),
+		OMX_CommandPortEnable, 221, NULL);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: failed to enable "
+			"output port on egl_render (%d)", omxErr);
+		return -1;
+	}
 
-        if (ret == 0)
-        {
-            mCurrentEglImageIndex = ((VideoCoreEglRenderer*)mRenderer)->swapDecoderEglImage();
-            if (OMX_FillThisBuffer(ILC_GET_HANDLE(mEglRender), mEglBuffer[mCurrentEglImageIndex]) != OMX_ErrorNone)
-            {
-                ULOGE("videoCoreOmx: OMX_FillThisBuffer() failed");
-                ret = -1;
-            }
-        }
+	ret = ((VideoCoreEglRenderer *)mRenderer)->setVideoDimensions(
+		mFrameWidth, mFrameHeight);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: renderer->setVideoDimensions() failed");
+		return -1;
+	}
 
-        mConfigured2 = true;
-    }
+	for (i = 0, ret = 0; i < AVCDECODER_VIDEOCOREOMX_OUTPUT_BUFFER_COUNT;
+		i++) {
+		mEglImage[i] = ((VideoCoreEglRenderer *)
+			mRenderer)->getVideoEglImage(i);
+		if (mEglImage[i] == EGL_NO_IMAGE_KHR) {
+			ULOGE("VideoCoreOmx: failed to get EGL image #%d", i);
+			ret = -1;
+			break;
+		}
 
-    return ret;
+		omxErr = OMX_UseEGLImage(ILC_GET_HANDLE(mEglRender),
+			&mEglBuffer[i], 221, NULL, mEglImage[i]);
+		if (omxErr != OMX_ErrorNone) {
+			ULOGE("VideoCoreOmx: OMX_UseEGLImage() "
+				"failed on image #%d", i);
+			ret = -1;
+			break;
+		}
+	}
+	if (ret != 0)
+		return -1;
+
+	ret = ilclient_change_component_state(mEglRender, OMX_StateExecuting);
+	if (ret != 0) {
+		ULOGE("VideoCoreOmx: failed to change egl_render OMX component "
+			"state to 'executing' (%d)", ret);
+		return -1;
+	}
+
+	mCurrentEglImageIndex =
+		((VideoCoreEglRenderer *)mRenderer)->swapDecoderEglImage();
+	omxErr = OMX_FillThisBuffer(ILC_GET_HANDLE(mEglRender),
+		mEglBuffer[mCurrentEglImageIndex]);
+	if (omxErr != OMX_ErrorNone) {
+		ULOGE("VideoCoreOmx: OMX_FillThisBuffer() failed (%d)", omxErr);
+		return -1;
+	}
+
+	mConfigured2 = true;
+
+	return ret;
 }
 
 
-int VideoCoreOmxAvcDecoder::getInputBuffer(struct vbuf_buffer **buffer, bool blocking)
+int VideoCoreOmxAvcDecoder::getInputBuffer(
+	struct vbuf_buffer **buffer,
+	bool blocking)
 {
-    if (!buffer)
-    {
-        ULOGE("videoCoreOmx: invalid buffer pointer");
-        return -1;
-    }
+	if (buffer == NULL) {
+		ULOGE("VideoCoreOmx: invalid buffer pointer");
+		return -1;
+	}
+	if (!mConfigured) {
+		ULOGE("VideoCoreOmx: decoder is not configured");
+		return -1;
+	}
+	if (mInputBufferPool == NULL) {
+		ULOGE("VideoCoreOmx: input buffer pool has not been created");
+		return -1;
+	}
 
-    if (!mConfigured)
-    {
-        ULOGE("videoCoreOmx: decoder is not configured");
-        return -1;
-    }
+	if (!mConfigured2) {
+		int ret;
+		ret = ilclient_remove_event(mVideoDecode,
+			OMX_EventPortSettingsChanged, 131, 0, 0, 1);
+		if (ret != 0) {
+			ret = ilclient_wait_for_event(mVideoDecode,
+				OMX_EventPortSettingsChanged, 131, 0, 0, 1,
+				ILCLIENT_EVENT_ERROR |
+				ILCLIENT_PARAMETER_CHANGED, 0);
+		}
+		if (ret == 0) {
+			ret = portSettingsChanged();
+			if (ret != 0) {
+				ULOGE("VideoCoreOmx: portSettingsChanged() "
+					"failed (%d)", ret);
+				return -1;
+			}
+		}
+	}
 
-    if ((!mConfigured2) && ((ilclient_remove_event(mVideoDecode, OMX_EventPortSettingsChanged, 131, 0, 0, 1) == 0)
-            || (ilclient_wait_for_event(mVideoDecode, OMX_EventPortSettingsChanged, 131, 0, 0, 1,
-                ILCLIENT_EVENT_ERROR | ILCLIENT_PARAMETER_CHANGED, 0) == 0)))
-    {
-        if (portSettingsChanged() != 0)
-        {
-            ULOGE("videoCoreOmx: portSettingsChanged() failed");
-            return -1;
-        }
-    }
+	struct vbuf_buffer *buf = NULL;
+	int ret = vbuf_pool_get(mInputBufferPool, (blocking) ? -1 : 0, &buf);
+	if ((ret != 0) || (buf == NULL)) {
+		ULOGW("VideoCoreOmx: failed to get an input buffer (%d)", ret);
+		return -2;
+	}
 
-    if (mInputBufferPool)
-    {
-        struct vbuf_buffer *buf = NULL;
-        int ret = vbuf_pool_get(mInputBufferPool, (blocking) ? -1 : 0, &buf);
-        if ((ret == 0) && (buf != NULL))
-        {
-            *buffer = buf;
-        }
-        else
-        {
-            ULOGW("videoCoreOmx: failed to get an input buffer (%d)", ret);
-            return -2;
-        }
-    }
-    else
-    {
-        ULOGE("videoCoreOmx: input buffer pool has not been created");
-        return -1;
-    }
+	*buffer = buf;
 
-    return 0;
+	return 0;
 }
 
 
-int VideoCoreOmxAvcDecoder::queueInputBuffer(struct vbuf_buffer *buffer)
+int VideoCoreOmxAvcDecoder::queueInputBuffer(
+	struct vbuf_buffer *buffer)
 {
-    if (!buffer)
-    {
-        ULOGE("videoCoreOmx: invalid buffer pointer");
-        return -1;
-    }
+	if (buffer == NULL) {
+		ULOGE("VideoCoreOmx: invalid buffer pointer");
+		return -1;
+	}
+	if (!mConfigured) {
+		ULOGE("VideoCoreOmx: decoder is not configured");
+		return -1;
+	}
+	if (mInputBufferQueue == NULL) {
+		ULOGE("VideoCoreOmx: input queue has not been created");
+		return -1;
+	}
 
-    if (!mConfigured)
-    {
-        ULOGE("videoCoreOmx: decoder is not configured");
-        return -1;
-    }
+	uint64_t ts = 0;
+	uint32_t flags = 0;
+	struct avcdecoder_input_buffer *data =
+		(struct avcdecoder_input_buffer *)
+		vbuf_get_metadata_ptr(buffer);
+	if (data)
+		ts = data->auNtpTimestampRaw;
 
-    if (mInputBufferQueue)
-    {
-        uint64_t ts = 0;
-        uint32_t flags = 0;
-        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(buffer);
-        if (data)
-        {
-            ts = data->auNtpTimestampRaw;
-        }
+	flags = OMX_BUFFERFLAG_ENDOFFRAME;
+	if (mFirstFrame) {
+		flags |= OMX_BUFFERFLAG_STARTTIME;
+		mFirstFrame = false;
+	}
+	vbuf_ilclient_set_info(buffer, ts, flags);
+	vbuf_queue_push(mInputBufferQueue, buffer);
 
-        flags = OMX_BUFFERFLAG_ENDOFFRAME;
-        if (mFirstFrame)
-        {
-            flags |= OMX_BUFFERFLAG_STARTTIME;
-            mFirstFrame = false;
-        }
+	if (!mConfigured2) {
+		int ret;
+		ret = ilclient_remove_event(mVideoDecode,
+			OMX_EventPortSettingsChanged, 131, 0, 0, 1);
+		if (ret != 0) {
+			ret = ilclient_wait_for_event(mVideoDecode,
+				OMX_EventPortSettingsChanged, 131, 0, 0, 1,
+				ILCLIENT_EVENT_ERROR |
+				ILCLIENT_PARAMETER_CHANGED, 0);
+		}
+		if (ret == 0) {
+			ret = portSettingsChanged();
+			if (ret != 0) {
+				ULOGE("VideoCoreOmx: portSettingsChanged() "
+					"failed (%d)", ret);
+				return -1;
+			}
+		}
+	}
 
-        vbuf_ilclient_set_info(buffer, ts, flags);
-        vbuf_queue_push(mInputBufferQueue, buffer);
-    }
-    else
-    {
-        ULOGE("videoCoreOmx: input queue has not been created");
-        return -1;
-    }
-
-    if ((!mConfigured2) && ((ilclient_remove_event(mVideoDecode, OMX_EventPortSettingsChanged, 131, 0, 0, 1) == 0)
-            || (ilclient_wait_for_event(mVideoDecode, OMX_EventPortSettingsChanged, 131, 0, 0, 1,
-                ILCLIENT_EVENT_ERROR | ILCLIENT_PARAMETER_CHANGED, 0) == 0)))
-    {
-        if (portSettingsChanged() != 0)
-        {
-            ULOGE("videoCoreOmx: portSettingsChanged() failed");
-            return -1;
-        }
-    }
-
-    return 0;
+	return 0;
 }
 
 
-struct vbuf_queue *VideoCoreOmxAvcDecoder::addOutputQueue()
+struct vbuf_queue *VideoCoreOmxAvcDecoder::addOutputQueue(
+	void)
 {
-    struct vbuf_queue *q = vbuf_queue_new();
-    if (q == NULL)
-    {
-        ULOGE("videoCoreOmx: queue allocation failed");
-        return NULL;
-    }
+	struct vbuf_queue *q = vbuf_queue_new();
+	if (q == NULL) {
+		ULOGE("VideoCoreOmx: queue allocation failed");
+		return NULL;
+	}
 
-    mOutputBufferQueues.push_back(q);
-    return q;
+	mOutputBufferQueues.push_back(q);
+	return q;
 }
 
 
-int VideoCoreOmxAvcDecoder::removeOutputQueue(struct vbuf_queue *queue)
+int VideoCoreOmxAvcDecoder::removeOutputQueue(
+	struct vbuf_queue *queue)
 {
-    if (!queue)
-    {
-        ULOGE("videoCoreOmx: invalid queue pointer");
-        return -1;
-    }
+	if (queue == NULL) {
+		ULOGE("VideoCoreOmx: invalid queue pointer");
+		return -1;
+	}
 
-    bool found = false;
-    int ret;
-    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
+	bool found = false;
+	int ret;
+	std::vector<struct vbuf_queue *>::iterator q =
+		mOutputBufferQueues.begin();
 
-    while (q != mOutputBufferQueues.end())
-    {
-        if (*q == queue)
-        {
-            mOutputBufferQueues.erase(q);
-            ret = vbuf_queue_destroy(*q);
-            if (ret != 0)
-                ULOGE("videoCoreOmx: vbuf_queue_destroy() failed (%d)", ret);
-            found = true;
-            break;
-        }
-        q++;
-    }
+	while (q != mOutputBufferQueues.end()) {
+		if (*q == queue) {
+			mOutputBufferQueues.erase(q);
+			ret = vbuf_queue_destroy(*q);
+			if (ret != 0)
+				ULOGE("VideoCoreOmx: vbuf_queue_destroy() "
+					"failed (%d)", ret);
+			found = true;
+			break;
+		}
+		q++;
+	}
 
-    return (found) ? 0 : -1;
+	return (found) ? 0 : -1;
 }
 
 
-bool VideoCoreOmxAvcDecoder::isOutputQueueValid(struct vbuf_queue *queue)
+bool VideoCoreOmxAvcDecoder::isOutputQueueValid(
+	struct vbuf_queue *queue)
 {
-    if (!queue)
-    {
-        ULOGE("videoCoreOmx: invalid queue pointer");
-        return false;
-    }
+	if (queue == NULL) {
+		ULOGE("VideoCoreOmx: invalid queue pointer");
+		return false;
+	}
 
-    bool found = false;
-    std::vector<struct vbuf_queue*>::iterator q = mOutputBufferQueues.begin();
+	bool found = false;
+	std::vector<struct vbuf_queue *>::iterator q =
+		mOutputBufferQueues.begin();
 
-    while (q != mOutputBufferQueues.end())
-    {
-        if (*q == queue)
-        {
-            found = true;
-            break;
-        }
-        q++;
-    }
+	while (q != mOutputBufferQueues.end()) {
+		if (*q == queue) {
+			found = true;
+			break;
+		}
+		q++;
+	}
 
-    return found;
+	return found;
 }
 
 
-int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking)
+int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(
+	struct vbuf_queue *queue,
+	struct vbuf_buffer **buffer,
+	bool blocking)
 {
-    if (!queue)
-    {
-        ULOGE("videoCoreOmx: invalid queue pointer");
-        return -1;
-    }
-    if (!buffer)
-    {
-        ULOGE("videoCoreOmx: invalid buffer pointer");
-        return -1;
-    }
+	if (queue == NULL) {
+		ULOGE("VideoCoreOmx: invalid queue pointer");
+		return -1;
+	}
+	if (buffer == NULL) {
+		ULOGE("VideoCoreOmx: invalid buffer pointer");
+		return -1;
+	}
+	if (!mConfigured) {
+		ULOGE("VideoCoreOmx: decoder is not configured");
+		return -1;
+	}
+	if (!mConfigured2) {
+		ULOGW("VideoCoreOmx: output params not known");
+		return -1;
+	}
+	if (!isOutputQueueValid(queue)) {
+		ULOGE("VideoCoreOmx: invalid output queue");
+		return -1;
+	}
 
-    if (!mConfigured)
-    {
-        ULOGE("videoCoreOmx: decoder is not configured");
-        return -1;
-    }
+	struct vbuf_buffer *buf = NULL;
+	int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
+	if ((ret != 0) || (buf == NULL)) {
+		ULOGD("VideoCoreOmx: failed to dequeue "
+			"an output buffer (%d)", ret);
+		return -2;
+	}
 
-    if (!mConfigured2)
-    {
-        ULOGW("videoCoreOmx: output params not known");
-        return -1;
-    }
+	*buffer = buf;
 
-    if (isOutputQueueValid(queue))
-    {
-        struct vbuf_buffer *buf = NULL;
-        int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
-        if ((ret == 0) && (buf != NULL))
-        {
-            *buffer = buf;
-        }
-        else
-        {
-            ULOGD("videoCoreOmx: failed to dequeue an output buffer (%d)", ret);
-            return -2;
-        }
-    }
-    else
-    {
-        ULOGE("videoCoreOmx: invalid output queue");
-        return -1;
-    }
-
-    return 0;
+	return 0;
 }
 
 
-int VideoCoreOmxAvcDecoder::releaseOutputBuffer(struct vbuf_buffer **buffer)
+int VideoCoreOmxAvcDecoder::releaseOutputBuffer(
+	struct vbuf_buffer **buffer)
 {
-    if (!buffer)
-    {
-        ULOGE("videoCoreOmx: invalid buffer pointer");
-        return -1;
-    }
+	if (buffer == NULL) {
+		ULOGE("VideoCoreOmx: invalid buffer pointer");
+		return -1;
+	}
+	if (!mConfigured) {
+		ULOGE("VideoCoreOmx: decoder is not configured");
+		return -1;
+	}
 
-    if (!mConfigured)
-    {
-        ULOGE("videoCoreOmx: decoder is not configured");
-        return -1;
-    }
+	vbuf_unref(buffer);
 
-    vbuf_unref(buffer);
-
-    return 0;
+	return 0;
 }
 
 
-int VideoCoreOmxAvcDecoder::stop()
+int VideoCoreOmxAvcDecoder::stop(
+	void)
 {
-    if (!mConfigured)
-    {
-        ULOGE("videoCoreOmx: decoder is not configured");
-        return -1;
-    }
+	if (!mConfigured) {
+		ULOGE("VideoCoreOmx: decoder is not configured");
+		return -1;
+	}
 
-    //TODO
-    mConfigured = false;
+	/* TODO */
+	mConfigured = false;
 
-    if (mInputBufferPool) vbuf_pool_abort(mInputBufferPool);
-    if (mOutputBufferPool) vbuf_pool_abort(mOutputBufferPool);
-    if (mInputBufferQueue) vbuf_queue_abort(mInputBufferQueue);
+	if (mInputBufferPool)
+		vbuf_pool_abort(mInputBufferPool);
+	if (mOutputBufferPool)
+		vbuf_pool_abort(mOutputBufferPool);
+	if (mInputBufferQueue)
+		vbuf_queue_abort(mInputBufferQueue);
 
-    return 0;
+	return 0;
 }
 
 
-void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(void *data, COMPONENT_T *comp, OMX_BUFFERHEADERTYPE *omxBuf)
+void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(
+	void *data,
+	COMPONENT_T *comp,
+	OMX_BUFFERHEADERTYPE *omxBuf)
 {
-    int _ret;
-    VideoCoreOmxAvcDecoder *decoder = (VideoCoreOmxAvcDecoder*)data;
-    struct vbuf_buffer *inputBuffer = NULL, *outputBuffer = NULL;
-    avc_decoder_input_buffer_t *inputData = NULL;
-    avc_decoder_output_buffer_t *outputData = NULL;
-    uint64_t ts = ((uint64_t)omxBuf->nTimeStamp.nHighPart << 32) | ((uint64_t)omxBuf->nTimeStamp.nLowPart & 0xFFFFFFFF);
+	int ret;
+	OMX_ERRORTYPE omxErr;
+	VideoCoreOmxAvcDecoder *decoder = (VideoCoreOmxAvcDecoder *)data;
+	struct vbuf_buffer *inputBuffer = NULL, *outputBuffer = NULL;
+	struct avcdecoder_input_buffer *inputMeta = NULL;
+	struct avcdecoder_output_buffer *outputMeta = NULL;
+	uint64_t ts = ((uint64_t)omxBuf->nTimeStamp.nHighPart << 32) |
+		((uint64_t)omxBuf->nTimeStamp.nLowPart & 0xFFFFFFFF);
+	struct vbuf_buffer *b;
+	uint8_t *userData = NULL;
+	unsigned int userDataSize = 0;
+	struct timespec t1;
 
-    if (!decoder->mConfigured)
-    {
-        vbuf_queue_flush(decoder->mInputBufferQueue);
-        goto out;
-    }
+	if (!decoder->mConfigured) {
+		vbuf_queue_flush(decoder->mInputBufferQueue);
+		goto out;
+	}
 
-    struct vbuf_buffer *b;
-    while ((_ret = vbuf_queue_peek(decoder->mInputBufferQueue, 0, &b)) == 0)
-    {
-        avc_decoder_input_buffer_t *d = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(b);
+	while ((ret = vbuf_queue_peek(decoder->mInputBufferQueue,
+		-1, &b)) == 0) {
+		struct avcdecoder_input_buffer *d =
+			(struct avcdecoder_input_buffer *)
+			vbuf_get_metadata_ptr(b);
 
-        if (ts > d->auNtpTimestampRaw)
-        {
-            int _ret = vbuf_queue_pop(decoder->mInputBufferQueue, 0, &b);
-            if ((_ret == 0) && (b))
-                vbuf_unref(&b);
-        }
-        else if (ts == d->auNtpTimestampRaw)
-        {
-            vbuf_queue_pop(decoder->mInputBufferQueue, 0, &inputBuffer);
-            inputData = d;
-            break;
-        }
-        else
-        {
-            break;
-        }
-    }
+		if (ts > d->auNtpTimestampRaw) {
+			ret = vbuf_queue_pop(decoder->mInputBufferQueue,
+				0, &b);
+			if ((ret == 0) && (b))
+				vbuf_unref(&b);
+		} else if (ts == d->auNtpTimestampRaw) {
+			vbuf_queue_pop(decoder->mInputBufferQueue,
+				0, &inputBuffer);
+			inputMeta = d;
+			break;
+		} else {
+			break;
+		}
+	}
 
-    if ((inputBuffer == NULL) || (inputData == NULL))
-    {
-        ULOGW("videoCoreOmx: failed to find buffer for TS %llu", ts);
-        goto out;
-    }
+	if ((inputBuffer == NULL) || (inputMeta == NULL)) {
+		ULOGW("VideoCoreOmx: failed to find buffer for TS %llu", ts);
+		goto out;
+	}
 
-    _ret = vbuf_pool_get(decoder->mOutputBufferPool, 0, &outputBuffer);
-    if ((_ret == 0) && (outputBuffer))
-    {
-        outputData = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(outputBuffer);
-        if (outputData)
-        {
-            struct timespec t1;
-            clock_gettime(CLOCK_MONOTONIC, &t1);
-            memset(outputData, 0, sizeof(*outputData));
-            outputData->plane[0] = (uint8_t*)decoder->mCurrentEglImageIndex;
-            outputData->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
-            outputData->width = decoder->mFrameWidth;
-            outputData->height = decoder->mFrameHeight;
-            outputData->sarWidth = 1; //TODO
-            outputData->sarHeight = 1; //TODO
-            outputData->stride[0] = decoder->mStride;
-            outputData->stride[1] = decoder->mStride / 2;
-            outputData->stride[2] = decoder->mStride / 2;
-            outputData->colorFormat = decoder->mOutputColorFormat;
-            if (inputData)
-            {
-                outputData->isComplete = inputData->isComplete;
-                outputData->hasErrors = inputData->hasErrors;
-                outputData->isRef = inputData->isRef;
-                outputData->isSilent = inputData->isSilent;
-                outputData->auNtpTimestamp = inputData->auNtpTimestamp;
-                outputData->auNtpTimestampRaw = inputData->auNtpTimestampRaw;
-                outputData->auNtpTimestampLocal = inputData->auNtpTimestampLocal;
-                outputData->demuxOutputTimestamp = inputData->demuxOutputTimestamp;
+	ret = vbuf_pool_get(decoder->mOutputBufferPool, 0, &outputBuffer);
+	if ((ret != 0) || (outputBuffer == NULL)) {
+		ULOGE("VideoCoreOmx: failed to get an output buffer (%d)", ret);
+		goto out;
+	}
 
-                if (inputData->hasMetadata)
-                {
-                    memcpy(&outputData->metadata, &inputData->metadata, sizeof(struct vmeta_frame_v2));
-                    outputData->hasMetadata = true;
-                }
-                else
-                {
-                    outputData->hasMetadata = false;
-                }
-            }
+	outputMeta = (struct avcdecoder_output_buffer *)
+		vbuf_get_metadata_ptr(outputBuffer);
+	if (outputMeta == NULL) {
+		ULOGE("VideoCoreOmx: invalid output buffer");
+		goto out;
+	}
 
-            /* User data */
-            unsigned int userDataSize = vbuf_get_userdata_size(inputBuffer);
-            uint8_t *userData = vbuf_get_userdata_ptr(inputBuffer);
-            if ((userData) && (userDataSize > 0))
-            {
-                int ret = vbuf_set_userdata_capacity(outputBuffer, userDataSize);
-                if (ret < (signed)userDataSize)
-                {
-                    ULOGE("ffmpeg: failed to realloc user data buffer");
-                }
-                else
-                {
-                    uint8_t *dstBuf = vbuf_get_userdata_ptr(outputBuffer);
-                    memcpy(dstBuf, userData, userDataSize);
-                    vbuf_set_userdata_size(outputBuffer, userDataSize);
-                }
-            }
-            else
-            {
-                vbuf_set_userdata_size(outputBuffer, 0);
-            }
+	clock_gettime(CLOCK_MONOTONIC, &t1);
+	memset(outputMeta, 0, sizeof(*outputMeta));
 
-            if (!outputData->isSilent)
-            {
-                std::vector<struct vbuf_queue*>::iterator q = decoder->mOutputBufferQueues.begin();
-                while (q != decoder->mOutputBufferQueues.end())
-                {
-                    vbuf_queue_push(*q, outputBuffer);
-                    q++;
-                }
-            }
-            else
-            {
-                ULOGI("videoCoreOmx: silent frame (ignored)");
-            }
-        }
-        else
-        {
-            ULOGE("videoCoreOmx: invalid output buffer");
-        }
-        vbuf_unref(&outputBuffer);
-    }
-    else
-    {
-        ULOGE("videoCoreOmx: failed to get an output buffer (%d)", _ret);
-    }
+	/* Pixel data */
+	outputMeta->plane[0] = (uint8_t *)decoder->mCurrentEglImageIndex;
+	outputMeta->width = decoder->mFrameWidth;
+	outputMeta->height = decoder->mFrameHeight;
+	outputMeta->sarWidth = 1; /* TODO */
+	outputMeta->sarHeight = 1; /* TODO */
+	outputMeta->stride[0] = decoder->mStride;
+	outputMeta->stride[1] = decoder->mStride / 2;
+	outputMeta->stride[2] = decoder->mStride / 2;
+	outputMeta->colorFormat = decoder->mOutputColorFormat;
+	outputMeta->isComplete = inputMeta->isComplete;
+	outputMeta->hasErrors = inputMeta->hasErrors;
+	outputMeta->isRef = inputMeta->isRef;
+	outputMeta->isSilent = inputMeta->isSilent;
+	outputMeta->auNtpTimestamp =
+		inputMeta->auNtpTimestamp;
+	outputMeta->auNtpTimestampRaw =
+		inputMeta->auNtpTimestampRaw;
+	outputMeta->auNtpTimestampLocal =
+		inputMeta->auNtpTimestampLocal;
+	outputMeta->demuxOutputTimestamp =
+		inputMeta->demuxOutputTimestamp;
+	outputMeta->decoderOutputTimestamp =
+		(uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+
+	/* Frame metadata */
+	if (inputMeta->hasMetadata) {
+		memcpy(&outputMeta->metadata, &inputMeta->metadata,
+			sizeof(struct vmeta_frame_v2));
+		outputMeta->hasMetadata = true;
+	} else {
+		outputMeta->hasMetadata = false;
+	}
+
+	/* User data */
+	userDataSize = vbuf_get_userdata_size(inputBuffer);
+	userData = vbuf_get_userdata_ptr(inputBuffer);
+	if ((userData) && (userDataSize > 0)) {
+		ret = vbuf_set_userdata_capacity(
+			outputBuffer, userDataSize);
+		if (ret < (signed)userDataSize) {
+			ULOGE("ffmpeg: failed to realloc user data buffer");
+		} else {
+			uint8_t *dstBuf = vbuf_get_userdata_ptr(outputBuffer);
+			memcpy(dstBuf, userData, userDataSize);
+			vbuf_set_userdata_size(outputBuffer, userDataSize);
+		}
+	} else {
+		vbuf_set_userdata_size(outputBuffer, 0);
+	}
+
+	/* Push the frame */
+	if (!outputMeta->isSilent) {
+		std::vector<struct vbuf_queue *>::iterator q =
+			decoder->mOutputBufferQueues.begin();
+		while (q != decoder->mOutputBufferQueues.end()) {
+			vbuf_queue_push(*q, outputBuffer);
+			q++;
+		}
+	} else {
+		ULOGI("VideoCoreOmx: silent frame (ignored)");
+	}
 
 out:
-    if (inputBuffer)
-    {
-        vbuf_unref(&inputBuffer);
-    }
+	if (outputBuffer != NULL)
+		vbuf_unref(&outputBuffer);
+	if (inputBuffer != NULL)
+		vbuf_unref(&inputBuffer);
 
-    decoder->mCurrentEglImageIndex = ((VideoCoreEglRenderer*)decoder->mRenderer)->swapDecoderEglImage();
-    if (OMX_FillThisBuffer(ILC_GET_HANDLE(decoder->mEglRender), decoder->mEglBuffer[decoder->mCurrentEglImageIndex]) != OMX_ErrorNone)
-    {
-        ULOGE("videoCoreOmx: OMX_FillThisBuffer() failed");
-    }
+	decoder->mCurrentEglImageIndex = ((VideoCoreEglRenderer *)
+		decoder->mRenderer)->swapDecoderEglImage();
+	omxErr = OMX_FillThisBuffer(ILC_GET_HANDLE(decoder->mEglRender),
+		decoder->mEglBuffer[decoder->mCurrentEglImageIndex]);
+	if (omxErr != OMX_ErrorNone)
+		ULOGE("VideoCoreOmx: OMX_FillThisBuffer() failed");
 }
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_VIDEOCOREOMX */

@@ -1319,7 +1319,7 @@ eARSTREAM2_ERROR StreamDemuxer::h264FilterAuReadyCallback(uint8_t *auBuffer, int
     if (demuxer->mCurrentBuffer)
     {
         buffer = demuxer->mCurrentBuffer;
-        avc_decoder_input_buffer_t *data = (avc_decoder_input_buffer_t*)vbuf_get_metadata_ptr(buffer);
+        struct avcdecoder_input_buffer *data = (struct avcdecoder_input_buffer*)vbuf_get_metadata_ptr(buffer);
         struct timespec t1;
 
         vbuf_set_size(buffer, auSize);

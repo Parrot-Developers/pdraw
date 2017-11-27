@@ -38,82 +38,105 @@ extern "C" {
 #include <libavutil/avutil.h>
 #include <libswscale/swscale.h>
 }
-
 #include <pthread.h>
 #include <vector>
-
 #include "pdraw_avcdecoder.hpp"
 
-
-#define FFMPEG_AVC_DECODER_INPUT_BUFFER_COUNT 5
-#define FFMPEG_AVC_DECODER_INPUT_BUFFER_SIZE 4096 * 2160 / 2
-#define FFMPEG_AVC_DECODER_OUTPUT_BUFFER_COUNT 5
+namespace Pdraw {
 
 
-namespace Pdraw
-{
+#define AVCDECODER_FFMPEG_INPUT_BUFFER_COUNT	(5)
+#define AVCDECODER_FFMPEG_INPUT_BUFFER_SIZE 	(4096 * 2160 / 2)
+#define AVCDECODER_FFMPEG_OUTPUT_BUFFER_COUNT 	(5)
 
 
-class FfmpegAvcDecoder : public AvcDecoder
-{
+class FfmpegAvcDecoder : public AvcDecoder {
 public:
+	FfmpegAvcDecoder(
+		VideoMedia *media);
 
-    FfmpegAvcDecoder(VideoMedia *media);
+	~FfmpegAvcDecoder(
+		void);
 
-    ~FfmpegAvcDecoder();
+	uint32_t getInputBitstreamFormatCaps(
+		void) {
+		return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM;
+	}
 
-    uint32_t getInputBitstreamFormatCaps() { return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM; };
+	int configure(
+		uint32_t inputBitstreamFormat,
+		const uint8_t *pSps,
+		unsigned int spsSize,
+		const uint8_t *pPps,
+		unsigned int ppsSize);
 
-    int configure(uint32_t inputBitstreamFormat,
-        const uint8_t *pSps, unsigned int spsSize,
-        const uint8_t *pPps, unsigned int ppsSize);
+	bool isConfigured(
+		void) {
+		return mConfigured;
+	}
 
-    bool isConfigured() { return mConfigured; };
+	int getInputBuffer(
+		struct vbuf_buffer **buffer,
+		bool blocking);
 
-    int getInputBuffer(struct vbuf_buffer **buffer, bool blocking);
+	int queueInputBuffer(
+		struct vbuf_buffer *buffer);
 
-    int queueInputBuffer(struct vbuf_buffer *buffer);
+	struct vbuf_queue *addOutputQueue(
+		void);
 
-    struct vbuf_queue *addOutputQueue();
+	int removeOutputQueue(
+		struct vbuf_queue *queue);
 
-    int removeOutputQueue(struct vbuf_queue *queue);
+	int dequeueOutputBuffer(
+		struct vbuf_queue *queue,
+		struct vbuf_buffer **buffer,
+		bool blocking);
 
-    int dequeueOutputBuffer(struct vbuf_queue *queue, struct vbuf_buffer **buffer, bool blocking);
+	int releaseOutputBuffer(
+		struct vbuf_buffer **buffer);
 
-    int releaseOutputBuffer(struct vbuf_buffer **buffer);
+	int stop(
+		void);
 
-    int stop();
+	Media *getMedia(
+		void) {
+		return mMedia;
+	}
 
-    Media *getMedia() { return mMedia; };
-
-    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+	VideoMedia *getVideoMedia(
+		void) {
+		return (VideoMedia *)mMedia;
+	}
 
 private:
+	bool isOutputQueueValid(
+		struct vbuf_queue *queue);
 
-    bool isOutputQueueValid(struct vbuf_queue *queue);
+	static void* runDecoderThread(
+		void *ptr);
 
-    static void* runDecoderThread(void *ptr);
+	int decode(
+		struct vbuf_buffer *inputBuffer,
+		struct vbuf_buffer *outputBuffer);
 
-    int decode(struct vbuf_buffer *inputBuffer, struct vbuf_buffer *outputBuffer);
-
-    struct vbuf_pool *mInputBufferPool;
-    struct vbuf_queue *mInputBufferQueue;
-    struct vbuf_pool *mOutputBufferPool;
-    std::vector<struct vbuf_queue*> mOutputBufferQueues;
-    pthread_t mDecoderThread;
-    bool mDecoderThreadLaunched;
-    bool mThreadShouldStop;
-    AVCodec *mCodecH264;
-    AVCodecContext *mCodecCtxH264;
-    AVPacket mPacket;
-    uint32_t mOutputColorFormat;
-    unsigned int mFrameWidth;
-    unsigned int mFrameHeight;
-    unsigned int mSarWidth;
-    unsigned int mSarHeight;
+	struct vbuf_pool *mInputBufferPool;
+	struct vbuf_queue *mInputBufferQueue;
+	struct vbuf_pool *mOutputBufferPool;
+	std::vector<struct vbuf_queue*> mOutputBufferQueues;
+	pthread_t mDecoderThread;
+	bool mDecoderThreadLaunched;
+	bool mThreadShouldStop;
+	AVCodecContext *mCodecCtx;
+	AVPacket mPacket;
+	uint32_t mOutputColorFormat;
+	unsigned int mFrameWidth;
+	unsigned int mFrameHeight;
+	unsigned int mSarWidth;
+	unsigned int mSarHeight;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_FFMPEG */
 

@@ -289,7 +289,7 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
     }
 
     struct vbuf_buffer *buffer = NULL;
-    avc_decoder_output_buffer_t *data = NULL;
+    struct avcdecoder_output_buffer *data = NULL;
     int dequeueRet;
     bool load = false;
 
@@ -316,7 +316,7 @@ int VideoCoreEglRenderer::render(uint64_t lastRenderTime)
 
     if (mCurrentBuffer)
     {
-        data = (avc_decoder_output_buffer_t*)vbuf_get_metadata_ptr(mCurrentBuffer);
+        data = (struct avcdecoder_output_buffer*)vbuf_get_metadata_ptr(mCurrentBuffer);
 
         if (data)
         {
