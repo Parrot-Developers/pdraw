@@ -32,12 +32,22 @@ package net.akaaba.libpdraw;
 import android.view.Surface;
 import java.nio.ByteBuffer;
 
+import static android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar;
+import static android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar;
+import static net.akaaba.libpdraw.Pdraw.ColorFormat.PDRAW_COLOR_FORMAT_UNKNOWN;
+
 public class Pdraw {
     public static final float PDRAW_PLAY_SPEED_MAX = 1000.f;
 
     private static final String LIBRARY_NAME = "pdraw_android";
     private long pdrawCtx;
     private VideoFrameListener mListener;
+
+    enum ColorFormat {
+        PDRAW_COLOR_FORMAT_UNKNOWN,
+        PDRAW_COLOR_FORMAT_YUV420PLANAR,
+        PDRAW_COLOR_FORMAT_YUV420SEMIPLANAR,
+    }
 
     static {
         System.loadLibrary(LIBRARY_NAME);
@@ -97,7 +107,7 @@ public class Pdraw {
     };
 
     public static class VideoFrame {
-        private int mColorFormat;
+        private ColorFormat mColorFormat;
         private int mWidth;
         private int mHeight;
         private ByteBuffer mPixels;
@@ -107,7 +117,11 @@ public class Pdraw {
         private int mUserDataSize;
 
         private VideoFrame(int colorFormat, int width, int height, ByteBuffer pixels, int stride, long timestamp, long userData, int userDataSize) {
-            mColorFormat = colorFormat;
+            try {
+                mColorFormat = ColorFormat.values()[colorFormat];
+            } catch(ArrayIndexOutOfBoundsException e) {
+                mColorFormat = PDRAW_COLOR_FORMAT_UNKNOWN;
+            }
             mWidth = width;
             mHeight = height;
             mPixels = pixels;
@@ -118,7 +132,13 @@ public class Pdraw {
         }
 
         public int getColorFormat() {
-            return mColorFormat;
+            switch (mColorFormat) {
+                case PDRAW_COLOR_FORMAT_YUV420PLANAR:
+                    return COLOR_FormatYUV420Planar;
+                case PDRAW_COLOR_FORMAT_YUV420SEMIPLANAR:
+                    return COLOR_FormatYUV420SemiPlanar;
+            }
+            return 0;
         }
 
         public int getWidth() {
