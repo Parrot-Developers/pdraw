@@ -796,18 +796,19 @@ void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(
 			(struct avcdecoder_input_buffer *)
 			vbuf_get_metadata_ptr(b);
 
-		if (ts > d->auNtpTimestampRaw) {
-			ret = vbuf_queue_pop(decoder->mInputBufferQueue,
-				0, &b);
-			if ((ret == 0) && (b))
-				vbuf_unref(&b);
-		} else if (ts == d->auNtpTimestampRaw) {
+		if (ts == d->auNtpTimestampRaw) {
 			vbuf_queue_pop(decoder->mInputBufferQueue,
 				0, &inputBuffer);
 			inputMeta = d;
 			break;
 		} else {
-			break;
+			ret = vbuf_queue_pop(decoder->mInputBufferQueue,
+				0, &b);
+			if ((ret == 0) && (b))
+				vbuf_unref(&b);
+			ULOGD("VideoCoreOmx: discarded input buffer with "
+				"TS %" PRIu64 " (expected %" PRIu64 ")",
+				d->auNtpTimestampRaw, ts);
 		}
 	}
 
