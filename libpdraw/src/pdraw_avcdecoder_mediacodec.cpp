@@ -547,18 +547,19 @@ int MediaCodecAvcDecoder::pollDecoderOutput(
 				(struct avcdecoder_input_buffer *)
 				vbuf_get_metadata_ptr(b);
 
-			if (timestamp > d->auNtpTimestampRaw) {
-				_ret = vbuf_queue_pop(mInputBufferQueue,
-					0, &b);
-				if ((_ret == 0) && (b))
-					vbuf_unref(&b);
-			} else if (timestamp == d->auNtpTimestampRaw) {
+			if (timestamp == d->auNtpTimestampRaw) {
 				vbuf_queue_pop(mInputBufferQueue,
 					0, &inputBuffer);
 				inputMeta = d;
 				break;
 			} else {
-				break;
+				_ret = vbuf_queue_pop(mInputBufferQueue,
+					0, &b);
+				if ((_ret == 0) && (b))
+					vbuf_unref(&b);
+				ULOGD("MediaCodec: discarded input buffer with "
+					"TS %" PRIu64 " (expected %" PRIu64 ")",
+					d->auNtpTimestampRaw, timestamp);
 			}
 		}
 
