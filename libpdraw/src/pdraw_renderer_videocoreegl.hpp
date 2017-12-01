@@ -33,60 +33,66 @@
 #ifdef USE_VIDEOCOREEGL
 
 #include <pthread.h>
-#include "GLES2/gl2.h"
+#include <GLES2/gl2.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
 #include "pdraw_gles2_hmd.hpp"
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
-class VideoCoreEglRenderer : public Gles2Renderer
-{
+class VideoCoreEglRenderer : public Gles2Renderer {
 public:
+	VideoCoreEglRenderer(
+		Session *session);
 
-    VideoCoreEglRenderer(Session *session);
+	~VideoCoreEglRenderer(
+		void);
 
-    ~VideoCoreEglRenderer();
+	int setRendererParams(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler);
 
-    int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, bool headtracking,
-             void *uiHandler);
+	int setVideoDimensions(
+		unsigned int videoWidth,
+		unsigned int videoHeight);
 
-    int setVideoDimensions(unsigned int videoWidth, unsigned int videoHeight);
+	void* getVideoEglImage(
+		int index);
 
-    void* getVideoEglImage(int index);
+	int swapDecoderEglImage(
+		void);
 
-    int swapDecoderEglImage();
-
-    int render(uint64_t lastRenderTime);
+	int render(
+		uint64_t lastRenderTime);
 
 private:
+	int swapRendererEglImage(
+		void);
 
-    int swapRendererEglImage();
-
-    int mVideoWidth;
-    int mVideoHeight;
-    EGLDisplay mDisplay;
-    EGLSurface mSurface;
-    EGLContext mContext;
-    void *mEglImage[3];
-    int mEglImageIdxReady;
-    int mEglImageIdxDecoderLocked;
-    int mEglImageIdxRendererLocked;
-    pthread_mutex_t mEglImageMutex;
+	int mVideoWidth;
+	int mVideoHeight;
+	EGLDisplay mDisplay;
+	EGLSurface mSurface;
+	EGLContext mContext;
+	void *mEglImage[3];
+	int mEglImageIdxReady;
+	int mEglImageIdxDecoderLocked;
+	int mEglImageIdxRendererLocked;
+	pthread_mutex_t mEglImageMutex;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_VIDEOCOREEGL */
 

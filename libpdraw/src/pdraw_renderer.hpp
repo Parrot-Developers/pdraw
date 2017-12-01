@@ -32,9 +32,7 @@
 
 #include "pdraw_avcdecoder.hpp"
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
 class Session;
@@ -42,39 +40,48 @@ class Media;
 class VideoMedia;
 
 
-class Renderer
-{
+class Renderer {
 public:
+	virtual ~Renderer(
+		void) {}
 
-    virtual ~Renderer() {};
+	virtual int addAvcDecoder(
+		AvcDecoder *decoder) = 0;
 
-    virtual int addAvcDecoder(AvcDecoder *decoder) = 0;
+	virtual int removeAvcDecoder(
+		AvcDecoder *decoder) = 0;
 
-    virtual int removeAvcDecoder(AvcDecoder *decoder) = 0;
+	virtual int setRendererParams(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler) = 0;
 
-    virtual int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, bool headtracking,
-             void *uiHandler) = 0;
+	virtual int render(
+		uint64_t lastRenderTime) = 0;
 
-    virtual int render(uint64_t lastRenderTime) = 0;
+	virtual Session *getSession(
+		void) = 0;
 
-    virtual Session *getSession() = 0;
+	virtual Media *getMedia(
+		void) = 0;
 
-    virtual Media *getMedia() = 0;
+	virtual VideoMedia *getVideoMedia(
+		void) = 0;
 
-    virtual VideoMedia *getVideoMedia() = 0;
-
-    static Renderer *create(Session *session);
+	static Renderer *create(
+		Session *session);
 
 protected:
-
-    Session *mSession;
-    Media *mMedia;
+	Session *mSession;
+	Media *mMedia;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_RENDERER_HPP_ */

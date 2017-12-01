@@ -33,84 +33,104 @@
 #ifdef USE_GLES2
 
 #include <pthread.h>
-
 #include "pdraw_renderer.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
 #include "pdraw_gles2_hmd.hpp"
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
-class Gles2Renderer : public Renderer
-{
+class Gles2Renderer : public Renderer {
 public:
+	Gles2Renderer(
+		Session *session,
+		bool initGles2 = true);
 
-    Gles2Renderer(Session *session, bool initGles2 = true);
+	~Gles2Renderer(
+		void);
 
-    ~Gles2Renderer();
+	int addAvcDecoder(
+		AvcDecoder *decoder);
 
-    int addAvcDecoder(AvcDecoder *decoder);
+	int removeAvcDecoder(
+		AvcDecoder *decoder);
 
-    int removeAvcDecoder(AvcDecoder *decoder);
+	int setRendererParams(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler);
 
-    int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, bool headtracking,
-             void *uiHandler);
+	int render(
+		uint64_t lastRenderTime);
 
-    int render(uint64_t lastRenderTime);
+	Session *getSession(
+		void) {
+		return mSession;
+	}
 
-    Session *getSession() { return mSession; };
+	Media *getMedia(
+		void) {
+		return mMedia;
+	}
 
-    Media *getMedia() { return mMedia; };
-
-    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+	VideoMedia *getVideoMedia(
+		void) {
+		return (VideoMedia *)mMedia;
+	}
 
 protected:
+	int initGles2(
+		void);
 
-    int initGles2();
+	int destroyGles2(
+		void);
 
-    int destroyGles2();
+	int setRendererParams_nolock(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler);
 
-    int setRendererParams_nolock
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, bool headtracking,
-             void *uiHandler);
+	int render_nolock(
+		uint64_t lastRenderTime);
 
-    int render_nolock(uint64_t lastRenderTime);
-
-    pthread_mutex_t mMutex;
-    bool mRunning;
-    AvcDecoder *mDecoder;
-    struct vbuf_queue *mDecoderOutputBufferQueue;
-    struct vbuf_buffer *mCurrentBuffer;
-    int mWindowWidth;
-    int mWindowHeight;
-    int mRenderX;
-    int mRenderY;
-    int mRenderWidth;
-    int mRenderHeight;
-    bool mHmdDistorsionCorrection;
-    bool mHeadtracking;
-    Gles2Hmd *mGles2Hmd;
-    unsigned int mGles2HmdFirstTexUnit;
-    Gles2Video *mGles2Video;
-    unsigned int mGles2VideoFirstTexUnit;
-    Gles2Hud *mGles2Hud;
-    unsigned int mGles2HudFirstTexUnit;
-    GLuint mFbo;
-    GLuint mFboTexture;
-    GLuint mFboRenderBuffer;
+	pthread_mutex_t mMutex;
+	bool mRunning;
+	AvcDecoder *mDecoder;
+	struct vbuf_queue *mDecoderOutputBufferQueue;
+	struct vbuf_buffer *mCurrentBuffer;
+	int mWindowWidth;
+	int mWindowHeight;
+	int mRenderX;
+	int mRenderY;
+	int mRenderWidth;
+	int mRenderHeight;
+	bool mHmdDistorsionCorrection;
+	bool mHeadtracking;
+	Gles2Hmd *mGles2Hmd;
+	unsigned int mGles2HmdFirstTexUnit;
+	Gles2Video *mGles2Video;
+	unsigned int mGles2VideoFirstTexUnit;
+	Gles2Hud *mGles2Hud;
+	unsigned int mGles2HudFirstTexUnit;
+	GLuint mFbo;
+	GLuint mFboTexture;
+	GLuint mFboRenderBuffer;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_GLES2 */
 

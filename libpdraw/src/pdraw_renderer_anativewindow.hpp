@@ -36,49 +36,51 @@
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <android/native_window.h>
-
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
-class ANativeWindowRenderer : public Gles2Renderer
-{
+class ANativeWindowRenderer : public Gles2Renderer {
 public:
+	ANativeWindowRenderer(
+		Session *session);
 
-    ANativeWindowRenderer(Session *session);
+	~ANativeWindowRenderer(
+		void);
 
-    ~ANativeWindowRenderer();
+	int setRendererParams(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler);
 
-    int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, bool headtracking,
-             void *uiHandler);
-
-    int render(uint64_t lastRenderTime);
+	int render(
+		uint64_t lastRenderTime);
 
 private:
+	static void* runRendererThread(
+		void *ptr);
 
-    static void* runRendererThread(void *ptr);
-
-    pthread_t mRendererThread;
-    bool mRendererThreadLaunched;
-    bool mThreadShouldStop;
-    int mVideoWidth;
-    int mVideoHeight;
-    ANativeWindow *mWindow;
-    EGLDisplay mDisplay;
-    EGLSurface mSurface;
-    EGLContext mContext;
+	pthread_t mRendererThread;
+	bool mRendererThreadLaunched;
+	bool mThreadShouldStop;
+	int mVideoWidth;
+	int mVideoHeight;
+	ANativeWindow *mWindow;
+	EGLDisplay mDisplay;
+	EGLSurface mSurface;
+	EGLContext mContext;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_ANATIVEWINDOW */
 

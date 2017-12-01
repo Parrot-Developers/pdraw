@@ -31,52 +31,65 @@
 #define _PDRAW_RENDERER_NULL_HPP_
 
 #include <pthread.h>
-
 #include "pdraw_renderer.hpp"
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
-class NullRenderer : public Renderer
-{
+class NullRenderer : public Renderer {
 public:
+	NullRenderer(
+		Session *session);
 
-    NullRenderer(Session *session);
+	~NullRenderer(
+		void);
 
-    ~NullRenderer();
+	int addAvcDecoder(
+		AvcDecoder *decoder);
 
-    int addAvcDecoder(AvcDecoder *decoder);
+	int removeAvcDecoder(
+		AvcDecoder *decoder);
 
-    int removeAvcDecoder(AvcDecoder *decoder);
+	int setRendererParams(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler);
 
-    int setRendererParams
-            (int windowWidth, int windowHeight,
-             int renderX, int renderY,
-             int renderWidth, int renderHeight,
-             bool hmdDistorsionCorrection, bool headtracking,
-             void *uiHandler);
+	int render(
+		uint64_t lastRenderTime);
 
-    int render(uint64_t lastRenderTime);
+	Session *getSession(
+		void) {
+		return mSession;
+	}
 
-    Session *getSession() { return mSession; };
+	Media *getMedia(
+		void) {
+		return mMedia;
+	}
 
-    Media *getMedia() { return mMedia; };
-
-    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+	VideoMedia *getVideoMedia(
+		void) {
+		return (VideoMedia *)mMedia;
+	}
 
 private:
+	static void* runRendererThread(
+		void *ptr);
 
-    static void* runRendererThread(void *ptr);
-
-    AvcDecoder *mDecoder;
-    struct vbuf_queue *mDecoderOutputBufferQueue;
-    pthread_t mRendererThread;
-    bool mRendererThreadLaunched;
-    bool mThreadShouldStop;
+	AvcDecoder *mDecoder;
+	struct vbuf_queue *mDecoderOutputBufferQueue;
+	pthread_t mRendererThread;
+	bool mRendererThreadLaunched;
+	bool mThreadShouldStop;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_RENDERER_NULL_HPP_ */

@@ -33,21 +33,19 @@
 #include "pdraw_renderer_videocoreegl.hpp"
 #include "pdraw_renderer_anativewindow.hpp"
 
+namespace Pdraw {
 
-namespace Pdraw
-{
-
-Renderer *Renderer::create(Session *session)
-{
+Renderer *Renderer::create(
+	Session *session) {
 #if defined(USE_ANATIVEWINDOW)
-    return new ANativeWindowRenderer(session);
+	return new ANativeWindowRenderer(session);
 #elif defined(USE_VIDEOCOREEGL)
-    return new VideoCoreEglRenderer(session);
+	return new VideoCoreEglRenderer(session);
 #elif defined(USE_GLES2)
-    return new Gles2Renderer(session);
+	return new Gles2Renderer(session);
 #else
-    return new NullRenderer(session);
+	return new NullRenderer(session);
 #endif
 }
 
-}
+} /* namespace Pdraw */
