@@ -40,6 +40,8 @@
 #define ULOG_TAG libpdraw
 #include <ulog.h>
 
+namespace Pdraw {
+
 
 #define GLES2_HMD_INCH_TO_MILLIMETER     (25.4f)
 #define GLES2_HMD_OFFSET                 (34.66f)
@@ -48,427 +50,447 @@
 extern const float pdraw_gles2HmdCockpitglassesColors[14884];
 extern const uint32_t pdraw_gles2HmdCockpitglassesIndices[21600];
 extern const float pdraw_gles2HmdCockpitglassesPositions[7442];
-extern const float pdraw_gles2HmdCockpitglassesTexCoordsRed[7450];
-extern const float pdraw_gles2HmdCockpitglassesTexCoordsGreen[7450];
-extern const float pdraw_gles2HmdCockpitglassesTexCoordsBlue[7450];
+extern const float pdraw_gles2HmdCockpitglassesTexCoordsRed[7442];
+extern const float pdraw_gles2HmdCockpitglassesTexCoordsGreen[7442];
+extern const float pdraw_gles2HmdCockpitglassesTexCoordsBlue[7442];
 
 extern const float pdraw_gles2HmdCockpitglasses2Colors[14884];
 extern const uint32_t pdraw_gles2HmdCockpitglasses2Indices[21600];
 extern const float pdraw_gles2HmdCockpitglasses2Positions[7442];
-extern const float pdraw_gles2HmdCockpitglasses2TexCoordsRed[7450];
-extern const float pdraw_gles2HmdCockpitglasses2TexCoordsGreen[7450];
-extern const float pdraw_gles2HmdCockpitglasses2TexCoordsBlue[7450];
+extern const float pdraw_gles2HmdCockpitglasses2TexCoordsRed[7442];
+extern const float pdraw_gles2HmdCockpitglasses2TexCoordsGreen[7442];
+extern const float pdraw_gles2HmdCockpitglasses2TexCoordsBlue[7442];
 
 extern const GLchar *pdraw_gles2HmdVertexShader;
 extern const GLchar *pdraw_gles2HmdFragmentShader;
 
 
-namespace Pdraw
+Gles2HmdEye::Gles2HmdEye(
+	unsigned int firstTexUnit,
+	enum pdraw_hmd_model hmdModel,
+	float scale,
+	float panH,
+	float panV,
+	float metricsWidth,
+	float metricsHeight,
+	float eyeOffsetX,
+	float eyeOffsetY)
 {
+	mFirstTexUnit = firstTexUnit;
+	mHmdModel = hmdModel;
+	mRotation = 0;
+	mScale = scale;
+	mPanH = panH;
+	mPanV = panV;
+	mMetricsWidth = metricsWidth;
+	mMetricsHeight = metricsHeight;
+	mEyeOffsetX = eyeOffsetX;
+	mEyeOffsetY = eyeOffsetY;
+	mProgram = 0;
+	mIndicesBufferHandle = 0;
+	mPositionBufferHandle = 0;
+	mColorBufferHandle = 0;
+	mTexCoord0BufferHandle = 0;
+	mTexCoord1BufferHandle = 0;
+	mTexCoord2BufferHandle = 0;
 
+	GLint vertexShader = 0, fragmentShader = 0;
+	GLint success = 0;
 
-Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit, enum pdraw_hmd_model hmdModel,
-                         float scale, float panH, float panV,
-                         float metricsWidth, float metricsHeight,
-                         float eyeOffsetX, float eyeOffsetY)
-{
-    mFirstTexUnit = firstTexUnit;
-    mHmdModel = hmdModel;
-    mRotation = 0;
-    mScale = scale;
-    mPanH = panH;
-    mPanV = panV;
-    mMetricsWidth = metricsWidth;
-    mMetricsHeight = metricsHeight;
-    mEyeOffsetX = eyeOffsetX;
-    mEyeOffsetY = eyeOffsetY;
+	vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
+		ULOGE("Gles2HmdEye: failed to create vertex shader");
+		goto err;
+	}
 
-    GLint vertexShader, fragmentShader;
-    GLint success = 0;
-    int ret = 0;
+	glShaderSource(vertexShader, 1, &pdraw_gles2HmdVertexShader, NULL);
+	glCompileShader(vertexShader);
+	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		GLchar infoLog[512];
+		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+		ULOGE("Gles2HmdEye: vertex shader compilation failed '%s'",
+			infoLog);
+		goto err;
+	}
 
-    if (ret == 0)
-    {
-        vertexShader = glCreateShader(GL_VERTEX_SHADER);
-        if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM))
-        {
-            ULOGE("Gles2HmdEye: failed to create vertex shader");
-            ret = -1;
-        }
-    }
+	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+	if ((fragmentShader == 0) || (fragmentShader == GL_INVALID_ENUM)) {
+		ULOGE("Gles2HmdEye: failed to create fragment shader");
+		goto err;
+	}
 
-    if (ret == 0)
-    {
-        glShaderSource(vertexShader, 1, &pdraw_gles2HmdVertexShader, NULL);
-        glCompileShader(vertexShader);
-        GLint success = 0;
-        glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-        if (!success)
-        {
-            GLchar infoLog[512];
-            glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-            ULOGE("Gles2HmdEye: vertex shader compilation failed '%s'", infoLog);
-            ret = -1;
-        }
-    }
+	glShaderSource(fragmentShader, 1, &pdraw_gles2HmdFragmentShader, NULL);
+	glCompileShader(fragmentShader);
+	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
+	if (!success) {
+		GLchar infoLog[512];
+		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+		ULOGE("Gles2HmdEye: fragment shader compilation failed '%s'",
+			infoLog);
+		goto err;
+	}
 
-    if (ret == 0)
-    {
-        fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-        if ((fragmentShader == 0) || (fragmentShader == GL_INVALID_ENUM))
-        {
-            ULOGE("Gles2HmdEye: failed to create fragment shader");
-            ret = -1;
-        }
-    }
+	/* Link shaders */
+	mProgram = glCreateProgram();
+	glAttachShader(mProgram, vertexShader);
+	glAttachShader(mProgram, fragmentShader);
+	glLinkProgram(mProgram);
+	glGetProgramiv(mProgram, GL_LINK_STATUS, &success);
+	if (!success) {
+		GLchar infoLog[512];
+		glGetProgramInfoLog(mProgram, 512, NULL, infoLog);
+		ULOGE("Gles2HmdEye: program link failed '%s'", infoLog);
+		goto err;
+	}
 
-    if (ret == 0)
-    {
-        glShaderSource(fragmentShader, 1, &pdraw_gles2HmdFragmentShader, NULL);
-        glCompileShader(fragmentShader);
-        GLint success = 0;
-        glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-        if (!success)
-        {
-            GLchar infoLog[512];
-            glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-            ULOGE("Gles2HmdEye: fragment shader compilation failed '%s'", infoLog);
-            ret = -1;
-        }
-    }
+	glDeleteShader(vertexShader);
+	vertexShader = 0;
+	glDeleteShader(fragmentShader);
+	fragmentShader = 0;
 
-    if (ret == 0)
-    {
-        /* Link shaders */
-        mProgram = glCreateProgram();
-        glAttachShader(mProgram, vertexShader);
-        glAttachShader(mProgram, fragmentShader);
-        glLinkProgram(mProgram);
-        glGetProgramiv(mProgram, GL_LINK_STATUS, &success);
-        if (!success)
-        {
-            GLchar infoLog[512];
-            glGetProgramInfoLog(mProgram, 512, NULL, infoLog);
-            ULOGE("Gles2HmdEye: program link failed '%s'", infoLog);
-            ret = -1;
-        }
+	GLuint buffer[6];
+	glGenBuffers(6, buffer);
 
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
-    }
+	switch (mHmdModel) {
+	default:
+	case PDRAW_HMD_MODEL_COCKPITGLASSES:
+		mIndicesBufferHandle = buffer[0];
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglassesIndices),
+			pdraw_gles2HmdCockpitglassesIndices, GL_STATIC_DRAW);
 
-    if (ret == 0)
-    {
-        GLuint buffer[6];
-        glGenBuffers(6, buffer);
+		mPositionBufferHandle = buffer[1];
+		glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglassesPositions),
+			pdraw_gles2HmdCockpitglassesPositions, GL_STATIC_DRAW);
 
-        //TODO: support different HMD models
-        switch (mHmdModel)
-        {
-        default:
-        case PDRAW_HMD_MODEL_COCKPITGLASSES:
-            mIndicesBufferHandle = buffer[0];
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesIndices), pdraw_gles2HmdCockpitglassesIndices, GL_STATIC_DRAW);
+		mColorBufferHandle = buffer[2];
+		glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglassesColors),
+			pdraw_gles2HmdCockpitglassesColors, GL_STATIC_DRAW);
 
-            mPositionBufferHandle = buffer[1];
-            glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesPositions), pdraw_gles2HmdCockpitglassesPositions, GL_STATIC_DRAW);
+		mTexCoord0BufferHandle = buffer[3];
+		glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglassesTexCoordsRed),
+			pdraw_gles2HmdCockpitglassesTexCoordsRed,
+			GL_STATIC_DRAW);
 
-            mColorBufferHandle = buffer[2];
-            glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesColors), pdraw_gles2HmdCockpitglassesColors, GL_STATIC_DRAW);
+		mTexCoord1BufferHandle = buffer[4];
+		glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglassesTexCoordsGreen),
+			pdraw_gles2HmdCockpitglassesTexCoordsGreen,
+			GL_STATIC_DRAW);
 
-            mTexCoord0BufferHandle = buffer[3];
-            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesTexCoordsRed), pdraw_gles2HmdCockpitglassesTexCoordsRed, GL_STATIC_DRAW);
+		mTexCoord2BufferHandle = buffer[5];
+		glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglassesTexCoordsBlue),
+			pdraw_gles2HmdCockpitglassesTexCoordsBlue,
+			GL_STATIC_DRAW);
+		break;
+	case PDRAW_HMD_MODEL_COCKPITGLASSES_2:
+		mIndicesBufferHandle = buffer[0];
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglasses2Indices),
+			pdraw_gles2HmdCockpitglasses2Indices, GL_STATIC_DRAW);
 
-            mTexCoord1BufferHandle = buffer[4];
-            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesTexCoordsGreen), pdraw_gles2HmdCockpitglassesTexCoordsGreen, GL_STATIC_DRAW);
+		mPositionBufferHandle = buffer[1];
+		glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglasses2Positions),
+			pdraw_gles2HmdCockpitglasses2Positions, GL_STATIC_DRAW);
 
-            mTexCoord2BufferHandle = buffer[5];
-            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglassesTexCoordsBlue), pdraw_gles2HmdCockpitglassesTexCoordsBlue, GL_STATIC_DRAW);
-            break;
-        case PDRAW_HMD_MODEL_COCKPITGLASSES_2:
-            mIndicesBufferHandle = buffer[0];
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2Indices), pdraw_gles2HmdCockpitglasses2Indices, GL_STATIC_DRAW);
+		mColorBufferHandle = buffer[2];
+		glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglasses2Colors),
+			pdraw_gles2HmdCockpitglasses2Colors, GL_STATIC_DRAW);
 
-            mPositionBufferHandle = buffer[1];
-            glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2Positions), pdraw_gles2HmdCockpitglasses2Positions, GL_STATIC_DRAW);
+		mTexCoord0BufferHandle = buffer[3];
+		glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsRed),
+			pdraw_gles2HmdCockpitglasses2TexCoordsRed,
+			GL_STATIC_DRAW);
 
-            mColorBufferHandle = buffer[2];
-            glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2Colors), pdraw_gles2HmdCockpitglasses2Colors, GL_STATIC_DRAW);
+		mTexCoord1BufferHandle = buffer[4];
+		glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsGreen),
+			pdraw_gles2HmdCockpitglasses2TexCoordsGreen,
+			GL_STATIC_DRAW);
 
-            mTexCoord0BufferHandle = buffer[3];
-            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsRed), pdraw_gles2HmdCockpitglasses2TexCoordsRed, GL_STATIC_DRAW);
+		mTexCoord2BufferHandle = buffer[5];
+		glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
+		glBufferData(GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsBlue),
+			pdraw_gles2HmdCockpitglasses2TexCoordsBlue,
+			GL_STATIC_DRAW);
+		break;
+	}
 
-            mTexCoord1BufferHandle = buffer[4];
-            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsGreen), pdraw_gles2HmdCockpitglasses2TexCoordsGreen, GL_STATIC_DRAW);
+	mProgramTexture = glGetUniformLocation(mProgram, "Texture0");
+	if (mProgramTexture < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform 'Texture0' "
+			"location loading program");
 
-            mTexCoord2BufferHandle = buffer[5];
-            glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsBlue), pdraw_gles2HmdCockpitglasses2TexCoordsBlue, GL_STATIC_DRAW);
-            break;
-        }
-    }
+	mProgramEyeToSourceUVScale = glGetUniformLocation(mProgram,
+		"EyeToSourceUVScale");
+	if (mProgramEyeToSourceUVScale < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceUVScale' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramTexture = glGetUniformLocation(mProgram, "Texture0");
-        if (mProgramTexture < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'Texture0' location loading program");
-        }
-    }
+	mProgramEyeToSourceUVOffset = glGetUniformLocation(mProgram,
+		"EyeToSourceUVOffset");
+	if (mProgramEyeToSourceUVOffset < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform "
+			"'EyeToSourceUVOffset' location loading program");
 
-    if (ret == 0)
-    {
-        mProgramEyeToSourceUVScale = glGetUniformLocation(mProgram, "EyeToSourceUVScale");
-        if (mProgramEyeToSourceUVScale < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceUVScale' location loading program");
-        }
-    }
+	mProgramEyeToSourceScale = glGetUniformLocation(mProgram,
+		"EyeToSourceScale");
+	if (mProgramEyeToSourceScale < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceScale' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramEyeToSourceUVOffset = glGetUniformLocation(mProgram, "EyeToSourceUVOffset");
-        if (mProgramEyeToSourceUVOffset < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceUVOffset' location loading program");
-        }
-    }
+	mProgramEyeToSourceOffset = glGetUniformLocation(mProgram,
+		"EyeToSourceOffset");
+	if (mProgramEyeToSourceOffset < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceOffset' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramEyeToSourceScale = glGetUniformLocation(mProgram, "EyeToSourceScale");
-        if (mProgramEyeToSourceScale < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceScale' location loading program");
-        }
-    }
+	mProgramChromaticAberrationCorrection = glGetUniformLocation(mProgram,
+		"ChromaticAberrationCorrection");
+	if (mProgramChromaticAberrationCorrection < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform "
+			"'ChromaticAberrationCorrection' location "
+			"loading program");
 
-    if (ret == 0)
-    {
-        mProgramEyeToSourceOffset = glGetUniformLocation(mProgram, "EyeToSourceOffset");
-        if (mProgramEyeToSourceOffset < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceOffset' location loading program");
-        }
-    }
+	mProgramRotation = glGetUniformLocation(mProgram, "Rotation");
+	if (mProgramRotation < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform 'Rotation' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramChromaticAberrationCorrection = glGetUniformLocation(mProgram, "ChromaticAberrationCorrection");
-        if (mProgramChromaticAberrationCorrection < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'ChromaticAberrationCorrection' location loading program");
-        }
-    }
+	mProgramLensLimits = glGetUniformLocation(mProgram, "LensLimits");
+	if (mProgramLensLimits < 0)
+		ULOGE("Gles2HmdEye: failed to get uniform 'LensLimits' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramRotation = glGetUniformLocation(mProgram, "Rotation");
-        if (mProgramRotation < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'Rotation' location loading program");
-        }
-    }
+	mProgramPosition = glGetAttribLocation(mProgram, "Position");
+	if (mProgramPosition < 0)
+		ULOGE("Gles2HmdEye: failed to get attribute 'Position' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramLensLimits = glGetUniformLocation(mProgram, "LensLimits");
-        if (mProgramLensLimits < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get uniform 'LensLimits' location loading program");
-        }
-    }
+	mProgramColor = glGetAttribLocation(mProgram, "Color");
+	if (mProgramColor < 0)
+		ULOGE("Gles2HmdEye: failed to get attribute 'Color' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramPosition = glGetAttribLocation(mProgram, "Position");
-        if (mProgramPosition < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get attribute 'Position' location loading program");
-        }
-    }
+	mProgramTexCoord0 = glGetAttribLocation(mProgram, "TexCoord0");
+	if (mProgramTexCoord0 < 0)
+		ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord0' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramColor = glGetAttribLocation(mProgram, "Color");
-        if (mProgramColor < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get attribute 'Color' location loading program");
-        }
-    }
+	mProgramTexCoord1 = glGetAttribLocation(mProgram, "TexCoord1");
+	if (mProgramTexCoord1 < 0)
+		ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord1' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramTexCoord0 = glGetAttribLocation(mProgram, "TexCoord0");
-        if (mProgramTexCoord0 < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord0' location loading program");
-        }
-    }
+	mProgramTexCoord2 = glGetAttribLocation(mProgram, "TexCoord2");
+	if (mProgramTexCoord2 < 0)
+		ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord2' "
+			"location loading program");
 
-    if (ret == 0)
-    {
-        mProgramTexCoord1 = glGetAttribLocation(mProgram, "TexCoord1");
-        if (mProgramTexCoord1 < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord1' location loading program");
-        }
-    }
+	return;
 
-    if (ret == 0)
-    {
-        mProgramTexCoord2 = glGetAttribLocation(mProgram, "TexCoord2");
-        if (mProgramTexCoord2 < 0)
-        {
-            ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord2' location loading program");
-        }
-    }
+err:
+	if ((buffer[0]) || (buffer[1]) || (buffer[2]) ||
+		(buffer[3]) || (buffer[4]) || (buffer[5]))
+		glDeleteBuffers(6, buffer);
+	if (vertexShader > 0)
+		glDeleteShader(vertexShader);
+	if (fragmentShader > 0)
+		glDeleteShader(fragmentShader);
+	if (mProgram > 0)
+		glDeleteProgram(mProgram);
+	mProgram = 0;
+	mIndicesBufferHandle = 0;
+	mPositionBufferHandle = 0;
+	mColorBufferHandle = 0;
+	mTexCoord0BufferHandle = 0;
+	mTexCoord1BufferHandle = 0;
+	mTexCoord2BufferHandle = 0;
 }
 
 
-Gles2HmdEye::~Gles2HmdEye()
+Gles2HmdEye::~Gles2HmdEye(
+	void)
 {
-    GLuint buffer[6];
-    buffer[0] = mIndicesBufferHandle;
-    buffer[1] = mPositionBufferHandle;
-    buffer[2] = mColorBufferHandle;
-    buffer[3] = mTexCoord0BufferHandle;
-    buffer[4] = mTexCoord1BufferHandle;
-    buffer[5] = mTexCoord2BufferHandle;
-    glDeleteBuffers(6, buffer);
-    glDeleteProgram(mProgram);
+	int count = 0;
+	GLuint buffer[6];
+	if (mIndicesBufferHandle > 0)
+		buffer[count++] = mIndicesBufferHandle;
+	if (mPositionBufferHandle > 0)
+		buffer[count++] = mPositionBufferHandle;
+	if (mColorBufferHandle > 0)
+		buffer[count++] = mColorBufferHandle;
+	if (mTexCoord0BufferHandle > 0)
+		buffer[count++] = mTexCoord0BufferHandle;
+	if (mTexCoord1BufferHandle > 0)
+		buffer[count++] = mTexCoord1BufferHandle;
+	if (mTexCoord2BufferHandle > 0)
+		buffer[count++] = mTexCoord2BufferHandle;
+	if (count > 0)
+		glDeleteBuffers(count, buffer);
+	if (mProgram > 0)
+		glDeleteProgram(mProgram);
 }
 
 
-int Gles2HmdEye::renderEye(GLuint texture, unsigned int textureWidth, unsigned int textureHeight)
+int Gles2HmdEye::renderEye(
+	GLuint texture,
+	unsigned int textureWidth,
+	unsigned int textureHeight)
 {
-    glUseProgram(mProgram);
+	glUseProgram(mProgram);
 
-    glActiveTexture(GL_TEXTURE0 + mFirstTexUnit);
-    //glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES,  mRenderer.getGLSurfaceTexture());
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glUniform1i(mProgramTexture, mFirstTexUnit);
+	glActiveTexture(GL_TEXTURE0 + mFirstTexUnit);
+	/* glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texture); */
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glUniform1i(mProgramTexture, mFirstTexUnit);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndicesBufferHandle);
 
-    glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
-    glEnableVertexAttribArray(mProgramPosition);
-    glVertexAttribPointer(mProgramPosition, 2, GL_FLOAT, false, 0, 0);
+	glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle);
+	glEnableVertexAttribArray(mProgramPosition);
+	glVertexAttribPointer(mProgramPosition, 2, GL_FLOAT, false, 0, 0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
-    glEnableVertexAttribArray(mProgramColor);
-    glVertexAttribPointer(mProgramColor, 4, GL_FLOAT, false, 0, 0);
+	glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle);
+	glEnableVertexAttribArray(mProgramColor);
+	glVertexAttribPointer(mProgramColor, 4, GL_FLOAT, false, 0, 0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
-    glEnableVertexAttribArray(mProgramTexCoord0);
-    glVertexAttribPointer(mProgramTexCoord0, 2, GL_FLOAT, false, 0, 0);
+	glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle);
+	glEnableVertexAttribArray(mProgramTexCoord0);
+	glVertexAttribPointer(mProgramTexCoord0, 2, GL_FLOAT, false, 0, 0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
-    glEnableVertexAttribArray(mProgramTexCoord1);
-    glVertexAttribPointer(mProgramTexCoord1, 2, GL_FLOAT, false, 0, 0);
+	glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle);
+	glEnableVertexAttribArray(mProgramTexCoord1);
+	glVertexAttribPointer(mProgramTexCoord1, 2, GL_FLOAT, false, 0, 0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
-    glEnableVertexAttribArray(mProgramTexCoord2);
-    glVertexAttribPointer(mProgramTexCoord2, 2, GL_FLOAT, false, 0, 0);
+	glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle);
+	glEnableVertexAttribArray(mProgramTexCoord2);
+	glVertexAttribPointer(mProgramTexCoord2, 2, GL_FLOAT, false, 0, 0);
 
-    float ratio;
-    if ((mRotation == 90) || (mRotation == 270))
-    {
-        ratio = (float)textureHeight / (float)textureWidth;
-    }
-    else
-    {
-        ratio = (float)textureWidth / (float)textureHeight;
-    }
+	float ratio;
+	if ((mRotation == 90) || (mRotation == 270))
+		ratio = (float)textureHeight / (float)textureWidth;
+	else
+		ratio = (float)textureWidth / (float)textureHeight;
 
-    if (ratio > 1.)
-    {
-        glUniform2f(mProgramEyeToSourceUVScale, mScale, mScale * ratio);
-    }
-    else
-    {
-        glUniform2f(mProgramEyeToSourceUVScale, mScale / ratio, mScale);
-    }
+	if (ratio > 1.)
+		glUniform2f(mProgramEyeToSourceUVScale, mScale, mScale * ratio);
+	else
+		glUniform2f(mProgramEyeToSourceUVScale, mScale / ratio, mScale);
 
-    glUniform2f(mProgramEyeToSourceUVOffset, mPanH, mPanV);
-    glUniform1i(mProgramChromaticAberrationCorrection, 0);
-    glUniform1i(mProgramRotation, mRotation);
-    glUniform1i(mProgramLensLimits, 0);
-    glUniform2f(mProgramEyeToSourceScale, 2.f / mMetricsWidth, -2.f / mMetricsHeight);
-    glUniform2f(mProgramEyeToSourceOffset, 2.f * mEyeOffsetX / mMetricsWidth, 2.f * mEyeOffsetY / mMetricsHeight - 1.f);
+	glUniform2f(mProgramEyeToSourceUVOffset, mPanH, mPanV);
+	glUniform1i(mProgramChromaticAberrationCorrection, 0);
+	glUniform1i(mProgramRotation, mRotation);
+	glUniform1i(mProgramLensLimits, 0);
+	glUniform2f(mProgramEyeToSourceScale,
+		2.f / mMetricsWidth, -2.f / mMetricsHeight);
+	glUniform2f(mProgramEyeToSourceOffset,
+		2.f * mEyeOffsetX / mMetricsWidth,
+		2.f * mEyeOffsetY / mMetricsHeight - 1.f);
 
-    glDrawElements(GL_TRIANGLES, sizeof(pdraw_gles2HmdCockpitglassesIndices) / sizeof(float), GL_UNSIGNED_INT, 0);
+	glDrawElements(GL_TRIANGLES,
+		sizeof(pdraw_gles2HmdCockpitglassesIndices) / sizeof(float),
+		GL_UNSIGNED_INT, 0);
 
-    glDisableVertexAttribArray(mProgramPosition);
-    glDisableVertexAttribArray(mProgramColor);
-    glDisableVertexAttribArray(mProgramTexCoord0);
-    glDisableVertexAttribArray(mProgramTexCoord1);
-    glDisableVertexAttribArray(mProgramTexCoord2);
+	glDisableVertexAttribArray(mProgramPosition);
+	glDisableVertexAttribArray(mProgramColor);
+	glDisableVertexAttribArray(mProgramTexCoord0);
+	glDisableVertexAttribArray(mProgramTexCoord1);
+	glDisableVertexAttribArray(mProgramTexCoord2);
 
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    return 0;
+	return 0;
 }
 
 
-Gles2Hmd::Gles2Hmd(unsigned int firstTexUnit, unsigned int width, unsigned int height,
-                   enum pdraw_hmd_model hmdModel, float xdpi, float ydpi, float deviceMargin,
-                   float ipd, float scale, float panH, float panV)
+Gles2Hmd::Gles2Hmd(
+	unsigned int firstTexUnit,
+	unsigned int width,
+	unsigned int height,
+	enum pdraw_hmd_model hmdModel,
+	float xdpi,
+	float ydpi,
+	float deviceMargin,
+	float ipd,
+	float scale,
+	float panH,
+	float panV)
 {
-    mHmdModel = hmdModel;
-    mDeviceMargin = deviceMargin;
-    mIpd = ipd;
-    mScale = scale;
-    mPanH = panH;
-    mPanV = panV;
+	mHmdModel = hmdModel;
+	mDeviceMargin = deviceMargin;
+	mIpd = ipd;
+	mScale = scale;
+	mPanH = panH;
+	mPanV = panV;
 
-    mMetricsWidth = (float)width / xdpi * GLES2_HMD_INCH_TO_MILLIMETER;
-    mMetricsHeight = (float)height / ydpi * GLES2_HMD_INCH_TO_MILLIMETER;
+	mMetricsWidth = (float)width / xdpi * GLES2_HMD_INCH_TO_MILLIMETER;
+	mMetricsHeight = (float)height / ydpi * GLES2_HMD_INCH_TO_MILLIMETER;
 
-    mLeftEye = new Gles2HmdEye(firstTexUnit, mHmdModel, mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
-                               -mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
-    mRightEye = new Gles2HmdEye(firstTexUnit, mHmdModel, mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
-                                mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
+	mLeftEye = new Gles2HmdEye(firstTexUnit, mHmdModel,
+		mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
+		-mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
+	mRightEye = new Gles2HmdEye(firstTexUnit, mHmdModel,
+		mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
+		mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
 }
 
 
-Gles2Hmd::~Gles2Hmd()
+Gles2Hmd::~Gles2Hmd(
+	void)
 {
-    if (mLeftEye) delete(mLeftEye);
-    if (mRightEye) delete(mRightEye);
+	if (mLeftEye)
+		delete(mLeftEye);
+	if (mRightEye)
+		delete(mRightEye);
 }
 
 
-int Gles2Hmd::renderHmd(GLuint texture, unsigned int textureWidth, unsigned int textureHeight)
+int Gles2Hmd::renderHmd(
+	GLuint texture,
+	unsigned int textureWidth,
+	unsigned int textureHeight)
 {
-    int ret = 0;
+	int ret = 0;
 
-    if ((ret == 0) && (mLeftEye))
-    {
-        ret = mLeftEye->renderEye(texture, textureWidth, textureHeight);
-    }
+	if (mLeftEye != NULL) {
+		ret = mLeftEye->renderEye(texture,
+			textureWidth, textureHeight);
+		if (ret != 0)
+			return ret;
+	}
 
-    if ((ret == 0) && (mRightEye))
-    {
-        ret = mRightEye->renderEye(texture, textureWidth, textureHeight);
-    }
+	if (mRightEye != NULL) {
+		ret = mRightEye->renderEye(texture,
+			textureWidth, textureHeight);
+		if (ret != 0)
+			return ret;
+	}
 
-    return ret;
+	return 0;
 }
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_GLES2 */

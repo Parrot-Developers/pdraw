@@ -33,23 +33,25 @@
 #ifdef USE_GLES2
 
 #if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
-    #include <GLES2/gl2.h>
+	#include <GLES2/gl2.h>
 #elif defined(__APPLE__)
-    #include <TargetConditionals.h>
-    #if TARGET_OS_IPHONE
-        #include <OpenGLES/ES2/gl.h>
-    #else
-        #define GLFW_INCLUDE_ES2
-        #include <GLFW/glfw3.h>
-        #include <OpenGL/OpenGL.h>
-        #include <OpenGL/glext.h>
-    #endif
+	#include <TargetConditionals.h>
+	#if TARGET_OS_IPHONE
+		#include <OpenGLES/ES2/gl.h>
+	#else
+		#define GLFW_INCLUDE_ES2
+		#include <GLFW/glfw3.h>
+		#include <OpenGL/OpenGL.h>
+		#include <OpenGL/glext.h>
+	#endif
 #else
-    #define GLFW_INCLUDE_ES2
-    #include <GLFW/glfw3.h>
+	#define GLFW_INCLUDE_ES2
+	#include <GLFW/glfw3.h>
 #endif
 
 #include "pdraw_metadata_videoframe.hpp"
+
+namespace Pdraw {
 
 
 #define GLES2_VIDEO_TEX_UNIT_COUNT 3
@@ -57,17 +59,11 @@
 #define GLES2_VIDEO_PADDING_FBO_WIDTH 32
 
 
-namespace Pdraw
-{
-
-
-typedef enum
-{
-    GLES2_VIDEO_COLOR_CONVERSION_NONE = 0,
-    GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB,
-    GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB,
-    GLES2_VIDEO_COLOR_CONVERSION_MAX,
-
+typedef enum {
+	GLES2_VIDEO_COLOR_CONVERSION_NONE = 0,
+	GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB,
+	GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB,
+	GLES2_VIDEO_COLOR_CONVERSION_MAX,
 } gles2_video_color_conversion_t;
 
 
@@ -75,53 +71,72 @@ class Session;
 class VideoMedia;
 
 
-class Gles2Video
-{
+class Gles2Video {
 public:
+	Gles2Video(
+		Session *session,
+		VideoMedia *media,
+		unsigned int firstTexUnit);
 
-    Gles2Video(Session *session, VideoMedia *media, unsigned int firstTexUnit);
+	~Gles2Video(
+		void);
 
-    ~Gles2Video();
+	static int getTexUnitCount(
+		void) {
+		return GLES2_VIDEO_TEX_UNIT_COUNT +
+			GLES2_VIDEO_FBO_TEX_UNIT_COUNT;
+	}
 
-    static int getTexUnitCount() { return GLES2_VIDEO_TEX_UNIT_COUNT + GLES2_VIDEO_FBO_TEX_UNIT_COUNT; }
+	GLuint* getTextures(
+		void);
 
-    GLuint* getTextures();
+	int allocTextures(
+		unsigned int videoWidth,
+		unsigned int videoHeight);
 
-    int allocTextures(unsigned int videoWidth, unsigned int videoHeight);
+	int loadFrame(
+		uint8_t *framePlane[3],
+		unsigned int frameStride[3],
+		unsigned int frameWidth,
+		unsigned int frameHeight,
+		gles2_video_color_conversion_t colorConversion);
 
-    int loadFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
-                  unsigned int frameWidth, unsigned int frameHeight,
-                  gles2_video_color_conversion_t colorConversion);
+	int renderFrame(
+		uint8_t *framePlane[3],
+		unsigned int frameStride[3],
+		unsigned int frameWidth,
+		unsigned int frameHeight,
+		unsigned int sarWidth,
+		unsigned int sarHeight,
+		unsigned int windowWidth,
+		unsigned int windowHeight,
+		unsigned int windowX,
+		unsigned int windowY,
+		gles2_video_color_conversion_t colorConversion,
+		const struct vmeta_frame_v2 *metadata,
+		bool headtracking, GLuint fbo);
 
-    int renderFrame(uint8_t *framePlane[3], unsigned int frameStride[3],
-                    unsigned int frameWidth, unsigned int frameHeight,
-                    unsigned int sarWidth, unsigned int sarHeight,
-                    unsigned int windowWidth, unsigned int windowHeight,
-                    unsigned int windowX, unsigned int windowY,
-                    gles2_video_color_conversion_t colorConversion,
-                    const struct vmeta_frame_v2 *metadata,
-                    bool headtracking, GLuint fbo);
-
-    void setVideoMedia(VideoMedia *media);
+	void setVideoMedia(
+		VideoMedia *media);
 
 private:
-
-    Session *mSession;
-    VideoMedia *mMedia;
-    unsigned int mFirstTexUnit;
-    GLint mProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLint mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLuint mTextures[3];
-    GLint mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_MAX][3];
-    GLint mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLint mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-    GLuint mPaddingFbo;
-    GLuint mPaddingFboTexture;
-    unsigned int mPaddingWidth;
-    unsigned int mPaddingHeight;
+	Session *mSession;
+	VideoMedia *mMedia;
+	unsigned int mFirstTexUnit;
+	GLint mProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+	GLint mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+	GLuint mTextures[GLES2_VIDEO_TEX_UNIT_COUNT];
+	GLint mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_MAX][
+		GLES2_VIDEO_TEX_UNIT_COUNT];
+	GLint mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+	GLint mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+	GLuint mPaddingFbo;
+	GLuint mPaddingFboTexture;
+	unsigned int mPaddingWidth;
+	unsigned int mPaddingHeight;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_GLES2 */
 

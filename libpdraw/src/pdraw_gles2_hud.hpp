@@ -33,24 +33,25 @@
 #ifdef USE_GLES2
 
 #if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
-    #include <GLES2/gl2.h>
+	#include <GLES2/gl2.h>
 #elif defined(__APPLE__)
-    #include <TargetConditionals.h>
-    #if TARGET_OS_IPHONE
-        #include <OpenGLES/ES2/gl.h>
-    #else
-        #define GLFW_INCLUDE_ES2
-        #include <GLFW/glfw3.h>
-        #include <OpenGL/OpenGL.h>
-    #endif
+	#include <TargetConditionals.h>
+	#if TARGET_OS_IPHONE
+		#include <OpenGLES/ES2/gl.h>
+	#else
+		#define GLFW_INCLUDE_ES2
+		#include <GLFW/glfw3.h>
+		#include <OpenGL/OpenGL.h>
+	#endif
 #else
-    #define GLFW_INCLUDE_ES2
-    #include <GLFW/glfw3.h>
+	#define GLFW_INCLUDE_ES2
+	#include <GLFW/glfw3.h>
 #endif
 
 #include <math.h>
-
 #include "pdraw_metadata_videoframe.hpp"
+
+namespace Pdraw {
 
 
 #define GLES2_HUD_TEX_UNIT_COUNT 3
@@ -86,19 +87,13 @@
 #define GLES2_HUD_DEFAULT_VFOV                      (49.)
 
 
-namespace Pdraw
-{
-
-
-typedef enum
-{
-    GLES2_HUD_TEXT_ALIGN_LEFT = 0,
-    GLES2_HUD_TEXT_ALIGN_TOP = 0,
-    GLES2_HUD_TEXT_ALIGN_CENTER = 1,
-    GLES2_HUD_TEXT_ALIGN_MIDDLE = 1,
-    GLES2_HUD_TEXT_ALIGN_RIGHT = 2,
-    GLES2_HUD_TEXT_ALIGN_BOTTOM = 2,
-
+typedef enum {
+	GLES2_HUD_TEXT_ALIGN_LEFT = 0,
+	GLES2_HUD_TEXT_ALIGN_TOP = 0,
+	GLES2_HUD_TEXT_ALIGN_CENTER = 1,
+	GLES2_HUD_TEXT_ALIGN_MIDDLE = 1,
+	GLES2_HUD_TEXT_ALIGN_RIGHT = 2,
+	GLES2_HUD_TEXT_ALIGN_BOTTOM = 2,
 } gles2_hud_text_align_t;
 
 
@@ -106,96 +101,270 @@ class Session;
 class VideoMedia;
 
 
-class Gles2Hud
-{
+class Gles2Hud {
 public:
+	Gles2Hud(Session *session,
+		VideoMedia *media,
+		unsigned int firstTexUnit);
 
-    Gles2Hud(Session *session, VideoMedia *media, unsigned int firstTexUnit);
+	~Gles2Hud(
+		void);
 
-    ~Gles2Hud();
+	static int getTexUnitCount(
+		void) {
+		return GLES2_HUD_TEX_UNIT_COUNT;
+	}
 
-    static int getTexUnitCount() { return GLES2_HUD_TEX_UNIT_COUNT; }
+	int renderHud(
+		unsigned int videoWidth,
+		unsigned int videoHeight,
+		unsigned int windowWidth,
+		unsigned int windowHeight,
+		const struct vmeta_frame_v2 *metadata,
+		bool hmdDistorsionCorrection,
+		bool headtracking);
 
-    int renderHud(unsigned int videoWidth, unsigned int videoHeight,
-        unsigned int windowWidth, unsigned int windowHeight,
-        const struct vmeta_frame_v2 *metadata,
-        bool hmdDistorsionCorrection, bool headtracking);
-
-    void setVideoMedia(VideoMedia *media);
+	void setVideoMedia(
+		VideoMedia *media);
 
 private:
+	int loadTextureFromBuffer(
+		const uint8_t *buffer,
+		int width,
+		int height,
+		int texUnit);
 
-    int loadTextureFromBuffer(const uint8_t *buffer, int width, int height, int texUnit);
-    void drawIcon(int index, float x, float y, float size, float scaleW, float scaleH, const float color[4]);
-    void drawLogo(float x, float y, float size, float scaleW, float scaleH, const float color[4]);
-    void getTextDimensions(const char *str, float size, float scaleW, float scaleH, float *width, float *height);
-    void drawText(const char *str, float x, float y, float size, float scaleW, float scaleH, gles2_hud_text_align_t halign, gles2_hud_text_align_t valign, const float color[4]);
-    void drawLine(float x1, float y1, float x2, float y2, const float color[4], float lineWidth);
-    void drawLineZ(float x1, float y1, float z1, float x2, float y2, float z2, const float color[4], float lineWidth);
-    void drawRect(float x1, float y1, float x2, float y2, const float color[4], float lineWidth);
-    void drawEllipse(float cx, float cy, float rx, float ry, int numSegments, const float color[4], float lineWidth);
-    void drawEllipseZ(float cx, float cy, float rx, float ry, float z, int numSegments, const float color[4], float lineWidth);
-    void drawEllipseFilled(float cx, float cy, float rx, float ry, int numSegments, const float color[4]);
-    void drawArc(float cx, float cy, float rx, float ry, float startAngle, float spanAngle, int numSegments, const float color[4], float lineWidth);
-    void drawArcZ(float cx, float cy, float rx, float ry, float z, float startAngle, float spanAngle, int numSegments, const float color[4], float lineWidth);
-    void drawVuMeter(float x, float y, float r, float value, float minVal, float maxVal, float criticalMin, float criticalMax, const float color[4], const float criticalColor[4], float lineWidth);
-    void initCockpit();
-    void drawCockpit(const float color[4], const float color2[4], float lineWidth, Eigen::Matrix4f &xformMat);
-    void drawArtificialHorizon(const struct vmeta_euler *drone, const struct vmeta_euler *frame, const float color[4]);
-    void drawRoll(float droneRoll, const float color[4]);
-    void drawHeading(float droneYaw, float speedHorizRho, float speedPsi, const float color[4]);
-    void drawAltitude(double altitude, float groundDistance, float downSpeed, const float color[4]);
-    void drawSpeed(float horizontalSpeed, const float color[4]);
-    void drawControllerRadar(double distance, double bearing, float controllerYaw, float droneYaw, float controllerRadarAngle, const float color[4]);
-    void drawRecordTimeline(uint64_t currentTime, uint64_t duration, const float color[4]);
-    void drawRecordingStatus(uint64_t recordingDuration, const float color[4]);
-    void drawFlightPathVector(const struct vmeta_euler *frame, float speedTheta, float speedPsi, const float color[4]);
-    void drawPositionPin(const struct vmeta_euler *frame, double bearing, double elevation, const float color[4]);
+	void drawIcon(
+		int index,
+		float x,
+		float y,
+		float size,
+		float scaleW,
+		float scaleH,
+		const float color[4]);
 
-    Session *mSession;
-    VideoMedia *mMedia;
-    unsigned int mFirstTexUnit;
-    float mAspectRatio;
-    float mVideoAspectRatio;
-    GLint mProgram[2];
-    GLint mPositionHandle;
-    GLint mTransformMatrixHandle;
-    GLint mColorHandle;
-    GLuint mLogoTexture;
-    unsigned int mLogoTexUnit;
-    GLuint mIconsTexture;
-    unsigned int mIconsTexUnit;
-    GLuint mTextTexture;
-    unsigned int mTextTexUnit;
-    GLint mTexUniformSampler;
-    GLint mTexPositionHandle;
-    GLint mTexTexcoordHandle;
-    GLint mTexTransformMatrixHandle;
-    GLint mTexColorHandle;
+	void drawLogo(
+		float x,
+		float y,
+		float size,
+		float scaleW,
+		float scaleH,
+		const float color[4]);
 
-    float mHudCentralZoneSize;
-    float mHudHeadingZoneVOffset;
-    float mHudRollZoneVOffset;
-    float mHudVuMeterZoneHOffset;
-    float mHudVuMeterVInterval;
-    float mHudRightZoneHOffset;
-    float mHudRadarZoneHOffset;
-    float mHudRadarZoneVOffset;
-    float mTextSize;
-    float mSmallIconSize;
-    float mMediumIconSize;
-    float mHudScale;
-    float mHfov;
-    float mVfov;
-    float mScaleW;
-    float mScaleH;
-    float mRatioW;
-    float mRatioH;
-    float *mCockpitSphereVertices;
-    unsigned int mCockpitSphereVerticesCount;
+	void getTextDimensions(
+		const char *str,
+		float size,
+		float scaleW,
+		float scaleH,
+		float *width,
+		float *height);
+
+	void drawText(
+		const char *str,
+		float x,
+		float y,
+		float size,
+		float scaleW,
+		float scaleH,
+		gles2_hud_text_align_t halign,
+		gles2_hud_text_align_t valign,
+		const float color[4]);
+
+	void drawLine(
+		float x1,
+		float y1,
+		float x2,
+		float y2,
+		const float color[4],
+		float lineWidth);
+
+	void drawLineZ(
+		float x1,
+		float y1,
+		float z1,
+		float x2,
+		float y2,
+		float z2,
+		const float color[4],
+		float lineWidth);
+
+	void drawRect(
+		float x1,
+		float y1,
+		float x2,
+		float y2,
+		const float color[4],
+		float lineWidth);
+
+	void drawEllipse(
+		float cx,
+		float cy,
+		float rx,
+		float ry,
+		int numSegments,
+		const float color[4],
+		float lineWidth);
+
+	void drawEllipseZ(
+		float cx,
+		float cy,
+		float rx,
+		float ry,
+		float z,
+		int numSegments,
+		const float color[4],
+		float lineWidth);
+
+	void drawEllipseFilled(
+		float cx,
+		float cy,
+		float rx,
+		float ry,
+		int numSegments,
+		const float color[4]);
+
+	void drawArc(
+		float cx,
+		float cy,
+		float rx,
+		float ry,
+		float startAngle,
+		float spanAngle,
+		int numSegments,
+		const float color[4],
+		float lineWidth);
+
+	void drawArcZ(
+		float cx,
+		float cy,
+		float rx,
+		float ry,
+		float z,
+		float startAngle,
+		float spanAngle,
+		int numSegments,
+		const float color[4],
+		float lineWidth);
+
+	void drawVuMeter(
+		float x,
+		float y,
+		float r,
+		float value,
+		float minVal,
+		float maxVal,
+		float criticalMin,
+		float criticalMax,
+		const float color[4],
+		const float criticalColor[4],
+		float lineWidth);
+
+	int initCockpit(
+		void);
+
+	void drawCockpit(
+		const float color[4],
+		const float color2[4],
+		float lineWidth,
+		Eigen::Matrix4f &xformMat);
+
+	void drawArtificialHorizon(
+		const struct vmeta_euler *drone,
+		const struct vmeta_euler *frame,
+		const float color[4]);
+
+	void drawRoll(
+		float droneRoll,
+		const float color[4]);
+
+	void drawHeading(
+		float droneYaw,
+		float speedHorizRho,
+		float speedPsi,
+		const float color[4]);
+
+	void drawAltitude(
+		double altitude,
+		float groundDistance,
+		float downSpeed,
+		const float color[4]);
+
+	void drawSpeed(
+		float horizontalSpeed,
+		const float color[4]);
+
+	void drawControllerRadar(
+		double distance,
+		double bearing,
+		float controllerYaw,
+		float droneYaw,
+		float controllerRadarAngle,
+		const float color[4]);
+
+	void drawRecordTimeline(
+		uint64_t currentTime,
+		uint64_t duration,
+		const float color[4]);
+
+	void drawRecordingStatus(
+		uint64_t recordingDuration,
+		const float color[4]);
+
+	void drawFlightPathVector(
+		const struct vmeta_euler *frame,
+		float speedTheta,
+		float speedPsi,
+		const float color[4]);
+
+	void drawPositionPin(
+		const struct vmeta_euler *frame,
+		double bearing,
+		double elevation,
+		const float color[4]);
+
+	Session *mSession;
+	VideoMedia *mMedia;
+	unsigned int mFirstTexUnit;
+	float mAspectRatio;
+	float mVideoAspectRatio;
+	GLint mProgram[2];
+	GLint mPositionHandle;
+	GLint mTransformMatrixHandle;
+	GLint mColorHandle;
+	GLuint mLogoTexture;
+	unsigned int mLogoTexUnit;
+	GLuint mIconsTexture;
+	unsigned int mIconsTexUnit;
+	GLuint mTextTexture;
+	unsigned int mTextTexUnit;
+	GLint mTexUniformSampler;
+	GLint mTexPositionHandle;
+	GLint mTexTexcoordHandle;
+	GLint mTexTransformMatrixHandle;
+	GLint mTexColorHandle;
+	float mHudCentralZoneSize;
+	float mHudHeadingZoneVOffset;
+	float mHudRollZoneVOffset;
+	float mHudVuMeterZoneHOffset;
+	float mHudVuMeterVInterval;
+	float mHudRightZoneHOffset;
+	float mHudRadarZoneHOffset;
+	float mHudRadarZoneVOffset;
+	float mTextSize;
+	float mSmallIconSize;
+	float mMediumIconSize;
+	float mHudScale;
+	float mHfov;
+	float mVfov;
+	float mScaleW;
+	float mScaleH;
+	float mRatioW;
+	float mRatioH;
+	float *mCockpitSphereVertices;
+	unsigned int mCockpitSphereVerticesCount;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* USE_GLES2 */
 
