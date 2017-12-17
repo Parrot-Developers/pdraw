@@ -87,14 +87,14 @@ namespace Pdraw {
 #define GLES2_HUD_DEFAULT_VFOV                      (49.)
 
 
-typedef enum {
+enum gles2_hud_text_align {
 	GLES2_HUD_TEXT_ALIGN_LEFT = 0,
 	GLES2_HUD_TEXT_ALIGN_TOP = 0,
 	GLES2_HUD_TEXT_ALIGN_CENTER = 1,
 	GLES2_HUD_TEXT_ALIGN_MIDDLE = 1,
 	GLES2_HUD_TEXT_ALIGN_RIGHT = 2,
 	GLES2_HUD_TEXT_ALIGN_BOTTOM = 2,
-} gles2_hud_text_align_t;
+};
 
 
 class Session;
@@ -166,8 +166,8 @@ private:
 		float size,
 		float scaleW,
 		float scaleH,
-		gles2_hud_text_align_t halign,
-		gles2_hud_text_align_t valign,
+		enum gles2_hud_text_align halign,
+		enum gles2_hud_text_align valign,
 		const float color[4]);
 
 	void drawLine(

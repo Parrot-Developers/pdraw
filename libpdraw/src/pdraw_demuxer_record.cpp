@@ -300,16 +300,16 @@ int RecordDemuxer::getElementaryStreamCount(
 }
 
 
-elementary_stream_type_t RecordDemuxer::getElementaryStreamType(
+enum elementary_stream_type RecordDemuxer::getElementaryStreamType(
 	int esIndex)
 {
 	if (!mConfigured) {
 		ULOGE("RecordDemuxer: demuxer is not configured");
-		return (elementary_stream_type_t)-1;
+		return (enum elementary_stream_type)-1;
 	}
 	if ((esIndex < 0) || (esIndex >= mVideoTrackCount)) {
 		ULOGE("RecordDemuxer: invalid ES index");
-		return (elementary_stream_type_t)-1;
+		return (enum elementary_stream_type)-1;
 	}
 
 	/* TODO: handle multiple streams */

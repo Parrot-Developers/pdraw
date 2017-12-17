@@ -29,72 +29,87 @@
 
 #include "pdraw_settings.hpp"
 
+namespace Pdraw {
 
-namespace Pdraw
+
+Settings::Settings(
+	void)
 {
-
-
-Settings::Settings()
-{
-    mControllerRadarAngle = SETTINGS_HUD_CONTROLLER_RADAR_ANGLE;
-    mDisplayXdpi = SETTINGS_DISPLAY_XDPI;
-    mDisplayYdpi = SETTINGS_DISPLAY_YDPI;
-    mDisplayDeviceMargin = SETTINGS_DISPLAY_DEVICE_MARGIN;
-    mHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
-    mHmdIpd = SETTINGS_HMD_IPD;
-    mHmdScale = SETTINGS_HMD_SCALE;
-    mHmdPanH = SETTINGS_HMD_PAN_H;
-    mHmdPanV = SETTINGS_HMD_PAN_V;
+	mControllerRadarAngle = SETTINGS_HUD_CONTROLLER_RADAR_ANGLE;
+	mDisplayXdpi = SETTINGS_DISPLAY_XDPI;
+	mDisplayYdpi = SETTINGS_DISPLAY_YDPI;
+	mDisplayDeviceMargin = SETTINGS_DISPLAY_DEVICE_MARGIN;
+	mHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
+	mHmdIpd = SETTINGS_HMD_IPD;
+	mHmdScale = SETTINGS_HMD_SCALE;
+	mHmdPanH = SETTINGS_HMD_PAN_H;
+	mHmdPanV = SETTINGS_HMD_PAN_V;
 }
 
 
-Settings::~Settings()
+Settings::~Settings(
+	void)
 {
-
 }
 
 
-void Settings::getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin)
+void Settings::getDisplayScreenSettings(
+	float *xdpi,
+	float *ydpi,
+	float *deviceMargin)
 {
-    if (xdpi)
-        *xdpi = mDisplayXdpi;
-    if (ydpi)
-        *ydpi = mDisplayYdpi;
-    if (deviceMargin)
-        *deviceMargin = mDisplayDeviceMargin;
+	if (xdpi)
+		*xdpi = mDisplayXdpi;
+	if (ydpi)
+		*ydpi = mDisplayYdpi;
+	if (deviceMargin)
+		*deviceMargin = mDisplayDeviceMargin;
 }
 
 
-void Settings::setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin)
+void Settings::setDisplayScreenSettings(
+	float xdpi,
+	float ydpi,
+	float deviceMargin)
 {
-    mDisplayXdpi = xdpi;
-    mDisplayYdpi = ydpi;
-    mDisplayDeviceMargin = deviceMargin;
+	mDisplayXdpi = xdpi;
+	mDisplayYdpi = ydpi;
+	mDisplayDeviceMargin = deviceMargin;
 }
 
 
-void Settings::getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV)
+void Settings::getHmdDistorsionCorrectionSettings(
+	enum pdraw_hmd_model *hmdModel,
+	float *ipd,
+	float *scale,
+	float *panH,
+	float *panV)
 {
-    if (hmdModel)
-        *hmdModel = mHmdModel;
-    if (ipd)
-        *ipd = mHmdIpd;
-    if (scale)
-        *scale = mHmdScale;
-    if (panH)
-        *panH = mHmdPanH;
-    if (panV)
-        *panV = mHmdPanV;
+	if (hmdModel)
+		*hmdModel = mHmdModel;
+	if (ipd)
+		*ipd = mHmdIpd;
+	if (scale)
+		*scale = mHmdScale;
+	if (panH)
+		*panH = mHmdPanH;
+	if (panV)
+		*panV = mHmdPanV;
 }
 
 
-void Settings::setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV)
+void Settings::setHmdDistorsionCorrectionSettings(
+	enum pdraw_hmd_model hmdModel,
+	float ipd,
+	float scale,
+	float panH,
+	float panV)
 {
-    mHmdModel = hmdModel;
-    mHmdIpd = ipd;
-    mHmdScale = scale;
-    mHmdPanH = panH;
-    mHmdPanV = panV;
+	mHmdModel = hmdModel;
+	mHmdIpd = ipd;
+	mHmdScale = scale;
+	mHmdPanH = panH;
+	mHmdPanV = panV;
 }
 
-}
+} /* namespace Pdraw */

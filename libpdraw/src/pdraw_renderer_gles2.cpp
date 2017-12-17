@@ -418,7 +418,7 @@ int Gles2Renderer::render_nolock(
 	}
 
 	if (mGles2Video) {
-		gles2_video_color_conversion_t colorConversion;
+		enum gles2_video_color_conversion colorConversion;
 		switch (data->colorFormat) {
 		default:
 		case AVCDECODER_COLOR_FORMAT_YUV420PLANAR:

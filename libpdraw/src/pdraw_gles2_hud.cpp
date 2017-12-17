@@ -1328,8 +1328,8 @@ void Gles2Hud::drawText(
 	float size,
 	float scaleW,
 	float scaleH,
-	gles2_hud_text_align_t halign,
-	gles2_hud_text_align_t valign,
+	enum gles2_hud_text_align halign,
+	enum gles2_hud_text_align valign,
 	const float color[4])
 {
 	float w, h;

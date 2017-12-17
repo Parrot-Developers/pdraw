@@ -63,7 +63,7 @@ public:
 	virtual int getElementaryStreamCount(
 		void) = 0;
 
-	virtual elementary_stream_type_t getElementaryStreamType(
+	virtual enum elementary_stream_type getElementaryStreamType(
 		int esIndex) = 0;
 
 	virtual int getElementaryStreamVideoDimensions(

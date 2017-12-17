@@ -521,7 +521,7 @@ int Gles2Video::loadFrame(
 	unsigned int frameStride[3],
 	unsigned int frameWidth,
 	unsigned int frameHeight,
-	gles2_video_color_conversion_t colorConversion)
+	enum gles2_video_color_conversion colorConversion)
 {
 	unsigned int i;
 
@@ -582,7 +582,7 @@ int Gles2Video::renderFrame(
 	unsigned int windowHeight,
 	unsigned int windowX,
 	unsigned int windowY,
-	gles2_video_color_conversion_t colorConversion,
+	enum gles2_video_color_conversion colorConversion,
 	const struct vmeta_frame_v2 *metadata,
 	bool headtracking,
 	GLuint fbo)

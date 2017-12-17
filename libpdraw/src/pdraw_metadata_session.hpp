@@ -30,174 +30,330 @@
 #ifndef _PDRAW_METADATA_SESSION_HPP_
 #define _PDRAW_METADATA_SESSION_HPP_
 
+#include "pdraw_utils.hpp"
 #include <inttypes.h>
 #include <string>
 #include <vector>
 
-#include "pdraw_utils.hpp"
+namespace Pdraw {
 
 
-#define PDRAW_HEAD_PSI_SPEED_THRES      (0.2f)
+#define HEAD_PSI_SPEED_THRES      (0.2f)
 
 
-namespace Pdraw
-{
-
-
-class SessionSelfMetadata
-{
+class SessionSelfMetadata {
 public:
+	SessionSelfMetadata(
+		void);
 
-    SessionSelfMetadata();
+	~SessionSelfMetadata(
+		void);
 
-    ~SessionSelfMetadata();
+	std::string& getFriendlyName(
+		void) {
+		return mFriendlyName;
+	}
 
-    std::string& getFriendlyName(void) { return mFriendlyName; } ;
-    void setFriendlyName(const std::string& friendlyName) { mFriendlyName = friendlyName; };
+	void setFriendlyName(
+		const std::string& friendlyName) {
+		mFriendlyName = friendlyName;
+	}
 
-    std::string& getSerialNumber(void) { return mSerialNumber; };
-    void setSerialNumber(const std::string& serialNumber) { mSerialNumber = serialNumber; };
+	std::string& getSerialNumber(
+		void) {
+		return mSerialNumber;
+	}
 
-    std::string& getSoftwareVersion(void) { return mSoftwareVersion; };
-    void setSoftwareVersion(const std::string& softwareVersion) { mSoftwareVersion = softwareVersion; };
+	void setSerialNumber(
+		const std::string& serialNumber) {
+		mSerialNumber = serialNumber;
+	}
 
-    bool isPilot() { return mIsPilot; };
-    void setPilot(bool isPilot) { mIsPilot = isPilot; };
+	std::string& getSoftwareVersion(
+		void) {
+		return mSoftwareVersion;
+	}
 
-    void getLocation(struct vmeta_location *loc);
-    void setLocation(const struct vmeta_location *loc);
+	void setSoftwareVersion(
+		const std::string& softwareVersion) {
+		mSoftwareVersion = softwareVersion;
+	}
 
-    int getControllerBatteryLevel() { return mControllerBatteryLevel; };
-    void setControllerBatteryLevel(int batteryLevel) { mControllerBatteryLevel = batteryLevel; };
+	bool isPilot(
+		void) {
+		return mIsPilot;
+	}
 
-    bool getControllerOrientation(struct vmeta_quaternion *quat);
-    bool getControllerOrientation(struct vmeta_euler *euler);
+	void setPilot(
+		bool isPilot) {
+		mIsPilot = isPilot;
+	}
 
-    void setControllerOrientation(const struct vmeta_quaternion *quat);
-    void setControllerOrientation(const struct vmeta_euler *euler);
+	void getLocation(
+		struct vmeta_location *loc);
 
-    bool getHeadOrientation(struct vmeta_quaternion *quat);
-    bool getHeadOrientation(struct vmeta_euler *euler);
-    void setHeadOrientation(const struct vmeta_quaternion *quat);
-    void setHeadOrientation(const struct vmeta_euler *euler);
+	void setLocation(
+		const struct vmeta_location *loc);
 
-    Eigen::Quaternionf getDebiasedHeadOrientation(void);
+	int getControllerBatteryLevel(
+		void) {
+		return mControllerBatteryLevel;
+	}
 
-    bool getHeadRefOrientation(struct vmeta_quaternion *quat);
-    bool getHeadRefOrientation(struct vmeta_euler *euler);
+	void setControllerBatteryLevel(
+		int batteryLevel) {
+		mControllerBatteryLevel = batteryLevel;
+	}
 
-    void setHeadRefOrientation(const struct vmeta_quaternion *quat);
-    void setHeadRefOrientation(const struct vmeta_euler *euler);
-    void resetHeadRefOrientation();
+	bool getControllerOrientation(
+		struct vmeta_quaternion *quat);
+
+	bool getControllerOrientation(
+		struct vmeta_euler *euler);
+
+	void setControllerOrientation(
+		const struct vmeta_quaternion *quat);
+
+	void setControllerOrientation(
+		const struct vmeta_euler *euler);
+
+	bool getHeadOrientation(
+		struct vmeta_quaternion *quat);
+
+	bool getHeadOrientation(
+		struct vmeta_euler *euler);
+
+	void setHeadOrientation(
+		const struct vmeta_quaternion *quat);
+
+	void setHeadOrientation(
+		const struct vmeta_euler *euler);
+
+	Eigen::Quaternionf getDebiasedHeadOrientation(
+		void);
+
+	bool getHeadRefOrientation(
+		struct vmeta_quaternion *quat);
+
+	bool getHeadRefOrientation(
+		struct vmeta_euler *euler);
+
+	void setHeadRefOrientation(
+		const struct vmeta_quaternion *quat);
+
+	void setHeadRefOrientation(
+		const struct vmeta_euler *euler);
+
+	void resetHeadRefOrientation(
+		void);
 
 private:
+	void setControllerOrientation(
+		Eigen::Quaternionf &quat);
 
-    void setControllerOrientation(Eigen::Quaternionf &quat);
-    void setHeadOrientation(Eigen::Quaternionf &quat);
+	void setHeadOrientation(
+		Eigen::Quaternionf &quat);
 
-    std::string mFriendlyName;
-    std::string mSerialNumber;
-    std::string mSoftwareVersion;
-    bool mIsPilot;
-    struct vmeta_location mLocation;
-    int mControllerBatteryLevel;
-    Eigen::Quaternionf mControllerQuat;
-    bool mIsControllerValid;
-    Eigen::Quaternionf mHeadQuat;
-    bool mIsHeadValid;
-    Eigen::Quaternionf mHeadRefQuat;
-    bool mIsHeadRefValid;
-    float mHeadPsiSpeed;
-    uint64_t mLastHeadPsiTimestamp;
-    Eigen::Quaternionf mPrevControllerQuat;
-    Eigen::Quaternionf mControllerQuatRef;
-    uint64_t mLastControllerQuatTimestamp;
-    uint64_t mPrevControllerQuatTimestamp;
-    bool mTracking;
+	std::string mFriendlyName;
+	std::string mSerialNumber;
+	std::string mSoftwareVersion;
+	bool mIsPilot;
+	struct vmeta_location mLocation;
+	int mControllerBatteryLevel;
+	Eigen::Quaternionf mControllerQuat;
+	bool mIsControllerValid;
+	Eigen::Quaternionf mHeadQuat;
+	bool mIsHeadValid;
+	Eigen::Quaternionf mHeadRefQuat;
+	bool mIsHeadRefValid;
+	float mHeadPsiSpeed;
+	uint64_t mLastHeadPsiTimestamp;
+	Eigen::Quaternionf mPrevControllerQuat;
+	Eigen::Quaternionf mControllerQuatRef;
+	uint64_t mLastControllerQuatTimestamp;
+	uint64_t mPrevControllerQuatTimestamp;
+	bool mTracking;
 };
 
 
-class SessionPeerMetadata
-{
+class SessionPeerMetadata {
 public:
+	SessionPeerMetadata(
+		void);
 
-    SessionPeerMetadata();
+	~SessionPeerMetadata(
+		void);
 
-    ~SessionPeerMetadata();
+	void set(
+		struct vmeta_session *meta);
 
-    void set(struct vmeta_session *meta);
+	std::string& getFriendlyName(
+		void) {
+		return mFriendlyName;
+	}
 
-    std::string& getFriendlyName(void) { return mFriendlyName; } ;
-    void setFriendlyName(const std::string& friendlyName);
+	void setFriendlyName(
+		const std::string& friendlyName);
 
-    std::string& getMaker(void) { return mMaker; };
-    void setMaker(const std::string& maker) { mMaker = maker; };
+	std::string& getMaker(
+		void) {
+		return mMaker;
+	}
 
-    std::string& getModel(void) { return mModel; };
-    void setModel(const std::string& model);
+	void setMaker(
+		const std::string& maker) {
+		mMaker = maker;
+	}
 
-    std::string& getModelId(void) { return mModelId; };
-    void setModelId(const std::string& modelId);
+	std::string& getModel(
+		void) {
+		return mModel;
+	}
 
-    enum pdraw_drone_model getDroneModel(void) { return mDroneModel; };
+	void setModel(
+		const std::string& model);
 
-    std::string& getSerialNumber(void) { return mSerialNumber; };
-    void setSerialNumber(const std::string& serialNumber) { mSerialNumber = serialNumber; };
+	std::string& getModelId(
+		void) {
+		return mModelId;
+	}
 
-    std::string& getSoftwareVersion(void) { return mSoftwareVersion; };
-    void setSoftwareVersion(const std::string& softwareVersion) { mSoftwareVersion = softwareVersion; };
+	void setModelId(
+		const std::string& modelId);
 
-    std::string& getBuildId(void) { return mBuildId; };
-    void setBuildId(const std::string& buildId) { mBuildId = buildId; };
+	enum pdraw_drone_model getDroneModel(
+		void) {
+		return mDroneModel;
+	}
 
-    std::string& getTitle(void) { return mTitle; };
-    void setTitle(const std::string& title) { mTitle = title; };
+	std::string& getSerialNumber(
+		void) {
+		return mSerialNumber;
+	}
 
-    std::string& getComment(void) { return mComment; };
-    void setComment(const std::string& comment) { mComment = comment; };
+	void setSerialNumber(
+		const std::string& serialNumber) {
+		mSerialNumber = serialNumber;
+	}
 
-    std::string& getCopyright(void) { return mCopyright; };
-    void setCopyright(const std::string& copyright) { mCopyright = copyright; };
+	std::string& getSoftwareVersion(
+		void) {
+		return mSoftwareVersion;
+	}
 
-    std::string& getRunDate(void) { return mRunDate; };
-    void setRunDate(const std::string& runDate) { mRunDate = runDate; };
+	void setSoftwareVersion(
+		const std::string& softwareVersion) {
+		mSoftwareVersion = softwareVersion;
+	}
 
-    std::string& getRunUuid(void) { return mRunUuid; };
-    void setRunUuid(const std::string& runUuid) { mRunUuid = runUuid; };
+	std::string& getBuildId(
+		void) {
+		return mBuildId;
+	}
 
-    std::string& getMediaDate(void) { return mMediaDate; };
-    void setMediaDate(const std::string& mediaDate) { mMediaDate = mediaDate; };
+	void setBuildId(
+		const std::string& buildId) {
+		mBuildId = buildId;
+	}
 
-    void getTakeoffLocation(struct vmeta_location *loc);
-    void setTakeoffLocation(const struct vmeta_location *loc);
+	std::string& getTitle(
+		void) {
+		return mTitle;
+	}
 
-    void getHomeLocation(struct vmeta_location *loc);
-    void setHomeLocation(const struct vmeta_location *loc);
+	void setTitle(
+		const std::string& title) {
+		mTitle = title;
+	}
 
-    uint64_t getRecordingDuration(void);
-    void setRecordingDuration(uint64_t duration);
+	std::string& getComment(
+		void) {
+		return mComment;
+	}
+
+	void setComment(
+		const std::string& comment) {
+		mComment = comment;
+	}
+
+	std::string& getCopyright(
+		void) {
+		return mCopyright;
+	}
+
+	void setCopyright(
+		const std::string& copyright) {
+		mCopyright = copyright;
+	}
+
+	std::string& getRunDate(
+		void) {
+		return mRunDate;
+	}
+
+	void setRunDate(
+		const std::string& runDate) {
+		mRunDate = runDate;
+	}
+
+	std::string& getRunUuid(
+		void) {
+		return mRunUuid;
+	}
+
+	void setRunUuid(
+		const std::string& runUuid) {
+		mRunUuid = runUuid;
+	}
+
+	std::string& getMediaDate(
+		void) {
+		return mMediaDate;
+	}
+
+	void setMediaDate(
+		const std::string& mediaDate) {
+		mMediaDate = mediaDate;
+	}
+
+	void getTakeoffLocation(
+		struct vmeta_location *loc);
+
+	void setTakeoffLocation(
+		const struct vmeta_location *loc);
+
+	void getHomeLocation(
+		struct vmeta_location *loc);
+
+	void setHomeLocation(
+		const struct vmeta_location *loc);
+
+	uint64_t getRecordingDuration(
+		void);
+
+	void setRecordingDuration(
+		uint64_t duration);
 
 private:
-
-    std::string mFriendlyName;
-    std::string mMaker;
-    std::string mModel;
-    std::string mModelId;
-    enum pdraw_drone_model mDroneModel;
-    std::string mSerialNumber;
-    std::string mSoftwareVersion;
-    std::string mBuildId;
-    std::string mTitle;
-    std::string mComment;
-    std::string mCopyright;
-    std::string mRunDate;
-    std::string mRunUuid;
-    std::string mMediaDate;
-    struct vmeta_location mTakeoffLocation;
-    struct vmeta_location mHomeLocation;
-    uint64_t mRecordingStartTime;
+	std::string mFriendlyName;
+	std::string mMaker;
+	std::string mModel;
+	std::string mModelId;
+	enum pdraw_drone_model mDroneModel;
+	std::string mSerialNumber;
+	std::string mSoftwareVersion;
+	std::string mBuildId;
+	std::string mTitle;
+	std::string mComment;
+	std::string mCopyright;
+	std::string mRunDate;
+	std::string mRunUuid;
+	std::string mMediaDate;
+	struct vmeta_location mTakeoffLocation;
+	struct vmeta_location mHomeLocation;
+	uint64_t mRecordingStartTime;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_METADATA_SESSION_HPP_ */

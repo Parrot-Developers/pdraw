@@ -27,975 +27,1038 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <pdraw/pdraw.h>
 #include "pdraw_impl.hpp"
-
+#include <pdraw/pdraw.h>
 #include <errno.h>
+#include <string>
 
-using namespace Pdraw;
 
-
-static IPdraw *toPdraw(struct pdraw *ptr)
+static Pdraw::IPdraw *toPdraw(
+	struct pdraw *ptr)
 {
-    return (IPdraw*)ptr;
+	return (Pdraw::IPdraw*)ptr;
 }
 
 
-static struct pdraw *fromPdraw(IPdraw *ptr)
+static struct pdraw *fromPdraw(
+	Pdraw::IPdraw *ptr)
 {
-    return (struct pdraw*)ptr;
+	return (struct pdraw*)ptr;
 }
 
 
-struct pdraw *pdraw_new()
+struct pdraw *pdraw_new(
+	void)
 {
-    return fromPdraw(PdrawImpl::create());
+	return fromPdraw(Pdraw::PdrawImpl::create());
 }
 
 
-int pdraw_destroy(struct pdraw *pdraw)
+int pdraw_destroy(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    PdrawImpl::release(toPdraw(pdraw));
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	Pdraw::PdrawImpl::release(toPdraw(pdraw));
+	return 0;
 }
 
 
-int pdraw_open_url(struct pdraw *pdraw, const char *url)
+int pdraw_open_url(
+	struct pdraw *pdraw,
+	const char *url)
 {
-    if ((pdraw == NULL) || (url == NULL))
-    {
-        return -EINVAL;
-    }
-    std::string u(url);
-    return toPdraw(pdraw)->open(u);
+	if ((pdraw == NULL) || (url == NULL))
+		return -EINVAL;
+
+	std::string u(url);
+	return toPdraw(pdraw)->open(u);
 }
 
 
-int pdraw_open_url_mcast(struct pdraw *pdraw, const char *url, const char *ifaceAddr)
+int pdraw_open_url_mcast(
+	struct pdraw *pdraw,
+	const char *url,
+	const char *ifaceAddr)
 {
-    if ((pdraw == NULL) || (url == NULL))
-    {
-        return -EINVAL;
-    }
-    std::string u(url);
-    std::string i(ifaceAddr);
-    return toPdraw(pdraw)->open(u, i);
+	if ((pdraw == NULL) || (url == NULL))
+		return -EINVAL;
+
+	std::string u(url);
+	std::string i(ifaceAddr);
+	return toPdraw(pdraw)->open(u, i);
 }
 
 
-int pdraw_open_single_stream(struct pdraw *pdraw, const char *srcAddr, const char *ifaceAddr,
-                             int srcStreamPort, int srcControlPort,
-                             int dstStreamPort, int dstControlPort, int qosMode)
+int pdraw_open_single_stream(
+	struct pdraw *pdraw,
+	const char *srcAddr,
+	const char *ifaceAddr,
+	int srcStreamPort,
+	int srcControlPort,
+	int dstStreamPort,
+	int dstControlPort,
+	int qosMode)
 {
-    if ((pdraw == NULL) || (srcAddr == NULL))
-    {
-        return -EINVAL;
-    }
-    std::string ip(srcAddr);
-    std::string iface(ifaceAddr);
-    return toPdraw(pdraw)->open(ip, iface, srcStreamPort, srcControlPort,
-                                dstStreamPort, dstControlPort, qosMode);
+	if ((pdraw == NULL) || (srcAddr == NULL))
+		return -EINVAL;
+
+	std::string ip(srcAddr);
+	std::string iface(ifaceAddr);
+	return toPdraw(pdraw)->open(ip, iface,
+		srcStreamPort, srcControlPort,
+		dstStreamPort, dstControlPort, qosMode);
 }
 
 
-int pdraw_open_mux(struct pdraw *pdraw, void *muxContext)
+int pdraw_open_mux(
+	struct pdraw *pdraw,
+	void *muxContext)
 {
-    if ((pdraw == NULL) || (muxContext == NULL))
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->open(muxContext);
+	if ((pdraw == NULL) || (muxContext == NULL))
+		return -EINVAL;
+
+	return toPdraw(pdraw)->open(muxContext);
 }
 
 
-int pdraw_open_sdp(struct pdraw *pdraw, const char *sdp, const char *ifaceAddr)
+int pdraw_open_sdp(
+	struct pdraw *pdraw,
+	const char *sdp,
+	const char *ifaceAddr)
 {
-    if ((pdraw == NULL) || (sdp == NULL))
-    {
-        return -EINVAL;
-    }
-    std::string s(sdp);
-    std::string i(ifaceAddr);
-    return toPdraw(pdraw)->openSdp(s, i);
+	if ((pdraw == NULL) || (sdp == NULL))
+		return -EINVAL;
+
+	std::string s(sdp);
+	std::string i(ifaceAddr);
+	return toPdraw(pdraw)->openSdp(s, i);
 }
 
 
-int pdraw_play(struct pdraw *pdraw)
+int pdraw_play(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->play();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->play();
 }
 
-int pdraw_play_with_speed(struct pdraw *pdraw, float speed)
+int pdraw_play_with_speed(
+	struct pdraw *pdraw,
+	float speed)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->play(speed);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->play(speed);
 }
 
-int pdraw_pause(struct pdraw *pdraw)
+int pdraw_pause(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->pause();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->pause();
 }
 
 
-int pdraw_is_paused(struct pdraw *pdraw)
+int pdraw_is_paused(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return (toPdraw(pdraw)->isPaused()) ? 1 : 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return (toPdraw(pdraw)->isPaused()) ? 1 : 0;
 }
 
 
-int pdraw_previous_frame(struct pdraw *pdraw)
+int pdraw_previous_frame(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->previousFrame();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->previousFrame();
 }
 
 
-int pdraw_next_frame(struct pdraw *pdraw)
+int pdraw_next_frame(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->nextFrame();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->nextFrame();
 }
 
 
-int pdraw_stop(struct pdraw *pdraw)
+int pdraw_stop(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->stop();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->stop();
 }
 
 
-int pdraw_seek_to(struct pdraw *pdraw, uint64_t timestamp, int exact)
+int pdraw_seek_to(
+	struct pdraw *pdraw,
+	uint64_t timestamp,
+	int exact)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->seekTo(timestamp, exact ? true : false);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->seekTo(timestamp, exact ? true : false);
 }
 
 
-int pdraw_seek_forward(struct pdraw *pdraw, uint64_t delta, int exact)
+int pdraw_seek_forward(
+	struct pdraw *pdraw,
+	uint64_t delta,
+	int exact)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->seekForward(delta, exact ? true : false);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->seekForward(delta, exact ? true : false);
 }
 
 
-int pdraw_seek_back(struct pdraw *pdraw, uint64_t delta, int exact)
+int pdraw_seek_back(
+	struct pdraw *pdraw,
+	uint64_t delta,
+	int exact)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->seekBack(delta, exact ? true : false);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->seekBack(delta, exact ? true : false);
 }
 
 
-uint64_t pdraw_get_duration(struct pdraw *pdraw)
+uint64_t pdraw_get_duration(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return 0;
-    }
-    return toPdraw(pdraw)->getDuration();
+	if (pdraw == NULL)
+		return 0;
+
+	return toPdraw(pdraw)->getDuration();
 }
 
 
-uint64_t pdraw_get_current_time(struct pdraw *pdraw)
+uint64_t pdraw_get_current_time(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return 0;
-    }
-    return toPdraw(pdraw)->getCurrentTime();
+	if (pdraw == NULL)
+		return 0;
+
+	return toPdraw(pdraw)->getCurrentTime();
 }
 
 
-int pdraw_start_recorder(struct pdraw *pdraw, const char *fileName)
+int pdraw_start_recorder(
+	struct pdraw *pdraw,
+	const char *fileName)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    std::string fn(fileName);
-    return toPdraw(pdraw)->startRecorder(fn);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	std::string fn(fileName);
+	return toPdraw(pdraw)->startRecorder(fn);
 }
 
 
-int pdraw_stop_recorder(struct pdraw *pdraw)
+int pdraw_stop_recorder(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->stopRecorder();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->stopRecorder();
 }
 
 
-int pdraw_start_resender(struct pdraw *pdraw, const char *dstAddr, const char *ifaceAddr,
-                         int srcStreamPort, int srcControlPort,
-                         int dstStreamPort, int dstControlPort)
+int pdraw_start_resender(
+	struct pdraw *pdraw,
+	const char *dstAddr,
+	const char *ifaceAddr,
+	int srcStreamPort,
+	int srcControlPort,
+	int dstStreamPort,
+	int dstControlPort)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    std::string ip(dstAddr);
-    std::string iface(ifaceAddr);
-    return toPdraw(pdraw)->startResender(ip, iface,
-                                         srcStreamPort, srcControlPort,
-                                         dstStreamPort, dstControlPort);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	std::string ip(dstAddr);
+	std::string iface(ifaceAddr);
+	return toPdraw(pdraw)->startResender(ip, iface,
+		srcStreamPort, srcControlPort, dstStreamPort, dstControlPort);
 }
 
 
-int pdraw_stop_resender(struct pdraw *pdraw)
+int pdraw_stop_resender(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->stopResender();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->stopResender();
 }
 
 
-int pdraw_start_renderer(struct pdraw *pdraw,
-                         int windowWidth, int windowHeight,
-                         int renderX, int renderY,
-                         int renderWidth, int renderHeight,
-                         int hmdDistorsionCorrection,
-                         int headtracking,
-                         void *uiHandler)
+int pdraw_start_renderer(
+	struct pdraw *pdraw,
+	int windowWidth,
+	int windowHeight,
+	int renderX,
+	int renderY,
+	int renderWidth,
+	int renderHeight,
+	int hmdDistorsionCorrection,
+	int headtracking,
+	void *uiHandler)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->startRenderer(windowWidth, windowHeight,
-                                         renderX, renderY,
-                                         renderWidth, renderHeight,
-                                         (hmdDistorsionCorrection) ? true : false,
-                                         (headtracking) ? true : false,
-                                         uiHandler);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->startRenderer(windowWidth, windowHeight,
+		renderX, renderY, renderWidth, renderHeight,
+		(hmdDistorsionCorrection) ? true : false,
+		(headtracking) ? true : false, uiHandler);
 }
 
 
-int pdraw_stop_renderer(struct pdraw *pdraw)
+int pdraw_stop_renderer(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->stopRenderer();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->stopRenderer();
 }
 
 
-int pdraw_render(struct pdraw *pdraw, uint64_t lastRenderTime)
+int pdraw_render(
+	struct pdraw *pdraw,
+	uint64_t lastRenderTime)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->render(lastRenderTime);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->render(lastRenderTime);
 }
 
 
-enum pdraw_session_type pdraw_get_session_type(struct pdraw *pdraw)
+enum pdraw_session_type pdraw_get_session_type(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return (enum pdraw_session_type)-EINVAL;
-    }
-    return toPdraw(pdraw)->getSessionType();
+	if (pdraw == NULL)
+		return (enum pdraw_session_type)-EINVAL;
+
+	return toPdraw(pdraw)->getSessionType();
 }
 
 
-const char *pdraw_get_self_friendly_name(struct pdraw *pdraw)
+const char *pdraw_get_self_friendly_name(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getSelfFriendlyName().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getSelfFriendlyName().c_str();
 }
 
 
-int pdraw_set_self_friendly_name(struct pdraw *pdraw, const char *friendlyName)
+int pdraw_set_self_friendly_name(
+	struct pdraw *pdraw,
+	const char *friendlyName)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    std::string fn(friendlyName);
-    toPdraw(pdraw)->setSelfFriendlyName(fn);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	std::string fn(friendlyName);
+	toPdraw(pdraw)->setSelfFriendlyName(fn);
+	return 0;
 }
 
 
-const char *pdraw_get_self_serial_number(struct pdraw *pdraw)
+const char *pdraw_get_self_serial_number(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getSelfSerialNumber().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getSelfSerialNumber().c_str();
 }
 
 
-int pdraw_set_self_serial_number(struct pdraw *pdraw, const char *serialNumber)
+int pdraw_set_self_serial_number(
+	struct pdraw *pdraw,
+	const char *serialNumber)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    std::string sn(serialNumber);
-    toPdraw(pdraw)->setSelfSerialNumber(sn);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	std::string sn(serialNumber);
+	toPdraw(pdraw)->setSelfSerialNumber(sn);
+	return 0;
 }
 
 
-const char *pdraw_get_self_software_version(struct pdraw *pdraw)
+const char *pdraw_get_self_software_version(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getSelfSoftwareVersion().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getSelfSoftwareVersion().c_str();
 }
 
 
-int pdraw_set_self_software_version(struct pdraw *pdraw, const char *softwareVersion)
+int pdraw_set_self_software_version(
+	struct pdraw *pdraw,
+	const char *softwareVersion)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    std::string sv(softwareVersion);
-    toPdraw(pdraw)->setSelfSoftwareVersion(sv);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	std::string sv(softwareVersion);
+	toPdraw(pdraw)->setSelfSoftwareVersion(sv);
+	return 0;
 }
 
 
-int pdraw_is_self_pilot(struct pdraw *pdraw)
+int pdraw_is_self_pilot(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return (toPdraw(pdraw)->isSelfPilot()) ? 1 : 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return (toPdraw(pdraw)->isSelfPilot()) ? 1 : 0;
 }
 
 
-int pdraw_set_self_pilot(struct pdraw *pdraw, int isPilot)
+int pdraw_set_self_pilot(
+	struct pdraw *pdraw,
+	int isPilot)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfPilot((isPilot) ? true : false);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfPilot((isPilot) ? true : false);
+	return 0;
 }
 
 
-int pdraw_get_self_location(struct pdraw *pdraw, struct vmeta_location *loc)
+int pdraw_get_self_location(
+	struct pdraw *pdraw,
+	struct vmeta_location *loc)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getSelfLocation(loc);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getSelfLocation(loc);
+	return 0;
 }
 
 
-int pdraw_set_self_location(struct pdraw *pdraw, const struct vmeta_location *loc)
+int pdraw_set_self_location(
+	struct pdraw *pdraw,
+	const struct vmeta_location *loc)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfLocation(loc);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfLocation(loc);
+	return 0;
 }
 
 
-int pdraw_get_self_controller_battery_level(struct pdraw *pdraw)
+int pdraw_get_self_controller_battery_level(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->getControllerBatteryLevel();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->getControllerBatteryLevel();
 }
 
 
-int pdraw_set_self_controller_battery_level(struct pdraw *pdraw, int batteryLevel)
+int pdraw_set_self_controller_battery_level(
+	struct pdraw *pdraw,
+	int batteryLevel)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setControllerBatteryLevel(batteryLevel);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setControllerBatteryLevel(batteryLevel);
+	return 0;
 }
 
 
-int pdraw_get_self_controller_orientation_quat(struct pdraw *pdraw, struct vmeta_quaternion *quat)
+int pdraw_get_self_controller_orientation_quat(
+	struct pdraw *pdraw,
+	struct vmeta_quaternion *quat)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getSelfControllerOrientation(quat);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getSelfControllerOrientation(quat);
+	return 0;
 }
 
 
-int pdraw_get_self_controller_orientation_euler(struct pdraw *pdraw, struct vmeta_euler *euler)
+int pdraw_get_self_controller_orientation_euler(
+	struct pdraw *pdraw,
+	struct vmeta_euler *euler)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getSelfControllerOrientation(euler);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getSelfControllerOrientation(euler);
+	return 0;
 }
 
 
-int pdraw_set_self_controller_orientation_quat(struct pdraw *pdraw, const struct vmeta_quaternion *quat)
+int pdraw_set_self_controller_orientation_quat(
+	struct pdraw *pdraw,
+	const struct vmeta_quaternion *quat)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfControllerOrientation(quat);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfControllerOrientation(quat);
+	return 0;
 }
 
 
-int pdraw_set_self_controller_orientation_euler(struct pdraw *pdraw, const struct vmeta_euler *euler)
+int pdraw_set_self_controller_orientation_euler(
+	struct pdraw *pdraw,
+	const struct vmeta_euler *euler)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfControllerOrientation(euler);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfControllerOrientation(euler);
+	return 0;
 }
 
 
-int pdraw_get_self_head_orientation_quat(struct pdraw *pdraw, struct vmeta_quaternion *quat)
+int pdraw_get_self_head_orientation_quat(
+	struct pdraw *pdraw,
+	struct vmeta_quaternion *quat)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getSelfHeadOrientation(quat);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getSelfHeadOrientation(quat);
+	return 0;
 }
 
 
-int pdraw_get_self_head_orientation_euler(struct pdraw *pdraw, struct vmeta_euler *euler)
+int pdraw_get_self_head_orientation_euler(
+	struct pdraw *pdraw,
+	struct vmeta_euler *euler)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getSelfHeadOrientation(euler);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getSelfHeadOrientation(euler);
+	return 0;
 }
 
 
-int pdraw_set_self_head_orientation_quat(struct pdraw *pdraw, const struct vmeta_quaternion *quat)
+int pdraw_set_self_head_orientation_quat(
+	struct pdraw *pdraw,
+	const struct vmeta_quaternion *quat)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfHeadOrientation(quat);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfHeadOrientation(quat);
+	return 0;
 }
 
 
-int pdraw_set_self_head_orientation_euler(struct pdraw *pdraw, const struct vmeta_euler *euler)
+int pdraw_set_self_head_orientation_euler(
+	struct pdraw *pdraw,
+	const struct vmeta_euler *euler)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfHeadOrientation(euler);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfHeadOrientation(euler);
+	return 0;
 }
 
 
-int pdraw_get_self_head_ref_orientation_quat(struct pdraw *pdraw, struct vmeta_quaternion *quat)
+int pdraw_get_self_head_ref_orientation_quat(
+	struct pdraw *pdraw,
+	struct vmeta_quaternion *quat)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getSelfHeadRefOrientation(quat);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getSelfHeadRefOrientation(quat);
+	return 0;
 }
 
 
-int pdraw_get_self_head_ref_orientation_euler(struct pdraw *pdraw, struct vmeta_euler *euler)
+int pdraw_get_self_head_ref_orientation_euler(
+	struct pdraw *pdraw,
+	struct vmeta_euler *euler)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getSelfHeadRefOrientation(euler);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getSelfHeadRefOrientation(euler);
+	return 0;
 }
 
 
-int pdraw_set_self_head_ref_orientation_quat(struct pdraw *pdraw, const struct vmeta_quaternion *quat)
+int pdraw_set_self_head_ref_orientation_quat(
+	struct pdraw *pdraw,
+	const struct vmeta_quaternion *quat)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfHeadRefOrientation(quat);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfHeadRefOrientation(quat);
+	return 0;
 }
 
 
-int pdraw_set_self_head_ref_orientation_euler(struct pdraw *pdraw, const struct vmeta_euler *euler)
+int pdraw_set_self_head_ref_orientation_euler(
+	struct pdraw *pdraw,
+	const struct vmeta_euler *euler)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setSelfHeadRefOrientation(euler);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setSelfHeadRefOrientation(euler);
+	return 0;
 }
 
 
-int pdraw_reset_self_head_ref_orientation(struct pdraw *pdraw)
+int pdraw_reset_self_head_ref_orientation(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->resetSelfHeadRefOrientation();
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->resetSelfHeadRefOrientation();
+	return 0;
 }
 
 
-const char *pdraw_get_peer_friendly_name(struct pdraw *pdraw)
+const char *pdraw_get_peer_friendly_name(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerFriendlyName().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerFriendlyName().c_str();
 }
 
 
-const char *pdraw_get_peer_maker(struct pdraw *pdraw)
+const char *pdraw_get_peer_maker(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerMaker().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerMaker().c_str();
 }
 
 
-const char *pdraw_get_peer_model(struct pdraw *pdraw)
+const char *pdraw_get_peer_model(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerModel().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerModel().c_str();
 }
 
 
-const char *pdraw_get_peer_model_id(struct pdraw *pdraw)
+const char *pdraw_get_peer_model_id(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerModelId().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerModelId().c_str();
 }
 
 
-enum pdraw_drone_model pdraw_get_peer_drone_model(struct pdraw *pdraw)
+enum pdraw_drone_model pdraw_get_peer_drone_model(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return (enum pdraw_drone_model)-EINVAL;
-    }
-    return toPdraw(pdraw)->getPeerDroneModel();
+	if (pdraw == NULL)
+		return (enum pdraw_drone_model)-EINVAL;
+
+	return toPdraw(pdraw)->getPeerDroneModel();
 }
 
 
-const char *pdraw_get_peer_serial_number(struct pdraw *pdraw)
+const char *pdraw_get_peer_serial_number(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerSerialNumber().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerSerialNumber().c_str();
 }
 
 
-const char *pdraw_get_peer_software_version(struct pdraw *pdraw)
+const char *pdraw_get_peer_software_version(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerSoftwareVersion().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerSoftwareVersion().c_str();
 }
 
 
-const char *pdraw_get_peer_build_id(struct pdraw *pdraw)
+const char *pdraw_get_peer_build_id(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerBuildId().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerBuildId().c_str();
 }
 
 
-const char *pdraw_get_peer_title(struct pdraw *pdraw)
+const char *pdraw_get_peer_title(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerTitle().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerTitle().c_str();
 }
 
 
-const char *pdraw_get_peer_comment(struct pdraw *pdraw)
+const char *pdraw_get_peer_comment(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerComment().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerComment().c_str();
 }
 
 
-const char *pdraw_get_peer_copyright(struct pdraw *pdraw)
+const char *pdraw_get_peer_copyright(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerCopyright().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerCopyright().c_str();
 }
 
 
-const char *pdraw_get_peer_run_date(struct pdraw *pdraw)
+const char *pdraw_get_peer_run_date(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerRunDate().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerRunDate().c_str();
 }
 
 
-const char *pdraw_get_peer_run_uuid(struct pdraw *pdraw)
+const char *pdraw_get_peer_run_uuid(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerRunUuid().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerRunUuid().c_str();
 }
 
 
-const char *pdraw_get_peer_media_date(struct pdraw *pdraw)
+const char *pdraw_get_peer_media_date(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->getPeerMediaDate().c_str();
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->getPeerMediaDate().c_str();
 }
 
 
-int pdraw_get_peer_takeoff_location(struct pdraw *pdraw, struct vmeta_location *loc)
+int pdraw_get_peer_takeoff_location(
+	struct pdraw *pdraw,
+	struct vmeta_location *loc)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getPeerTakeoffLocation(loc);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getPeerTakeoffLocation(loc);
+	return 0;
 }
 
 
-int pdraw_set_peer_takeoff_location(struct pdraw *pdraw, const struct vmeta_location *loc)
+int pdraw_set_peer_takeoff_location(
+	struct pdraw *pdraw,
+	const struct vmeta_location *loc)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setPeerTakeoffLocation(loc);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setPeerTakeoffLocation(loc);
+	return 0;
 }
 
 
-int pdraw_get_peer_home_location(struct pdraw *pdraw, struct vmeta_location *loc)
+int pdraw_get_peer_home_location(
+	struct pdraw *pdraw,
+	struct vmeta_location *loc)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getPeerHomeLocation(loc);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getPeerHomeLocation(loc);
+	return 0;
 }
 
 
-int pdraw_set_peer_home_location(struct pdraw *pdraw, const struct vmeta_location *loc)
+int pdraw_set_peer_home_location(
+	struct pdraw *pdraw,
+	const struct vmeta_location *loc)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setPeerHomeLocation(loc);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setPeerHomeLocation(loc);
+	return 0;
 }
 
 
-uint64_t pdraw_get_peer_recording_duration(struct pdraw *pdraw)
+uint64_t pdraw_get_peer_recording_duration(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return 0;
-    }
-    return toPdraw(pdraw)->getPeerRecordingDuration();
+	if (pdraw == NULL)
+		return 0;
+
+	return toPdraw(pdraw)->getPeerRecordingDuration();
 }
 
 
-int pdraw_set_peer_recording_duration(struct pdraw *pdraw, uint64_t duration)
+int pdraw_set_peer_recording_duration(
+	struct pdraw *pdraw,
+	uint64_t duration)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setPeerRecordingDuration(duration);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setPeerRecordingDuration(duration);
+	return 0;
 }
 
 
-int pdraw_get_camera_orientation_for_headtracking
-        (struct pdraw *pdraw,
-         float *pan,
-         float *tilt)
+int pdraw_get_camera_orientation_for_headtracking(
+	struct pdraw *pdraw,
+	float *pan,
+	float *tilt)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getCameraOrientationForHeadtracking(pan, tilt);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getCameraOrientationForHeadtracking(pan, tilt);
+	return 0;
 }
 
 
-int pdraw_get_media_count(struct pdraw *pdraw)
+int pdraw_get_media_count(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->getMediaCount();
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->getMediaCount();
 }
 
 
-int pdraw_get_media_info(struct pdraw *pdraw, unsigned int index, struct pdraw_media_info *info)
+int pdraw_get_media_info(
+	struct pdraw *pdraw,
+	unsigned int index,
+	struct pdraw_media_info *info)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->getMediaInfo(index, info);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->getMediaInfo(index, info);
 }
 
 
-void *pdraw_add_video_frame_filter_callback(struct pdraw *pdraw, unsigned int mediaId,
-                                            pdraw_video_frame_filter_callback_t cb, void *userPtr)
+void *pdraw_add_video_frame_filter_callback(
+	struct pdraw *pdraw,
+	unsigned int mediaId,
+	pdraw_video_frame_filter_callback_t cb,
+	void *userPtr)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->addVideoFrameFilterCallback(mediaId, cb, userPtr);
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->addVideoFrameFilterCallback(
+		mediaId, cb, userPtr);
 }
 
 
-int pdraw_remove_video_frame_filter_callback(struct pdraw *pdraw, unsigned int mediaId, void *filterCtx)
+int pdraw_remove_video_frame_filter_callback(
+	struct pdraw *pdraw,
+	unsigned int mediaId,
+	void *filterCtx)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->removeVideoFrameFilterCallback(mediaId, filterCtx);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->removeVideoFrameFilterCallback(
+		mediaId, filterCtx);
 }
 
 
-void *pdraw_add_video_frame_producer(struct pdraw *pdraw, unsigned int mediaId, int frameByFrame)
+void *pdraw_add_video_frame_producer(
+	struct pdraw *pdraw,
+	unsigned int mediaId,
+	int frameByFrame)
 {
-    if (pdraw == NULL)
-    {
-        return NULL;
-    }
-    return toPdraw(pdraw)->addVideoFrameProducer(mediaId, (frameByFrame) ? true : false);
+	if (pdraw == NULL)
+		return NULL;
+
+	return toPdraw(pdraw)->addVideoFrameProducer(
+		mediaId, (frameByFrame) ? true : false);
 }
 
 
-int pdraw_remove_video_frame_producer(struct pdraw *pdraw, void *producerCtx)
+int pdraw_remove_video_frame_producer(
+	struct pdraw *pdraw,
+	void *producerCtx)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->removeVideoFrameProducer(producerCtx);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->removeVideoFrameProducer(producerCtx);
 }
 
 
-int pdraw_get_producer_last_frame(struct pdraw *pdraw, void *producerCtx, struct pdraw_video_frame *frame, int timeout)
+int pdraw_get_producer_last_frame(
+	struct pdraw *pdraw,
+	void *producerCtx,
+	struct pdraw_video_frame *frame,
+	int timeout)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    return toPdraw(pdraw)->getProducerLastFrame(producerCtx, frame, timeout);
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->getProducerLastFrame(
+		producerCtx, frame, timeout);
 }
 
 
-float pdraw_get_controller_radar_angle_setting(struct pdraw *pdraw)
+float pdraw_get_controller_radar_angle_setting(
+	struct pdraw *pdraw)
 {
-    if (pdraw == NULL)
-    {
-        return (float)-EINVAL;
-    }
-    return toPdraw(pdraw)->getControllerRadarAngleSetting();
+	if (pdraw == NULL)
+		return (float)-EINVAL;
+
+	return toPdraw(pdraw)->getControllerRadarAngleSetting();
 }
 
 
-int pdraw_set_controller_radar_angle_setting(struct pdraw *pdraw, float angle)
+int pdraw_set_controller_radar_angle_setting(
+	struct pdraw *pdraw,
+	float angle)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setControllerRadarAngleSetting(angle);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setControllerRadarAngleSetting(angle);
+	return 0;
 }
 
 
-int pdraw_get_display_screen_settings
-        (struct pdraw *pdraw,
-         float *xdpi,
-         float *ydpi,
-         float *deviceMargin)
+int pdraw_get_display_screen_settings(
+	struct pdraw *pdraw,
+	float *xdpi,
+	float *ydpi,
+	float *deviceMargin)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getDisplayScreenSettings(xdpi, ydpi, deviceMargin);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getDisplayScreenSettings(xdpi, ydpi, deviceMargin);
+	return 0;
 }
 
 
-int pdraw_set_display_screen_settings
-        (struct pdraw *pdraw,
-         float xdpi,
-         float ydpi,
-         float deviceMargin)
+int pdraw_set_display_screen_settings(
+	struct pdraw *pdraw,
+	float xdpi,
+	float ydpi,
+	float deviceMargin)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setDisplayScreenSettings(xdpi, ydpi, deviceMargin);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setDisplayScreenSettings(xdpi, ydpi, deviceMargin);
+	return 0;
 }
 
 
-int pdraw_get_hmd_distorsion_correction_settings
-        (struct pdraw *pdraw,
-         enum pdraw_hmd_model *hmdModel,
-         float *ipd,
-         float *scale,
-         float *panH,
-         float *panV)
+int pdraw_get_hmd_distorsion_correction_settings(
+	struct pdraw *pdraw,
+	enum pdraw_hmd_model *hmdModel,
+	float *ipd,
+	float *scale,
+	float *panH,
+	float *panV)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->getHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->getHmdDistorsionCorrectionSettings(
+		hmdModel, ipd, scale, panH, panV);
+	return 0;
 }
 
 
-int pdraw_set_hmd_distorsion_correction_settings
-        (struct pdraw *pdraw,
-         enum pdraw_hmd_model hmdModel,
-         float ipd,
-         float scale,
-         float panH,
-         float panV)
+int pdraw_set_hmd_distorsion_correction_settings(
+	struct pdraw *pdraw,
+	enum pdraw_hmd_model hmdModel,
+	float ipd,
+	float scale,
+	float panH,
+	float panV)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setHmdDistorsionCorrectionSettings(
+		hmdModel, ipd, scale, panH, panV);
+	return 0;
 }
 
 
-int pdraw_set_jni_env
-        (struct pdraw *pdraw,
-         void *jniEnv)
+int pdraw_set_jni_env(
+	struct pdraw *pdraw,
+	void *jniEnv)
 {
-    if (pdraw == NULL)
-    {
-        return -EINVAL;
-    }
-    toPdraw(pdraw)->setJniEnv(jniEnv);
-    return 0;
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	toPdraw(pdraw)->setJniEnv(jniEnv);
+	return 0;
 }

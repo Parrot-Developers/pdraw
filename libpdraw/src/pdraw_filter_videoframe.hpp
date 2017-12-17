@@ -31,68 +31,79 @@
 #define _PDRAW_FILTER_VIDEOFRAME_HPP_
 
 #include <pthread.h>
-
 #include <pdraw/pdraw_defs.h>
-
 #include "pdraw_avcdecoder.hpp"
 
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
 class Media;
 class VideoMedia;
 
 
-class VideoFrameFilter
-{
+class VideoFrameFilter {
 public:
+	VideoFrameFilter(
+		VideoMedia *media,
+		AvcDecoder *decoder,
+		bool frameByFrame = false);
 
-    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, bool frameByFrame = false);
+	VideoFrameFilter(
+		VideoMedia *media,
+		AvcDecoder *decoder,
+		pdraw_video_frame_filter_callback_t cb,
+		void *userPtr,
+		bool frameByFrame = false);
 
-    VideoFrameFilter(VideoMedia *media, AvcDecoder *decoder, pdraw_video_frame_filter_callback_t cb, void *userPtr, bool frameByFrame = false);
+	~VideoFrameFilter(
+		void);
 
-    ~VideoFrameFilter();
+	/**
+	 * timeout : time in microseconds to wait for a frame
+	 *  0: don't wait
+	 * -1: wait forever
+	 * >0: wait time
+	 */
+	int getLastFrame(
+		struct pdraw_video_frame *frame,
+		int timeout = 0);
 
-    /*
-     * timeout : time in microseconds to wait for a frame
-     *  0: don't wait
-     * -1: wait forever
-     * >0: wait time
-     */
-    int getLastFrame(struct pdraw_video_frame *frame, int timeout = 0);
+	Media *getMedia(
+		void) {
+		return mMedia;
+	}
 
-    Media *getMedia() { return mMedia; };
-
-    VideoMedia *getVideoMedia() { return (VideoMedia*)mMedia; };
+	VideoMedia *getVideoMedia(
+		void) {
+		return (VideoMedia *)mMedia;
+	}
 
 private:
+	static void *runThread(
+		void *ptr);
 
-    static void* runThread(void *ptr);
-
-    Media *mMedia;
-    AvcDecoder *mDecoder;
-    struct vbuf_queue *mDecoderOutputBufferQueue;
-    pthread_mutex_t mMutex;
-    pthread_t mThread;
-    pthread_cond_t mCondition;
-    bool mThreadLaunched;
-    bool mThreadShouldStop;
-    bool mFrameByFrame;
-    pdraw_video_frame_filter_callback_t mCb;
-    void *mUserPtr;
-    uint8_t *mBuffer[2];
-    uint8_t *mUserData[2];
-    unsigned int mUserDataBuferSize[2];
-    struct pdraw_video_frame mBufferData[2];
-    unsigned int mBufferIndex;
-    enum pdraw_color_format mColorFormat;
-    unsigned int mWidth;
-    unsigned int mHeight;
-    bool mFrameAvailable;
+	Media *mMedia;
+	AvcDecoder *mDecoder;
+	struct vbuf_queue *mDecoderOutputBufferQueue;
+	pthread_mutex_t mMutex;
+	pthread_t mThread;
+	pthread_cond_t mCondition;
+	bool mThreadLaunched;
+	bool mThreadShouldStop;
+	bool mFrameByFrame;
+	pdraw_video_frame_filter_callback_t mCb;
+	void *mUserPtr;
+	uint8_t *mBuffer[2];
+	uint8_t *mUserData[2];
+	unsigned int mUserDataBuferSize[2];
+	struct pdraw_video_frame mBufferData[2];
+	unsigned int mBufferIndex;
+	enum pdraw_color_format mColorFormat;
+	unsigned int mWidth;
+	unsigned int mHeight;
+	bool mFrameAvailable;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_FILTER_VIDEOFRAME_HPP_ */

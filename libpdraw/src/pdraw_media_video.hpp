@@ -30,86 +30,133 @@
 #ifndef _PDRAW_VIDEO_MEDIA_HPP_
 #define _PDRAW_VIDEO_MEDIA_HPP_
 
+#include "pdraw_media.hpp"
+#include "pdraw_demuxer.hpp"
+#include "pdraw_filter_videoframe.hpp"
+#include <pdraw/pdraw_defs.h>
 #include <inttypes.h>
 #include <string>
 #include <vector>
 
-#include <pdraw/pdraw_defs.h>
-
-#include "pdraw_media.hpp"
-#include "pdraw_demuxer.hpp"
-#include "pdraw_filter_videoframe.hpp"
-
-using namespace std;
+namespace Pdraw {
 
 
-namespace Pdraw
-{
-
-
-class VideoMedia : public Media
-{
+class VideoMedia : public Media {
 public:
+	VideoMedia(
+		Session *session,
+		enum elementary_stream_type esType,
+		unsigned int id);
 
-    VideoMedia(Session *session, elementary_stream_type_t esType, unsigned int id);
+	VideoMedia(
+		Session *session,
+		enum elementary_stream_type esType,
+		unsigned int id,
+		Demuxer *demux,
+		int demuxEsIndex);
 
-    VideoMedia(Session *session, elementary_stream_type_t esType, unsigned int id, Demuxer *demux, int demuxEsIndex);
+	~VideoMedia(
+		void);
 
-    ~VideoMedia();
+	enum pdraw_media_type getType(
+		void) {
+		return PDRAW_MEDIA_TYPE_VIDEO;
+	}
 
-    enum pdraw_media_type getType() { return PDRAW_MEDIA_TYPE_VIDEO; };
+	unsigned int getId(
+		void) {
+		return mId;
+	}
 
-    unsigned int getId() { return mId; };
+	enum pdraw_video_type getVideoType(
+		void) {
+		return mVideoType;
+	}
 
-    enum pdraw_video_type getVideoType() { return mVideoType; };
-    void setVideoType(enum pdraw_video_type type) { mVideoType = type; };
+	void setVideoType(
+		enum pdraw_video_type type) {
+		mVideoType = type;
+	}
 
-    void getDimensions(unsigned int *width, unsigned int *height,
-        unsigned int *cropLeft, unsigned int *cropRight,
-        unsigned int *cropTop, unsigned int *cropBottom,
-        unsigned int *croppedWidth, unsigned int *croppedHeight,
-        unsigned int *sarWidth, unsigned int *sarHeight);
-    void setDimensions(unsigned int width, unsigned int height,
-        unsigned int cropLeft, unsigned int cropRight,
-        unsigned int cropTop, unsigned int cropBottom,
-        unsigned int sarWidth, unsigned int sarHeight);
+	void getDimensions(
+		unsigned int *width,
+		unsigned int *height,
+		unsigned int *cropLeft,
+		unsigned int *cropRight,
+		unsigned int *cropTop,
+		unsigned int *cropBottom,
+		unsigned int *croppedWidth,
+		unsigned int *croppedHeight,
+		unsigned int *sarWidth,
+		unsigned int *sarHeight);
 
-    void getFov(float *hfov, float *vfov);
-    void setFov(float hfov, float vfov);
+	void setDimensions(
+		unsigned int width,
+		unsigned int height,
+		unsigned int cropLeft,
+		unsigned int cropRight,
+		unsigned int cropTop,
+		unsigned int cropBottom,
+		unsigned int sarWidth,
+		unsigned int sarHeight);
 
-    int enableDecoder();
-    int disableDecoder();
+	void getFov(
+		float *hfov,
+		float *vfov);
 
-    Session *getSession() { return mSession; };
+	void setFov(
+		float hfov,
+		float vfov);
 
-    Decoder *getDecoder() { return mDecoder; };
+	int enableDecoder(
+		void);
 
-    VideoFrameFilter *addVideoFrameFilter(bool frameByFrame = false);
-    VideoFrameFilter *addVideoFrameFilter(pdraw_video_frame_filter_callback_t cb, void *userPtr, bool frameByFrame = false);
-    int removeVideoFrameFilter(VideoFrameFilter *filter);
+	int disableDecoder(
+		void);
+
+	Session *getSession(
+		void) {
+		return mSession;
+	}
+
+	Decoder *getDecoder(
+		void) {
+		return mDecoder;
+	}
+
+	VideoFrameFilter *addVideoFrameFilter(
+		bool frameByFrame = false);
+
+	VideoFrameFilter *addVideoFrameFilter(
+		pdraw_video_frame_filter_callback_t cb,
+		void *userPtr,
+		bool frameByFrame = false);
+
+	int removeVideoFrameFilter(
+		VideoFrameFilter *filter);
 
 private:
+	bool isVideoFrameFilterValid(
+		VideoFrameFilter *filter);
 
-    bool isVideoFrameFilterValid(VideoFrameFilter *filter);
-
-    elementary_stream_type_t mEsType;
-    enum pdraw_video_type mVideoType;
-    unsigned int mWidth;
-    unsigned int mHeight;
-    unsigned int mCropLeft;
-    unsigned int mCropRight;
-    unsigned int mCropTop;
-    unsigned int mCropBottom;
-    unsigned int mSarWidth;
-    unsigned int mSarHeight;
-    float mHfov;
-    float mVfov;
-    Demuxer *mDemux;
-    int mDemuxEsIndex;
-    Decoder *mDecoder;
-    std::vector<VideoFrameFilter*> mVideoFrameFilters;
+	enum elementary_stream_type mEsType;
+	enum pdraw_video_type mVideoType;
+	unsigned int mWidth;
+	unsigned int mHeight;
+	unsigned int mCropLeft;
+	unsigned int mCropRight;
+	unsigned int mCropTop;
+	unsigned int mCropBottom;
+	unsigned int mSarWidth;
+	unsigned int mSarHeight;
+	float mHfov;
+	float mVfov;
+	Demuxer *mDemux;
+	int mDemuxEsIndex;
+	Decoder *mDecoder;
+	std::vector<VideoFrameFilter *> mVideoFrameFilters;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_VIDEO_MEDIA_HPP_ */

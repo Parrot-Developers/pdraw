@@ -30,53 +30,51 @@
 #ifndef _PDRAW_MEDIA_HPP_
 #define _PDRAW_MEDIA_HPP_
 
+#include "pdraw_decoder.hpp"
+#include <pdraw/pdraw_defs.h>
 #include <inttypes.h>
 #include <string>
-#include <pdraw/pdraw_defs.h>
 
-#include "pdraw_decoder.hpp"
-
-using namespace std;
+namespace Pdraw {
 
 
-namespace Pdraw
-{
-
-
-typedef enum
-{
-    ELEMENTARY_STREAM_TYPE_UNKNOWN = 0,
-    ELEMENTARY_STREAM_TYPE_VIDEO_AVC,
-
-} elementary_stream_type_t;
+enum elementary_stream_type {
+	ELEMENTARY_STREAM_TYPE_UNKNOWN = 0,
+	ELEMENTARY_STREAM_TYPE_VIDEO_AVC,
+};
 
 
 class Session;
 
 
-class Media
-{
+class Media {
 public:
+	virtual ~Media(
+		void) {}
 
-    virtual ~Media() {};
+	virtual enum pdraw_media_type getType(
+		void) = 0;
 
-    virtual enum pdraw_media_type getType() = 0;
+	virtual unsigned int getId(
+		void) = 0;
 
-    virtual unsigned int getId() = 0;
+	virtual int enableDecoder(
+		void) = 0;
 
-    virtual int enableDecoder() = 0;
-    virtual int disableDecoder() = 0;
+	virtual int disableDecoder(
+		void) = 0;
 
-    virtual Session *getSession() = 0;
+	virtual Session *getSession(
+		void) = 0;
 
-    virtual Decoder *getDecoder() = 0;
+	virtual Decoder *getDecoder(
+		void) = 0;
 
 protected:
-
-    unsigned int mId;
-    Session *mSession;
+	unsigned int mId;
+	Session *mSession;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_MEDIA_HPP_ */

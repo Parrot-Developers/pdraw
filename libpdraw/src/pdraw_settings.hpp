@@ -30,9 +30,11 @@
 #ifndef _PDRAW_SETTINGS_HPP_
 #define _PDRAW_SETTINGS_HPP_
 
+#include <pdraw/pdraw_defs.h>
 #include <inttypes.h>
 #include <math.h>
-#include <pdraw/pdraw_defs.h>
+
+namespace Pdraw {
 
 
 #define SETTINGS_HUD_CONTROLLER_RADAR_ANGLE     (M_PI / 3.)
@@ -45,40 +47,60 @@
 #define SETTINGS_HMD_PAN_V                      (0.0f)
 
 
-namespace Pdraw
-{
-
-
-class Settings
-{
+class Settings {
 public:
+	Settings(
+		void);
 
-    Settings();
+	~Settings(
+		void);
 
-    ~Settings();
+	float getControllerRadarAngle(
+		void) {
+		return mControllerRadarAngle;
+	}
 
-    float getControllerRadarAngle() { return mControllerRadarAngle; };
-    void setControllerRadarAngle(float angle) { mControllerRadarAngle = angle; };
+	void setControllerRadarAngle(
+		float angle) {
+		mControllerRadarAngle = angle;
+	}
 
-    void getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin);
-    void setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin);
+	void getDisplayScreenSettings(
+		float *xdpi,
+		float *ydpi,
+		float *deviceMargin);
 
-    void getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV);
-    void setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV);
+	void setDisplayScreenSettings(
+		float xdpi,
+		float ydpi,
+		float deviceMargin);
+
+	void getHmdDistorsionCorrectionSettings(
+		enum pdraw_hmd_model *hmdModel,
+		float *ipd,
+		float *scale,
+		float *panH,
+		float *panV);
+
+	void setHmdDistorsionCorrectionSettings(
+		enum pdraw_hmd_model hmdModel,
+		float ipd,
+		float scale,
+		float panH,
+		float panV);
 
 private:
-
-    float mControllerRadarAngle;
-    float mDisplayXdpi;
-    float mDisplayYdpi;
-    float mDisplayDeviceMargin;
-    enum pdraw_hmd_model mHmdModel;
-    float mHmdIpd;
-    float mHmdScale;
-    float mHmdPanH;
-    float mHmdPanV;
+	float mControllerRadarAngle;
+	float mDisplayXdpi;
+	float mDisplayYdpi;
+	float mDisplayDeviceMargin;
+	enum pdraw_hmd_model mHmdModel;
+	float mHmdIpd;
+	float mHmdScale;
+	float mHmdPanH;
+	float mHmdPanV;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_SETTINGS_HPP_ */

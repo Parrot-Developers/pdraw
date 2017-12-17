@@ -33,96 +33,142 @@
 #include <inttypes.h>
 #include <string>
 #include <vector>
-
 #include "pdraw_metadata_session.hpp"
 #include "pdraw_media.hpp"
 #include "pdraw_demuxer.hpp"
 #include "pdraw_renderer.hpp"
 
-
-using namespace std;
-
-
-namespace Pdraw
-{
+namespace Pdraw {
 
 
 class Settings;
 
 
-class Session
-{
+class Session {
 public:
+	Session(
+		Settings *settings);
 
-    Session(Settings *settings);
+	~Session(
+		void);
 
-    ~Session();
+	int open(
+		const std::string &url);
 
-    int open(const std::string &url);
+	int open(
+		const std::string &url,
+		const std::string &ifaceAddr);
 
-    int open(const std::string &url, const std::string &ifaceAddr);
+	int open(
+		const std::string &srcAddr,
+		const std::string &ifaceAddr,
+		int srcStreamPort,
+		int srcControlPort,
+		int dstStreamPort,
+		int dstControlPort,
+		int qosMode);
 
-    int open(const std::string &srcAddr, const std::string &ifaceAddr,
-             int srcStreamPort, int srcControlPort,
-             int dstStreamPort, int dstControlPort, int qosMode);
+	int open(
+		void *muxContext);
 
-    int open(void *muxContext);
+	int openSdp(
+		const std::string &sdp,
+		const std::string &ifaceAddr);
 
-    int openSdp(const std::string &sdp, const std::string &ifaceAddr);
+	Media *addMedia(
+		enum elementary_stream_type esType);
 
-    Media *addMedia(elementary_stream_type_t esType);
+	Media *addMedia(
+		enum elementary_stream_type esType,
+		Demuxer *demuxer,
+		int demuxEsIndex);
 
-    Media *addMedia(elementary_stream_type_t esType, Demuxer *demuxer, int demuxEsIndex);
+	int removeMedia(
+		Media *media);
 
-    int removeMedia(Media *media);
+	int removeMedia(
+		unsigned int index);
 
-    int removeMedia(unsigned int index);
+	unsigned int getMediaCount(
+		void);
 
-    unsigned int getMediaCount();
+	Media *getMedia(
+		unsigned int index);
 
-    Media *getMedia(unsigned int index);
+	Media *getMediaById(
+		unsigned int id);
 
-    Media *getMediaById(unsigned int id);
+	int enableRenderer(
+		void);
 
-    int enableRenderer();
-    int disableRenderer();
+	int disableRenderer(
+		void);
 
-    uint64_t getDuration();
+	uint64_t getDuration(
+		void);
 
-    uint64_t getCurrentTime();
+	uint64_t getCurrentTime(
+		void);
 
-    Demuxer *getDemuxer() { return mDemuxer; };
+	Demuxer *getDemuxer(
+		void) {
+		return mDemuxer;
+	}
 
-    Renderer *getRenderer() { return mRenderer; };
+	Renderer *getRenderer(
+		void) {
+		return mRenderer;
+	}
 
-    Settings *getSettings() { return mSettings; };
+	Settings *getSettings(
+		void) {
+		return mSettings;
+	}
 
-    enum pdraw_session_type getSessionType() { return mSessionType; };
+	enum pdraw_session_type getSessionType(
+		void) {
+		return mSessionType;
+	}
 
-    SessionSelfMetadata *getSelfMetadata() { return &mSelfMetadata; };
+	SessionSelfMetadata *getSelfMetadata(
+		void) {
+		return &mSelfMetadata;
+	}
 
-    SessionPeerMetadata *getPeerMetadata() { return &mPeerMetadata; };
+	SessionPeerMetadata *getPeerMetadata(
+		void) {
+		return &mPeerMetadata;
+	}
 
-    void getCameraOrientationForHeadtracking(float *pan, float *tilt);
+	void getCameraOrientationForHeadtracking(
+		float *pan,
+		float *tilt);
 
-    void *getJniEnv() { return mJniEnv; };
-    void setJniEnv(void *jniEnv) { mJniEnv = jniEnv; };
+	void *getJniEnv(
+		void) {
+		return mJniEnv;
+	}
+
+	void setJniEnv(
+		void *jniEnv) {
+		mJniEnv = jniEnv;
+	}
 
 private:
+	int addMediaFromDemuxer(
+		void);
 
-    int addMediaFromDemuxer();
-
-    enum pdraw_session_type mSessionType;
-    Settings *mSettings;
-    SessionSelfMetadata mSelfMetadata;
-    SessionPeerMetadata mPeerMetadata;
-    std::vector<Media*> mMedias;
-    Demuxer *mDemuxer;
-    Renderer *mRenderer;
-    unsigned int mMediaIdCounter;
-    void *mJniEnv;
+	enum pdraw_session_type mSessionType;
+	Settings *mSettings;
+	SessionSelfMetadata mSelfMetadata;
+	SessionPeerMetadata mPeerMetadata;
+	std::vector<Media *> mMedias;
+	Demuxer *mDemuxer;
+	Renderer *mRenderer;
+	unsigned int mMediaIdCounter;
+	void *mJniEnv;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_SESSION_HPP_ */

@@ -59,12 +59,12 @@ namespace Pdraw {
 #define GLES2_VIDEO_PADDING_FBO_WIDTH 32
 
 
-typedef enum {
+enum gles2_video_color_conversion {
 	GLES2_VIDEO_COLOR_CONVERSION_NONE = 0,
 	GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB,
 	GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB,
 	GLES2_VIDEO_COLOR_CONVERSION_MAX,
-} gles2_video_color_conversion_t;
+};
 
 
 class Session;
@@ -99,7 +99,7 @@ public:
 		unsigned int frameStride[3],
 		unsigned int frameWidth,
 		unsigned int frameHeight,
-		gles2_video_color_conversion_t colorConversion);
+		enum gles2_video_color_conversion colorConversion);
 
 	int renderFrame(
 		uint8_t *framePlane[3],
@@ -112,7 +112,7 @@ public:
 		unsigned int windowHeight,
 		unsigned int windowX,
 		unsigned int windowY,
-		gles2_video_color_conversion_t colorConversion,
+		enum gles2_video_color_conversion colorConversion,
 		const struct vmeta_frame_v2 *metadata,
 		bool headtracking, GLuint fbo);
 

@@ -86,7 +86,7 @@ public:
 	int getElementaryStreamCount(
 		void);
 
-	elementary_stream_type_t getElementaryStreamType(
+	enum elementary_stream_type getElementaryStreamType(
 		int esIndex);
 
 	int getElementaryStreamVideoDimensions(

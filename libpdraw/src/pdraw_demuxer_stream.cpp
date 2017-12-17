@@ -717,16 +717,16 @@ int StreamDemuxer::getElementaryStreamCount(
 }
 
 
-elementary_stream_type_t StreamDemuxer::getElementaryStreamType(
+enum elementary_stream_type StreamDemuxer::getElementaryStreamType(
 	int esIndex)
 {
 	if (!mConfigured) {
 		ULOGE("StreamDemuxer: demuxer is not configured");
-		return (elementary_stream_type_t)-1;
+		return (enum elementary_stream_type)-1;
 	}
 	if ((esIndex < 0) || (esIndex >= 1)) {
 		ULOGE("StreamDemuxer: invalid ES index");
-		return (elementary_stream_type_t)-1;
+		return (enum elementary_stream_type)-1;
 	}
 
 	/* TODO: handle multiple streams */

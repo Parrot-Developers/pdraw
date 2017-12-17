@@ -30,254 +30,345 @@
 #ifndef _PDRAW_IMPL_HPP_
 #define _PDRAW_IMPL_HPP_
 
-#include <vector>
-
-#include <pdraw/pdraw.hpp>
-
 #include "pdraw_settings.hpp"
 #include "pdraw_session.hpp"
+#include <pdraw/pdraw.hpp>
+#include <vector>
+#include <string>
+
+namespace Pdraw {
 
 
-namespace Pdraw
-{
-
-
-class PdrawImpl : public IPdraw
-{
+class PdrawImpl : public IPdraw {
 public:
+	PdrawImpl(
+		void);
 
-    PdrawImpl(void);
+	~PdrawImpl(
+		void);
 
-    ~PdrawImpl(void);
+	int open(
+		const std::string &url);
 
-    int open
-            (const std::string &url);
+	int open(
+		const std::string &url,
+		const std::string &ifaceAddr);
 
-    int open
-            (const std::string &url,
-             const std::string &ifaceAddr);
+	int open(
+		const std::string &srcAddr,
+		const std::string &ifaceAddr,
+		int srcStreamPort,
+		int srcControlPort,
+		int dstStreamPort,
+		int dstControlPort,
+		int qosMode);
 
-    int open
-            (const std::string &srcAddr,
-             const std::string &ifaceAddr,
-             int srcStreamPort,
-             int srcControlPort,
-             int dstStreamPort,
-             int dstControlPort,
-             int qosMode);
+	int open(
+		void *muxContext);
 
-    int open
-            (void *muxContext);
+	int openSdp(
+		const std::string &sdp,
+		const std::string &ifaceAddr);
 
-    int openSdp
-            (const std::string &sdp,
-             const std::string &ifaceAddr);
+	int play(
+		float speed = 1.0f);
 
-    int play(float speed = 1.0f);
+	int pause(
+		void);
 
-    int pause(void);
+	bool isPaused(
+		void);
 
-    bool isPaused(void);
+	int previousFrame(
+		void);
 
-    int previousFrame(void);
+	int nextFrame(
+		void);
 
-    int nextFrame(void);
+	int stop(
+		void);
 
-    int stop(void);
+	int seekTo(
+		uint64_t timestamp,
+		bool exact = false);
 
-    int seekTo
-            (uint64_t timestamp, bool exact = false);
+	int seekForward(
+		uint64_t delta,
+		bool exact = false);
 
-    int seekForward
-            (uint64_t delta, bool exact = false);
+	int seekBack(
+		uint64_t delta,
+		bool exact = false);
 
-    int seekBack
-            (uint64_t delta, bool exact = false);
+	uint64_t getDuration(
+		void);
 
-    uint64_t getDuration();
+	uint64_t getCurrentTime(
+		void);
 
-    uint64_t getCurrentTime();
+	int startRecorder(
+		const std::string &fileName);
 
-    int startRecorder
-            (const std::string &fileName);
+	int stopRecorder(
+		void);
 
-    int stopRecorder(void);
+	int startResender(
+		const std::string &dstAddr,
+		const std::string &ifaceAddr,
+		int srcStreamPort,
+		int srcControlPort,
+		int dstStreamPort,
+		int dstControlPort);
 
-    int startResender
-            (const std::string &dstAddr,
-             const std::string &ifaceAddr,
-             int srcStreamPort,
-             int srcControlPort,
-             int dstStreamPort,
-             int dstControlPort);
+	int stopResender(
+		void);
 
-    int stopResender(void);
+	int startRenderer(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler);
 
-    int startRenderer
-            (int windowWidth,
-             int windowHeight,
-             int renderX,
-             int renderY,
-             int renderWidth,
-             int renderHeight,
-             bool hmdDistorsionCorrection,
-             bool headtracking,
-             void *uiHandler);
+	int stopRenderer(
+		void);
 
-    int stopRenderer(void);
+	int render(
+		uint64_t lastRenderTime);
 
-    int render
-            (uint64_t lastRenderTime);
+	enum pdraw_session_type getSessionType(
+		void);
 
-    enum pdraw_session_type getSessionType(void);
+	std::string& getSelfFriendlyName(
+		void);
 
-    std::string& getSelfFriendlyName(void);
-    void setSelfFriendlyName
-            (const std::string &friendlyName);
+	void setSelfFriendlyName(
+		const std::string &friendlyName);
 
-    std::string& getSelfSerialNumber(void);
-    void setSelfSerialNumber
-            (const std::string &serialNumber);
+	std::string& getSelfSerialNumber(
+		void);
 
-    std::string& getSelfSoftwareVersion(void);
-    void setSelfSoftwareVersion
-            (const std::string &softwareVersion);
+	void setSelfSerialNumber(
+		const std::string &serialNumber);
 
-    bool isSelfPilot(void);
-    void setSelfPilot
-            (bool isPilot);
+	std::string& getSelfSoftwareVersion(
+		void);
 
-    void getSelfLocation
-            (struct vmeta_location *loc);
-    void setSelfLocation
-            (const struct vmeta_location *loc);
+	void setSelfSoftwareVersion(
+		const std::string &softwareVersion);
 
-    int getControllerBatteryLevel();
-    void setControllerBatteryLevel(int batteryLevel);
+	bool isSelfPilot(
+		void);
 
-    void getSelfControllerOrientation
-            (struct vmeta_quaternion *quat);
-    void getSelfControllerOrientation
-            (struct vmeta_euler *euler);
-    void setSelfControllerOrientation
-            (const struct vmeta_quaternion *quat);
-    void setSelfControllerOrientation
-            (const struct vmeta_euler *euler);
+	void setSelfPilot(
+		bool isPilot);
 
-    void getSelfHeadOrientation
-            (struct vmeta_quaternion *quat);
-    void getSelfHeadOrientation
-            (struct vmeta_euler *euler);
-    void setSelfHeadOrientation
-            (const struct vmeta_quaternion *quat);
-    void setSelfHeadOrientation
-            (const struct vmeta_euler *euler);
+	void getSelfLocation(
+		struct vmeta_location *loc);
 
-    void getSelfHeadRefOrientation
-            (struct vmeta_quaternion *quat);
-    void getSelfHeadRefOrientation
-            (struct vmeta_euler *euler);
-    void setSelfHeadRefOrientation
-            (const struct vmeta_quaternion *quat);
-    void setSelfHeadRefOrientation
-            (const struct vmeta_euler *euler);
-    void resetSelfHeadRefOrientation(void);
+	void setSelfLocation(
+		const struct vmeta_location *loc);
 
-    std::string& getPeerFriendlyName(void);
+	int getControllerBatteryLevel(
+		void);
 
-    std::string& getPeerMaker(void);
+	void setControllerBatteryLevel(
+		int batteryLevel);
 
-    std::string& getPeerModel(void);
+	void getSelfControllerOrientation(
+		struct vmeta_quaternion *quat);
 
-    std::string& getPeerModelId(void);
+	void getSelfControllerOrientation(
+		struct vmeta_euler *euler);
 
-    enum pdraw_drone_model getPeerDroneModel(void);
+	void setSelfControllerOrientation(
+		const struct vmeta_quaternion *quat);
 
-    std::string& getPeerSerialNumber(void);
+	void setSelfControllerOrientation(
+		const struct vmeta_euler *euler);
 
-    std::string& getPeerSoftwareVersion(void);
+	void getSelfHeadOrientation(
+		struct vmeta_quaternion *quat);
 
-    std::string& getPeerBuildId(void);
+	void getSelfHeadOrientation(
+		struct vmeta_euler *euler);
 
-    std::string& getPeerTitle(void);
+	void setSelfHeadOrientation(
+		const struct vmeta_quaternion *quat);
 
-    std::string& getPeerComment(void);
+	void setSelfHeadOrientation(
+		const struct vmeta_euler *euler);
 
-    std::string& getPeerCopyright(void);
+	void getSelfHeadRefOrientation(
+		struct vmeta_quaternion *quat);
 
-    std::string& getPeerRunDate(void);
+	void getSelfHeadRefOrientation(
+		struct vmeta_euler *euler);
 
-    std::string& getPeerRunUuid(void);
+	void setSelfHeadRefOrientation(
+		const struct vmeta_quaternion *quat);
 
-    std::string& getPeerMediaDate(void);
+	void setSelfHeadRefOrientation(
+		const struct vmeta_euler *euler);
 
-    void getPeerTakeoffLocation
-            (struct vmeta_location *loc);
-    void setPeerTakeoffLocation
-            (const struct vmeta_location *loc);
+	void resetSelfHeadRefOrientation(
+		void);
 
-    void getPeerHomeLocation
-            (struct vmeta_location *loc);
-    void setPeerHomeLocation
-            (const struct vmeta_location *loc);
+	std::string& getPeerFriendlyName(
+		void);
 
-    uint64_t getPeerRecordingDuration(void);
-    void setPeerRecordingDuration(uint64_t duration);
+	std::string& getPeerMaker(
+		void);
 
-    void getCameraOrientationForHeadtracking(float *pan, float *tilt);
+	std::string& getPeerModel(
+		void);
 
-    int getMediaCount();
+	std::string& getPeerModelId(
+		void);
 
-    int getMediaInfo(unsigned int index, struct pdraw_media_info *info);
+	enum pdraw_drone_model getPeerDroneModel(
+		void);
 
-    void *addVideoFrameFilterCallback(unsigned int mediaId, pdraw_video_frame_filter_callback_t cb, void *userPtr);
+	std::string& getPeerSerialNumber(
+		void);
 
-    int removeVideoFrameFilterCallback(unsigned int mediaId, void *filterCtx);
+	std::string& getPeerSoftwareVersion(
+		void);
 
-    void *addVideoFrameProducer(unsigned int mediaId, bool frameByFrame = false);
+	std::string& getPeerBuildId(
+		void);
 
-    int removeVideoFrameProducer(void *producerCtx);
+	std::string& getPeerTitle(
+		void);
 
-    /*
-     * get last frame
-     *
-     * timeout: time in microseconds to wait for a frame
-     *  0: don't wait
-     * -1: wait forever
-     * >0: wait time
-     */
-    int getProducerLastFrame(void *producerCtx, struct pdraw_video_frame *frame, int timeout = 0);
+	std::string& getPeerComment(
+		void);
 
-    float getControllerRadarAngleSetting(void);
-    void setControllerRadarAngleSetting(float angle);
+	std::string& getPeerCopyright(
+		void);
 
-    void getDisplayScreenSettings(float *xdpi, float *ydpi, float *deviceMargin);
-    void setDisplayScreenSettings(float xdpi, float ydpi, float deviceMargin);
+	std::string& getPeerRunDate(
+		void);
 
-    void getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV);
-    void setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV);
+	std::string& getPeerRunUuid(
+		void);
 
-    void setJniEnv(void *jniEnv);
+	std::string& getPeerMediaDate(
+		void);
 
-    inline static IPdraw *create(void)
-    {
-        return new PdrawImpl();
-    }
+	void getPeerTakeoffLocation(
+		struct vmeta_location *loc);
 
-    inline static void release
-            (IPdraw *pdraw)
-    {
-        delete pdraw;
-    }
+	void setPeerTakeoffLocation(
+		const struct vmeta_location *loc);
+
+	void getPeerHomeLocation(
+		struct vmeta_location *loc);
+
+	void setPeerHomeLocation(
+		const struct vmeta_location *loc);
+
+	uint64_t getPeerRecordingDuration(
+		void);
+
+	void setPeerRecordingDuration(
+		uint64_t duration);
+
+	void getCameraOrientationForHeadtracking(
+		float *pan,
+		float *tilt);
+
+	int getMediaCount(
+		void);
+
+	int getMediaInfo(
+		unsigned int index,
+		struct pdraw_media_info *info);
+
+	void *addVideoFrameFilterCallback(
+		unsigned int mediaId,
+		pdraw_video_frame_filter_callback_t cb,
+		void *userPtr);
+
+	int removeVideoFrameFilterCallback(
+		unsigned int mediaId,
+		void *filterCtx);
+
+	void *addVideoFrameProducer(
+		unsigned int mediaId,
+		bool frameByFrame = false);
+
+	int removeVideoFrameProducer(
+		void *producerCtx);
+
+	/**
+	 * get last frame
+	 *
+	 * timeout: time in microseconds to wait for a frame
+	 *  0: don't wait
+	 * -1: wait forever
+	 * >0: wait time
+	 */
+	int getProducerLastFrame(
+		void *producerCtx,
+		struct pdraw_video_frame *frame,
+		int timeout = 0);
+
+	float getControllerRadarAngleSetting(
+		void);
+
+	void setControllerRadarAngleSetting(
+		float angle);
+
+	void getDisplayScreenSettings(
+		float *xdpi,
+		float *ydpi,
+		float *deviceMargin);
+
+	void setDisplayScreenSettings(
+		float xdpi,
+		float ydpi,
+		float deviceMargin);
+
+	void getHmdDistorsionCorrectionSettings(
+		enum pdraw_hmd_model *hmdModel,
+		float *ipd,
+		float *scale,
+		float *panH,
+		float *panV);
+
+	void setHmdDistorsionCorrectionSettings(
+		enum pdraw_hmd_model hmdModel,
+		float ipd,
+		float scale,
+		float panH,
+		float panV);
+
+	void setJniEnv(
+		void *jniEnv);
+
+	inline static IPdraw *create(
+		void) {
+		return new PdrawImpl();
+	}
+
+	inline static void release(
+		IPdraw *pdraw) {
+		delete pdraw;
+	}
 
 private:
+	int openWithDemux(
+		void);
 
-    int openWithDemux();
-
-    Settings mSettings;
-    Session mSession;
+	Settings mSettings;
+	Session mSession;
 };
 
-}
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_IMPL_HPP_ */

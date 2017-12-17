@@ -30,33 +30,29 @@
 #ifndef _PDRAW_METADATA_VIDEOFRAME_HPP_
 #define _PDRAW_METADATA_VIDEOFRAME_HPP_
 
+#include "pdraw_utils.hpp"
 #include <inttypes.h>
 #include <string>
 
-#include "pdraw_utils.hpp"
+namespace Pdraw {
 
 
-namespace Pdraw
-{
-
-
-typedef enum
-{
-    FRAME_METADATA_SOURCE_RECORDING = 0,
-    FRAME_METADATA_SOURCE_STREAMING,
-
-} video_frame_metadata_source_t;
-
-
-class VideoFrameMetadata
-{
-public:
-
-    static bool decodeMetadata(const void *metadataBuffer, unsigned int metadataSize,
-                               video_frame_metadata_source_t source, const char *mimeType, struct vmeta_frame_v2 *metadata);
-
+enum video_frame_metadata_source {
+	FRAME_METADATA_SOURCE_RECORDING = 0,
+	FRAME_METADATA_SOURCE_STREAMING,
 };
 
-}
+
+class VideoFrameMetadata {
+public:
+	static bool decodeMetadata(
+		const void *metadataBuffer,
+		unsigned int metadataSize,
+		enum video_frame_metadata_source source,
+		const char *mimeType,
+		struct vmeta_frame_v2 *metadata);
+};
+
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_METADATA_VIDEOFRAME_HPP_ */
