@@ -64,9 +64,6 @@ StreamDemuxer::StreamDemuxer(
 {
 	mSession = session;
 	mConfigured = false;
-	mLoop = NULL;
-	mLoopThreadLaunched = false;
-	mThreadShouldStop = false;
 	mRtspRunning = false;
 	mRtspClient = NULL;
 	mStreamReceiver = NULL;
@@ -87,30 +84,15 @@ StreamDemuxer::StreamDemuxer(
 	mHfov = mVfov = 0.;
 	mRunning = false;
 
-	int ret;
 	const char *userAgent = NULL;
 	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
 
-	mLoop = pomp_loop_new();
-	if (!mLoop) {
-		ULOGE("StreamDemuxer: pomp_loop_new() failed");
-		goto err;
-	}
-
 	userAgent = selfMeta->getSoftwareVersion().c_str();
-	mRtspClient = rtsp_client_new(userAgent, mLoop);
+	mRtspClient = rtsp_client_new(userAgent, session->getLoop());
 	if (!mRtspClient) {
 		ULOGE("StreamDemuxer: rtsp_client_new() failed");
 		goto err;
 	}
-
-	ret = pthread_create(&mLoopThread, NULL, runLoopThread, (void*)this);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: loop thread creation failed (%d)", ret);
-		goto err;
-	}
-
-	mLoopThreadLaunched = true;
 
 	return;
 
@@ -118,11 +100,6 @@ err:
 	if (mRtspClient) {
 		rtsp_client_destroy(mRtspClient);
 		mRtspClient = NULL;
-	}
-
-	if (mLoop) {
-		pomp_loop_destroy(mLoop);
-		mLoop = NULL;
 	}
 }
 
@@ -144,11 +121,6 @@ StreamDemuxer::~StreamDemuxer(
 		if (ret != 0)
 			ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
 	}
-	if (mLoopThreadLaunched) {
-		ret = pthread_join(mLoopThread, NULL);
-		if (ret != 0)
-			ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
-	}
 
 	if (mCurrentBuffer)
 		vbuf_unref(&mCurrentBuffer);
@@ -165,12 +137,6 @@ StreamDemuxer::~StreamDemuxer(
 
 	if (mStreamReceiver)
 		ARSTREAM2_StreamReceiver_Free(&mStreamReceiver);
-
-	if (mLoop) {
-		ret = pomp_loop_destroy(mLoop);
-		if (ret != 0)
-			ULOGE("StreamDemuxer: pomp_loop_destroy() failed");
-	}
 }
 
 
@@ -959,9 +925,6 @@ int StreamDemuxer::stop(
 	}
 
 	mRunning = false;
-	mThreadShouldStop = true;
-	if (mLoop)
-		pomp_loop_wakeup(mLoop);
 
 	return ret;
 }
@@ -1329,18 +1292,6 @@ eARSTREAM2_ERROR StreamDemuxer::auReadyCallback(
 	}
 
 	return ARSTREAM2_OK;
-}
-
-
-void *StreamDemuxer::runLoopThread(
-	void *ptr)
-{
-	StreamDemuxer *demuxer = (StreamDemuxer*)ptr;
-
-	while (!demuxer->mThreadShouldStop)
-		pomp_loop_wait_and_process(demuxer->mLoop, -1);
-
-	return NULL;
 }
 
 } /* namespace Pdraw */

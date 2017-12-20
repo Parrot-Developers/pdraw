@@ -31,6 +31,7 @@
 #define _PDRAW_SESSION_HPP_
 
 #include <inttypes.h>
+#include <libpomp.h>
 #include <string>
 #include <vector>
 #include "pdraw_metadata_session.hpp"
@@ -144,6 +145,10 @@ public:
 		float *pan,
 		float *tilt);
 
+	struct pomp_loop *getLoop() {
+		return mLoop;
+	}
+
 	void *getJniEnv(
 		void) {
 		return mJniEnv;
@@ -158,10 +163,17 @@ private:
 	int addMediaFromDemuxer(
 		void);
 
+	static void* runLoopThread(
+		void *ptr);
+
 	enum pdraw_session_type mSessionType;
 	Settings *mSettings;
 	SessionSelfMetadata mSelfMetadata;
 	SessionPeerMetadata mPeerMetadata;
+	struct pomp_loop *mLoop;
+	pthread_t mLoopThread;
+	bool mLoopThreadLaunched;
+	bool mThreadShouldStop;
 	std::vector<Media *> mMedias;
 	Demuxer *mDemuxer;
 	Renderer *mRenderer;

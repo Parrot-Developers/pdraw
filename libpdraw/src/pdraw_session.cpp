@@ -45,17 +45,46 @@ namespace Pdraw {
 Session::Session(
 	Settings *settings)
 {
+	int ret;
+
 	mSessionType = PDRAW_SESSION_TYPE_UNKNOWN;
 	mSettings = settings;
 	mDemuxer = NULL;
 	mRenderer = NULL;
 	mMediaIdCounter = 0;
+	mThreadShouldStop = false;
+	mLoop = NULL;
+	mLoopThreadLaunched = false;
+
+	mLoop = pomp_loop_new();
+	if (mLoop == NULL) {
+		ULOGE("Session: pomp_loop_new() failed");
+		goto err;
+	}
+
+	ret = pthread_create(&mLoopThread, NULL, runLoopThread, (void *)this);
+	if (ret != 0) {
+		ULOGE("Session: loop thread creation failed (%d)", ret);
+		goto err;
+	}
+
+	mLoopThreadLaunched = true;
+
+	return;
+
+err:
+	if (mLoop != NULL) {
+		pomp_loop_destroy(mLoop);
+		mLoop = NULL;
+	}
 }
 
 
 Session::~Session(
 	void)
 {
+	int ret;
+
 	if (mDemuxer != NULL) {
 		int ret = mDemuxer->stop();
 		if (ret != 0)
@@ -71,6 +100,22 @@ Session::~Session(
 	while (m != mMedias.end()) {
 		delete *m;
 		m++;
+	}
+
+	mThreadShouldStop = true;
+	if (mLoop)
+		pomp_loop_wakeup(mLoop);
+
+	if (mLoopThreadLaunched) {
+		ret = pthread_join(mLoopThread, NULL);
+		if (ret != 0)
+			ULOGE("Session: pthread_join() failed (%d)", ret);
+	}
+
+	if (mLoop) {
+		ret = pomp_loop_destroy(mLoop);
+		if (ret != 0)
+			ULOGE("Session: pomp_loop_destroy() failed");
 	}
 }
 
@@ -469,6 +514,18 @@ void Session::getCameraOrientationForHeadtracking(
 		*pan = euler.yaw;
 	if (tilt)
 		*tilt = euler.pitch;
+}
+
+
+void *Session::runLoopThread(
+	void *ptr)
+{
+	Session *session = (Session *)ptr;
+
+	while (!session->mThreadShouldStop)
+		pomp_loop_wait_and_process(session->mLoop, -1);
+
+	return NULL;
 }
 
 } /* namespace Pdraw */

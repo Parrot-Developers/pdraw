@@ -34,7 +34,6 @@
 #include "pdraw_avcdecoder.hpp"
 #include <pthread.h>
 #include <libARStream2/arstream2_stream_receiver.h>
-#include <libpomp.h>
 #include <librtsp.h>
 #include <libsdp.h>
 #include <string>
@@ -211,19 +210,12 @@ private:
 		void *auBufferUserPtr,
 		void *userPtr);
 
-	static void* runLoopThread(
-		void *ptr);
-
 	uint32_t mCurrentAuSize;
 	int mMaxPacketSize;
 	int mQosMode;
 	AvcDecoder *mDecoder;
 	uint32_t mDecoderBitstreamFormat;
 	struct vbuf_buffer *mCurrentBuffer;
-	struct pomp_loop *mLoop;
-	pthread_t mLoopThread;
-	bool mLoopThreadLaunched;
-	bool mThreadShouldStop;
 	bool mRtspRunning;
 	struct rtsp_client *mRtspClient;
 	pthread_t mStreamNetworkThread;
