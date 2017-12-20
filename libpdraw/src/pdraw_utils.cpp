@@ -193,7 +193,7 @@ void pdraw_friendlyTimeFromUs(
 
 
 int pdraw_videoDimensionsFromH264Sps(
-	uint8_t *pSps,
+	const uint8_t *pSps,
 	unsigned int spsSize,
 	unsigned int *width,
 	unsigned int *height,

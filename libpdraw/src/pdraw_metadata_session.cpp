@@ -412,7 +412,7 @@ SessionPeerMetadata::~SessionPeerMetadata(
 
 
 void SessionPeerMetadata::set(
-	struct vmeta_session *meta)
+	const struct vmeta_session *meta)
 {
 	if (!meta)
 		return;

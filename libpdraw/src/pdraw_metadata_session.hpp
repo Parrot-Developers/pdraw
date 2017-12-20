@@ -185,7 +185,7 @@ public:
 		void);
 
 	void set(
-		struct vmeta_session *meta);
+		const struct vmeta_session *meta);
 
 	std::string& getFriendlyName(
 		void) {
