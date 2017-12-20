@@ -14,6 +14,7 @@ LOCAL_SRC_FILES := \
 	src/pdraw_media_video.cpp \
 	src/pdraw_demuxer_stream.cpp \
 	src/pdraw_demuxer_record.cpp \
+	src/pdraw_socket_inet.cpp \
 	src/pdraw_utils.cpp \
 	src/pdraw_metadata_session.cpp \
 	src/pdraw_metadata_videoframe.cpp \
@@ -48,6 +49,7 @@ LOCAL_EXPORT_CXXFLAGS := -std=c++0x
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_LIBRARIES := \
 	libulog \
+	libfutils \
 	libpomp \
 	libvideo-buffers \
 	libvideo-metadata \
