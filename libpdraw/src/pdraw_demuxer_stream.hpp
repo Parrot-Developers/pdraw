@@ -37,6 +37,7 @@
 #include <librtsp.h>
 #include <libsdp.h>
 #include <h264/h264.h>
+#include <libpomp.h>
 #include <string>
 
 namespace Pdraw {
@@ -166,6 +167,9 @@ private:
 	int configureRtsp(
 		const std::string &url,
 		const std::string &ifaceAddr);
+
+	static int configureDecoder(
+		StreamDemuxer *demuxer);
 
 	static void h264UserDataSeiCb(
 		struct h264_ctx *ctx,

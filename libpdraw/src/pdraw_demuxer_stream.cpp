@@ -149,6 +149,7 @@ StreamDemuxer::~StreamDemuxer(
 		delete mStreamSock;
 		mStreamSock = NULL;
 	}
+
 	if (mControlSock != NULL) {
 		delete mControlSock;
 		mControlSock = NULL;
@@ -219,6 +220,16 @@ int StreamDemuxer::configureRtpAvp(
 		goto error;
 	}
 
+	/* Provide the SPS/PPS out of band if available */
+	if (mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) {
+		ret = vstrm_receiver_set_codec_info(mReceiver,
+			&mCodecInfo, mSsrc);
+		if (ret < 0) {
+			ULOGW("StreamDemuxer: vstrm_receiver_set_codec_info() "
+				"failed (%d)", ret);
+		}
+	}
+
 	return 0;
 
 error:
@@ -260,6 +271,28 @@ int StreamDemuxer::configureSdp(
 		if (media->type == SDP_MEDIA_TYPE_VIDEO) {
 			localStreamPort = media->dst_stream_port;
 			localControlPort = media->dst_control_port;
+			if ((media->h264_fmtp.valid) &&
+				(media->h264_fmtp.sps != NULL) &&
+				(media->h264_fmtp.pps != NULL)) {
+				memset(&mCodecInfo, 0, sizeof(mCodecInfo));
+				mCodecInfo.codec = VSTRM_CODEC_VIDEO_H264;
+				if (media->h264_fmtp.sps_size <=
+					sizeof(mCodecInfo.h264.sps)) {
+					memcpy(mCodecInfo.h264.sps,
+						media->h264_fmtp.sps,
+						media->h264_fmtp.sps_size);
+					mCodecInfo.h264.spslen =
+						media->h264_fmtp.sps_size;
+				}
+				if (media->h264_fmtp.pps_size <=
+					sizeof(mCodecInfo.h264.pps)) {
+					memcpy(mCodecInfo.h264.pps,
+						media->h264_fmtp.pps,
+						media->h264_fmtp.pps_size);
+					mCodecInfo.h264.ppslen =
+						media->h264_fmtp.pps_size;
+				}
+			}
 			break;
 		}
 	}
@@ -333,6 +366,28 @@ int StreamDemuxer::configureRtsp(
 		if ((media->type == SDP_MEDIA_TYPE_VIDEO) &&
 			(media->control_url)) {
 			mediaUrl = strdup(media->control_url);
+			if ((media->h264_fmtp.valid) &&
+				(media->h264_fmtp.sps != NULL) &&
+				(media->h264_fmtp.pps != NULL)) {
+				memset(&mCodecInfo, 0, sizeof(mCodecInfo));
+				mCodecInfo.codec = VSTRM_CODEC_VIDEO_H264;
+				if (media->h264_fmtp.sps_size <=
+					sizeof(mCodecInfo.h264.sps)) {
+					memcpy(mCodecInfo.h264.sps,
+						media->h264_fmtp.sps,
+						media->h264_fmtp.sps_size);
+					mCodecInfo.h264.spslen =
+						media->h264_fmtp.sps_size;
+				}
+				if (media->h264_fmtp.pps_size <=
+					sizeof(mCodecInfo.h264.pps)) {
+					memcpy(mCodecInfo.h264.pps,
+						media->h264_fmtp.pps,
+						media->h264_fmtp.pps_size);
+					mCodecInfo.h264.ppslen =
+						media->h264_fmtp.pps_size;
+				}
+			}
 			break;
 		}
 	}
@@ -672,6 +727,15 @@ int StreamDemuxer::setElementaryStreamDecoder(
 		return -1;
 	}
 
+	if ((mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) &&
+		(!mDecoder->isConfigured())) {
+		int ret = configureDecoder(this);
+		if (ret < 0) {
+			ULOGW("StreamDemuxer: configureDecoder() "
+				"failed (%d)", ret);
+		}
+	}
+
 	return 0;
 }
 
@@ -832,6 +896,89 @@ uint64_t StreamDemuxer::getCurrentTime(
 }
 
 
+int StreamDemuxer::configureDecoder(
+	StreamDemuxer *demuxer)
+{
+	uint8_t *sps_buf = NULL, *pps_buf = NULL;
+	uint32_t start;
+	int ret = 0;
+
+	if (demuxer == NULL) {
+		ULOGE("StreamDemuxer: invalid demuxer");
+		return -1;
+	}
+	if (demuxer->mDecoder == NULL) {
+		ULOGE("StreamDemuxer: invalid decoder");
+		return -1;
+	}
+
+	struct vstrm_codec_info *info = &demuxer->mCodecInfo;
+	if (info->codec != VSTRM_CODEC_VIDEO_H264) {
+		ULOGE("StreamDemuxer: invalid codec");
+		return -1;
+	}
+
+	ret = pdraw_videoDimensionsFromH264Sps(
+		info->h264.sps, info->h264.spslen,
+		&demuxer->mWidth, &demuxer->mHeight,
+		&demuxer->mCropLeft, &demuxer->mCropRight,
+		&demuxer->mCropTop, &demuxer->mCropBottom,
+		&demuxer->mSarWidth, &demuxer->mSarHeight);
+	if (ret != 0) {
+		ULOGW("StreamDemuxer: "
+			"pdraw_videoDimensionsFromH264Sps() "
+			"failed (%d)", ret);
+	} else {
+		VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
+		if (vm)
+			vm->setDimensions(demuxer->mWidth,
+				demuxer->mHeight, demuxer->mCropLeft,
+				demuxer->mCropRight, demuxer->mCropTop,
+				demuxer->mCropBottom,
+				demuxer->mSarWidth,
+				demuxer->mSarHeight);
+	}
+
+	sps_buf = (uint8_t *)malloc(info->h264.spslen + 4);
+	if (sps_buf == NULL) {
+		ULOGE("RecordDemuxer: SPS buffer allocation failed");
+		return -ENOMEM;
+	}
+
+	start = (demuxer->mDecoderBitstreamFormat ==
+		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
+		htonl(0x00000001) : htonl(info->h264.spslen);
+	*((uint32_t*)sps_buf) = start;
+	memcpy(sps_buf + 4, info->h264.sps, info->h264.spslen);
+
+	pps_buf = (uint8_t *)malloc(info->h264.ppslen + 4);
+	if (pps_buf == NULL) {
+		ULOGE("RecordDemuxer: PPS buffer allocation failed");
+		free(sps_buf);
+		return -ENOMEM;
+	}
+
+	start = (demuxer->mDecoderBitstreamFormat ==
+		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
+		htonl(0x00000001) : htonl(info->h264.ppslen);
+	*((uint32_t*)pps_buf) = start;
+	memcpy(pps_buf + 4, info->h264.pps, info->h264.ppslen);
+
+	ret = demuxer->mDecoder->configure(
+		demuxer->mDecoderBitstreamFormat,
+		sps_buf, info->h264.spslen + 4,
+		pps_buf, info->h264.ppslen + 4);
+	if (ret != 0) {
+		ULOGE("StreamDemuxer: decoder configuration failed (%d)", ret);
+	}
+
+	free(sps_buf);
+	free(pps_buf);
+
+	return ret;
+}
+
+
 void StreamDemuxer::h264UserDataSeiCb(
 	struct h264_ctx *ctx,
 	const uint8_t *buf,
@@ -978,16 +1125,10 @@ void StreamDemuxer::codecInfoChangedCb(
 	void *userdata)
 {
 	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
-	uint8_t *sps = NULL, *pps = NULL;
-	uint32_t start;
 	int ret;
 
 	if ((demuxer == NULL) || (info == NULL)) {
 		ULOGE("StreamDemuxer: invalid callback params");
-		return;
-	}
-	if (demuxer->mDecoder == NULL) {
-		ULOGE("StreamDemuxer: no decoder configured");
 		return;
 	}
 	if (info->codec != VSTRM_CODEC_VIDEO_H264) {
@@ -995,28 +1136,8 @@ void StreamDemuxer::codecInfoChangedCb(
 		return;
 	}
 
-	ULOGD("StreamDemuxer: received SPS/PPS");
-
-	ret = pdraw_videoDimensionsFromH264Sps(info->h264.sps,
-		info->h264.spslen,
-		&demuxer->mWidth, &demuxer->mHeight,
-		&demuxer->mCropLeft, &demuxer->mCropRight,
-		&demuxer->mCropTop, &demuxer->mCropBottom,
-		&demuxer->mSarWidth, &demuxer->mSarHeight);
-	if (ret != 0) {
-		ULOGW("StreamDemuxer: "
-			"pdraw_videoDimensionsFromH264Sps() "
-			"failed (%d)", ret);
-	} else {
-		VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
-		if (vm)
-			vm->setDimensions(demuxer->mWidth,
-				demuxer->mHeight, demuxer->mCropLeft,
-				demuxer->mCropRight, demuxer->mCropTop,
-				demuxer->mCropBottom,
-				demuxer->mSarWidth,
-				demuxer->mSarHeight);
-	}
+	ULOGI("StreamDemuxer: received SPS/PPS");
+	demuxer->mCodecInfo = *info;
 
 	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0,
 		info->h264.sps, info->h264.spslen);
@@ -1034,41 +1155,13 @@ void StreamDemuxer::codecInfoChangedCb(
 		return;
 	}
 
-	sps = (uint8_t *)malloc(info->h264.spslen + 4);
-	if (sps == NULL) {
-		ULOGE("RecordDemuxer: SPS buffer allocation failed");
-		return;
+	if ((demuxer->mDecoder != NULL) &&
+		(!demuxer->mDecoder->isConfigured())) {
+		ret = configureDecoder(demuxer);
+		if (ret < 0)
+			ULOGW("StreamDemuxer: configureDecoder() "
+				"failed (%d)", ret);
 	}
-
-	start = (demuxer->mDecoderBitstreamFormat ==
-		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
-		htonl(0x00000001) : htonl(info->h264.spslen);
-	*((uint32_t*)sps) = start;
-	memcpy(sps + 4, info->h264.sps, info->h264.spslen);
-
-	pps = (uint8_t *)malloc(info->h264.ppslen + 4);
-	if (pps == NULL) {
-		ULOGE("RecordDemuxer: PPS buffer allocation failed");
-		free(sps);
-		return;
-	}
-
-	start = (demuxer->mDecoderBitstreamFormat ==
-		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
-		htonl(0x00000001) : htonl(info->h264.ppslen);
-	*((uint32_t*)pps) = start;
-	memcpy(pps + 4, info->h264.pps, info->h264.ppslen);
-
-	ret = demuxer->mDecoder->configure(
-		demuxer->mDecoderBitstreamFormat,
-		sps, info->h264.spslen + 4,
-		pps, info->h264.ppslen + 4);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: decoder configuration failed (%d)", ret);
-	}
-
-	free(sps);
-	free(pps);
 }
 
 
@@ -1079,11 +1172,11 @@ void StreamDemuxer::recvFrameCb(
 {
 	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
 	struct vbuf_buffer *buffer = NULL;
-	uint32_t flags = 0, i;
+	uint32_t flags = 0, start, i;
 	size_t frame_size = 0;
 	uint8_t *buf;
 	ssize_t res;
-	size_t buf_size;
+	size_t buf_size, out_size = 0;
 	int ret;
 
 	if ((demuxer == NULL) || (frame == NULL)) {
@@ -1091,7 +1184,11 @@ void StreamDemuxer::recvFrameCb(
 		return;
 	}
 	if (demuxer->mDecoder == NULL) {
-		ULOGE("StreamDemuxer: no decoder configured");
+		ULOGD("StreamDemuxer: no decoder configured");
+		return;
+	}
+	if (!demuxer->mDecoder->isConfigured()) {
+		ULOGD("StreamDemuxer: decoder is not configured");
 		return;
 	}
 
@@ -1113,6 +1210,36 @@ void StreamDemuxer::recvFrameCb(
 		return;
 	}
 	buf_size = res;
+
+	/* Insert the SPS and PPS (only needed for FFmpeg decoder) */
+	if ((demuxer->mFirstFrame) &&
+		(demuxer->mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264)) {
+		if (demuxer->mCodecInfo.h264.spslen + 4 <= buf_size) {
+			start = (demuxer->mDecoderBitstreamFormat ==
+				AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
+				htonl(0x00000001) :
+				htonl(demuxer->mCodecInfo.h264.spslen);
+			*((uint32_t *)buf) = start;
+			memcpy(buf + 4, demuxer->mCodecInfo.h264.sps,
+				demuxer->mCodecInfo.h264.spslen);
+			buf += (demuxer->mCodecInfo.h264.spslen + 4);
+			buf_size -= (demuxer->mCodecInfo.h264.spslen + 4);
+			out_size += (demuxer->mCodecInfo.h264.spslen + 4);
+		}
+		if (demuxer->mCodecInfo.h264.ppslen + 4 <= buf_size) {
+			start = (demuxer->mDecoderBitstreamFormat ==
+				AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
+				htonl(0x00000001) :
+				htonl(demuxer->mCodecInfo.h264.ppslen);
+			*((uint32_t *)buf) = start;
+			memcpy(buf + 4, demuxer->mCodecInfo.h264.pps,
+				demuxer->mCodecInfo.h264.ppslen);
+			buf += (demuxer->mCodecInfo.h264.ppslen + 4);
+			buf_size -= (demuxer->mCodecInfo.h264.ppslen + 4);
+			out_size += (demuxer->mCodecInfo.h264.ppslen + 4);
+		}
+		demuxer->mFirstFrame = false;
+	}
 
 	/* Decoder input format */
 	switch(demuxer->mDecoderBitstreamFormat) {
@@ -1148,12 +1275,13 @@ void StreamDemuxer::recvFrameCb(
 		PDRAW_LOG_ERRNO("vstrm_frame_copy", -ret);
 		return;
 	}
+	out_size += frame_size;
 
 	struct avcdecoder_input_buffer *data =
 		(struct avcdecoder_input_buffer*)vbuf_get_metadata_ptr(buffer);
 	struct timespec t1;
 
-	vbuf_set_size(buffer, frame_size);
+	vbuf_set_size(buffer, out_size);
 	memset(data, 0, sizeof(*data));
 	data->isComplete = (frame->info.complete) ? true : false;
 	data->hasErrors = (frame->info.error) ? true : false;
