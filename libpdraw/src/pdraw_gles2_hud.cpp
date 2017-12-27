@@ -518,10 +518,14 @@ int Gles2Hud::renderHud(
 	takeoffLocation.valid = 0;
 	selfLocation.valid = 0;
 	uint64_t recordingDuration = 0;
+	uint64_t currentTime = 0;
+	uint64_t duration = 0;
 	if (mSession) {
 		SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
 		SessionPeerMetadata *peerMeta = mSession->getPeerMetadata();
 		sessionType = mSession->getSessionType();
+		currentTime = mSession->getCurrentTime();
+		duration = mSession->getDuration();
 		droneModel = peerMeta->getDroneModel();
 		friendlyName = peerMeta->getFriendlyName().c_str();
 		peerMeta->getTakeoffLocation(&takeoffLocation);
@@ -647,14 +651,10 @@ int Gles2Hud::renderHud(
 			controllerOrientation.psi, droneAttitude.psi,
 			controllerRadarAngle, colorGreen);
 #endif
-	if (sessionType == PDRAW_SESSION_TYPE_RECORD) {
-		uint64_t currentTime = mSession->getCurrentTime();
-		uint64_t duration = mSession->getDuration();
-		if ((duration > 0) && (duration != (uint64_t)-1))
-			drawRecordTimeline(currentTime, duration, colorGreen);
-	} else if (sessionType == PDRAW_SESSION_TYPE_STREAM) {
+	if ((duration > 0) && (duration != (uint64_t)-1))
+		drawRecordTimeline(currentTime, duration, colorGreen);
+	else if (sessionType == PDRAW_SESSION_TYPE_STREAM)
 		drawRecordingStatus(recordingDuration, colorGreen);
-	}
 
 	drawVuMeter(mHudVuMeterZoneHOffset, -mHudVuMeterVInterval, 0.05,
 		metadata->base.batteryPercentage, 0., 100., 0., 20.,
@@ -924,64 +924,60 @@ int Gles2Hud::renderHud(
 			0.12 * mRatioW * mAspectRatio, mTextSize * mRatioW, 1.,
 			mAspectRatio, GLES2_HUD_TEXT_ALIGN_LEFT,
 			GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
-	if (sessionType == PDRAW_SESSION_TYPE_RECORD) {
-		uint64_t currentTime = mSession->getCurrentTime();
-		uint64_t duration = mSession->getDuration();
-		if ((currentTime > 0) && (currentTime != (uint64_t)-1) &&
-			(duration > 0) && (duration != (uint64_t)-1)) {
-			uint64_t remainingTime = duration - currentTime;
-			unsigned int cHrs = 0, cMin = 0, cSec = 0, cMsec = 0;
-			unsigned int rHrs = 0, rMin = 0, rSec = 0, rMsec = 0;
-			unsigned int dHrs = 0, dMin = 0, dSec = 0, dMsec = 0;
-			pdraw_friendlyTimeFromUs(currentTime,
-				&cHrs, &cMin, &cSec, &cMsec);
-			pdraw_friendlyTimeFromUs(remainingTime,
-				&rHrs, &rMin, &rSec, &rMsec);
-			pdraw_friendlyTimeFromUs(duration,
-				&dHrs, &dMin, &dSec, &dMsec);
-			if (dHrs) {
-				snprintf(str, sizeof(str),
-					"+%02d:%02d:%02d.%03d",
-					cHrs, cMin, cSec, cMsec);
-			} else {
-				snprintf(str, sizeof(str), "+%02d:%02d.%03d",
-					cMin, cSec, cMsec);
-			}
-			drawText(str, (mHudRightZoneHOffset - 0.4) * mRatioW,
-				mHudRollZoneVOffset * mRatioH +
-				0.12 * mRatioW * mAspectRatio,
-				mTextSize * mRatioW, 1., mAspectRatio,
-				GLES2_HUD_TEXT_ALIGN_LEFT,
-				GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
-			if (dHrs) {
-				snprintf(str, sizeof(str),
-					"-%02d:%02d:%02d.%03d",
-					rHrs, rMin, rSec, rMsec);
-			} else {
-				snprintf(str, sizeof(str), "-%02d:%02d.%03d",
-					rMin, rSec, rMsec);
-			}
-			drawText(str, mHudRightZoneHOffset * mRatioW,
-				mHudRollZoneVOffset * mRatioH +
-				0.12 * mRatioW * mAspectRatio,
-				mTextSize * mRatioW, 1., mAspectRatio,
-				GLES2_HUD_TEXT_ALIGN_RIGHT,
-				GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
-			if (dHrs) {
-				snprintf(str, sizeof(str),
-					"DUR: %02d:%02d:%02d",
-					dHrs, dMin, dSec);
-			} else {
-				snprintf(str, sizeof(str),
-					"DUR: %02d:%02d", dMin, dSec);
-			}
-			drawText(str, (mHudRightZoneHOffset - 0.2) * mRatioW,
-				mHudRollZoneVOffset * mRatioH +
-				0.10 * mRatioW * mAspectRatio,
-				mTextSize * mRatioW, 1., mAspectRatio,
-				GLES2_HUD_TEXT_ALIGN_CENTER,
-				GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
+	if ((currentTime > 0) && (currentTime != (uint64_t)-1) &&
+		(duration > 0) && (duration != (uint64_t)-1)) {
+		uint64_t remainingTime = duration - currentTime;
+		unsigned int cHrs = 0, cMin = 0, cSec = 0, cMsec = 0;
+		unsigned int rHrs = 0, rMin = 0, rSec = 0, rMsec = 0;
+		unsigned int dHrs = 0, dMin = 0, dSec = 0, dMsec = 0;
+		pdraw_friendlyTimeFromUs(currentTime,
+			&cHrs, &cMin, &cSec, &cMsec);
+		pdraw_friendlyTimeFromUs(remainingTime,
+			&rHrs, &rMin, &rSec, &rMsec);
+		pdraw_friendlyTimeFromUs(duration,
+			&dHrs, &dMin, &dSec, &dMsec);
+		if (dHrs) {
+			snprintf(str, sizeof(str),
+				"+%02d:%02d:%02d.%03d",
+				cHrs, cMin, cSec, cMsec);
+		} else {
+			snprintf(str, sizeof(str), "+%02d:%02d.%03d",
+				cMin, cSec, cMsec);
 		}
+		drawText(str, (mHudRightZoneHOffset - 0.4) * mRatioW,
+			mHudRollZoneVOffset * mRatioH +
+			0.12 * mRatioW * mAspectRatio,
+			mTextSize * mRatioW, 1., mAspectRatio,
+			GLES2_HUD_TEXT_ALIGN_LEFT,
+			GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+		if (dHrs) {
+			snprintf(str, sizeof(str),
+				"-%02d:%02d:%02d.%03d",
+				rHrs, rMin, rSec, rMsec);
+		} else {
+			snprintf(str, sizeof(str), "-%02d:%02d.%03d",
+				rMin, rSec, rMsec);
+		}
+		drawText(str, mHudRightZoneHOffset * mRatioW,
+			mHudRollZoneVOffset * mRatioH +
+			0.12 * mRatioW * mAspectRatio,
+			mTextSize * mRatioW, 1., mAspectRatio,
+			GLES2_HUD_TEXT_ALIGN_RIGHT,
+			GLES2_HUD_TEXT_ALIGN_MIDDLE, colorGreen);
+		if (dHrs) {
+			snprintf(str, sizeof(str),
+				"DUR: %02d:%02d:%02d",
+				dHrs, dMin, dSec);
+		} else {
+			snprintf(str, sizeof(str),
+				"DUR: %02d:%02d", dMin, dSec);
+		}
+		drawText(str, (mHudRightZoneHOffset - 0.2) * mRatioW,
+			mHudRollZoneVOffset * mRatioH +
+			0.10 * mRatioW * mAspectRatio,
+			mTextSize * mRatioW, 1., mAspectRatio,
+			GLES2_HUD_TEXT_ALIGN_CENTER,
+			GLES2_HUD_TEXT_ALIGN_TOP, colorGreen);
 	} else if (sessionType == PDRAW_SESSION_TYPE_STREAM) {
 		if (recordingDuration > 0) {
 			unsigned int dHrs = 0, dMin = 0, dSec = 0, dMsec = 0;
