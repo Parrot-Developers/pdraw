@@ -173,6 +173,7 @@ private:
 	bool mFirstFrame;
 	size_t mMetadataBufferSize;
 	uint8_t *mMetadataBuffer;
+	int64_t mAvgOutputInterval;
 	uint64_t mLastFrameOutputTime;
 	int64_t mLastFrameDuration;
 	int64_t mLastOutputError;

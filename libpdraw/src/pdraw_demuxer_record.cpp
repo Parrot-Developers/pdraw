@@ -67,6 +67,7 @@ RecordDemuxer::RecordDemuxer(
 	mFirstFrame = true;
 	mDecoder = NULL;
 	mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_UNKNOWN;
+	mAvgOutputInterval = 0;
 	mLastFrameOutputTime = 0;
 	mLastFrameDuration = 0;
 	mLastOutputError = 0;
@@ -808,7 +809,7 @@ void RecordDemuxer::timerCb(
 	size_t spsSize = 0, ppsSize = 0, seiSize = 0;
 	struct timespec t1;
 	uint64_t curTime;
-	int64_t error, duration, wait;
+	int64_t error, duration, wait = 0;
 	uint32_t waitMs = 0;
 	int ret, retry = 0;
 
@@ -999,28 +1000,83 @@ out:
 	if (retry) {
 		waitMs = 5;
 	} else if (demuxer->mRunning) {
-		/* Schedule the next sample
-		 * if error > 0 we are late, if error < 0 we are early */
+		/* Schedule the next sample */
+		uint64_t nextSampleDts = sample.next_sample_dts;
+
+		/* If error > 0 we are late, if error < 0 we are early */
 		error = ((demuxer->mLastFrameOutputTime == 0) ||
 			(demuxer->mLastFrameDuration == 0) ||
 			(speed <= 0.) || (speed >= PDRAW_PLAY_SPEED_MAX) ||
 			(silent)) ? 0 :
 			curTime - demuxer->mLastFrameOutputTime -
 			demuxer->mLastFrameDuration + demuxer->mLastOutputError;
-		duration = ((sample.next_sample_dts == 0) || (silent)) ? 0 :
-			sample.next_sample_dts - sample.sample_dts;
-		if ((speed > 0.) && (speed < PDRAW_PLAY_SPEED_MAX))
-			duration = (int64_t)((float)duration / speed);
-		else if (speed >= PDRAW_PLAY_SPEED_MAX)
+		if (demuxer->mLastFrameOutputTime) {
+			/* Average frame output rate
+			 * (sliding average, alpha = 1/2) */
+			demuxer->mAvgOutputInterval += ((int64_t)(curTime -
+				demuxer->mLastFrameOutputTime) -
+				demuxer->mAvgOutputInterval) >> 1;
+		}
+
+		/* Sample duration */
+		if ((speed >= PDRAW_PLAY_SPEED_MAX) ||
+			(nextSampleDts == 0) || (silent)) {
 			duration = 0;
-		wait = 0;
-		if (sample.next_sample_dts != 0) {
+		} else {
+			uint64_t pendingSeekTs = 0;
+			uint64_t nextSyncSampleDts = nextSampleDts;
+			duration = nextSampleDts - sample.sample_dts;
+			if (speed > 0.)
+				duration = (int64_t)((float)duration / speed);
+			int64_t newDuration = duration;
+			while (newDuration - error < 0) {
+				/* We can't keep up => seek to the next sync
+				 * sample that gives a positive wait time */
+				nextSyncSampleDts =
+					mp4_demux_get_track_next_sample_time_after(
+					demuxer->mDemux, demuxer->mVideoTrackId,
+					nextSyncSampleDts, 1);
+				if (nextSyncSampleDts > 0) {
+					pendingSeekTs = nextSyncSampleDts;
+					newDuration = nextSyncSampleDts -
+						sample.sample_dts;
+					if (speed > 0.) {
+						newDuration = (int64_t)(
+							(float)newDuration /
+							speed);
+					}
+				} else {
+					break;
+				}
+			}
+			if ((pendingSeekTs > 0) &&
+				(newDuration - error <
+				2 * demuxer->mAvgOutputInterval)) {
+				/* Only seek if the resulting wait time is less
+				 * than twice the average frame output rate */
+				ULOGD("RecordDemuxer: unable to keep "
+					"up with playback timings, "
+					"seek forward %.2f ms",
+					(float)(nextSyncSampleDts -
+					sample.sample_dts) / 1000.);
+				duration = newDuration;
+				nextSampleDts = nextSyncSampleDts;
+				ret = mp4_demux_seek(demuxer->mDemux,
+					pendingSeekTs, 1);
+				if (ret != 0) {
+					ULOGW("RecordDemuxer: mp4_demux_seek() "
+						"failed (%d)", ret);
+				}
+			}
+		}
+
+		if (nextSampleDts != 0) {
 			wait = duration - error;
 			/* TODO: loop in the timer cb when silent
 			 * or speed>=PDRAW_PLAY_SPEED_MAX */
-			if (wait <= 0) {
+			if (wait < 0) {
 				if (duration > 0) {
-					ULOGW("RecordDemuxer: unable to keep "
+					ULOGD("RecordDemuxer: unable to keep "
 						"up with playback timings "
 						"(%.1f ms late, speed=%.2f)",
 						-(float)wait / 1000., speed);
@@ -1031,16 +1087,17 @@ out:
 			if (waitMs == 0)
 				waitMs = 1;
 		}
+		demuxer->mLastFrameOutputTime = curTime;
 		demuxer->mLastFrameDuration = duration;
 		demuxer->mLastOutputError = error;
 
 		ULOGD("RecordDemuxer: timerCb: error=%d duration=%d wait=%d%s",
 			(int)error, (int)duration, (int)wait, (silent) ? " (silent)" : "");
 	} else {
+		demuxer->mLastFrameOutputTime = curTime;
 		demuxer->mLastFrameDuration = 0;
 		demuxer->mLastOutputError = 0;
 	}
-	demuxer->mLastFrameOutputTime = curTime;
 
 	if (waitMs > 0) {
 		ret = pomp_timer_set(timer, waitMs);
