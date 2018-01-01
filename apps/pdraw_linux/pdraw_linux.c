@@ -262,6 +262,7 @@ int main(int argc, char *argv[])
         app->dstControlPort = PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT;
         app->run = 1;
         app->speed = 1.0;
+        app->speedSign = 1;
 #ifdef BUILD_SDL2
         app->windowWidth = PDRAW_WINDOW_WIDTH;
         app->windowHeight = PDRAW_WINDOW_HEIGHT;
@@ -616,10 +617,10 @@ int main(int argc, char *argv[])
                             }
                             else
                             {
-                                int ret = pdraw_play(app->pdraw);
+                                int ret = pdraw_play_with_speed(app->pdraw, app->speed * app->speedSign);
                                 if (ret != 0)
                                 {
-                                    ULOGW("pdraw_play() failed (%d)", ret);
+                                    ULOGW("pdraw_play_with_speed() failed (%d)", ret);
                                 }
                             }
                             break;
@@ -703,15 +704,30 @@ int main(int argc, char *argv[])
                             }
                             break;
                         }
+                        case SDLK_BACKSPACE:
+                        case SDLK_KP_ENTER:
+                        {
+                            app->speedSign *= -1;
+                            if (pdraw_is_paused(app->pdraw) == 0) {
+                                int ret = pdraw_play_with_speed(app->pdraw, app->speed * app->speedSign);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_play_with_speed() failed (%d)", ret);
+                                }
+                            }
+                            break;
+                        }
                         case SDLK_EQUALS:
                         case SDLK_PLUS:
                         case SDLK_KP_PLUS:
                         {
                             app->speed *= 2;
-                            int ret = pdraw_play_with_speed(app->pdraw, app->speed);
-                            if (ret != 0)
-                            {
-                                ULOGW("pdraw_play_with_speed() failed (%d)", ret);
+                            if (pdraw_is_paused(app->pdraw) == 0) {
+                                int ret = pdraw_play_with_speed(app->pdraw, app->speed * app->speedSign);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_play_with_speed() failed (%d)", ret);
+                                }
                             }
                             break;
                         }
@@ -719,10 +735,12 @@ int main(int argc, char *argv[])
                         case SDLK_KP_MINUS:
                         {
                             app->speed /= 2;
-                            int ret = pdraw_play_with_speed(app->pdraw, app->speed);
-                            if (ret != 0)
-                            {
-                                ULOGW("pdraw_play_with_speed() failed (%d)", ret);
+                            if (pdraw_is_paused(app->pdraw) == 0) {
+                                int ret = pdraw_play_with_speed(app->pdraw, app->speed * app->speedSign);
+                                if (ret != 0)
+                                {
+                                    ULOGW("pdraw_play_with_speed() failed (%d)", ret);
+                                }
                             }
                             break;
                         }

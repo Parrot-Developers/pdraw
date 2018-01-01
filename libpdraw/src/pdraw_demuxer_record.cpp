@@ -81,6 +81,7 @@ RecordDemuxer::RecordDemuxer(
 	mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
 	mSarWidth = mSarHeight = 0;
 	mHfov = mVfov = 0.;
+	mSpeed = 1.0;
 
 	mMetadataBufferSize = 1024;
 	mMetadataBuffer = (uint8_t*)malloc(mMetadataBufferSize);
@@ -460,17 +461,16 @@ int RecordDemuxer::play(
 
 	pthread_mutex_lock(&mDemuxerMutex);
 
-	if (speed > 0.) {
+	if (speed == 0.) {
+		/* speed is null => pause */
+		mRunning = false;
+		mFrameByFrame = true;
+	} else {
 		mRunning = true;
 		mFrameByFrame = false;
 		mPendingSeekToPrevSample = false;
 		mSpeed = speed;
 		pomp_timer_set(mTimer, 1);
-	} else {
-		/* speed is null or negative => pause */
-		mRunning = false;
-		mFrameByFrame = true;
-		mLastFrameDuration = 0;
 	}
 
 	pthread_mutex_unlock(&mDemuxerMutex);
@@ -491,7 +491,6 @@ int RecordDemuxer::pause(
 
 	mRunning = false;
 	mFrameByFrame = true;
-	mLastFrameDuration = 0;
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -572,7 +571,6 @@ int RecordDemuxer::stop(
 	pthread_mutex_lock(&mDemuxerMutex);
 
 	mRunning = false;
-	mLastFrameDuration = 0;
 	pomp_timer_clear(mTimer);
 
 	pthread_mutex_unlock(&mDemuxerMutex);
@@ -1006,7 +1004,7 @@ out:
 		/* If error > 0 we are late, if error < 0 we are early */
 		error = ((demuxer->mLastFrameOutputTime == 0) ||
 			(demuxer->mLastFrameDuration == 0) ||
-			(speed <= 0.) || (speed >= PDRAW_PLAY_SPEED_MAX) ||
+			(speed == 0.) || (speed >= PDRAW_PLAY_SPEED_MAX) ||
 			(silent)) ? 0 :
 			curTime - demuxer->mLastFrameOutputTime -
 			demuxer->mLastFrameDuration + demuxer->mLastOutputError;
@@ -1022,11 +1020,51 @@ out:
 		if ((speed >= PDRAW_PLAY_SPEED_MAX) ||
 			(nextSampleDts == 0) || (silent)) {
 			duration = 0;
+		} else if (speed < 0.) {
+			/* Negative speed => play backward */
+			nextSampleDts = sample.prev_sync_sample_dts;
+			uint64_t pendingSeekTs = nextSampleDts;
+			uint64_t nextSyncSampleDts = nextSampleDts;
+			duration = nextSampleDts - sample.sample_dts;
+			if (speed != 0.)
+				duration = (int64_t)((float)duration / speed);
+			int64_t newDuration = duration;
+			while (newDuration - error < 0) {
+				/* We can't keep up => seek to the next sync
+				 * sample that gives a positive wait time */
+				nextSyncSampleDts =
+					mp4_demux_get_track_prev_sample_time_before(
+					demuxer->mDemux, demuxer->mVideoTrackId,
+					nextSyncSampleDts, 1);
+				if (nextSyncSampleDts > 0) {
+					pendingSeekTs = nextSyncSampleDts;
+					newDuration = nextSyncSampleDts -
+						sample.sample_dts;
+					if (speed != 0.) {
+						newDuration = (int64_t)(
+							(float)newDuration /
+							speed);
+					}
+				} else {
+					break;
+				}
+			}
+			if (pendingSeekTs > 0) {
+				duration = newDuration;
+				nextSampleDts = nextSyncSampleDts;
+				ret = mp4_demux_seek(demuxer->mDemux,
+					pendingSeekTs, 1);
+				if (ret != 0) {
+					ULOGW("RecordDemuxer: mp4_demux_seek() "
+						"failed (%d)", ret);
+				}
+			}
 		} else {
+			/* Positive speed => play forward */
 			uint64_t pendingSeekTs = 0;
 			uint64_t nextSyncSampleDts = nextSampleDts;
 			duration = nextSampleDts - sample.sample_dts;
-			if (speed > 0.)
+			if (speed != 0.)
 				duration = (int64_t)((float)duration / speed);
 			int64_t newDuration = duration;
 			while (newDuration - error < 0) {
@@ -1040,7 +1078,7 @@ out:
 					pendingSeekTs = nextSyncSampleDts;
 					newDuration = nextSyncSampleDts -
 						sample.sample_dts;
-					if (speed > 0.) {
+					if (speed != 0.) {
 						newDuration = (int64_t)(
 							(float)newDuration /
 							speed);
