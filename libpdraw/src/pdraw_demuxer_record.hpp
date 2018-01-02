@@ -32,9 +32,9 @@
 
 #include "pdraw_demuxer.hpp"
 #include "pdraw_avcdecoder.hpp"
-#include <pthread.h>
 #include <libmp4.h>
 #include <h264/h264.h>
+#include <libpomp.h>
 #include <string>
 
 namespace Pdraw {
@@ -141,9 +141,9 @@ private:
 	static int getAvcDecoderConfig(
 		RecordDemuxer *demuxer,
 		uint8_t **pSps,
-		unsigned int *spsSize,
+		size_t *spsSize,
 		uint8_t **pPps,
-		unsigned int *ppsSize);
+		size_t *ppsSize);
 
 	static void h264UserDataSeiCb(
 		struct h264_ctx *ctx,
@@ -152,29 +152,30 @@ private:
 		const struct h264_sei_user_data_unregistered *sei,
 		void *userdata);
 
-	static void *runDemuxerThread(
-		void *ptr);
+	static void timerCb(
+		struct pomp_timer *timer,
+		void *userdata);
 
 	std::string mFileName;
 	AvcDecoder *mDecoder;
 	uint32_t mDecoderBitstreamFormat;
-	pthread_t mDemuxerThread;
-	bool mDemuxerThreadLaunched;
 	pthread_mutex_t mDemuxerMutex;
 	bool mRunning;
 	bool mFrameByFrame;
-	bool mThreadShouldStop;
 	struct mp4_demux *mDemux;
+	struct pomp_timer *mTimer;
+	struct h264_reader *mH264Reader;
 	uint64_t mDuration;
 	uint64_t mCurrentTime;
 	int mVideoTrackCount;
 	unsigned int mVideoTrackId;
 	char *mMetadataMimeType;
 	bool mFirstFrame;
-	unsigned int mMetadataBufferSize;
+	size_t mMetadataBufferSize;
 	uint8_t *mMetadataBuffer;
 	uint64_t mLastFrameOutputTime;
-	uint64_t mLastFrameTimestamp;
+	int64_t mLastFrameDuration;
+	int64_t mLastOutputError;
 	int64_t mPendingSeekTs;
 	bool mPendingSeekExact;
 	bool mPendingSeekToPrevSample;
@@ -189,7 +190,6 @@ private:
 	unsigned int mSarHeight;
 	float mHfov;
 	float mVfov;
-	struct h264_reader *mH264Reader;
 	float mSpeed;
 };
 

@@ -29,7 +29,6 @@
 
 #include "pdraw_demuxer_record.hpp"
 #include "pdraw_session.hpp"
-
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -48,13 +47,20 @@ namespace Pdraw {
 RecordDemuxer::RecordDemuxer(
 	Session *session)
 {
+	int ret;
+
+	if (session == NULL) {
+		ULOGE("RecordDemuxer: invalid session");
+		return;
+	}
+
 	mSession = session;
 	mConfigured = false;
 	mDemux = NULL;
+	mTimer = NULL;
+	mH264Reader = NULL;
 	mRunning = false;
 	mFrameByFrame = false;
-	mDemuxerThreadLaunched = false;
-	mThreadShouldStop = false;
 	mVideoTrackCount = 0;
 	mVideoTrackId = 0;
 	mMetadataMimeType = NULL;
@@ -62,7 +68,8 @@ RecordDemuxer::RecordDemuxer(
 	mDecoder = NULL;
 	mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_UNKNOWN;
 	mLastFrameOutputTime = 0;
-	mLastFrameTimestamp = 0;
+	mLastFrameDuration = 0;
+	mLastOutputError = 0;
 	mDuration = 0;
 	mCurrentTime = 0;
 	mPendingSeekTs = -1;
@@ -77,15 +84,21 @@ RecordDemuxer::RecordDemuxer(
 	mMetadataBufferSize = 1024;
 	mMetadataBuffer = (uint8_t*)malloc(mMetadataBufferSize);
 	if (mMetadataBuffer == NULL) {
-		ULOGE("RecordDemuxer: allocation failed size %d",
+		ULOGE("RecordDemuxer: allocation failed size %zu",
 			mMetadataBufferSize);
-		return;
+		goto err;
 	}
 
-	int ret = pthread_mutex_init(&mDemuxerMutex, NULL);
+	ret = pthread_mutex_init(&mDemuxerMutex, NULL);
 	if (ret != 0) {
 		ULOGE("RecordDemuxer: mutex creation failed (%d)", ret);
-		return;
+		goto err;
+	}
+
+	mTimer = pomp_timer_new(mSession->getLoop(), timerCb, this);
+	if (mTimer == NULL) {
+		ULOGE("RecordDemuxer: pomp timer creation failed");
+		goto err;
 	}
 
 	struct h264_ctx_cbs h264_cbs;
@@ -95,37 +108,63 @@ RecordDemuxer::RecordDemuxer(
 	ret = h264_reader_new(&h264_cbs, &mH264Reader);
 	if (ret < 0) {
 		ULOGE("RecordDemuxer: h264_reader_new() failed (%d)", ret);
-		return;
+		goto err;
 	}
+
+	return;
+
+err:
+	pthread_mutex_destroy(&mDemuxerMutex);
+	if (mTimer != NULL) {
+		pomp_timer_clear(mTimer);
+		pomp_timer_destroy(mTimer);
+		mTimer = NULL;
+	}
+	if (mH264Reader != NULL) {
+		h264_reader_destroy(mH264Reader);
+		mH264Reader = NULL;
+	}
+	free(mMetadataBuffer);
+	mMetadataBuffer = NULL;
 }
 
 
 RecordDemuxer::~RecordDemuxer(
 	void)
 {
-	int ret = stop();
+	int ret;
+
+	ret = stop();
 	if (ret != 0)
 		ULOGE("RecordDemuxer: stop() failed (%d)", ret);
 
-	if (mDemuxerThreadLaunched) {
-		ret = pthread_join(mDemuxerThread, NULL);
-		if (ret != 0)
-			ULOGE("RecordDemuxer: pthread_join() failed (%d)", ret);
-	}
-
 	pthread_mutex_destroy(&mDemuxerMutex);
 
-	if (mCurrentBuffer != NULL)
+	if (mCurrentBuffer != NULL) {
 		vbuf_unref(&mCurrentBuffer);
+		mCurrentBuffer = NULL;
+	}
 
-	if (mDemux != NULL)
+	if (mDemux != NULL) {
 		mp4_demux_close(mDemux);
+		mDemux = NULL;
+	}
 
-	if (mH264Reader != NULL)
+	if (mTimer != NULL) {
+		pomp_timer_clear(mTimer);
+		pomp_timer_destroy(mTimer);
+		mTimer = NULL;
+	}
+
+	if (mH264Reader != NULL) {
 		h264_reader_destroy(mH264Reader);
+		mH264Reader = NULL;
+	}
 
 	free(mMetadataBuffer);
+	mMetadataBuffer = NULL;
 	free(mMetadataMimeType);
+	mMetadataMimeType = NULL;
 }
 
 
@@ -271,15 +310,6 @@ int RecordDemuxer::configure(
 		}
 	}
 
-	ret = pthread_create(&mDemuxerThread,
-		NULL, runDemuxerThread, (void*)this);
-	if (ret != 0) {
-		ULOGE("RecordDemuxer: demuxer thread "
-			"creation failed (%d)", ret);
-		return -1;
-	}
-
-	mDemuxerThreadLaunched = true;
 	mConfigured = true;
 	ULOGI("RecordDemuxer: demuxer is configured");
 
@@ -434,10 +464,12 @@ int RecordDemuxer::play(
 		mFrameByFrame = false;
 		mPendingSeekToPrevSample = false;
 		mSpeed = speed;
+		pomp_timer_set(mTimer, 1);
 	} else {
 		/* speed is null or negative => pause */
 		mRunning = false;
 		mFrameByFrame = true;
+		mLastFrameDuration = 0;
 	}
 
 	pthread_mutex_unlock(&mDemuxerMutex);
@@ -458,6 +490,7 @@ int RecordDemuxer::pause(
 
 	mRunning = false;
 	mFrameByFrame = true;
+	mLastFrameDuration = 0;
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -494,11 +527,12 @@ int RecordDemuxer::previous(
 	pthread_mutex_lock(&mDemuxerMutex);
 
 	if (!mPendingSeekExact) {
-		/* Avoid seeking back to much if a seek to a
+		/* Avoid seeking back too much if a seek to a
 		 * previous frame is already in progress */
 		mPendingSeekToPrevSample = true;
 		mPendingSeekExact = true;
 		mRunning = true;
+		pomp_timer_set(mTimer, 1);
 	}
 
 	pthread_mutex_unlock(&mDemuxerMutex);
@@ -518,6 +552,7 @@ int RecordDemuxer::next(
 	pthread_mutex_lock(&mDemuxerMutex);
 
 	mRunning = true;
+	pomp_timer_set(mTimer, 1);
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -536,7 +571,8 @@ int RecordDemuxer::stop(
 	pthread_mutex_lock(&mDemuxerMutex);
 
 	mRunning = false;
-	mThreadShouldStop = true;
+	mLastFrameDuration = 0;
+	pomp_timer_clear(mTimer);
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -548,13 +584,12 @@ int RecordDemuxer::seekTo(
 	uint64_t timestamp,
 	bool exact)
 {
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	if (!mConfigured) {
-		pthread_mutex_unlock(&mDemuxerMutex);
 		ULOGE("RecordDemuxer: demuxer is not configured");
 		return -1;
 	}
+
+	pthread_mutex_lock(&mDemuxerMutex);
 
 	if (timestamp > mDuration)
 		timestamp = mDuration;
@@ -562,6 +597,7 @@ int RecordDemuxer::seekTo(
 	mPendingSeekExact = exact;
 	mPendingSeekToPrevSample = false;
 	mRunning = true;
+	pomp_timer_set(mTimer, 1);
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -573,15 +609,14 @@ int RecordDemuxer::seekForward(
 	uint64_t delta,
 	bool exact)
 {
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	if (!mConfigured) {
-		pthread_mutex_unlock(&mDemuxerMutex);
 		ULOGE("RecordDemuxer: demuxer is not configured");
 		return -1;
 	}
 
-	int64_t ts = (int64_t)mLastFrameTimestamp + (int64_t)delta;
+	pthread_mutex_lock(&mDemuxerMutex);
+
+	int64_t ts = (int64_t)mCurrentTime + (int64_t)delta;
 	if (ts < 0)
 		ts = 0;
 	if (ts > (int64_t)mDuration)
@@ -590,6 +625,7 @@ int RecordDemuxer::seekForward(
 	mPendingSeekExact = exact;
 	mPendingSeekToPrevSample = false;
 	mRunning = true;
+	pomp_timer_set(mTimer, 1);
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -601,15 +637,14 @@ int RecordDemuxer::seekBack(
 	uint64_t delta,
 	bool exact)
 {
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	if (!mConfigured) {
-		pthread_mutex_unlock(&mDemuxerMutex);
 		ULOGE("RecordDemuxer: demuxer is not configured");
 		return -1;
 	}
 
-	int64_t ts = (int64_t)mLastFrameTimestamp - (int64_t)delta;
+	pthread_mutex_lock(&mDemuxerMutex);
+
+	int64_t ts = (int64_t)mCurrentTime - (int64_t)delta;
 	if (ts < 0)
 		ts = 0;
 	if (ts > (int64_t)mDuration)
@@ -618,6 +653,7 @@ int RecordDemuxer::seekBack(
 	mPendingSeekExact = exact;
 	mPendingSeekToPrevSample = false;
 	mRunning = true;
+	pomp_timer_set(mTimer, 1);
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -662,9 +698,9 @@ void RecordDemuxer::h264UserDataSeiCb(
 int RecordDemuxer::getAvcDecoderConfig(
 	RecordDemuxer *demuxer,
 	uint8_t **pSps,
-	unsigned int *spsSize,
+	size_t *spsSize,
 	uint8_t **pPps,
-	unsigned int *ppsSize)
+	size_t *ppsSize)
 {
 	uint8_t *sps = NULL, *pps = NULL;
 	uint8_t *spsBuffer = NULL, *ppsBuffer = NULL;
@@ -757,258 +793,267 @@ int RecordDemuxer::getAvcDecoderConfig(
 }
 
 
-void *RecordDemuxer::runDemuxerThread(
-	void *ptr)
+void RecordDemuxer::timerCb(
+	struct pomp_timer *timer,
+	void *userdata)
 {
-	RecordDemuxer *demuxer = (RecordDemuxer*)ptr;
+	RecordDemuxer *demuxer = (RecordDemuxer *)userdata;
+	bool silent = false;
+	float speed = 1.0;
+	int64_t seekTs = -1;
+	struct mp4_track_sample sample;
+	struct avcdecoder_input_buffer *data = NULL;
+	uint8_t *buf = NULL, *_buf, *sps = NULL, *pps = NULL, *sei = NULL;
+	size_t bufSize = 0, outSize = 0, offset = 0, naluSize;
+	size_t spsSize = 0, ppsSize = 0, seiSize = 0;
 	struct timespec t1;
 	uint64_t curTime;
-	int32_t outputTimeError = 0;
+	int64_t error, duration, wait;
+	uint32_t waitMs = 0;
+	int ret, retry = 0;
 
-	while (!demuxer->mThreadShouldStop) {
-		pthread_mutex_lock(&demuxer->mDemuxerMutex);
-		bool running = demuxer->mRunning;
-		float speed = demuxer->mSpeed;
-		pthread_mutex_unlock(&demuxer->mDemuxerMutex);
-
-		if ((demuxer->mDecoder == NULL) || (!running)) {
-			usleep(5000); /* TODO */
-			continue;
-		}
-
-		uint8_t *sps = NULL, *pps = NULL;
-		unsigned int spsSize = 0, ppsSize = 0;
-		struct mp4_track_sample sample;
-		int ret;
-
-		if (demuxer->mFirstFrame) {
-			/* Get the H.264 config and configure the decoder */
-			ret = getAvcDecoderConfig(demuxer,
-				&sps, &spsSize, &pps, &ppsSize);
-			if (ret != 0) {
-				ULOGE("RecordDemuxer: failed to get "
-					"AVC decoder config (%d)", ret);
-				continue;
-			}
-		}
-
-		if (!demuxer->mDecoder->isConfigured()) {
-			ULOGE("RecordDemuxer: decoder is not configured");
-			usleep(5000); /* TODO */
-			free(sps);
-			free(pps);
-			continue;
-		}
-
-		if (demuxer->mCurrentBuffer == NULL) {
-			ret = demuxer->mDecoder->getInputBuffer(
-				&demuxer->mCurrentBuffer, true);
-			if (ret != 0)
-				ULOGW("RecordDemuxer: failed to get "
-					"an output buffer (%d)", ret);
-		}
-
-		if (demuxer->mCurrentBuffer == NULL) {
-			usleep(5000); /* TODO */
-			free(sps);
-			free(pps);
-			continue;
-		}
-
-		uint8_t *buf = vbuf_get_ptr(demuxer->mCurrentBuffer);
-		unsigned int bufSize =
-			vbuf_get_capacity(demuxer->mCurrentBuffer);
-		unsigned int outSize = 0;
-
-		if (demuxer->mFirstFrame) {
-			/* Insert the SPS and PPS */
-			if ((sps) && (spsSize + 4 <= bufSize)) {
-				memcpy(buf, sps, spsSize + 4);
-				buf += (spsSize + 4);
-				bufSize -= (spsSize + 4);
-				outSize += (spsSize + 4);
-			}
-			if ((pps) && (ppsSize + 4 <= bufSize)) {
-				memcpy(buf, pps, ppsSize + 4);
-				buf += (ppsSize + 4);
-				bufSize -= (ppsSize + 4);
-				outSize += (ppsSize + 4);
-			}
-			demuxer->mFirstFrame = false;
-		}
-
-		pthread_mutex_lock(&demuxer->mDemuxerMutex);
-		int64_t seekTs = demuxer->mPendingSeekTs;
-		bool pendingSeekExact = demuxer->mPendingSeekExact;
-		bool pendingSeekToPrevSample =
-			demuxer->mPendingSeekToPrevSample;
-		demuxer->mPendingSeekTs = -1;
-		demuxer->mPendingSeekToPrevSample = false;
-		pthread_mutex_unlock(&demuxer->mDemuxerMutex);
-
-		/* Seeking */
-		if (seekTs >= 0) {
-			ret = mp4_demux_seek(demuxer->mDemux,
-				(uint64_t)seekTs, 1);
-			if (ret != 0) {
-				ULOGW("RecordDemuxer: mp4_demux_seek() "
-					"failed (%d)", ret);
-			} else {
-				demuxer->mLastFrameTimestamp = 0;
-				outputTimeError = 0;
-			}
-		} else if (pendingSeekToPrevSample) {
-			ret = mp4_demux_seek_to_track_prev_sample(
-				demuxer->mDemux, demuxer->mVideoTrackId);
-			if (ret != 0) {
-				ULOGW("RecordDemuxer: "
-					"mp4_demux_seek_to_track_prev_sample() "
-					"failed (%d)", ret);
-			} else {
-				demuxer->mLastFrameTimestamp = 0;
-				outputTimeError = 0;
-			}
-		}
-
-		/* Get a sample */
-		ret = mp4_demux_get_track_next_sample(demuxer->mDemux,
-			demuxer->mVideoTrackId, buf, bufSize,
-			demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize,
-			&sample);
-		if (ret != 0) {
-			ULOGW("RecordDemuxer: failed to get sample (%d)", ret);
-			if (ret == -ENOBUFS) {
-				/* Go to the next sample */
-				ret = mp4_demux_get_track_next_sample(
-					demuxer->mDemux, demuxer->mVideoTrackId,
-					NULL, 0, NULL, 0, &sample);
-			}
-			free(sps);
-			free(pps);
-			continue;
-		}
-		if (sample.sample_size == 0) {
-			free(sps);
-			free(pps);
-			continue;
-		}
-
-		vbuf_set_size(demuxer->mCurrentBuffer,
-			outSize + sample.sample_size);
-		vbuf_set_userdata_size(demuxer->mCurrentBuffer, 0);
-
-		bool silent = ((sample.silent) && (pendingSeekExact)) ?
-			true : false;
-		demuxer->mPendingSeekExact = (silent) ?
-			pendingSeekExact : false;
-
-		/* Parse the H.264 bitstream and convert
-		 * to byte stream if necessary */
-		uint32_t offset = 0, naluSize, naluCount = 0;
-		uint8_t *_buf = buf;
-		uint8_t *seiNalu = NULL;
-		int seiNaluSize = 0;
-		while (offset < sample.sample_size) {
-			naluSize = ntohl(*((uint32_t*)_buf));
-			if (demuxer->mDecoderBitstreamFormat ==
-				AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
-				*((uint32_t*)_buf) = htonl(0x00000001);
-			if (*(_buf + 4) == 0x06) {
-				seiNalu = _buf + 4;
-				seiNaluSize = naluSize;
-			}
-			_buf += 4 + naluSize;
-			offset += 4 + naluSize;
-			naluCount++;
-		}
-
-		/* Parse the H.264 SEI to find user data SEI */
-		if ((seiNalu != NULL) && (seiNaluSize != 0)) {
-			ret = h264_reader_parse_nalu(demuxer->mH264Reader,
-				0, seiNalu, seiNaluSize);
-			if (ret < 0)
-				ULOGW("RecordDemuxer: h264_reader_parse_nalu() "
-					"failed (%d)", ret);
-		}
-
-		struct avcdecoder_input_buffer *data =
-			(struct avcdecoder_input_buffer *)
-			vbuf_get_metadata_ptr(demuxer->mCurrentBuffer);
-		memset(data, 0, sizeof(*data));
-		data->isComplete = true; /* TODO? */
-		data->hasErrors = false; /* TODO? */
-		data->isRef = true; /* TODO? */
-		data->isSilent = silent;
-		data->auNtpTimestamp = sample.sample_dts;
-		data->auNtpTimestampRaw = sample.sample_dts;
-		/* TODO: auSyncType */
-
-		/* Metadata */
-		data->hasMetadata = VideoFrameMetadata::decodeMetadata(
-			demuxer->mMetadataBuffer, sample.metadata_size,
-			FRAME_METADATA_SOURCE_RECORDING,
-			demuxer->mMetadataMimeType, &data->metadata);
-
-		/* Output scheduling */
-		if ((demuxer->mLastFrameOutputTime != 0) &&
-			(demuxer->mLastFrameTimestamp != 0)) {
-			clock_gettime(CLOCK_MONOTONIC, &t1);
-			curTime = (uint64_t)t1.tv_sec * 1000000 +
-				(uint64_t)t1.tv_nsec / 1000;
-			int32_t sleepTime = 0;
-
-			if ((speed > 0.) &&
-				(speed <= PDRAW_PLAY_SPEED_MAX) && (!silent)) {
-				sleepTime = (int32_t)(
-					(int64_t)((sample.sample_dts -
-					demuxer->mLastFrameTimestamp) / speed) -
-					(int64_t)(curTime -
-					demuxer->mLastFrameOutputTime)) +
-					outputTimeError;
-			}
-			if (sleepTime >= 1000)
-				usleep(sleepTime);
-		}
-
-		clock_gettime(CLOCK_MONOTONIC, &t1);
-		data->demuxOutputTimestamp =
-			(uint64_t)t1.tv_sec * 1000000 +
-			(uint64_t)t1.tv_nsec / 1000;
-		data->auNtpTimestampLocal = data->demuxOutputTimestamp;
-		outputTimeError = ((demuxer->mLastFrameOutputTime != 0) &&
-			(demuxer->mLastFrameTimestamp != 0) &&
-			(speed > 0.) && (speed <= PDRAW_PLAY_SPEED_MAX) &&
-			(!silent)) ?
-			(int32_t)((int64_t)((sample.sample_dts -
-				demuxer->mLastFrameTimestamp) / speed) -
-				(int64_t)(data->demuxOutputTimestamp -
-				demuxer->mLastFrameOutputTime)) : 0;
-
-		/* Queue the buffer for decoding */
-		ret = demuxer->mDecoder->queueInputBuffer(
-			demuxer->mCurrentBuffer);
-		if (ret != 0) {
-			ULOGW("RecordDemuxer: failed to release "
-				"the output buffer (%d)", ret);
-		} else {
-			demuxer->mLastFrameOutputTime =
-				data->demuxOutputTimestamp;
-			demuxer->mLastFrameTimestamp = sample.sample_dts;
-			demuxer->mCurrentTime = sample.sample_dts;
-			vbuf_unref(&demuxer->mCurrentBuffer);
-			demuxer->mCurrentBuffer = NULL;
-
-			pthread_mutex_lock(&demuxer->mDemuxerMutex);
-			if ((demuxer->mFrameByFrame) && (!silent))
-				demuxer->mRunning = false;
-			pthread_mutex_unlock(&demuxer->mDemuxerMutex);
-		}
-
-		free(sps);
-		free(pps);
+	if (demuxer == NULL) {
+		ULOGE("RecordDemuxer: invalid context pointer");
+		return;
 	}
 
-	return NULL;
+	pthread_mutex_lock(&demuxer->mDemuxerMutex);
+
+	speed = demuxer->mSpeed;
+	seekTs = demuxer->mPendingSeekTs;
+
+	if ((demuxer->mDecoder == NULL) || (!demuxer->mRunning)) {
+		demuxer->mLastFrameDuration = 0;
+		demuxer->mLastOutputError = 0;
+		pthread_mutex_unlock(&demuxer->mDemuxerMutex);
+		return;
+	}
+
+	clock_gettime(CLOCK_MONOTONIC, &t1);
+	curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+	memset(&sample, 0, sizeof(sample));
+
+	if (demuxer->mFirstFrame) {
+		/* Get the H.264 config and configure the decoder */
+		ret = getAvcDecoderConfig(demuxer,
+			&sps, &spsSize, &pps, &ppsSize);
+		if (ret != 0) {
+			ULOGE("RecordDemuxer: failed to get "
+				"AVC decoder config (%d)", ret);
+		}
+	}
+
+	if (!demuxer->mDecoder->isConfigured()) {
+		ULOGE("RecordDemuxer: decoder is not configured");
+		retry = 1;
+		goto out;
+	}
+
+	if (demuxer->mCurrentBuffer == NULL) {
+		ret = demuxer->mDecoder->getInputBuffer(
+			&demuxer->mCurrentBuffer, false);
+		if ((ret != 0) || (demuxer->mCurrentBuffer == NULL)) {
+			ULOGW("RecordDemuxer: failed to get "
+				"an output buffer (%d)", ret);
+			retry = 1;
+			goto out;
+		}
+	}
+
+	buf = vbuf_get_ptr(demuxer->mCurrentBuffer);
+	bufSize = vbuf_get_capacity(demuxer->mCurrentBuffer);
+
+	if ((demuxer->mFirstFrame) && (sps != NULL) && (pps != NULL)) {
+		/* Insert the SPS and PPS */
+		if (spsSize + 4 <= bufSize) {
+			memcpy(buf, sps, spsSize + 4);
+			buf += (spsSize + 4);
+			bufSize -= (spsSize + 4);
+			outSize += (spsSize + 4);
+		}
+		if (ppsSize + 4 <= bufSize) {
+			memcpy(buf, pps, ppsSize + 4);
+			buf += (ppsSize + 4);
+			bufSize -= (ppsSize + 4);
+			outSize += (ppsSize + 4);
+		}
+		demuxer->mFirstFrame = false;
+	}
+
+	/* Seeking */
+	if (demuxer->mPendingSeekTs >= 0) {
+		ret = mp4_demux_seek(demuxer->mDemux,
+			(uint64_t)demuxer->mPendingSeekTs, 1);
+		if (ret != 0) {
+			ULOGW("RecordDemuxer: mp4_demux_seek() "
+				"failed (%d)", ret);
+		} else {
+			demuxer->mLastFrameDuration = 0;
+			demuxer->mLastOutputError = 0;
+		}
+	} else if (demuxer->mPendingSeekToPrevSample) {
+		ret = mp4_demux_seek_to_track_prev_sample(
+			demuxer->mDemux, demuxer->mVideoTrackId);
+		if (ret != 0) {
+			ULOGW("RecordDemuxer: "
+				"mp4_demux_seek_to_track_prev_sample() "
+				"failed (%d)", ret);
+		} else {
+			demuxer->mLastFrameDuration = 0;
+			demuxer->mLastOutputError = 0;
+		}
+	}
+
+	/* Get a sample */
+	ret = mp4_demux_get_track_next_sample(demuxer->mDemux,
+		demuxer->mVideoTrackId, buf, bufSize,
+		demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize,
+		&sample);
+	if (ret != 0) {
+		ULOGW("RecordDemuxer: failed to get sample (%d)", ret);
+		if (ret == -ENOBUFS) {
+			/* Go to the next sample */
+			ret = mp4_demux_get_track_next_sample(
+				demuxer->mDemux, demuxer->mVideoTrackId,
+				NULL, 0, NULL, 0, &sample);
+		}
+		retry = 1;
+		goto out;
+	}
+	if (sample.sample_size == 0) {
+		goto out;
+	}
+
+	vbuf_set_size(demuxer->mCurrentBuffer, outSize + sample.sample_size);
+	vbuf_set_userdata_size(demuxer->mCurrentBuffer, 0);
+
+	silent = ((sample.silent) && (demuxer->mPendingSeekExact)) ?
+		true : false;
+	demuxer->mPendingSeekTs = -1;
+	demuxer->mPendingSeekToPrevSample = false;
+	demuxer->mPendingSeekExact = (silent) ?
+		demuxer->mPendingSeekExact : false;
+
+	/* Parse the H.264 bitstream and convert
+	 * to byte stream if necessary */
+	_buf = buf;
+	while (offset < sample.sample_size) {
+		naluSize = ntohl(*((uint32_t*)_buf));
+		if (demuxer->mDecoderBitstreamFormat ==
+			AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
+			*((uint32_t*)_buf) = htonl(0x00000001);
+		if (*(_buf + 4) == 0x06) {
+			sei = _buf + 4;
+			seiSize = naluSize;
+		}
+		_buf += 4 + naluSize;
+		offset += 4 + naluSize;
+	}
+
+	/* Parse the H.264 SEI to find user data SEI */
+	if ((sei != NULL) && (seiSize != 0)) {
+		ret = h264_reader_parse_nalu(demuxer->mH264Reader,
+			0, sei, seiSize);
+		if (ret < 0)
+			ULOGW("RecordDemuxer: h264_reader_parse_nalu() "
+				"failed (%d)", ret);
+	}
+
+	data = (struct avcdecoder_input_buffer *)
+		vbuf_get_metadata_ptr(demuxer->mCurrentBuffer);
+	memset(data, 0, sizeof(*data));
+	data->isComplete = true; /* TODO? */
+	data->hasErrors = false; /* TODO? */
+	data->isRef = true; /* TODO? */
+	data->isSilent = silent;
+	data->auNtpTimestamp = sample.sample_dts;
+	data->auNtpTimestampRaw = sample.sample_dts;
+	/* TODO: auSyncType */
+
+	/* Metadata */
+	data->hasMetadata = VideoFrameMetadata::decodeMetadata(
+		demuxer->mMetadataBuffer, sample.metadata_size,
+		FRAME_METADATA_SOURCE_RECORDING,
+		demuxer->mMetadataMimeType, &data->metadata);
+
+	clock_gettime(CLOCK_MONOTONIC, &t1);
+	curTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+	data->demuxOutputTimestamp = curTime;
+	data->auNtpTimestampLocal = data->demuxOutputTimestamp;
+	demuxer->mCurrentTime = sample.sample_dts;
+
+	/* Queue the buffer for decoding */
+	ret = demuxer->mDecoder->queueInputBuffer(demuxer->mCurrentBuffer);
+	if (ret != 0) {
+		ULOGW("RecordDemuxer: failed to release "
+			"the output buffer (%d)", ret);
+	} else {
+		vbuf_unref(&demuxer->mCurrentBuffer);
+		demuxer->mCurrentBuffer = NULL;
+	}
+
+	if ((demuxer->mFrameByFrame) && (!silent))
+		demuxer->mRunning = false;
+
+out:
+	if (retry) {
+		waitMs = 5;
+	} else if (demuxer->mRunning) {
+		/* Schedule the next sample
+		 * if error > 0 we are late, if error < 0 we are early */
+		error = ((demuxer->mLastFrameOutputTime == 0) ||
+			(demuxer->mLastFrameDuration == 0) ||
+			(speed <= 0.) || (speed >= PDRAW_PLAY_SPEED_MAX) ||
+			(silent)) ? 0 :
+			curTime - demuxer->mLastFrameOutputTime -
+			demuxer->mLastFrameDuration + demuxer->mLastOutputError;
+		duration = ((sample.next_sample_dts == 0) || (silent)) ? 0 :
+			sample.next_sample_dts - sample.sample_dts;
+		if ((speed > 0.) && (speed < PDRAW_PLAY_SPEED_MAX))
+			duration = (int64_t)((float)duration / speed);
+		else if (speed >= PDRAW_PLAY_SPEED_MAX)
+			duration = 0;
+		wait = 0;
+		if (sample.next_sample_dts != 0) {
+			wait = duration - error;
+			/* TODO: loop in the timer cb when silent
+			 * or speed>=PDRAW_PLAY_SPEED_MAX */
+			if (wait <= 0) {
+				if (duration > 0) {
+					ULOGW("RecordDemuxer: unable to keep "
+						"up with playback timings "
+						"(%.1f ms late, speed=%.2f)",
+						-(float)wait / 1000., speed);
+				}
+				wait = 0;
+			}
+			waitMs = (wait + 500) / 1000;
+			if (waitMs == 0)
+				waitMs = 1;
+		}
+		demuxer->mLastFrameDuration = duration;
+		demuxer->mLastOutputError = error;
+
+		ULOGD("RecordDemuxer: timerCb: error=%d duration=%d wait=%d%s",
+			(int)error, (int)duration, (int)wait, (silent) ? " (silent)" : "");
+	} else {
+		demuxer->mLastFrameDuration = 0;
+		demuxer->mLastOutputError = 0;
+	}
+	demuxer->mLastFrameOutputTime = curTime;
+
+	if (waitMs > 0) {
+		ret = pomp_timer_set(timer, waitMs);
+		if (ret < 0) {
+			ULOGE("RecordDemuxer: pomp_timer_set() failed (%d)",
+				ret);
+		}
+	}
+
+	pthread_mutex_unlock(&demuxer->mDemuxerMutex);
+
+	free(sps);
+	free(pps);
 }
 
 } /* namespace Pdraw */
