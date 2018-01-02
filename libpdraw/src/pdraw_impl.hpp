@@ -266,6 +266,8 @@ public:
     void getHmdDistorsionCorrectionSettings(enum pdraw_hmd_model *hmdModel, float *ipd, float *scale, float *panH, float *panV);
     void setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel, float ipd, float scale, float panH, float panV);
 
+    void setJniEnv(void *jniEnv);
+
     inline static IPdraw *create(void)
     {
         return new PdrawImpl();

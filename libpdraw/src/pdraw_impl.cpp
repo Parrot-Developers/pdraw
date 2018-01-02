@@ -927,4 +927,10 @@ void PdrawImpl::setHmdDistorsionCorrectionSettings(enum pdraw_hmd_model hmdModel
     mSettings.setHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
 }
 
+
+void PdrawImpl::setJniEnv(void *jniEnv)
+{
+    mSession.setJniEnv(jniEnv);
+}
+
 }

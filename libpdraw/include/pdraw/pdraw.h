@@ -485,6 +485,9 @@ int pdraw_set_hmd_distorsion_correction_settings(
 	float panH,
 	float panV);
 
+int pdraw_set_jni_env
+        (struct pdraw *pdraw,
+         void *jniEnv);
 
 #ifdef __cplusplus
 }

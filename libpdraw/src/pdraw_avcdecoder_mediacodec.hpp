@@ -43,7 +43,7 @@
 
 #include <pthread.h>
 #include <vector>
-#include <media/NdkMediaCodec.h>
+#include <mediacodec-wrapper/libmcw.h>
 
 #include "pdraw_avcdecoder.hpp"
 
@@ -96,7 +96,8 @@ private:
 
     static void* runOutputPollThread(void *ptr);
 
-    AMediaCodec *mCodec;
+    struct mcw *mMcw;
+    struct mcw_mediacodec *mCodec;
     avc_decoder_color_format_t mOutputColorFormat;
     BufferPool *mInputBufferPool;
     BufferQueue *mInputBufferQueue;

@@ -852,6 +852,8 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNew(
         goto fail;
     }
 
+    pdraw_set_jni_env(ctx->pdraw, (void*)env);
+
     return (jlong)(intptr_t)ctx;
 
 fail:

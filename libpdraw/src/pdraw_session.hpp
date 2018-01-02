@@ -114,6 +114,9 @@ public:
 
     void getCameraOrientationForHeadtracking(float *pan, float *tilt);
 
+    void *getJniEnv() { return mJniEnv; };
+    void setJniEnv(void *jniEnv) { mJniEnv = jniEnv; };
+
 private:
 
     int addMediaFromDemuxer();
@@ -126,6 +129,7 @@ private:
     Demuxer *mDemuxer;
     Renderer *mRenderer;
     unsigned int mMediaIdCounter;
+    void *mJniEnv;
 };
 
 }

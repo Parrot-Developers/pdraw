@@ -326,6 +326,8 @@ public:
 		float scale,
 		float panH,
 		float panV) = 0;
+
+	virtual void setJniEnv(void *jniEnv) = 0;
 };
 
 IPdraw *createPdraw();

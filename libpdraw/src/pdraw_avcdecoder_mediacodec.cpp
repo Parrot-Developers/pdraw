@@ -36,8 +36,12 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+
 #include "pdraw_avcdecoder_mediacodec.hpp"
 #include "pdraw_media_video.hpp"
+#include "pdraw_session.hpp"
 
 #ifdef USE_MEDIACODEC
 
@@ -75,10 +79,22 @@ MediaCodecAvcDecoder::MediaCodecAvcDecoder(VideoMedia *media)
     mSarWidth = 0;
     mSarHeight = 0;
 
-    mCodec = AMediaCodec_createDecoderByType(PDRAW_MEDIACODEC_MIME_TYPE);
-    if (mCodec == NULL)
+    void *jniEnv = NULL;
+    if (mMedia)
     {
-        ULOGE("MediaCodec: failed to create decoder");
+        Session *session = mMedia->getSession();
+        if (session)
+            jniEnv = session->getJniEnv();
+    }
+
+    mMcw = mcw_new((mcw_jnienv *)jniEnv, MCW_IMPLEMENTATION_AUTO);
+    if (!mMcw)
+    {
+        ULOGE("MediaCodec: mcw_new() failed");
+    }
+    else
+    {
+        mCodec = mMcw->mediacodec.create_decoder_by_type(PDRAW_MEDIACODEC_MIME_TYPE);
     }
 
     int thErr = pthread_create(&mOutputPollThread, NULL, runOutputPollThread, (void*)this);
@@ -105,10 +121,14 @@ MediaCodecAvcDecoder::~MediaCodecAvcDecoder()
         }
     }
 
-    media_status_t err = AMediaCodec_delete(mCodec);
-    if (err != AMEDIA_OK)
+    if (mMcw)
     {
-        ULOGE("MediaCodec: AMediaCodec_delete() failed (%d)", err);
+        enum mcw_media_status err = mMcw->mediacodec.ddelete(mCodec);
+        if (err != MCW_MEDIA_STATUS_OK)
+        {
+            ULOGE("MediaCodec: mediacodec.delete() failed (%d)", err);
+        }
+        mcw_destroy(mMcw);
     }
 
     if (mInputBufferQueue) delete mInputBufferQueue;
@@ -127,13 +147,18 @@ MediaCodecAvcDecoder::~MediaCodecAvcDecoder()
 int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, const uint8_t *pPps, unsigned int ppsSize)
 {
     int ret = 0;
-    media_status_t err;
-    AMediaFormat *format = NULL;
+    enum mcw_media_status err;
+    struct mcw_mediaformat *format = NULL;
     uint8_t *sps = NULL, *pps = NULL;
 
     if (mConfigured)
     {
         ULOGE("MediaCodec: decoder is already configured");
+        return -1;
+    }
+    if (!mMcw)
+    {
+        ULOGE("MediaCodec: invalid mediacodec wrapper");
         return -1;
     }
     if ((!pSps) || (spsSize == 0) || (!pPps) || (ppsSize == 0))
@@ -144,10 +169,10 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
 
     if (ret == 0)
     {
-        format = AMediaFormat_new();
+        format = mMcw->mediaformat.nnew();
         if (!format)
         {
-            ULOGE("MediaCodec: AMediaFormat_new() failed");
+            ULOGE("MediaCodec: mediaformat.new() failed");
             ret = -1;
         }
         else
@@ -171,11 +196,12 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
                 pps[0] = pps[1] = pps[2] = 0; pps[3] = 1;
                 memcpy(sps + 4, pSps, spsSize);
                 memcpy(pps + 4, pPps, ppsSize);
-                AMediaFormat_setString(format, AMEDIAFORMAT_KEY_MIME, PDRAW_MEDIACODEC_MIME_TYPE);
-                AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_WIDTH, 480); //TODO
-                AMediaFormat_setInt32(format, AMEDIAFORMAT_KEY_HEIGHT, 360); //TODO
-                AMediaFormat_setBuffer(format, "csd-0", sps, spsSize + 4);
-                AMediaFormat_setBuffer(format, "csd-1", pps, ppsSize + 4);
+                mMcw->mediaformat.set_string(format, mMcw->mediaformat.KEY_MIME, PDRAW_MEDIACODEC_MIME_TYPE);
+                mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_WIDTH, 480); //TODO
+                mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_HEIGHT, 360); //TODO
+                mMcw->mediaformat.set_int32(format, mMcw->mediaformat.KEY_MAX_INPUT_SIZE, 1920 * 1088 * 3 / 4); //TODO
+                mMcw->mediaformat.set_buffer(format, "csd-0", sps, spsSize + 4);
+                mMcw->mediaformat.set_buffer(format, "csd-1", pps, ppsSize + 4);
             }
         }
     }
@@ -183,31 +209,11 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
     if (ret == 0)
     {
         //TODO: get the renderer uiHandler
-        err = AMediaCodec_configure(mCodec, format, NULL /*(ANativeWindow*)mUiHandler*/, NULL, 0);
-        if (err != AMEDIA_OK)
+        err = mMcw->mediacodec.configure(mCodec, format, NULL /*(ANativeWindow*)mUiHandler*/, NULL, 0);
+        if (err != MCW_MEDIA_STATUS_OK)
         {
-            ULOGE("MediaCodec: AMediaCodec_configure() failed (%d)", err);
+            ULOGE("MediaCodec: mediacodec.configure() failed (%d)", err);
             ret = -1;
-        }
-        else
-        {
-            int32_t colorFormat = 0;
-            AMediaFormat *outFormat = AMediaCodec_getOutputFormat(mCodec);
-            AMediaFormat_getInt32(outFormat, AMEDIAFORMAT_KEY_COLOR_FORMAT, &colorFormat);
-            ULOGI("MediaCodec: AMediaCodec_configure() OK, output color format = %d", colorFormat);
-            switch (colorFormat)
-            {
-                //TODO: where are these constants defined in NDK?
-                case 0x00000013:
-                    mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
-                    break;
-                case 0x00000015:
-                    mOutputColorFormat = AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR;
-                    break;
-                default:
-                    mOutputColorFormat = AVCDECODER_COLORFORMAT_UNKNOWN;
-                    break;
-            }
         }
     }
 
@@ -250,20 +256,20 @@ int MediaCodecAvcDecoder::configure(const uint8_t *pSps, unsigned int spsSize, c
 
     if (ret == 0)
     {
-        err = AMediaCodec_start(mCodec);
-        if (err != AMEDIA_OK)
+        err = mMcw->mediacodec.start(mCodec);
+        if (err != MCW_MEDIA_STATUS_OK)
         {
-            ULOGE("MediaCodec: AMediaCodec_start() failed (%d)", err);
+            ULOGE("MediaCodec: mediacodec.start() failed (%d)", err);
             ret = -1;
         }
         else
         {
-            ULOGI("MediaCodec: AMediaCodec_start() OK");
+            ULOGI("MediaCodec: mediacodec.start() OK");
         }
     }
 
     if (format)
-        AMediaFormat_delete(format);
+        mMcw->mediaformat.ddelete(format);
     free(sps);
     free(pps);
 
@@ -295,13 +301,18 @@ int MediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
         ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
+    if (!mMcw)
+    {
+        ULOGE("MediaCodec: invalid mediacodec wrapper");
+        return -1;
+    }
 
     if (mInputBufferPool)
     {
         Buffer *buf = mInputBufferPool->getBuffer(blocking);
         if (buf != NULL)
         {
-            ssize_t bufIdx = AMediaCodec_dequeueInputBuffer(mCodec, (blocking) ? -1 : 0);
+            ssize_t bufIdx = mMcw->mediacodec.dequeue_input_buffer(mCodec, (blocking) ? -1 : 0);
             if (bufIdx < 0)
             {
                 ULOGE("MediaCodec: failed to dequeue an input buffer");
@@ -310,7 +321,7 @@ int MediaCodecAvcDecoder::getInputBuffer(Buffer **buffer, bool blocking)
             }
 
             size_t bufSize = 0;
-            uint8_t *pBuf = AMediaCodec_getInputBuffer(mCodec, bufIdx, &bufSize);
+            uint8_t *pBuf = mMcw->mediacodec.get_input_buffer(mCodec, bufIdx, &bufSize);
             if ((pBuf == NULL) || (bufSize <= 0))
             {
                 ULOGE("MediaCodec: failed to get input buffer #%zu", bufIdx);
@@ -353,6 +364,11 @@ int MediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
         ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
+    if (!mMcw)
+    {
+        ULOGE("MediaCodec: invalid mediacodec wrapper");
+        return -1;
+    }
 
     if (mInputBufferQueue)
     {
@@ -364,8 +380,8 @@ int MediaCodecAvcDecoder::queueInputBuffer(Buffer *buffer)
         buffer->ref();
         mInputBufferQueue->pushBuffer(buffer);
 
-        media_status_t err = AMediaCodec_queueInputBuffer(mCodec, (size_t)buffer->getResPtr(), 0, buffer->getSize(), ts, 0);
-        if (err != AMEDIA_OK)
+        enum mcw_media_status err = mMcw->mediacodec.queue_input_buffer(mCodec, (size_t)buffer->getResPtr(), 0, buffer->getSize(), ts, 0);
+        if (err != MCW_MEDIA_STATUS_OK)
         {
             ULOGE("MediaCodec: failed to queue input buffer #%zu", (size_t)buffer->getResPtr());
             return -1;
@@ -471,10 +487,6 @@ int MediaCodecAvcDecoder::dequeueOutputBuffer(BufferQueue *queue, Buffer **buffe
         Buffer *buf = queue->popBuffer(blocking);
         if (buf != NULL)
         {
-            avc_decoder_output_buffer_t *data = (avc_decoder_output_buffer_t*)buf->getMetadataPtr();
-            struct timespec t1;
-            clock_gettime(CLOCK_MONOTONIC, &t1);
-            data->decoderOutputTimestamp = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
             *buffer = buf;
         }
         else
@@ -506,13 +518,18 @@ int MediaCodecAvcDecoder::releaseOutputBuffer(Buffer *buffer)
         ULOGE("MediaCodec: decoder is not configured");
         return -1;
     }
+    if (!mMcw)
+    {
+        ULOGE("MediaCodec: invalid mediacodec wrapper");
+        return -1;
+    }
 
     buffer->unref();
 
     if (!buffer->isRef())
     {
-        media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, (size_t)buffer->getResPtr(), false);
-        if (err != AMEDIA_OK)
+        enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, (size_t)buffer->getResPtr(), false);
+        if (err != MCW_MEDIA_STATUS_OK)
         {
             ULOGE("MediaCodec: failed to release output buffer #%zu", (size_t)buffer->getResPtr());
             return -1;
@@ -534,10 +551,13 @@ int MediaCodecAvcDecoder::stop()
     mThreadShouldStop = true;
     mConfigured = false;
 
-    media_status_t err = AMediaCodec_stop(mCodec);
-    if (err != AMEDIA_OK)
+    if (mMcw)
     {
-        ULOGE("MediaCodec: MediaCodec_stop() failed (%d)", err);
+        enum mcw_media_status err = mMcw->mediacodec.stop(mCodec);
+        if (err != MCW_MEDIA_STATUS_OK)
+        {
+            ULOGE("MediaCodec: mediacodec.stop() failed (%d)", err);
+        }
     }
 
     //TODO
@@ -552,22 +572,28 @@ int MediaCodecAvcDecoder::stop()
 int MediaCodecAvcDecoder::pollDecoderOutput()
 {
     int ret = 0;
-    AMediaCodecBufferInfo info;
-    ssize_t bufIdx = AMediaCodec_dequeueOutputBuffer(mCodec, &info, 5000);
+    struct mcw_mediacodec_bufferinfo info;
+    ssize_t bufIdx = mMcw->mediacodec.dequeue_output_buffer(mCodec, &info, 5000);
     while (bufIdx >= 0)
     {
         bool pushed = false;
-        int32_t colorFormat = 0;
-        AMediaFormat *format = AMediaCodec_getOutputFormat(mCodec);
-        AMediaFormat_getInt32(format, AMEDIAFORMAT_KEY_COLOR_FORMAT, &colorFormat);
+        int32_t colorFormat = 0x00000015;
+
+        /* TODO: do this only on INFO_OUTPUT_FORMAT_CHANGED */
+        struct mcw_mediaformat *format = mMcw->mediacodec.get_output_format(mCodec, bufIdx);
+        if (format)
+        {
+            mMcw->mediaformat.get_int32(format, mMcw->mediaformat.KEY_COLOR_FORMAT, &colorFormat);
+            mMcw->mediaformat.ddelete(format);
+        }
 
         size_t bufSize = 0;
-        uint8_t *pBuf = AMediaCodec_getOutputBuffer(mCodec, bufIdx, &bufSize);
+        uint8_t *pBuf = mMcw->mediacodec.get_output_buffer(mCodec, bufIdx, &bufSize);
         if ((pBuf == NULL) || (bufSize <= 0))
         {
             ULOGE("MediaCodec: failed to get output buffer #%zu", bufIdx);
-            media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
-            if (err != AMEDIA_OK)
+            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
+            if (err != MCW_MEDIA_STATUS_OK)
             {
                 ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
                 return -1;
@@ -579,9 +605,9 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
         Buffer *inputBuffer = NULL, *outputBuffer = NULL;
         avc_decoder_input_buffer_t *inputData = NULL;
         avc_decoder_output_buffer_t *outputData = NULL;
-        uint64_t ts = (uint64_t)info.presentationTimeUs;
+        uint64_t ts = (uint64_t)info.presentation_time_us;
 
-        if (info.presentationTimeUs >= 0)
+        if (info.presentation_time_us >= 0)
         {
             Buffer *b;
             while ((b = mInputBufferQueue->peekBuffer(false)) != NULL)
@@ -622,8 +648,8 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
 
         if ((inputBuffer == NULL) || (inputData == NULL))
         {
-            media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
-            if (err != AMEDIA_OK)
+            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
+            if (err != MCW_MEDIA_STATUS_OK)
             {
                 ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
                 return -1;
@@ -640,8 +666,8 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
             {
                 inputBuffer->unref();
             }
-            media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
-            if (err != AMEDIA_OK)
+            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
+            if (err != MCW_MEDIA_STATUS_OK)
             {
                 ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
                 return -1;
@@ -665,8 +691,7 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
             outputData->sarHeight = mSarHeight;
             switch (colorFormat)
             {
-                //TODO: where are these constants defined in NDK?
-                case 0x00000013:
+                case MCW_COLOR_FORMAT_YUV420_PLANAR:
                     outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420PLANAR;
                     outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
                     outputData->plane[1] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth / 2 + mCropLeft / 2;
@@ -675,7 +700,7 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
                     outputData->stride[1] = mWidth / 2;
                     outputData->stride[2] = mWidth / 2;
                     break;
-                case 0x00000015:
+                case MCW_COLOR_FORMAT_YUV420_SEMIPLANAR:
                     outputData->colorFormat = AVCDECODER_COLORFORMAT_YUV420SEMIPLANAR;
                     outputData->plane[0] = pBuf + mCropTop * mWidth + mCropLeft;
                     outputData->plane[1] = pBuf + mWidth * mHeight + mCropTop / 2 * mWidth + mCropLeft;
@@ -761,8 +786,8 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
 
         if (!pushed)
         {
-            media_status_t err = AMediaCodec_releaseOutputBuffer(mCodec, bufIdx, false);
-            if (err != AMEDIA_OK)
+            enum mcw_media_status err = mMcw->mediacodec.release_output_buffer(mCodec, bufIdx, false);
+            if (err != MCW_MEDIA_STATUS_OK)
             {
                 ULOGE("MediaCodec: failed to release output buffer #%zu", bufIdx);
                 ret = -1;
@@ -782,7 +807,7 @@ int MediaCodecAvcDecoder::pollDecoderOutput()
             inputBuffer->unref();
         }
 
-        bufIdx = AMediaCodec_dequeueOutputBuffer(mCodec, &info, 0);
+        bufIdx = mMcw->mediacodec.dequeue_output_buffer(mCodec, &info, 0);
     }
 
     return ret;
@@ -795,7 +820,7 @@ void* MediaCodecAvcDecoder::runOutputPollThread(void *ptr)
 
     while (!decoder->mThreadShouldStop)
     {
-        if (decoder->mConfigured)
+        if ((decoder->mConfigured) && (decoder->mMcw))
         {
             int pollRet = decoder->pollDecoderOutput();
             if (pollRet != 0)

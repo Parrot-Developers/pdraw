@@ -995,3 +995,16 @@ int pdraw_set_hmd_distorsion_correction_settings
     toPdraw(pdraw)->setHmdDistorsionCorrectionSettings(hmdModel, ipd, scale, panH, panV);
     return 0;
 }
+
+
+int pdraw_set_jni_env
+        (struct pdraw *pdraw,
+         void *jniEnv)
+{
+    if (pdraw == NULL)
+    {
+        return -EINVAL;
+    }
+    toPdraw(pdraw)->setJniEnv(jniEnv);
+    return 0;
+}

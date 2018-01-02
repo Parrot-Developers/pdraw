@@ -66,7 +66,9 @@ ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
 	glfw3
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
   LOCAL_CFLAGS += -DUSE_MEDIACODEC -DUSE_ANATIVEWINDOW -DUSE_GLES2
-  LOCAL_LDLIBS += -lmediandk -lEGL -lGLESv2 -landroid
+  LOCAL_LDLIBS += -lEGL -lGLESv2 -landroid
+  LOCAL_LIBRARIES += \
+	libmediacodec-wrapper
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)-$(TARGET_PRODUCT_VARIANT)","linux-generic-raspi")
   LOCAL_CFLAGS += -DBCM_VIDEOCORE -DUSE_VIDEOCOREOMX -DUSE_VIDEOCOREEGL \
 	-DUSE_GLES2 -I$(SDKSTAGE)/opt/vc/include
@@ -79,7 +81,8 @@ else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)-$(TARGET_PRODUCT_VARIANT)","linux-
 	-DUSE_EXTERNAL_LIBBCM_HOST -DUSE_VCHIQ_ARM -Wno-psabi
   LOCAL_LDLIBS += -L$(SDKSTAGE)/opt/vc/lib -lbrcmGLESv2 -lbrcmEGL \
 	-lopenmaxil -lbcm_host -lvcos -lvchiq_arm -lpthread -lrt -lm
-  LOCAL_LIBRARIES += ilclient
+  LOCAL_LIBRARIES += \
+	ilclient
 endif
 
 include $(BUILD_LIBRARY)
