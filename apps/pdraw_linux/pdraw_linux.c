@@ -623,6 +623,26 @@ int main(int argc, char *argv[])
                                 }
                             }
                             break;
+                        case SDLK_PAGEDOWN:
+                        {
+                            int ret;
+                            ret = pdraw_seek_forward(app->pdraw, 10000000, 0);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_seek_forward() failed (%d)", ret);
+                            }
+                            break;
+                        }
+                        case SDLK_PAGEUP:
+                        {
+                            int ret;
+                            ret = pdraw_seek_back(app->pdraw, 10000000, 0);
+                            if (ret != 0)
+                            {
+                                ULOGW("pdraw_seek_forward() failed (%d)", ret);
+                            }
+                            break;
+                        }
                         case SDLK_RIGHT:
                         {
                             int ret;
@@ -683,6 +703,8 @@ int main(int argc, char *argv[])
                             }
                             break;
                         }
+                        case SDLK_EQUALS:
+                        case SDLK_PLUS:
                         case SDLK_KP_PLUS:
                         {
                             app->speed *= 2;
@@ -693,6 +715,7 @@ int main(int argc, char *argv[])
                             }
                             break;
                         }
+                        case SDLK_MINUS:
                         case SDLK_KP_MINUS:
                         {
                             app->speed /= 2;
