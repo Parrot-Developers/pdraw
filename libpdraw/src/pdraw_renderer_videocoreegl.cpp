@@ -372,7 +372,7 @@ int VideoCoreEglRenderer::render(
 			&dHrs, &dMin, &dSec, &dMsec);
 	}
 
-	ULOGI("VideoCoreEglRenderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d "
+	ULOGD("VideoCoreEglRenderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d "
 		"frame (decoding: %.2fms, rendering: %.2fms, "
 		"est. latency: %.2fms) render@%.1ffps",
 		cHrs, cMin, cSec, cMsec, dHrs, dMin, dSec, dMsec,
