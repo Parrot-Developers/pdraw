@@ -204,7 +204,7 @@ static void summary(struct pdraw_app* app, int afterBrowse)
         if (!app->receiveStream) printf(" (start stream only)");
         printf("\n\n");
     }
-    else if ((app->receiveStream) && (strlen(app->url)))
+    else if ((app->receiveStream) && (app->url[0] != '\0'))
     {
         printf("Streaming from URL '%s'\n\n", app->url);
     }
@@ -346,8 +346,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if ((!app->daemon) && (!app->arsdkBrowse) && (((!app->ipAddr) || (!strlen(app->ipAddr)))
-            && ((!app->url) || (!strlen(app->url)))))
+    if ((!app->daemon) && (!app->arsdkBrowse) && (app->ipAddr[0] == '\0')
+            && (app->url[0] == '\0'))
     {
         failed = 1;
         fprintf(stderr, "Invalid address or file name\n\n");
@@ -1153,7 +1153,7 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        if ((app->receiveStream) && (strlen(app->url)))
+        if ((app->receiveStream) && (app->ipAddr[0] != '\0'))
         {
             ret = pdraw_open_url_mcast(app->pdraw, app->url, app->ifaceAddr);
         }

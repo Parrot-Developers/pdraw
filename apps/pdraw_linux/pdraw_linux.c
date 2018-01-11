@@ -195,7 +195,7 @@ static void usage(int argc, char *argv[])
 
 static void summary(struct pdraw_app* app, int afterBrowse)
 {
-    if ((app->arsdkBrowse) && (!strlen(app->ipAddr)) && (!afterBrowse))
+    if ((app->arsdkBrowse) && (app->ipAddr[0] == '\0') && (!afterBrowse))
     {
         printf("Browse for ARSDK devices (discovery)\n\n");
     }
@@ -209,7 +209,7 @@ static void summary(struct pdraw_app* app, int afterBrowse)
         if (!app->receiveStream) printf(" (start stream only)");
         printf("\n\n");
     }
-    else if ((app->receiveStream) && (strlen(app->url)))
+    else if ((app->receiveStream) && (app->url[0] != '\0'))
     {
         printf("Streaming from URL '%s'\n\n", app->url);
     }
@@ -367,8 +367,8 @@ int main(int argc, char *argv[])
         }
     }
 
-    if ((!app->arsdkBrowse) && ((!strlen(app->ipAddr))
-            && ((!app->url) || (!strlen(app->url)))))
+    if ((!app->arsdkBrowse) && (app->ipAddr[0] == '\0')
+            && (app->url[0] == '\0'))
     {
         failed = 1;
         fprintf(stderr, "Invalid address or file name\n\n");
@@ -399,7 +399,7 @@ int main(int argc, char *argv[])
 
         while ((!failed) && (!stopping) && (!selected))
         {
-            if (!strlen(app->ipAddr))
+            if (app->ipAddr[0] == '\0')
             {
 #ifdef BUILD_SDL2
                 SDL_Event event;
@@ -984,7 +984,7 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        if ((app->receiveStream) && (strlen(app->url)))
+        if ((app->receiveStream) && (app->url[0] != '\0'))
         {
             ret = pdraw_open_url_mcast(app->pdraw, app->url, app->ifaceAddr);
         }
@@ -1223,7 +1223,7 @@ eARDISCOVERY_ERROR ardiscoveryBrowserCallback(void *userdata, uint8_t state, con
         pthread_mutex_unlock(&app->ardiscoveryBrowserMutex);
     }
 
-    if (!strlen(app->ipAddr))
+    if (app->ipAddr[0] == '\0')
     {
         pthread_mutex_lock(&app->ardiscoveryBrowserMutex);
 
