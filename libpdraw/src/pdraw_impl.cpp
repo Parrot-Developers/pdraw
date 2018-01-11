@@ -81,24 +81,16 @@ int PdrawImpl::open(
 
 
 int PdrawImpl::open(
-	const std::string &srcAddr,
-	const std::string &ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort,
-	int qosMode)
+	const std::string &localAddr,
+	int localStreamPort,
+	int localControlPort,
+	const std::string &remoteAddr,
+	int remoteStreamPort,
+	int remoteControlPort,
+	const std::string &ifaceAddr)
 {
-	return mSession.open(srcAddr, ifaceAddr,
-		srcStreamPort, srcControlPort,
-		dstStreamPort, dstControlPort, qosMode);
-}
-
-
-int PdrawImpl::open(
-	void *muxContext)
-{
-	return mSession.open(muxContext);
+	return mSession.open(localAddr, localStreamPort, localControlPort,
+		remoteAddr, remoteStreamPort, remoteControlPort, ifaceAddr);
 }
 
 
@@ -278,67 +270,6 @@ uint64_t PdrawImpl::getCurrentTime(
 	void)
 {
 	return mSession.getCurrentTime();
-}
-
-
-int PdrawImpl::startRecorder(
-	const std::string &fileName)
-{
-	if ((mSession.getDemuxer() != NULL) &&
-		(mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM)) {
-		return ((StreamDemuxer*)mSession.getDemuxer())->startRecorder(
-			fileName);
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
-}
-
-
-int PdrawImpl::stopRecorder(
-	void)
-{
-	if ((mSession.getDemuxer() != NULL) &&
-		(mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM)) {
-		return ((StreamDemuxer*)mSession.getDemuxer())->stopRecorder();
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
-}
-
-
-int PdrawImpl::startResender(
-	const std::string &dstAddr,
-	const std::string &ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort)
-{
-	if ((mSession.getDemuxer() != NULL) &&
-		(mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM)) {
-		return ((StreamDemuxer*)mSession.getDemuxer())->startResender(
-			dstAddr, ifaceAddr,
-			srcStreamPort, srcControlPort,
-			dstStreamPort, dstControlPort);
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
-}
-
-
-int PdrawImpl::stopResender(
-	void)
-{
-	if ((mSession.getDemuxer() != NULL) &&
-		(mSession.getDemuxer()->getType() == DEMUXER_TYPE_STREAM)) {
-		return ((StreamDemuxer*)mSession.getDemuxer())->stopResender();
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
 }
 
 

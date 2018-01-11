@@ -32,10 +32,11 @@
 
 #include "pdraw_demuxer.hpp"
 #include "pdraw_avcdecoder.hpp"
-#include <pthread.h>
-#include <libARStream2/arstream2_stream_receiver.h>
+#include "pdraw_socket_inet.hpp"
+#include <video-streaming/vstrm.h>
 #include <librtsp.h>
 #include <libsdp.h>
+#include <h264/h264.h>
 #include <string>
 
 namespace Pdraw {
@@ -67,16 +68,13 @@ public:
 		const std::string &ifaceAddr);
 
 	int configure(
-		const std::string &srcAddr,
-		const std::string &ifaceAddr,
-		int srcStreamPort,
-		int srcControlPort,
-		int dstStreamPort,
-		int dstControlPort,
-		int qosMode);
-
-	int configure(
-		void *muxContext);
+		const std::string &localAddr,
+		int localStreamPort,
+		int localControlPort,
+		const std::string &remoteAddr,
+		int remoteStreamPort,
+		int remoteControlPort,
+		const std::string &ifaceAddr);
 
 	int configureWithSdp(
 		const std::string &sdp,
@@ -138,23 +136,6 @@ public:
 		uint64_t delta,
 		bool exact = false);
 
-	int startRecorder(
-		const std::string &fileName);
-
-	int stopRecorder(
-		void);
-
-	int startResender(
-		const std::string &dstAddr,
-		const std::string &ifaceAddr,
-		int srcStreamPort,
-		int srcControlPort,
-		int dstStreamPort,
-		int dstControlPort);
-
-	int stopResender(
-		void);
-
 	uint64_t getDuration(
 		void) {
 		return (uint64_t)-1;
@@ -169,65 +150,74 @@ public:
 	}
 
 private:
-	static void fetchSessionMetadata(
-		StreamDemuxer *demuxer);
-
 	int configureRtpAvp(
-		const char *srcAddr,
-		const char *mcastIfaceAddr,
-		int srcStreamPort,
-		int srcControlPort,
-		int dstStreamPort,
-		int dstControlPort);
+		const std::string &localAddr,
+		int localStreamPort,
+		int localControlPort,
+		const std::string &remoteAddr,
+		int remoteStreamPort,
+		int remoteControlPort,
+		const std::string &ifaceAddr);
 
 	int configureSdp(
-		const char *sdp,
-		const char *mcastIfaceAddr);
+		const std::string &sdp,
+		const std::string &ifaceAddr);
 
 	int configureRtsp(
-		const char *url,
-		const char *mcastIfaceAddr);
+		const std::string &url,
+		const std::string &ifaceAddr);
 
-	static eARSTREAM2_ERROR spsPpsCallback(
-		uint8_t *spsBuffer,
-		int spsSize,
-		uint8_t *ppsBuffer,
-		int ppsSize,
-		void *userPtr);
+	static void h264UserDataSeiCb(
+		struct h264_ctx *ctx,
+		const uint8_t *buf,
+		size_t len,
+		const struct h264_sei_user_data_unregistered *sei,
+		void *userdata);
 
-	static eARSTREAM2_ERROR getAuBufferCallback(
-		uint8_t **auBuffer,
-		int *auBufferSize,
-		void **auBufferUserPtr,
-		void *userPtr);
+	static void dataCb(
+		int fd,
+		uint32_t events,
+		void *userdata);
 
-	static eARSTREAM2_ERROR auReadyCallback(
-		uint8_t *auBuffer,
-		int auSize,
-		ARSTREAM2_StreamReceiver_AuReadyCallbackTimestamps_t *auTimestamps,
-		eARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE auSyncType,
-		ARSTREAM2_StreamReceiver_AuReadyCallbackMetadata_t *auMetadata,
-		void *auBufferUserPtr,
-		void *userPtr);
+	static void ctrlCb(
+		int fd,
+		uint32_t events,
+		void *userdata);
 
-	uint32_t mCurrentAuSize;
-	int mMaxPacketSize;
-	int mQosMode;
+	static int sendCtrlCb(
+		struct vstrm_receiver *stream,
+		struct pomp_buffer *buf,
+		void *userdata);
+
+	static void codecInfoChangedCb(
+		struct vstrm_receiver *stream,
+		const struct vstrm_codec_info *info,
+		void *userdata);
+
+	static void recvFrameCb(
+		struct vstrm_receiver *stream,
+		struct vstrm_frame *frame,
+		void *userdata);
+
+	static void sessionMetadataPeerChangedCb(
+		struct vstrm_receiver *stream,
+		const struct vmeta_session *meta,
+		void *userdata);
+
 	AvcDecoder *mDecoder;
 	uint32_t mDecoderBitstreamFormat;
 	struct vbuf_buffer *mCurrentBuffer;
 	bool mRtspRunning;
 	struct rtsp_client *mRtspClient;
-	pthread_t mStreamNetworkThread;
-	bool mStreamNetworkThreadLaunched;
-	pthread_t mStreamOutputThread;
-	bool mStreamOutputThreadLaunched;
-	int mRunning;
-	ARSTREAM2_StreamReceiver_Handle mStreamReceiver;
-	ARSTREAM2_StreamReceiver_ResenderHandle mResender;
+	InetSocket *mStreamSock;
+	InetSocket *mControlSock;
+	struct vstrm_receiver *mReceiver;
+	struct h264_reader *mH264Reader;
+	struct vstrm_codec_info mCodecInfo;
+	bool mFirstFrame;
+	bool mRunning;
 	uint64_t mStartTime;
 	uint64_t mCurrentTime;
-	uint64_t mLastSessionMetadataFetchTime;
 	unsigned int mWidth;
 	unsigned int mHeight;
 	unsigned int mCropLeft;

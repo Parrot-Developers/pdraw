@@ -64,8 +64,8 @@
 #define PDRAW_ARSDK_DC_NAVDATA_ID 127
 #define PDRAW_ARSDK_DC_EVENT_ID 126
 
-#define PDRAW_ARSDK_VIDEO_DST_STREAM_PORT 55004
-#define PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT 55005
+#define PDRAW_ARSDK_VIDEO_LOCAL_STREAM_PORT 55004
+#define PDRAW_ARSDK_VIDEO_LOCAL_CONTROL_PORT 55005
 
 #define PDRAW_CAMERA_ORIENTATION_MIN_INTERVAL 25000
 
@@ -137,11 +137,10 @@ struct pdraw_app
     struct ardiscovery_browser_device *ardiscoveryDeviceList;
     int ardiscoveryDeviceCount;
 
-    int srcStreamPort;
-    int srcControlPort;
-    int dstStreamPort;
-    int dstControlPort;
-    int qosMode;
+    int localStreamPort;
+    int localControlPort;
+    int remoteStreamPort;
+    int remoteControlPort;
     int disconnected;
 
 #ifdef BUILD_SDL2

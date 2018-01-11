@@ -93,33 +93,23 @@ int pdraw_open_url_mcast(
 
 int pdraw_open_single_stream(
 	struct pdraw *pdraw,
-	const char *srcAddr,
-	const char *ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort,
-	int qosMode)
+	const char *localAddr,
+	int localStreamPort,
+	int localControlPort,
+	const char *remoteAddr,
+	int remoteStreamPort,
+	int remoteControlPort,
+	const char *ifaceAddr)
 {
-	if ((pdraw == NULL) || (srcAddr == NULL))
+	if ((pdraw == NULL) || (localAddr == NULL) || (remoteAddr == NULL))
 		return -EINVAL;
 
-	std::string ip(srcAddr);
+	std::string local(localAddr);
+	std::string remote(remoteAddr);
 	std::string iface(ifaceAddr);
-	return toPdraw(pdraw)->open(ip, iface,
-		srcStreamPort, srcControlPort,
-		dstStreamPort, dstControlPort, qosMode);
-}
-
-
-int pdraw_open_mux(
-	struct pdraw *pdraw,
-	void *muxContext)
-{
-	if ((pdraw == NULL) || (muxContext == NULL))
-		return -EINVAL;
-
-	return toPdraw(pdraw)->open(muxContext);
+	return toPdraw(pdraw)->open(local,
+		localStreamPort, localControlPort, remote,
+		remoteStreamPort, remoteControlPort, iface);
 }
 
 
@@ -259,57 +249,6 @@ uint64_t pdraw_get_current_time(
 		return 0;
 
 	return toPdraw(pdraw)->getCurrentTime();
-}
-
-
-int pdraw_start_recorder(
-	struct pdraw *pdraw,
-	const char *fileName)
-{
-	if (pdraw == NULL)
-		return -EINVAL;
-
-	std::string fn(fileName);
-	return toPdraw(pdraw)->startRecorder(fn);
-}
-
-
-int pdraw_stop_recorder(
-	struct pdraw *pdraw)
-{
-	if (pdraw == NULL)
-		return -EINVAL;
-
-	return toPdraw(pdraw)->stopRecorder();
-}
-
-
-int pdraw_start_resender(
-	struct pdraw *pdraw,
-	const char *dstAddr,
-	const char *ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort)
-{
-	if (pdraw == NULL)
-		return -EINVAL;
-
-	std::string ip(dstAddr);
-	std::string iface(ifaceAddr);
-	return toPdraw(pdraw)->startResender(ip, iface,
-		srcStreamPort, srcControlPort, dstStreamPort, dstControlPort);
-}
-
-
-int pdraw_stop_resender(
-	struct pdraw *pdraw)
-{
-	if (pdraw == NULL)
-		return -EINVAL;
-
-	return toPdraw(pdraw)->stopResender();
 }
 
 

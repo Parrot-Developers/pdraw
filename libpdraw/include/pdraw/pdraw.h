@@ -61,18 +61,13 @@ int pdraw_open_url_mcast(
 
 int pdraw_open_single_stream(
 	struct pdraw *pdraw,
-	const char *srcAddr,
-	const char *ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort,
-	int qosMode);
-
-
-int pdraw_open_mux(
-	struct pdraw *pdraw,
-	void *muxContext);
+	const char *localAddr,
+	int localStreamPort,
+	int localControlPort,
+	const char *remoteAddr,
+	int remoteStreamPort,
+	int remoteControlPort,
+	const char *ifaceAddr);
 
 
 int pdraw_open_sdp(
@@ -133,29 +128,6 @@ uint64_t pdraw_get_duration(
 
 
 uint64_t pdraw_get_current_time(
-	struct pdraw *pdraw);
-
-
-int pdraw_start_recorder(
-	struct pdraw *pdraw,
-	const char *fileName);
-
-
-int pdraw_stop_recorder(
-	struct pdraw *pdraw);
-
-
-int pdraw_start_resender(
-	struct pdraw *pdraw,
-	const char *dstAddr,
-	const char *ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort);
-
-
-int pdraw_stop_resender(
 	struct pdraw *pdraw);
 
 

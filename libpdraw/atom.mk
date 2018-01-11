@@ -54,7 +54,6 @@ LOCAL_LIBRARIES := \
 	libvideo-buffers \
 	libvideo-metadata \
 	libvideo-streaming \
-	libARStream2 \
 	libmp4 \
 	librtsp \
 	libsdp \

@@ -965,13 +965,13 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenSingleStream(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
-    jstring srcAddr,
-    jstring ifaceAddr,
-    jint srcStreamPort,
-    jint srcControlPort,
-    jint dstStreamPort,
-    jint dstControlPort,
-    jint qosMode)
+    jstring localAddr,
+    jint localStreamPort,
+    jint localControlPort,
+    jstring remoteAddr,
+    jint remoteStreamPort,
+    jint remoteControlPort,
+    jstring ifaceAddr)
 {
     int ret = 0;
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
@@ -982,37 +982,17 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenSingleStream(
         return (jint)-1;
     }
 
-    const char *c_srcAddr = (*env)->GetStringUTFChars(env, srcAddr, NULL);
+    const char *c_localAddr = (*env)->GetStringUTFChars(env, localAddr, NULL);
+    const char *c_remoteAddr = (*env)->GetStringUTFChars(env, remoteAddr, NULL);
     const char *c_ifaceAddr = (*env)->GetStringUTFChars(env, ifaceAddr, NULL);
 
-    ret = pdraw_open_single_stream(ctx->pdraw, c_srcAddr, c_ifaceAddr,
-        (int)srcStreamPort, (int)srcControlPort,
-        (int)dstStreamPort, (int)dstControlPort, (int)qosMode);
+    ret = pdraw_open_single_stream(ctx->pdraw, c_localAddr,
+        (int)localStreamPort, (int)localControlPort, c_remoteAddr,
+        (int)remoteStreamPort, (int)remoteControlPort, c_ifaceAddr);
 
-    (*env)->ReleaseStringUTFChars(env, srcAddr, c_srcAddr);
+    (*env)->ReleaseStringUTFChars(env, localAddr, c_localAddr);
+    (*env)->ReleaseStringUTFChars(env, remoteAddr, c_remoteAddr);
     (*env)->ReleaseStringUTFChars(env, ifaceAddr, c_ifaceAddr);
-
-    return (jint)ret;
-}
-
-
-JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeOpenMux(
-    JNIEnv *env,
-    jobject thizz,
-    jlong jctx,
-    jlong mux)
-{
-    int ret = 0;
-    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
-
-    if ((!ctx) || (!ctx->pdraw))
-    {
-        LOGE("invalid pointer");
-        return (jint)-1;
-    }
-
-    ret = pdraw_open_mux(ctx->pdraw, (void*)(intptr_t)mux);
 
     return (jint)ret;
 }
@@ -1267,103 +1247,6 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetCurrentTime(
     }
 
     return (jlong)pdraw_get_current_time(ctx->pdraw);
-}
-
-
-JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStartRecorder(
-    JNIEnv *env,
-    jobject thizz,
-    jlong jctx,
-    jstring fileName)
-{
-    int ret = 0;
-    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
-
-    if ((!ctx) || (!ctx->pdraw))
-    {
-        LOGE("invalid pointer");
-        return (jint)-1;
-    }
-
-    const char *c_fileName = (*env)->GetStringUTFChars(env, fileName, NULL);
-
-    ret = pdraw_start_recorder(ctx->pdraw, c_fileName);
-
-    (*env)->ReleaseStringUTFChars(env, fileName, c_fileName);
-
-    return (jint)ret;
-}
-
-
-JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStopRecorder(
-    JNIEnv *env,
-    jobject thizz,
-    jlong jctx)
-{
-    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
-
-    if ((!ctx) || (!ctx->pdraw))
-    {
-        LOGE("invalid pointer");
-        return (jint)-1;
-    }
-
-    return (jint)pdraw_stop_recorder(ctx->pdraw);
-}
-
-
-JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStartResender(
-    JNIEnv *env,
-    jobject thizz,
-    jlong jctx,
-    jstring dstAddr,
-    jstring ifaceAddr,
-    jint srcStreamPort,
-    jint srcControlPort,
-    jint dstStreamPort,
-    jint dstControlPort)
-{
-    int ret = 0;
-    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
-
-    if ((!ctx) || (!ctx->pdraw))
-    {
-        LOGE("invalid pointer");
-        return (jint)-1;
-    }
-
-    const char *c_dstAddr = (*env)->GetStringUTFChars(env, dstAddr, NULL);
-    const char *c_ifaceAddr = (*env)->GetStringUTFChars(env, ifaceAddr, NULL);
-
-    ret = pdraw_start_resender(ctx->pdraw, c_dstAddr, c_ifaceAddr,
-        (int)srcStreamPort, (int)srcControlPort,
-        (int)dstStreamPort, (int)dstControlPort);
-
-    (*env)->ReleaseStringUTFChars(env, dstAddr, c_dstAddr);
-    (*env)->ReleaseStringUTFChars(env, ifaceAddr, c_ifaceAddr);
-
-    return (jint)ret;
-}
-
-
-JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStopResender(
-    JNIEnv *env,
-    jobject thizz,
-    jlong jctx)
-{
-    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
-
-    if ((!ctx) || (!ctx->pdraw))
-    {
-        LOGE("invalid pointer");
-        return (jint)-1;
-    }
-
-    return (jint)pdraw_stop_resender(ctx->pdraw);
 }
 
 

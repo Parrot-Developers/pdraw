@@ -30,7 +30,7 @@
 #include "pdraw_demuxer_stream.hpp"
 #include "pdraw_session.hpp"
 #include "pdraw_media_video.hpp"
-
+#include "pdraw_log.hpp"
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,64 +39,73 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#define ULOG_TAG libpdraw
-#include <ulog.h>
+#include <futils/futils.h>
 #include <string>
 #include <algorithm>
 
 namespace Pdraw {
 
 
-#ifdef ANDROID
-#define DEMUXER_STREAM_DEBUG_PATH "/sdcard/pdraw/streamdebug"
-#else
-#define DEMUXER_STREAM_DEBUG_PATH "./streamdebug"
-#endif
-
-#define DEMUXER_STREAM_SESSION_METADATA_FETCH_INTERVAL 1000000
-
-#define DEMUXER_STREAM_DEFAULT_DST_STREAM_PORT 55004
-#define DEMUXER_STREAM_DEFAULT_DST_CONTROL_PORT 55005
+#define DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT 55004
+#define DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT 55005
 
 
 StreamDemuxer::StreamDemuxer(
 	Session *session)
 {
+	int ret;
+
+	if (session == NULL) {
+		ULOGE("StreamDemuxer: invalid session");
+		return;
+	}
+
 	mSession = session;
 	mConfigured = false;
 	mRtspRunning = false;
 	mRtspClient = NULL;
-	mStreamReceiver = NULL;
-	mStreamNetworkThreadLaunched = false;
-	mStreamOutputThreadLaunched = false;
-	mResender = NULL;
-	mCurrentAuSize = 0;
-	mMaxPacketSize = 0; /* TODO */
-	mQosMode = 0;
+	mStreamSock = NULL;
+	mControlSock = NULL;
+	mReceiver = NULL;
 	mCurrentBuffer = NULL;
 	mDecoder = NULL;
 	mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_UNKNOWN;
 	mStartTime = mCurrentTime = 0;
-	mLastSessionMetadataFetchTime = 0;
 	mWidth = mHeight = 0;
 	mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
 	mSarWidth = mSarHeight = 0;
 	mHfov = mVfov = 0.;
 	mRunning = false;
+	mFirstFrame = true;
+	memset(&mCodecInfo, 0, sizeof(mCodecInfo));
 
 	const char *userAgent = NULL;
 	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
 
 	userAgent = selfMeta->getSoftwareVersion().c_str();
-	mRtspClient = rtsp_client_new(userAgent, session->getLoop());
+	mRtspClient = rtsp_client_new(userAgent, mSession->getLoop());
 	if (!mRtspClient) {
 		ULOGE("StreamDemuxer: rtsp_client_new() failed");
+		goto err;
+	}
+
+	struct h264_ctx_cbs h264_cbs;
+	memset(&h264_cbs, 0, sizeof(h264_cbs));
+	h264_cbs.userdata = this;
+	h264_cbs.sei_user_data_unregistered = &h264UserDataSeiCb;
+	ret = h264_reader_new(&h264_cbs, &mH264Reader);
+	if (ret < 0) {
+		ULOGE("StreamDemuxer: h264_reader_new() failed (%d)", ret);
 		goto err;
 	}
 
 	return;
 
 err:
+	if (mH264Reader != NULL) {
+		h264_reader_destroy(mH264Reader);
+		mH264Reader = NULL;
+	}
 	if (mRtspClient) {
 		rtsp_client_destroy(mRtspClient);
 		mRtspClient = NULL;
@@ -111,21 +120,10 @@ StreamDemuxer::~StreamDemuxer(
 	if (ret != 0)
 		ULOGE("StreamDemuxer: stop() failed (%d)", ret);
 
-	if (mStreamNetworkThreadLaunched) {
-		ret = pthread_join(mStreamNetworkThread, NULL);
-		if (ret != 0)
-			ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
-	}
-	if (mStreamOutputThreadLaunched) {
-		ret = pthread_join(mStreamOutputThread, NULL);
-		if (ret != 0)
-			ULOGE("StreamDemuxer: pthread_join() failed (%d)", ret);
-	}
-
-	if (mCurrentBuffer)
+	if (mCurrentBuffer != NULL)
 		vbuf_unref(&mCurrentBuffer);
 
-	if (mRtspClient) {
+	if (mRtspClient != NULL) {
 		do {
 			ret = rtsp_client_destroy(mRtspClient);
 			if ((ret != 0) && (ret != -EBUSY))
@@ -133,181 +131,124 @@ StreamDemuxer::~StreamDemuxer(
 					"failed");
 			usleep(1000);
 		} while (ret == -EBUSY);
+		mRtspClient = NULL;
 	}
 
-	if (mStreamReceiver)
-		ARSTREAM2_StreamReceiver_Free(&mStreamReceiver);
-}
-
-
-void StreamDemuxer::fetchSessionMetadata(
-	StreamDemuxer *demuxer)
-{
-	if (demuxer == NULL) {
-		ULOGE("StreamDemuxer: invalid pointer");
-		return;
-	}
-	if (demuxer->mSession == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
-		return;
+	if (mH264Reader != NULL) {
+		h264_reader_destroy(mH264Reader);
+		mH264Reader = NULL;
 	}
 
-	SessionPeerMetadata *peerMeta = demuxer->mSession->getPeerMetadata();
-	ARSTREAM2_Stream_UntimedMetadata_t metadata;
-	memset(&metadata, 0, sizeof(metadata));
-	eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_GetPeerUntimedMetadata(
-		demuxer->mStreamReceiver, &metadata);
-	if (ret != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: "
-			"ARSTREAM2_StreamReceiver_GetPeerUntimedMetadata() "
-			"failed: %s", ARSTREAM2_Error_ToString(ret));
-		return;
+	if (mReceiver != NULL) {
+		vstrm_receiver_destroy(mReceiver);
+		mReceiver = NULL;
 	}
 
-	if (metadata.friendlyName)
-		peerMeta->setFriendlyName(metadata.friendlyName);
-	if (metadata.title)
-		peerMeta->setTitle(metadata.title);
-	if (metadata.maker)
-		peerMeta->setMaker(metadata.maker);
-	if (metadata.model)
-		peerMeta->setModel(metadata.model);
-	if (metadata.softwareVersion)
-		peerMeta->setSoftwareVersion(metadata.softwareVersion);
-	if (metadata.serialNumber)
-		peerMeta->setSerialNumber(metadata.serialNumber);
-	if (metadata.modelId)
-		peerMeta->setModelId(metadata.modelId);
-	if (metadata.buildId)
-		peerMeta->setBuildId(metadata.buildId);
-	if (metadata.runUuid)
-		peerMeta->setRunUuid(metadata.runUuid);
-	if (metadata.runDate)
-		peerMeta->setRunDate(metadata.runDate);
-	if (metadata.comment)
-		peerMeta->setComment(metadata.comment);
-	if (metadata.copyright)
-		peerMeta->setCopyright(metadata.copyright);
-	if ((metadata.pictureHFov != 0.) && (metadata.pictureVFov != 0.) &&
-		((demuxer->mHfov != metadata.pictureHFov) ||
-			(demuxer->mVfov != metadata.pictureVFov))) {
-		demuxer->mHfov = metadata.pictureHFov;
-		demuxer->mVfov = metadata.pictureVFov;
-		if (demuxer->mDecoder) {
-			VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
-			if (vm)
-				vm->setFov(metadata.pictureHFov,
-					metadata.pictureVFov);
-		}
+	if (mStreamSock != NULL) {
+		delete mStreamSock;
+		mStreamSock = NULL;
 	}
-	if ((metadata.takeoffLatitude != 500.) &&
-		(metadata.takeoffLongitude != 500.)) {
-		struct vmeta_location takeoffLoc;
-		memset(&takeoffLoc, 0, sizeof(takeoffLoc));
-		takeoffLoc.latitude = metadata.takeoffLatitude;
-		takeoffLoc.longitude = metadata.takeoffLongitude;
-		takeoffLoc.altitude = metadata.takeoffAltitude;
-		takeoffLoc.valid = 1;
+	if (mControlSock != NULL) {
+		delete mControlSock;
+		mControlSock = NULL;
 	}
 }
 
 
 int StreamDemuxer::configureRtpAvp(
-	const char *srcAddr,
-	const char *mcastIfaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort)
+	const std::string &localAddr,
+	int localStreamPort,
+	int localControlPort,
+	const std::string &remoteAddr,
+	int remoteStreamPort,
+	int remoteControlPort,
+	const std::string &ifaceAddr)
 {
 	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
+	struct vstrm_receiver_cfg cfg;
+	struct vstrm_receiver_cbs cbs;
 	int ret;
 
-	eARSTREAM2_ERROR err;
-	ARSTREAM2_StreamReceiver_Config_t streamReceiverConfig;
-	ARSTREAM2_StreamReceiver_NetConfig_t streamReceiverNetConfig;
-	memset(&streamReceiverConfig, 0, sizeof(streamReceiverConfig));
-	memset(&streamReceiverNetConfig, 0, sizeof(streamReceiverNetConfig));
-	int addrFirst = atoi(srcAddr);
-	if ((addrFirst >= 224) && (addrFirst <= 239)) {
-		streamReceiverNetConfig.serverAddr = NULL;
-		streamReceiverNetConfig.mcastAddr = srcAddr;
-	} else {
-		streamReceiverNetConfig.serverAddr = srcAddr;
-		streamReceiverNetConfig.mcastAddr = NULL;
+	/* Create the sockets */
+	mStreamSock = new InetSocket(localAddr, localStreamPort,
+		remoteAddr, remoteStreamPort,
+		mSession->getLoop(), dataCb, this);
+	if (mStreamSock == NULL) {
+		ULOGE("StreamDemuxer: failed to create stream socket");
+		ret = -EPROTO;
+		goto error;
 	}
-	streamReceiverNetConfig.mcastIfaceAddr = mcastIfaceAddr;
-	streamReceiverNetConfig.serverStreamPort = srcStreamPort;
-	streamReceiverNetConfig.serverControlPort = srcControlPort;
-	streamReceiverNetConfig.clientStreamPort = dstStreamPort;
-	streamReceiverNetConfig.clientControlPort = dstControlPort;
-	streamReceiverNetConfig.classSelector = (mQosMode == 1) ?
-		ARSAL_SOCKET_CLASS_SELECTOR_CS4 :
-		ARSAL_SOCKET_CLASS_SELECTOR_UNSPECIFIED;
-	streamReceiverConfig.canonicalName =
-		selfMeta->getSerialNumber().c_str();
-	streamReceiverConfig.friendlyName =
-		selfMeta->getFriendlyName().c_str();
-	streamReceiverConfig.applicationName =
-		selfMeta->getSoftwareVersion().c_str();
-	streamReceiverConfig.maxPacketSize = mMaxPacketSize;
-	streamReceiverConfig.generateReceiverReports = 1;
-	streamReceiverConfig.waitForSync = 1;
-	streamReceiverConfig.outputIncompleteAu = 0;
-	streamReceiverConfig.filterOutSpsPps = 0;
-	streamReceiverConfig.filterOutSei = 1;
-	/* TODO: set according to mDecoderBitstreamFormat
-	 * (which is not set yet) */
-	streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
-	streamReceiverConfig.generateSkippedPSlices = 1;
-	streamReceiverConfig.generateFirstGrayIFrame = 1;
-	streamReceiverConfig.debugPath = DEMUXER_STREAM_DEBUG_PATH;
-
-	err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver,
-		&streamReceiverConfig, &streamReceiverNetConfig, NULL);
-	if (err != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Init() "
-			"failed: %s", ARSTREAM2_Error_ToString(err));
-		return -1;
+	mControlSock = new InetSocket(localAddr, localControlPort,
+		remoteAddr, remoteControlPort,
+		mSession->getLoop(), ctrlCb, this);
+	if (mControlSock == NULL) {
+		ULOGE("StreamDemuxer: failed to create control socket");
+		ret = -EPROTO;
+		goto error;
 	}
 
-	ret = pthread_create(&mStreamNetworkThread, NULL,
-		ARSTREAM2_StreamReceiver_RunNetworkThread,
-		(void*)mStreamReceiver);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: stream network thread "
-			"creation failed (%d)", ret);
-		return -1;
+	/* Create the stream receiver */
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.loop = mSession->getLoop();
+	cfg.flags = VSTRM_RECEIVER_FLAGS_H264_GEN_SKIPPED_P_SLICE |
+			VSTRM_RECEIVER_FLAGS_H264_GEN_GREY_I_FRAME |
+			VSTRM_RECEIVER_FLAGS_ENABLE_RTCP |
+			VSTRM_RECEIVER_FLAGS_ENABLE_RTCP_EXT |
+			VSTRM_RECEIVER_FLAGS_H264_FILTER_SPS_PPS |
+			VSTRM_RECEIVER_FLAGS_H264_FILTER_SEI;
+	strncpy(cfg.self_meta.friendly_name,
+		selfMeta->getFriendlyName().c_str(),
+		sizeof(cfg.self_meta.friendly_name));
+	strncpy(cfg.self_meta.serial_number,
+		selfMeta->getSerialNumber().c_str(),
+		sizeof(cfg.self_meta.serial_number));
+	strncpy(cfg.self_meta.software_version,
+		selfMeta->getSoftwareVersion().c_str(),
+		sizeof(cfg.self_meta.software_version));
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.userdata = this;
+	cbs.send_ctrl = &sendCtrlCb;
+	cbs.codec_info_changed = &codecInfoChangedCb;
+	cbs.recv_frame = &recvFrameCb;
+	cbs.session_metadata_peer_changed = sessionMetadataPeerChangedCb;
+	ret = vstrm_receiver_new(&cfg, &cbs, &mReceiver);
+	if (ret < 0) {
+		mReceiver = NULL;
+		ULOGE("StreamDemuxer: vstrm_receiver_new() failed (%d)", ret);
+		goto error;
 	}
 
-	mStreamNetworkThreadLaunched = true;
+	return 0;
 
-	ret = pthread_create(&mStreamOutputThread, NULL,
-		ARSTREAM2_StreamReceiver_RunAppOutputThread,
-		(void*)mStreamReceiver);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: stream output thread "
-			"creation failed (%d)", ret);
-		ret = -1;
+error:
+	if (mReceiver != NULL) {
+		vstrm_receiver_destroy(mReceiver);
+		mReceiver = NULL;
 	}
-
-	mStreamOutputThreadLaunched = true;
+	if (mStreamSock != NULL) {
+		delete mStreamSock;
+		mStreamSock = NULL;
+	}
+	if (mControlSock != NULL) {
+		delete mControlSock;
+		mControlSock = NULL;
+	}
 
 	return ret;
 }
 
 
 int StreamDemuxer::configureSdp(
-	const char *sdp,
-	const char *mcastIfaceAddr)
+	const std::string &sdp,
+	const std::string &ifaceAddr)
 {
 	int ret;
 	char *serverAddr = NULL;
-	int srcStreamPort = 0, srcControlPort = 0;
-	int dstStreamPort = 0, dstControlPort = 0;
+	int localStreamPort = 0, localControlPort = 0;
+	int remoteStreamPort = 0, remoteControlPort = 0;
 	struct sdp_session *session = NULL;
 
-	session = sdp_description_read(sdp);
+	session = sdp_description_read(sdp.c_str());
 	if (!session) {
 		ULOGE("StreamDemuxer: sdp_description_read() failed");
 		return -1;
@@ -316,8 +257,8 @@ int StreamDemuxer::configureSdp(
 	struct sdp_media *media = NULL;
 	list_walk_entry_forward(&session->medias, media, node) {
 		if (media->type == SDP_MEDIA_TYPE_VIDEO) {
-			dstStreamPort = media->dst_stream_port;
-			dstControlPort = media->dst_control_port;
+			localStreamPort = media->dst_stream_port;
+			localControlPort = media->dst_control_port;
 			break;
 		}
 	}
@@ -330,10 +271,9 @@ int StreamDemuxer::configureSdp(
 	}
 	sdp_session_destroy(session);
 
-	mQosMode = 1;
-	ret = configureRtpAvp(serverAddr, mcastIfaceAddr,
-		srcStreamPort, srcControlPort,
-		dstStreamPort, dstControlPort);
+	std::string remote(serverAddr);
+	ret = configureRtpAvp("0.0.0.0", localStreamPort, localControlPort,
+		remote, remoteStreamPort, remoteControlPort, ifaceAddr);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
 	}
@@ -345,16 +285,16 @@ int StreamDemuxer::configureSdp(
 
 
 int StreamDemuxer::configureRtsp(
-	const char *url,
-	const char *mcastIfaceAddr)
+	const std::string &url,
+	const std::string &ifaceAddr)
 {
 	int ret;
 	char *mediaUrl = NULL, *serverAddr = NULL;
-	int serverStreamPort = 0, serverControlPort = 0;
+	int remoteStreamPort = 0, remoteControlPort = 0;
 	char *sdp = NULL;
 	struct sdp_session *session = NULL;
 
-	ret = rtsp_client_connect(mRtspClient, url);
+	ret = rtsp_client_connect(mRtspClient, url.c_str());
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: rtsp_client_options() failed");
 		return -1;
@@ -403,9 +343,9 @@ int StreamDemuxer::configureRtsp(
 	sdp_session_destroy(session);
 
 	ret = rtsp_client_setup(mRtspClient, mediaUrl,
-		DEMUXER_STREAM_DEFAULT_DST_STREAM_PORT,
-		DEMUXER_STREAM_DEFAULT_DST_CONTROL_PORT,
-		&serverStreamPort, &serverControlPort, 2000);
+		DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
+		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
+		&remoteStreamPort, &remoteControlPort, 2000);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: rtsp_client_setup() failed");
 		free(serverAddr);
@@ -415,11 +355,11 @@ int StreamDemuxer::configureRtsp(
 
 	free(mediaUrl);
 
-	mQosMode = 1;
-	ret = configureRtpAvp(serverAddr, mcastIfaceAddr,
-		serverStreamPort, serverControlPort,
-		DEMUXER_STREAM_DEFAULT_DST_STREAM_PORT,
-		DEMUXER_STREAM_DEFAULT_DST_CONTROL_PORT);
+	std::string remote(serverAddr);
+	ret = configureRtpAvp("0.0.0.0",
+		DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
+		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
+		remote, remoteStreamPort, remoteControlPort, ifaceAddr);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
 		free(serverAddr);
@@ -466,8 +406,7 @@ int StreamDemuxer::configure(
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
 	if (url.substr(0, 7) == "rtsp://") {
-		ret = configureRtsp(url.c_str(),
-			(ifaceAddr.empty()) ? NULL : ifaceAddr.c_str());
+		ret = configureRtsp(url, ifaceAddr);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: configureRtsp() failed");
 			return -1;
@@ -479,7 +418,7 @@ int StreamDemuxer::configure(
 	} else if ((url.front() == '/') && (ext == ".sdp")) {
 		struct stat sb;
 		FILE *f = NULL;
-		char *sdp = NULL;
+		char *s = NULL;
 
 		f = fopen(url.c_str(), "r");
 		if (f == NULL) {
@@ -495,22 +434,22 @@ int StreamDemuxer::configure(
 			return -1;
 		}
 
-		sdp = (char *)calloc(1, sb.st_size + 1);
-		if (sdp == NULL) {
+		s = (char *)calloc(1, sb.st_size + 1);
+		if (s == NULL) {
 			ULOGE("StreamDemuxer: allocation failed");
 			return -1;
 		}
 
-		ret = fread(sdp, sb.st_size, 1, f);
+		ret = fread(s, sb.st_size, 1, f);
 		if (ret != 1) {
 			ULOGE("StreamDemuxer: failed to read "
 				"from the input file");
 			return -1;
 		}
 
-		sdp[sb.st_size] = '\0';
-		ret = configureSdp(sdp,
-			(ifaceAddr.empty()) ? NULL : ifaceAddr.c_str());
+		s[sb.st_size] = '\0';
+		std::string sdp(s);
+		ret = configureSdp(sdp, ifaceAddr);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: configureSdp() failed");
 			return -1;
@@ -528,13 +467,13 @@ int StreamDemuxer::configure(
 
 
 int StreamDemuxer::configure(
-	const std::string &srcAddr,
-	const std::string &ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort,
-	int qosMode)
+	const std::string &localAddr,
+	int localStreamPort,
+	int localControlPort,
+	const std::string &remoteAddr,
+	int remoteStreamPort,
+	int remoteControlPort,
+	const std::string &ifaceAddr)
 {
 	int ret;
 
@@ -547,92 +486,13 @@ int StreamDemuxer::configure(
 		return -1;
 	}
 
-	mQosMode = qosMode;
-	ret = configureRtpAvp(srcAddr.c_str(),
-		(ifaceAddr.empty()) ? NULL : ifaceAddr.c_str(),
-		srcStreamPort, srcControlPort, dstStreamPort, dstControlPort);
+	ret = configureRtpAvp(localAddr,
+		localStreamPort, localControlPort, remoteAddr,
+		remoteStreamPort, remoteControlPort, ifaceAddr);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
 		return -1;
 	}
-
-	mConfigured = true;
-	ULOGI("StreamDemuxer: demuxer is configured");
-
-	return ret;
-}
-
-
-int StreamDemuxer::configure(
-	void *muxContext)
-{
-	if (mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is already configured");
-		return -1;
-	}
-	if (mSession == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
-		return -1;
-	}
-
-	mQosMode = 1; /* TODO */
-	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
-	int ret;
-
-	eARSTREAM2_ERROR err;
-	ARSTREAM2_StreamReceiver_Config_t streamReceiverConfig;
-	ARSTREAM2_StreamReceiver_MuxConfig_t streamReceiverMuxConfig;
-	memset(&streamReceiverConfig, 0, sizeof(streamReceiverConfig));
-	memset(&streamReceiverMuxConfig, 0, sizeof(streamReceiverMuxConfig));
-	streamReceiverMuxConfig.mux = (struct mux_ctx*)muxContext;
-	streamReceiverConfig.canonicalName =
-		selfMeta->getSerialNumber().c_str();
-	streamReceiverConfig.friendlyName =
-		selfMeta->getFriendlyName().c_str();
-	streamReceiverConfig.applicationName =
-		selfMeta->getSoftwareVersion().c_str();
-	streamReceiverConfig.maxPacketSize = mMaxPacketSize;
-	streamReceiverConfig.generateReceiverReports = 1;
-	streamReceiverConfig.waitForSync = 1;
-	streamReceiverConfig.outputIncompleteAu = 0;
-	streamReceiverConfig.filterOutSpsPps = 0;
-	streamReceiverConfig.filterOutSei = 1;
-	/* TODO: set according to mDecoderBitstreamFormat
-	 * (which is not set yet) */
-	streamReceiverConfig.replaceStartCodesWithNaluSize = 0;
-	streamReceiverConfig.generateSkippedPSlices = 1;
-	streamReceiverConfig.generateFirstGrayIFrame = 1;
-	streamReceiverConfig.debugPath = DEMUXER_STREAM_DEBUG_PATH;
-
-	err = ARSTREAM2_StreamReceiver_Init(&mStreamReceiver,
-		&streamReceiverConfig, NULL, &streamReceiverMuxConfig);
-	if (err != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Init() "
-			"failed: %s", ARSTREAM2_Error_ToString(err));
-		return -1;
-	}
-
-	ret = pthread_create(&mStreamNetworkThread, NULL,
-		ARSTREAM2_StreamReceiver_RunNetworkThread,
-		(void*)mStreamReceiver);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: stream network thread "
-			"creation failed (%d)", ret);
-		return -1;
-	}
-
-	mStreamNetworkThreadLaunched = true;
-
-	ret = pthread_create(&mStreamOutputThread, NULL,
-		ARSTREAM2_StreamReceiver_RunAppOutputThread,
-		(void*)mStreamReceiver);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: stream output thread "
-			"creation failed (%d)", ret);
-		return -1;
-	}
-
-	mStreamOutputThreadLaunched = true;
 
 	mConfigured = true;
 	ULOGI("StreamDemuxer: demuxer is configured");
@@ -656,8 +516,7 @@ int StreamDemuxer::configureWithSdp(
 		return -1;
 	}
 
-	ret = configureSdp(sdp.c_str(),
-		(ifaceAddr.empty()) ? NULL : ifaceAddr.c_str());
+	ret = configureSdp(sdp, ifaceAddr);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: configureSdp() failed");
 		return -1;
@@ -789,11 +648,9 @@ int StreamDemuxer::setElementaryStreamDecoder(
 	if (formatCaps & AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) {
 		mDecoderBitstreamFormat =
 			AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM;
-	/* TODO */
-	/* else if (formatCaps & AVCDECODER_BITSTREAM_FORMAT_AVCC) {
+	} else if (formatCaps & AVCDECODER_BITSTREAM_FORMAT_AVCC) {
 		mDecoderBitstreamFormat =
 			AVCDECODER_BITSTREAM_FORMAT_AVCC;
-	} */
 	} else {
 		ULOGE("StreamDemuxer: unsupported decoder "
 			"input bitstream format");
@@ -815,16 +672,7 @@ int StreamDemuxer::play(
 	if (speed <= 0.) {
 		return pause();
 	} else {
-		eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StartAppOutput(
-			mStreamReceiver, spsPpsCallback, this,
-			getAuBufferCallback, this,
-			auReadyCallback, this);
-		if (ret != ARSTREAM2_OK) {
-			ULOGE("StreamDemuxer: "
-				"ARSTREAM2_StreamReceiver_StartAppOutput() "
-				"failed: %s", ARSTREAM2_Error_ToString(ret));
-			return -1;
-		}
+		/* TODO */
 
 		mRunning = true;
 
@@ -841,13 +689,7 @@ int StreamDemuxer::pause(
 		return -1;
 	}
 
-	eARSTREAM2_ERROR ret =
-		ARSTREAM2_StreamReceiver_StopAppOutput(mStreamReceiver);
-	if (ret != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StopAppOutput() "
-			"failed: %s", ARSTREAM2_Error_ToString(ret));
-		return -1;
-	}
+	/* TODO */
 
 	mRunning = false;
 
@@ -894,7 +736,7 @@ int StreamDemuxer::next(
 int StreamDemuxer::stop(
 	void)
 {
-	int ret;
+	int ret = 0;
 
 	if (!mConfigured) {
 		ULOGE("StreamDemuxer: demuxer is not configured");
@@ -917,14 +759,13 @@ int StreamDemuxer::stop(
 		mRtspRunning = false;
 	}
 
-	eARSTREAM2_ERROR _ret = ARSTREAM2_StreamReceiver_Stop(mStreamReceiver);
-	if (_ret != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_Stop() "
-			"failed: %s", ARSTREAM2_Error_ToString(_ret));
-		return -1;
-	}
-
 	mRunning = false;
+
+	if (mReceiver != NULL) {
+		/* Destroy the receiver */
+		vstrm_receiver_destroy(mReceiver);
+		mReceiver = NULL;
+	}
 
 	return ret;
 }
@@ -969,120 +810,6 @@ int StreamDemuxer::seekBack(
 }
 
 
-int StreamDemuxer::startRecorder(
-	const std::string &fileName)
-{
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StartRecorder(
-		mStreamReceiver, fileName.c_str());
-	if (ret != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StartRecorder() "
-			"failed: %s", ARSTREAM2_Error_ToString(ret));
-		return -1;
-	}
-
-	return 0;
-}
-
-
-int StreamDemuxer::stopRecorder(
-	void)
-{
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StopRecorder(
-		mStreamReceiver);
-	if (ret != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StopRecorder() "
-			"failed: %s", ARSTREAM2_Error_ToString(ret));
-		return -1;
-	}
-
-	return 0;
-}
-
-
-int StreamDemuxer::startResender(
-	const std::string &dstAddr,
-	const std::string &ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort)
-{
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-	if (mSession == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
-		return -1;
-	}
-
-	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
-
-	ARSTREAM2_StreamReceiver_ResenderConfig_t resenderConfig;
-	memset(&resenderConfig, 0, sizeof(resenderConfig));
-	resenderConfig.canonicalName = selfMeta->getSerialNumber().c_str();
-	resenderConfig.friendlyName = selfMeta->getFriendlyName().c_str();
-	resenderConfig.applicationName = selfMeta->getSoftwareVersion().c_str();
-	int addrFirst = atoi(dstAddr.c_str());
-	if ((addrFirst >= 224) && (addrFirst <= 239)) {
-		resenderConfig.clientAddr = NULL;
-		resenderConfig.mcastAddr = dstAddr.c_str();
-	} else {
-		resenderConfig.clientAddr = dstAddr.c_str();
-		resenderConfig.mcastAddr = NULL;
-	}
-	resenderConfig.mcastIfaceAddr = ifaceAddr.c_str();
-	resenderConfig.serverStreamPort = srcStreamPort;
-	resenderConfig.serverControlPort = srcControlPort;
-	resenderConfig.clientStreamPort = dstStreamPort;
-	resenderConfig.clientControlPort = dstControlPort;
-	resenderConfig.classSelector = (mQosMode == 1) ?
-		ARSAL_SOCKET_CLASS_SELECTOR_CS4 :
-		ARSAL_SOCKET_CLASS_SELECTOR_UNSPECIFIED;
-	resenderConfig.streamSocketBufferSize = 0;
-	resenderConfig.maxNetworkLatencyMs = 200;
-	eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StartResender(
-		mStreamReceiver, &mResender, &resenderConfig);
-	if (ret != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StartResender() "
-			"failed: %s", ARSTREAM2_Error_ToString(ret));
-		return -1;
-	}
-
-	return 0;
-}
-
-
-int StreamDemuxer::stopResender(
-	void)
-{
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	eARSTREAM2_ERROR ret = ARSTREAM2_StreamReceiver_StopResender(
-		mStreamReceiver, &mResender);
-	if (ret != ARSTREAM2_OK) {
-		ULOGE("StreamDemuxer: ARSTREAM2_StreamReceiver_StopResender() "
-			"failed: %s", ARSTREAM2_Error_ToString(ret));
-		return -1;
-	}
-
-	return 0;
-}
-
-
 uint64_t StreamDemuxer::getCurrentTime(
 	void)
 {
@@ -1090,162 +817,343 @@ uint64_t StreamDemuxer::getCurrentTime(
 }
 
 
-eARSTREAM2_ERROR StreamDemuxer::spsPpsCallback(
-	uint8_t *spsBuffer,
-	int spsSize,
-	uint8_t *ppsBuffer,
-	int ppsSize,
-	void *userPtr)
+void StreamDemuxer::h264UserDataSeiCb(
+	struct h264_ctx *ctx,
+	const uint8_t *buf,
+	size_t len,
+	const struct h264_sei_user_data_unregistered *sei,
+	void *userdata)
 {
-	StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
+	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	int ret = 0;
+
+	if (demuxer == NULL)
+		return;
+	if ((buf == NULL) || (len == 0))
+		return;
+	if (demuxer->mCurrentBuffer == NULL)
+		return;
+
+	/* ignore "Parrot Streaming" v1 and v2 user data SEI */
+	if ((vstrm_h264_sei_streaming_is_v1(sei->uuid)) ||
+		(vstrm_h264_sei_streaming_is_v2(sei->uuid)))
+		return;
+
+	ret = vbuf_set_userdata_capacity(demuxer->mCurrentBuffer, len);
+	if (ret < (signed)len) {
+		ULOGE("StreamDemuxer: failed to realloc user data buffer");
+		return;
+	}
+
+	uint8_t *dstBuf = vbuf_get_userdata_ptr(demuxer->mCurrentBuffer);
+	memcpy(dstBuf, buf, len);
+	vbuf_set_userdata_size(demuxer->mCurrentBuffer, len);
+}
+
+
+void StreamDemuxer::dataCb(
+	int fd,
+	uint32_t events,
+	void *userdata)
+{
+	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	int res = 0;
+	ssize_t readlen = 0;
+	struct pomp_buffer *buf = NULL;
+	struct timespec ts = { 0, 0 };
+
+	if (demuxer == NULL) {
+		ULOGE("StreamDemuxer: invalid callback params");
+		return;
+	}
+
+	do {
+		/* Read data */
+		readlen = demuxer->mStreamSock->read();
+
+		/* Something read? */
+		if (readlen > 0) {
+			/* TODO: avoid copy */
+			buf = pomp_buffer_new_with_data(
+				demuxer->mStreamSock->getRxBuffer(), readlen);
+			res = time_get_monotonic(&ts);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("time_get_monotonic", -res);
+			res = vstrm_receiver_recv_data(
+				demuxer->mReceiver, buf, &ts);
+			pomp_buffer_unref(buf);
+			buf = NULL;
+			if (res < 0)
+				PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl",
+					-res);
+		} else if (readlen == 0) {
+			/* TODO: EOF */
+		}
+	} while (readlen > 0);
+}
+
+
+void StreamDemuxer::ctrlCb(
+	int fd,
+	uint32_t events,
+	void *userdata)
+{
+	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	int res = 0;
+	ssize_t readlen = 0;
+	struct pomp_buffer *buf = NULL;
+	struct timespec ts = { 0, 0 };
+
+	if (demuxer == NULL) {
+		ULOGE("StreamDemuxer: invalid callback params");
+		return;
+	}
+
+	do {
+		/* Read data */
+		readlen = demuxer->mControlSock->read();
+
+		/* Something read? */
+		if (readlen > 0) {
+			/* TODO: avoid copy */
+			buf = pomp_buffer_new_with_data(
+				demuxer->mControlSock->getRxBuffer(), readlen);
+			res = time_get_monotonic(&ts);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("time_get_monotonic", -res);
+			res = vstrm_receiver_recv_ctrl(
+				demuxer->mReceiver, buf, &ts);
+			pomp_buffer_unref(buf);
+			buf = NULL;
+			if (res < 0)
+				PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl",
+					-res);
+		} else if (readlen == 0) {
+			/* TODO: EOF */
+		}
+	} while (readlen > 0);
+}
+
+
+int StreamDemuxer::sendCtrlCb(
+	struct vstrm_receiver *stream,
+	struct pomp_buffer *buf,
+	void *userdata)
+{
+	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	const void *cdata = NULL;
+	size_t len = 0;
+	ssize_t writelen = 0;
+
+	if ((demuxer == NULL) || (buf == NULL)) {
+		ULOGE("StreamDemuxer: invalid callback params");
+		return -EINVAL;
+	}
+
+	/* Write data */
+	pomp_buffer_get_cdata(buf, &cdata, &len, NULL);
+	writelen = demuxer->mControlSock->write(cdata, len);
+	return (writelen >= 0) ? 0 : (int)writelen;
+}
+
+
+void StreamDemuxer::codecInfoChangedCb(
+	struct vstrm_receiver *stream,
+	const struct vstrm_codec_info *info,
+	void *userdata)
+{
+	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	uint8_t *sps = NULL, *pps = NULL;
+	uint32_t start;
 	int ret;
 
-	if ((demuxer == NULL) || (spsBuffer == NULL) ||
-		(spsSize == 0) || (ppsBuffer == NULL) || (ppsSize == 0)) {
+	if ((demuxer == NULL) || (info == NULL)) {
 		ULOGE("StreamDemuxer: invalid callback params");
-		return ARSTREAM2_ERROR_BAD_PARAMETERS;
+		return;
 	}
 	if (demuxer->mDecoder == NULL) {
 		ULOGE("StreamDemuxer: no decoder configured");
-		return ARSTREAM2_ERROR_INVALID_STATE;
+		return;
+	}
+	if (info->codec != VSTRM_CODEC_VIDEO_H264) {
+		ULOGE("StreamDemuxer: unsupported codec");
+		return;
 	}
 
 	ULOGD("StreamDemuxer: received SPS/PPS");
 
-	if (spsSize > 4) {
-		ret = pdraw_videoDimensionsFromH264Sps(spsBuffer + 4,
-			spsSize -4, &demuxer->mWidth, &demuxer->mHeight,
-			&demuxer->mCropLeft, &demuxer->mCropRight,
-			&demuxer->mCropTop, &demuxer->mCropBottom,
-			&demuxer->mSarWidth, &demuxer->mSarHeight);
-		if (ret != 0) {
-			ULOGW("StreamDemuxer: "
-				"pdraw_videoDimensionsFromH264Sps() "
-				"failed (%d)", ret);
-		} else {
-			VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
-			if (vm)
-				vm->setDimensions(demuxer->mWidth,
-					demuxer->mHeight, demuxer->mCropLeft,
-					demuxer->mCropRight, demuxer->mCropTop,
-					demuxer->mCropBottom,
-					demuxer->mSarWidth,
-					demuxer->mSarHeight);
-		}
+	ret = pdraw_videoDimensionsFromH264Sps(info->h264.sps,
+		info->h264.spslen,
+		&demuxer->mWidth, &demuxer->mHeight,
+		&demuxer->mCropLeft, &demuxer->mCropRight,
+		&demuxer->mCropTop, &demuxer->mCropBottom,
+		&demuxer->mSarWidth, &demuxer->mSarHeight);
+	if (ret != 0) {
+		ULOGW("StreamDemuxer: "
+			"pdraw_videoDimensionsFromH264Sps() "
+			"failed (%d)", ret);
+	} else {
+		VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
+		if (vm)
+			vm->setDimensions(demuxer->mWidth,
+				demuxer->mHeight, demuxer->mCropLeft,
+				demuxer->mCropRight, demuxer->mCropTop,
+				demuxer->mCropBottom,
+				demuxer->mSarWidth,
+				demuxer->mSarHeight);
 	}
 
-	ret = demuxer->mDecoder->configure(demuxer->mDecoderBitstreamFormat,
-		spsBuffer, (unsigned int)spsSize,
-		ppsBuffer, (unsigned int)ppsSize);
+	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0,
+		info->h264.sps, info->h264.spslen);
+	if (ret < 0) {
+		ULOGW("StreamDemuxer: h264_reader_parse_nalu() "
+			"failed (%d)", ret);
+		return;
+	}
+
+	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0,
+		info->h264.pps, info->h264.ppslen);
+	if (ret < 0) {
+		ULOGW("StreamDemuxer: h264_reader_parse_nalu() "
+			"failed (%d)", ret);
+		return;
+	}
+
+	sps = (uint8_t *)malloc(info->h264.spslen + 4);
+	if (sps == NULL) {
+		ULOGE("RecordDemuxer: SPS buffer allocation failed");
+		return;
+	}
+
+	start = (demuxer->mDecoderBitstreamFormat ==
+		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
+		htonl(0x00000001) : htonl(info->h264.spslen);
+	*((uint32_t*)sps) = start;
+	memcpy(sps + 4, info->h264.sps, info->h264.spslen);
+
+	pps = (uint8_t *)malloc(info->h264.ppslen + 4);
+	if (pps == NULL) {
+		ULOGE("RecordDemuxer: PPS buffer allocation failed");
+		free(sps);
+		return;
+	}
+
+	start = (demuxer->mDecoderBitstreamFormat ==
+		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
+		htonl(0x00000001) : htonl(info->h264.ppslen);
+	*((uint32_t*)pps) = start;
+	memcpy(pps + 4, info->h264.pps, info->h264.ppslen);
+
+	ret = demuxer->mDecoder->configure(
+		demuxer->mDecoderBitstreamFormat,
+		sps, info->h264.spslen + 4,
+		pps, info->h264.ppslen + 4);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: decoder configuration failed (%d)", ret);
-		return ARSTREAM2_ERROR_INVALID_STATE;
 	}
 
-	return ARSTREAM2_OK;
+	free(sps);
+	free(pps);
 }
 
 
-eARSTREAM2_ERROR StreamDemuxer::getAuBufferCallback(
-	uint8_t **auBuffer,
-	int *auBufferSize,
-	void **auBufferUserPtr,
-	void *userPtr)
+void StreamDemuxer::recvFrameCb(
+	struct vstrm_receiver *stream,
+	struct vstrm_frame *frame,
+	void *userdata)
 {
-	eARSTREAM2_ERROR ret = ARSTREAM2_ERROR_RESOURCE_UNAVAILABLE;
-	StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
+	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
 	struct vbuf_buffer *buffer = NULL;
-	int res;
+	uint32_t flags = 0, i;
+	size_t frame_size = 0;
+	uint8_t *buf;
+	ssize_t res;
+	size_t buf_size;
+	int ret;
 
-	if ((demuxer == NULL) || (auBuffer == NULL) || (auBufferSize == 0)) {
+	if ((demuxer == NULL) || (frame == NULL)) {
 		ULOGE("StreamDemuxer: invalid callback params");
-		return ARSTREAM2_ERROR_BAD_PARAMETERS;
+		return;
 	}
 	if (demuxer->mDecoder == NULL) {
 		ULOGE("StreamDemuxer: no decoder configured");
-		return ARSTREAM2_ERROR_INVALID_STATE;
+		return;
 	}
 
+	/* Get a decoder input buffer */
 	if (demuxer->mCurrentBuffer != NULL)
 		buffer = demuxer->mCurrentBuffer;
-	else if ((res = demuxer->mDecoder->getInputBuffer(
+	else if ((ret = demuxer->mDecoder->getInputBuffer(
 		&demuxer->mCurrentBuffer, false)) == 0)
 		buffer = demuxer->mCurrentBuffer;
-	else
-		ULOGW("StreamDemuxer: failed to get an input buffer (%d)", res);
-
-	if (buffer != NULL) {
-		*auBuffer = vbuf_get_ptr(buffer);
-		*auBufferSize = vbuf_get_capacity(buffer);
-		ret = ARSTREAM2_OK;
+	if (buffer == NULL) {
+		ULOGW("StreamDemuxer: failed to get an input buffer (%d)", ret);
+		return;
 	}
 
-	return ret;
-}
-
-
-eARSTREAM2_ERROR StreamDemuxer::auReadyCallback(
-	uint8_t *auBuffer,
-	int auSize,
-	ARSTREAM2_StreamReceiver_AuReadyCallbackTimestamps_t *auTimestamps,
-	eARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE auSyncType,
-	ARSTREAM2_StreamReceiver_AuReadyCallbackMetadata_t *auMetadata,
-	void *auBufferUserPtr,
-	void *userPtr)
-{
-	StreamDemuxer *demuxer = (StreamDemuxer*)userPtr;
-	struct vbuf_buffer* buffer;
-	int err = 0;
-
-	if ((demuxer == NULL) || (auBuffer == NULL) || (auSize == 0)) {
-		ULOGE("StreamDemuxer: invalid callback params");
-		return ARSTREAM2_ERROR_BAD_PARAMETERS;
+	buf = vbuf_get_ptr(buffer);
+	res = vbuf_get_capacity(buffer);
+	if ((buf == NULL) || (res <= 0)) {
+		ULOGE("StreamDemuxer: invalid input buffer");
+		return;
 	}
-	if (demuxer->mDecoder == NULL) {
-		ULOGE("StreamDemuxer: no decoder configured");
-		return ARSTREAM2_ERROR_INVALID_STATE;
-	}
+	buf_size = res;
 
-	switch (auSyncType) {
-	case ARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE_IDR:
-		/* ULOGD("StreamDemuxer: sync: IDR"); */
+	/* Decoder input format */
+	switch(demuxer->mDecoderBitstreamFormat) {
+	case AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM:
+		flags = VSTRM_FRAME_COPY_FLAGS_INSERT_NALU_START_CODE;
 		break;
-	case ARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE_IFRAME:
-		/* ULOGD("StreamDemuxer: sync: IFRAME"); */
+	case AVCDECODER_BITSTREAM_FORMAT_AVCC:
+		flags = VSTRM_FRAME_COPY_FLAGS_INSERT_NALU_SIZE;
 		break;
-	case ARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE_PIR_START:
-		/* ULOGD("StreamDemuxer: sync: PIR_START"); */
-		break;
-	case ARSTREAM2_STREAM_RECEIVER_AU_SYNC_TYPE_NONE:
 	default:
-		break;
+		ULOGE("StreamDemuxer: unsupported decoder "
+			"input bitstream format");
+		return;
 	}
 
-	if (demuxer->mCurrentBuffer == NULL) {
-		ULOGE("StreamDemuxer: no buffer held");
-		return ARSTREAM2_ERROR_INVALID_STATE;
+	/* Get the size of the frame */
+	ret = vstrm_frame_get_size(frame, &frame_size, flags);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("vstrm_frame_get_size", -ret);
+		return;
 	}
 
-	buffer = demuxer->mCurrentBuffer;
+	if ((unsigned)buf_size < frame_size) {
+		ULOGW("StreamDemuxer: input buffer too small (%zi vs. %zu",
+			buf_size, frame_size);
+		return;
+	}
+
+	/* Copy the frame */
+	/* TODO: avoid copy? */
+	ret = vstrm_frame_copy(frame, buf, frame_size, flags);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("vstrm_frame_copy", -ret);
+		return;
+	}
+
 	struct avcdecoder_input_buffer *data =
 		(struct avcdecoder_input_buffer*)vbuf_get_metadata_ptr(buffer);
 	struct timespec t1;
 
-	vbuf_set_size(buffer, auSize);
+	vbuf_set_size(buffer, frame_size);
 	memset(data, 0, sizeof(*data));
-	data->isComplete = (auMetadata->isComplete) ? true : false;
-	data->hasErrors = (auMetadata->hasErrors) ? true : false;
-	data->isRef = (auMetadata->isRef) ? true : false;
+	data->isComplete = (frame->info.complete) ? true : false;
+	data->hasErrors = (frame->info.error) ? true : false;
+	data->isRef = (frame->info.ref) ? true : false;
 	data->isSilent = false; /* TODO */
-	data->auNtpTimestamp = auTimestamps->auNtpTimestamp;
-	data->auNtpTimestampRaw = auTimestamps->auNtpTimestampRaw;
-	data->auNtpTimestampLocal = auTimestamps->auNtpTimestampLocal;
+	data->auNtpTimestamp = frame->timestamp; /* TODO */
+	data->auNtpTimestampRaw = frame->timestamp; /* TODO */
+	data->auNtpTimestampLocal = frame->timestamp; /* TODO */
 	/* TODO: auSyncType */
 
 	/* Metadata */
-	data->hasMetadata = VideoFrameMetadata::decodeMetadata(
-		auMetadata->auMetadata, auMetadata->auMetadataSize,
-		FRAME_METADATA_SOURCE_STREAMING, NULL, &data->metadata);
+	if (frame->metadata.type == VMETA_FRAME_TYPE_V2) {
+		data->hasMetadata = true;
+		data->metadata = frame->metadata.v2;
+	}
 
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 	uint64_t curTime =
@@ -1253,45 +1161,64 @@ eARSTREAM2_ERROR StreamDemuxer::auReadyCallback(
 	data->demuxOutputTimestamp = curTime;
 
 	/* User data */
-	if ((auMetadata->auUserData) && (auMetadata->auUserDataSize > 0)) {
-		err = vbuf_set_userdata_capacity(buffer,
-			auMetadata->auUserDataSize);
-		if (err < auMetadata->auUserDataSize) {
-			ULOGE("StreamDemuxer: failed "
-				"to realloc user data buffer");
-		} else {
-			uint8_t *dstBuf = vbuf_get_userdata_ptr(buffer);
-			memcpy(dstBuf, auMetadata->auUserData,
-				auMetadata->auUserDataSize);
-			vbuf_set_userdata_size(buffer,
-				auMetadata->auUserDataSize);
+	vbuf_set_userdata_size(buffer, 0);
+	for (i = 0; i < frame->nalu_count; i++) {
+		uint8_t nalu_header = *frame->nalus[i].cdata;
+		if ((nalu_header & 0x1F) == 0x06) {
+			/* SEI NAL unit */
+			ret = h264_reader_parse_nalu(demuxer->mH264Reader,
+				0, frame->nalus[i].cdata, frame->nalus[i].len);
+			if (ret < 0)
+				ULOGW("StreamDemuxer: h264_reader_parse_nalu() "
+					"failed (%d)", ret);
+			break;
 		}
-	} else {
-		vbuf_set_userdata_size(buffer, 0);
 	}
 
 	/* TODO: use auNtpTimestamp */
-	demuxer->mCurrentTime = auTimestamps->auNtpTimestampRaw;
+	demuxer->mCurrentTime = frame->timestamp; /* TODO */
 	if (demuxer->mStartTime == 0)
-		demuxer->mStartTime = auTimestamps->auNtpTimestampRaw;
-
-	if (curTime >= demuxer->mLastSessionMetadataFetchTime +
-		DEMUXER_STREAM_SESSION_METADATA_FETCH_INTERVAL) {
-		fetchSessionMetadata(demuxer);
-		demuxer->mLastSessionMetadataFetchTime = curTime;
-	}
+		demuxer->mStartTime = frame->timestamp; /* TODO */
 
 	/* release buffer */
-	err = demuxer->mDecoder->queueInputBuffer(buffer);
-	if (err != 0) {
+	ret = demuxer->mDecoder->queueInputBuffer(buffer);
+	if (ret != 0) {
 		ULOGW("StreamDemuxer: failed to release the input buffer (%d)",
-			err);
+			ret);
 	} else {
 		vbuf_unref(&demuxer->mCurrentBuffer);
 		demuxer->mCurrentBuffer = NULL;
 	}
+}
 
-	return ARSTREAM2_OK;
+
+void StreamDemuxer::sessionMetadataPeerChangedCb(
+	struct vstrm_receiver *stream,
+	const struct vmeta_session *meta,
+	void *userdata)
+{
+	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+
+	if ((demuxer == NULL) || (meta == NULL)) {
+		ULOGE("StreamDemuxer: invalid callback params");
+		return;
+	}
+	if (demuxer->mSession == NULL) {
+		ULOGE("StreamDemuxer: invalid session");
+		return;
+	}
+
+	SessionPeerMetadata *peerMeta = demuxer->mSession->getPeerMetadata();
+	peerMeta->set(meta);
+	if (meta->picture_fov.has_horz)
+		demuxer->mHfov = meta->picture_fov.horz;
+	if (meta->picture_fov.has_vert)
+		demuxer->mVfov = meta->picture_fov.vert;
+	if (demuxer->mDecoder) {
+		VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
+		if (vm)
+			vm->setFov(demuxer->mHfov, demuxer->mVfov);
+	}
 }
 
 } /* namespace Pdraw */

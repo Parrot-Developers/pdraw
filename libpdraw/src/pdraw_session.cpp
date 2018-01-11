@@ -178,13 +178,13 @@ int Session::open(
 
 
 int Session::open(
-	const std::string &srcAddr,
-	const std::string &ifaceAddr,
-	int srcStreamPort,
-	int srcControlPort,
-	int dstStreamPort,
-	int dstControlPort,
-	int qosMode)
+	const std::string &localAddr,
+	int localStreamPort,
+	int localControlPort,
+	const std::string &remoteAddr,
+	int remoteStreamPort,
+	int remoteControlPort,
+	const std::string &ifaceAddr)
 {
 	int ret = 0;
 
@@ -195,33 +195,9 @@ int Session::open(
 		return -1;
 	}
 
-	ret = ((StreamDemuxer*)mDemuxer)->configure(srcAddr, ifaceAddr,
-		srcStreamPort, srcControlPort,
-		dstStreamPort, dstControlPort, qosMode);
-	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
-		delete mDemuxer;
-		mDemuxer = NULL;
-		return -1;
-	}
-
-	return addMediaFromDemuxer();
-}
-
-
-int Session::open(
-	void *muxContext)
-{
-	int ret = 0;
-
-	mSessionType = PDRAW_SESSION_TYPE_STREAM;
-	mDemuxer = new StreamDemuxer(this);
-	if (mDemuxer == NULL) {
-		ULOGE("Session: failed to alloc demuxer");
-		return -1;
-	}
-
-	ret = ((StreamDemuxer*)mDemuxer)->configure(muxContext);
+	ret = ((StreamDemuxer*)mDemuxer)->configure(localAddr,
+		localStreamPort, localControlPort, remoteAddr,
+		remoteStreamPort, remoteControlPort, ifaceAddr);
 	if (ret != 0) {
 		ULOGE("Session: failed to configure demuxer");
 		delete mDemuxer;

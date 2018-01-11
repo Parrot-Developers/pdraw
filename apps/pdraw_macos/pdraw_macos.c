@@ -60,10 +60,10 @@ static const struct option long_options[] =
     { "arsdk-start"     , required_argument  , NULL, 'K' },
     { "ip"              , required_argument  , NULL, 'i' },
     { "miface"          , required_argument  , NULL, 'm' },
-    { "srcstrmp"        , required_argument  , NULL, 's' },
-    { "srcctrlp"        , required_argument  , NULL, 'c' },
-    { "dststrmp"        , required_argument  , NULL, 'S' },
-    { "dstctrlp"        , required_argument  , NULL, 'C' },
+    { "rstrmp"          , required_argument  , NULL, 's' },
+    { "rctrlp"          , required_argument  , NULL, 'c' },
+    { "lstrmp"          , required_argument  , NULL, 'S' },
+    { "lctrlp"          , required_argument  , NULL, 'C' },
     { "screstream"      , required_argument  , NULL, 'n' },
     { "hmd"             , required_argument  , NULL, ARGS_ID_HMD },
     { "headtrack"       , no_argument        , NULL, ARGS_ID_HEADTRACK },
@@ -179,10 +179,10 @@ static void usage(int argc, char *argv[])
             "-K | --arsdk-start <ip_address>    ARSDK connection to drone with its IP address (connect only, do not process the stream)\n"
             "-i | --ip <ip_address>             Direct RTP/AVP H.264 reception with an IP address (ports must also be configured)\n"
             "-m | --miface <ip_address>         Multicast interface address (only in case of multicast reception)\n"
-            "-s | --srcstrmp <port>             Source stream port for direct RTP/AVP reception\n"
-            "-c | --srcctrlp <port>             Source control port for direct RTP/AVP reception\n"
-            "-S | --dststrmp <port>             Destination stream port for direct RTP/AVP reception\n"
-            "-C | --dstctrlp <port>             Destination control port for direct RTP/AVP reception\n"
+            "-s | --rstrmp <port>               Remote stream port for direct RTP/AVP reception\n"
+            "-c | --rctrlp <port>               Remote control port for direct RTP/AVP reception\n"
+            "-S | --lstrmp <port>               Local stream port for direct RTP/AVP reception\n"
+            "-C | --lctrlp <port>               Local control port for direct RTP/AVP reception\n"
             "-n | --screstream <ip_address>     Connexion to a RTP restream from a SkyController\n"
             "     --hmd <model>                 HMD distorsion correction with model id (0='Parrot Cockpitglasses', 1='Parrot Cockpitglasses 2')\n"
             "     --headtrack                   Enable headtracking\n"
@@ -210,8 +210,8 @@ static void summary(struct pdraw_app* app)
     else if (app->receiveStream)
     {
         printf("Direct RTP/AVP H.264 reception from address %s\n", app->ipAddr);
-        printf("source ports: %d, %d | destination ports: %d, %d\n\n",
-               app->srcStreamPort, app->srcControlPort, app->dstStreamPort, app->dstControlPort);
+        printf("remote ports: %d, %d | local ports: %d, %d\n\n",
+               app->remoteStreamPort, app->remoteControlPort, app->localStreamPort, app->localControlPort);
     }
     else if (app->playRecord)
     {
@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
     int idx, c;
     struct pdraw_app *app;
 #ifdef BUILD_SDL2
-    int mouseDown = 0, isRecording = 0, fullScreen = 0;
+    int mouseDown = 0, fullScreen = 0;
     int mouseDownX = 0, mouseDownY = 0;
     struct vmeta_euler mouseDownHeadOrientation;
     uint64_t lastRenderTime = 0;
@@ -252,8 +252,8 @@ int main(int argc, char *argv[])
         app->arsdkDiscoveryPort = PDRAW_ARSDK_DISCOVERY_PORT;
         app->arsdkD2CPort = PDRAW_ARSDK_D2C_PORT;
         app->arsdkC2DPort = 0; // Will be read from json
-        app->dstStreamPort = PDRAW_ARSDK_VIDEO_DST_STREAM_PORT;
-        app->dstControlPort = PDRAW_ARSDK_VIDEO_DST_CONTROL_PORT;
+        app->localStreamPort = PDRAW_ARSDK_VIDEO_LOCAL_STREAM_PORT;
+        app->localControlPort = PDRAW_ARSDK_VIDEO_LOCAL_CONTROL_PORT;
         app->run = 1;
         app->speed = 1.0;
         app->speedSign = 1;
@@ -323,19 +323,19 @@ int main(int argc, char *argv[])
                     break;
 
                 case 's':
-                    sscanf(optarg, "%d", &app->srcStreamPort);
+                    sscanf(optarg, "%d", &app->remoteStreamPort);
                     break;
 
                 case 'c':
-                    sscanf(optarg, "%d", &app->srcControlPort);
+                    sscanf(optarg, "%d", &app->remoteControlPort);
                     break;
 
                 case 'S':
-                    sscanf(optarg, "%d", &app->dstStreamPort);
+                    sscanf(optarg, "%d", &app->localStreamPort);
                     break;
 
                 case 'C':
-                    sscanf(optarg, "%d", &app->dstControlPort);
+                    sscanf(optarg, "%d", &app->localControlPort);
                     break;
 
                 case ARGS_ID_HMD:
@@ -614,34 +614,6 @@ int main(int argc, char *argv[])
                             }
                             break;
                         }
-                        case SDLK_r:
-                        {
-                            if (!isRecording)
-                            {
-                                int ret = pdraw_start_recorder(app->pdraw, "record.mp4");
-                                if (ret != 0)
-                                {
-                                    ULOGW("pdraw_start_recorder() failed (%d)", ret);
-                                }
-                                else
-                                {
-                                    isRecording = 1;
-                                }
-                            }
-                            else
-                            {
-                                int ret = pdraw_stop_recorder(app->pdraw);
-                                if (ret != 0)
-                                {
-                                    ULOGW("pdraw_stop_recorder() failed (%d)", ret);
-                                }
-                                else
-                                {
-                                    isRecording = 0;
-                                }
-                            }
-                            break;
-                        }
                         case SDLK_RETURN:
                         {
                             fullScreen ^= 1;
@@ -877,8 +849,8 @@ int startPdraw(struct pdraw_app *app)
         }
         else if (app->receiveStream)
         {
-            ret = pdraw_open_single_stream(app->pdraw, app->ipAddr, app->ifaceAddr, app->srcStreamPort, app->srcControlPort,
-                                           app->dstStreamPort, app->dstControlPort, app->qosMode);
+            ret = pdraw_open_single_stream(app->pdraw, "0.0.0.0", app->localStreamPort, app->localControlPort,
+                                           app->ipAddr, app->remoteStreamPort, app->remoteControlPort, app->ifaceAddr);
         }
         else if (app->playRecord)
         {
@@ -984,8 +956,8 @@ eARDISCOVERY_ERROR ardiscoveryConnectionSendJsonCallback(uint8_t *dataTx, uint32
                               ARDISCOVERY_CONNECTION_JSON_CONTROLLER_NAME_KEY, "PDrAW",
                               ARDISCOVERY_CONNECTION_JSON_CONTROLLER_TYPE_KEY, "Unix",
                               ARDISCOVERY_CONNECTION_JSON_QOS_MODE_KEY, 1,
-                              ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_CLIENT_STREAM_PORT_KEY, app->dstStreamPort,
-                              ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_CLIENT_CONTROL_PORT_KEY, app->dstControlPort,
+                              ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_CLIENT_STREAM_PORT_KEY, app->localStreamPort,
+                              ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_CLIENT_CONTROL_PORT_KEY, app->localControlPort,
                               ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SUPPORTED_METADATA_VERSION_KEY, 1) + 1;
     }
     else
@@ -1033,28 +1005,20 @@ eARDISCOVERY_ERROR ardiscoveryConnectionReceiveJsonCallback(uint8_t *dataRx, uin
                 app->arsdkC2DPort = json_object_get_int(jsonObj_Item);
         }
 
-        /* Find the QoS mode */
-        if (error == 0)
-        {
-            jsonRet = json_object_object_get_ex(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_QOS_MODE_KEY, &jsonObj_Item);
-            if ((jsonRet) && (jsonObj_Item != NULL))
-                app->qosMode = json_object_get_int(jsonObj_Item);
-        }
-
-        /* Find the srcStreamPort */
+        /* Find the remoteStreamPort */
         if (error == 0)
         {
             jsonRet = json_object_object_get_ex(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_STREAM_PORT_KEY, &jsonObj_Item);
             if ((jsonRet) && (jsonObj_Item != NULL))
-                app->srcStreamPort = json_object_get_int(jsonObj_Item);
+                app->remoteStreamPort = json_object_get_int(jsonObj_Item);
         }
 
-        /* Find the srcControlPort */
+        /* Find the remoteControlPort */
         if (error == 0)
         {
             jsonRet = json_object_object_get_ex(jsonObj_All, ARDISCOVERY_CONNECTION_JSON_ARSTREAM2_SERVER_CONTROL_PORT_KEY, &jsonObj_Item);
             if ((jsonRet) && (jsonObj_Item != NULL))
-                app->srcControlPort = json_object_get_int(jsonObj_Item);
+                app->remoteControlPort = json_object_get_int(jsonObj_Item);
         }
     }
     else
@@ -1092,18 +1056,15 @@ int startArnetwork(struct pdraw_app *app)
 
     if (!failed)
     {
-        if (app->qosMode == 1)
+        netAlError = ARNETWORKAL_Manager_SetSendClassSelector(app->arnetworkalManager, ARSAL_SOCKET_CLASS_SELECTOR_CS6);
+        if (netAlError != ARNETWORKAL_OK)
         {
-            netAlError = ARNETWORKAL_Manager_SetSendClassSelector(app->arnetworkalManager, ARSAL_SOCKET_CLASS_SELECTOR_CS6);
-            if (netAlError != ARNETWORKAL_OK)
-            {
-                failed = 1;
-            }
-            netAlError = ARNETWORKAL_Manager_SetRecvClassSelector(app->arnetworkalManager, ARSAL_SOCKET_CLASS_SELECTOR_CS6);
-            if (netAlError != ARNETWORKAL_OK)
-            {
-                failed = 1;
-            }
+            failed = 1;
+        }
+        netAlError = ARNETWORKAL_Manager_SetRecvClassSelector(app->arnetworkalManager, ARSAL_SOCKET_CLASS_SELECTOR_CS6);
+        if (netAlError != ARNETWORKAL_OK)
+        {
+            failed = 1;
         }
     }
 
@@ -1619,10 +1580,10 @@ int skyControllerRestreamConnect(struct pdraw_app *app)
 
     curl_global_cleanup();
 
-    app->srcStreamPort = 5004;
-    app->srcControlPort = 5005;
-    app->dstStreamPort = 55004;
-    app->dstControlPort = 55005;
+    app->remoteStreamPort = 5004;
+    app->remoteControlPort = 5005;
+    app->localStreamPort = 55004;
+    app->localControlPort = 55005;
 
     return failed;
 }

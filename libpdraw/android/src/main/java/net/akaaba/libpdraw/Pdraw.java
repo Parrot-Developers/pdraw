@@ -30,7 +30,6 @@
 package net.akaaba.libpdraw;
 
 import android.view.Surface;
-import com.parrot.mux.Mux;
 import java.nio.ByteBuffer;
 
 public class Pdraw {
@@ -186,28 +185,19 @@ public class Pdraw {
     }
 
     public void open(
-        String srcAddr,
-        String ifaceAddr,
-        int srcStreamPort,
-        int srcControlPort,
-        int dstStreamPort,
-        int dstControlPort,
-        int qosMode) {
+        String localAddr,
+        int localStreamPort,
+        int localControlPort,
+        String remoteAddr,
+        int remoteStreamPort,
+        int remoteControlPort,
+        String ifaceAddr) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeOpenSingleStream(pdrawCtx, srcAddr, ifaceAddr,
-            srcStreamPort, srcControlPort,
-            dstStreamPort, dstControlPort, qosMode);
-    }
-
-    public void open(Mux mux) {
-        if (!isValid()) {
-            throw new RuntimeException("invalid pdraw instance");
-        }
-        Mux.Ref muxRef = mux.newMuxRef();
-        nativeOpenMux(pdrawCtx, muxRef.getCPtr());
-        muxRef.release();
+        nativeOpenSingleStream(pdrawCtx, localAddr,
+            localStreamPort, localControlPort, remoteAddr,
+            remoteStreamPort, remoteControlPort, ifaceAddr);
     }
 
     public void openSdp(String sdp, String ifaceAddr) {
@@ -300,41 +290,6 @@ public class Pdraw {
             throw new RuntimeException("invalid pdraw instance");
         }
         return nativeGetCurrentTime(pdrawCtx);
-    }
-
-    public void startRecorder(String fileName) {
-        if (!isValid()) {
-            throw new RuntimeException("invalid pdraw instance");
-        }
-        nativeStartRecorder(pdrawCtx, fileName);
-    }
-
-    public void stopRecorder() {
-        if (!isValid()) {
-            throw new RuntimeException("invalid pdraw instance");
-        }
-        nativeStopRecorder(pdrawCtx);
-    }
-
-    public void startResender(
-        String dstAddr,
-        String ifaceAddr,
-        int srcStreamPort,
-        int srcControlPort,
-        int dstStreamPort,
-        int dstControlPort) {
-        if (!isValid()) {
-            throw new RuntimeException("invalid pdraw instance");
-        }
-        nativeStartResender(pdrawCtx, dstAddr, ifaceAddr,
-            srcStreamPort, srcControlPort, dstStreamPort, dstControlPort);
-    }
-
-    public void stopResender() {
-        if (!isValid()) {
-            throw new RuntimeException("invalid pdraw instance");
-        }
-        nativeStopResender(pdrawCtx);
     }
 
     public void startRenderer(
@@ -755,17 +710,13 @@ public class Pdraw {
 
     private native int nativeOpenSingleStream(
         long pdrawCtx,
-        String srcAddr,
-        String ifaceAddr,
-        int srcStreamPort,
-        int srcControlPort,
-        int dstStreamPort,
-        int dstControlPort,
-        int qosMode);
-
-    private native int nativeOpenMux(
-        long pdrawCtx,
-        long mux);
+        String localAddr,
+        int localStreamPort,
+        int localControlPort,
+        String remoteAddr,
+        int remoteStreamPort,
+        int remoteControlPort,
+        String ifaceAddr);
 
     private native int nativeOpenSdp(
         long pdrawCtx,
@@ -813,25 +764,6 @@ public class Pdraw {
         long pdrawCtx);
 
     private native long nativeGetCurrentTime(
-        long pdrawCtx);
-
-    private native int nativeStartRecorder(
-        long pdrawCtx,
-        String fileName);
-
-    private native int nativeStopRecorder(
-        long pdrawCtx);
-
-    private native int nativeStartResender(
-        long pdrawCtx,
-        String dstAddr,
-        String ifaceAddr,
-        int srcStreamPort,
-        int srcControlPort,
-        int dstStreamPort,
-        int dstControlPort);
-
-    private native int nativeStopResender(
         long pdrawCtx);
 
     private native int nativeStartRenderer(

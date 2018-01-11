@@ -62,24 +62,25 @@ PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
      * overloaded functions look python string as char*
      */
     int open
-            (char* srcAddr,
-             char* ifaceAddr,
-             int srcStreamPort,
-             int srcControlPort,
-             int dstStreamPort,
-             int dstControlPort,
-             int qosMode)
+            (char* localAddr,
+             int localStreamPort,
+             int localControlPort,
+             char* remoteAddr,
+             int remoteStreamPort,
+             int remoteControlPort,
+             char* ifaceAddr)
      {
 
-         std::string srcAddr_ = srcAddr;
+         std::string localAddr_ = localAddr;
+         std::string remoteAddr_ = remoteAddr;
          std::string ifaceAddr_;
 
          if(ifaceAddr)
             ifaceAddr_ = ifaceAddr;
 
          return self->open(
-            srcAddr_, ifaceAddr_, srcStreamPort, srcControlPort,
-            dstStreamPort, dstControlPort, qosMode);
+            localAddr_, localStreamPort, localControlPort,
+            remoteAddr_, remoteStreamPort, remoteControlPort, ifaceAddr_);
     }
 
     int open (char* url)

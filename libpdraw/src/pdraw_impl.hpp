@@ -55,16 +55,13 @@ public:
 		const std::string &ifaceAddr);
 
 	int open(
-		const std::string &srcAddr,
-		const std::string &ifaceAddr,
-		int srcStreamPort,
-		int srcControlPort,
-		int dstStreamPort,
-		int dstControlPort,
-		int qosMode);
-
-	int open(
-		void *muxContext);
+		const std::string &localAddr,
+		int localStreamPort,
+		int localControlPort,
+		const std::string &remoteAddr,
+		int remoteStreamPort,
+		int remoteControlPort,
+		const std::string &ifaceAddr);
 
 	int openSdp(
 		const std::string &sdp,
@@ -104,23 +101,6 @@ public:
 		void);
 
 	uint64_t getCurrentTime(
-		void);
-
-	int startRecorder(
-		const std::string &fileName);
-
-	int stopRecorder(
-		void);
-
-	int startResender(
-		const std::string &dstAddr,
-		const std::string &ifaceAddr,
-		int srcStreamPort,
-		int srcControlPort,
-		int dstStreamPort,
-		int dstControlPort);
-
-	int stopResender(
 		void);
 
 	int startRenderer(
