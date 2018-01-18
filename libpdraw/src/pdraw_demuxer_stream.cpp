@@ -70,12 +70,17 @@ StreamDemuxer::StreamDemuxer(
 	mCurrentBuffer = NULL;
 	mDecoder = NULL;
 	mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_UNKNOWN;
-	mStartTime = mCurrentTime = 0;
+	mStartTime = 0;
+	mCurrentTime = 0;
+	mDuration = 0;
+	mPausePoint = 0;
+	mNtpToNptOffset = 0;
 	mWidth = mHeight = 0;
 	mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
 	mSarWidth = mSarHeight = 0;
 	mHfov = mVfov = 0.;
 	mRunning = false;
+	mSpeed = 1.0;
 	mFirstFrame = true;
 	mSsrc = 0;
 	memset(&mCodecInfo, 0, sizeof(mCodecInfo));
@@ -255,7 +260,7 @@ int StreamDemuxer::configureSdp(
 	const std::string &ifaceAddr)
 {
 	int ret;
-	char *serverAddr = NULL;
+	char *remoteAddr = NULL;
 	int localStreamPort = 0, localControlPort = 0;
 	int remoteStreamPort = 0, remoteControlPort = 0;
 	struct sdp_session *session = NULL;
@@ -296,23 +301,28 @@ int StreamDemuxer::configureSdp(
 			break;
 		}
 	}
-	serverAddr = (strncmp(session->connection_addr, "0.0.0.0", 7)) ?
+	remoteAddr = (strncmp(session->connection_addr, "0.0.0.0", 7)) ?
 		strdup(session->connection_addr) :
 		strdup(session->server_addr);
-	if (!serverAddr) {
+	if (!remoteAddr) {
 		ULOGE("StreamDemuxer: failed to get server address");
 		return -1;
 	}
+	if (session->range.start.format == SDP_TIME_FORMAT_NPT) {
+		mDuration =
+			(uint64_t)session->range.stop.npt.sec * 1000000 +
+			(uint64_t)session->range.stop.npt.usec;
+	}
 	sdp_session_destroy(session);
 
-	std::string remote(serverAddr);
+	std::string remote(remoteAddr);
 	ret = configureRtpAvp("0.0.0.0", localStreamPort, localControlPort,
 		remote, remoteStreamPort, remoteControlPort, ifaceAddr);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
 	}
 
-	free(serverAddr);
+	free(remoteAddr);
 
 	return ret;
 }
@@ -323,32 +333,27 @@ int StreamDemuxer::configureRtsp(
 	const std::string &ifaceAddr)
 {
 	int ret;
-	char *mediaUrl = NULL, *serverAddr = NULL;
+	char *mediaUrl = NULL, *remoteAddr = NULL;
 	int remoteStreamPort = 0, remoteControlPort = 0, ssrcValid = 0;
 	uint32_t ssrc = 0;
 	char *sdp = NULL;
 	struct sdp_session *session = NULL;
-	struct rtsp_range range;
-	float scale = 1.0;
-	int seq_valid = 0, rtptime_valid = 0;
-	uint16_t seq = 0;
-	uint32_t rtptime = 0;
 
 	ret = rtsp_client_connect(mRtspClient, url.c_str());
 	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_options() failed");
+		ULOGE("StreamDemuxer: rtsp_client_options() failed (%d)", ret);
 		return -1;
 	}
 
 	ret = rtsp_client_options(mRtspClient, 2000);
 	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_options() failed");
+		ULOGE("StreamDemuxer: rtsp_client_options() failed (%d)", ret);
 		return -1;
 	}
 
 	ret = rtsp_client_describe(mRtspClient, &sdp, 2000);
 	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_describe() failed");
+		ULOGE("StreamDemuxer: rtsp_client_describe() failed (%d)", ret);
 		return -1;
 	} else if (!sdp) {
 		ULOGE("StreamDemuxer: failed to get session description");
@@ -395,12 +400,18 @@ int StreamDemuxer::configureRtsp(
 		ULOGE("StreamDemuxer: failed to get media control URL");
 		return -1;
 	}
-	serverAddr = (strncmp(session->connection_addr, "0.0.0.0", 7)) ?
-		strdup(session->connection_addr) : strdup(session->server_addr);
-	if (serverAddr == NULL) {
+	remoteAddr = (strncmp(session->connection_addr, "0.0.0.0", 7)) ?
+		strdup(session->connection_addr) :
+		strdup(session->server_addr);
+	if (remoteAddr == NULL) {
 		ULOGE("StreamDemuxer: failed to get server address");
 		free(mediaUrl);
 		return -1;
+	}
+	if (session->range.start.format == SDP_TIME_FORMAT_NPT) {
+		mDuration =
+			(uint64_t)session->range.stop.npt.sec * 1000000 +
+			(uint64_t)session->range.stop.npt.usec;
 	}
 	sdp_session_destroy(session);
 
@@ -410,8 +421,8 @@ int StreamDemuxer::configureRtsp(
 		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
 		&remoteStreamPort, &remoteControlPort, &ssrcValid, &ssrc, 2000);
 	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_setup() failed");
-		free(serverAddr);
+		ULOGE("StreamDemuxer: rtsp_client_setup() failed (%d)", ret);
+		free(remoteAddr);
 		free(mediaUrl);
 		return -1;
 	}
@@ -419,30 +430,18 @@ int StreamDemuxer::configureRtsp(
 	free(mediaUrl);
 	mSsrc = (ssrcValid) ? ssrc : 0;
 
-	std::string remote(serverAddr);
+	std::string remote(remoteAddr);
 	ret = configureRtpAvp("0.0.0.0",
 		DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
 		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
 		remote, remoteStreamPort, remoteControlPort, ifaceAddr);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
-		free(serverAddr);
+		free(remoteAddr);
 		return -1;
 	}
 
-	free(serverAddr);
-
-	memset(&range, 0, sizeof(range));
-	range.start.format = RTSP_TIME_FORMAT_NPT;
-	range.start.npt.now = 1;
-	range.stop.format = RTSP_TIME_FORMAT_NPT;
-	range.stop.npt.infinity = 1;
-	ret = rtsp_client_play(mRtspClient, &range, &scale,
-		&seq_valid, &seq, &rtptime_valid, &rtptime, 2000);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_play() failed");
-		return -1;
-	}
+	free(remoteAddr);
 
 	mRtspRunning = true;
 
@@ -748,12 +747,42 @@ int StreamDemuxer::play(
 		return -1;
 	}
 
-	if (speed <= 0.) {
+	if (speed == 0.) {
 		return pause();
 	} else {
-		/* TODO */
-
 		mRunning = true;
+		mSpeed = speed;
+
+		if (mRtspRunning) {
+			int seq_valid = 0, rtptime_valid = 0;
+			uint16_t seq = 0;
+			uint32_t rtptime = 0;
+			uint64_t start, ntptime = 0;
+			float scale = mSpeed;
+			struct rtsp_range range;
+			memset(&range, 0, sizeof(range));
+			range.start.format = RTSP_TIME_FORMAT_NPT;
+			range.start.npt.now = 1;
+			range.stop.format = RTSP_TIME_FORMAT_NPT;
+			range.stop.npt.infinity = 1;
+			int ret = rtsp_client_play(mRtspClient,
+				&range, &scale, &seq_valid, &seq,
+				&rtptime_valid, &rtptime, 2000);
+			if (ret != 0) {
+				ULOGE("StreamDemuxer: rtsp_client_play() "
+					"failed (%d)", ret);
+				return -1;
+			}
+			mSpeed = (scale != 0.) ? scale : 1.0;
+			if (rtptime_valid) {
+				ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
+					mReceiver, rtptime);
+			}
+			start = (uint64_t)range.start.npt.sec * 1000000 +
+				(uint64_t)range.start.npt.usec;
+			mNtpToNptOffset = (int64_t)(ntptime * mSpeed) -
+				(int64_t)start;
+		}
 
 		return 0;
 	}
@@ -768,9 +797,20 @@ int StreamDemuxer::pause(
 		return -1;
 	}
 
-	/* TODO */
-
 	mRunning = false;
+
+	if (mRtspRunning) {
+		struct rtsp_range range;
+		memset(&range, 0, sizeof(range));
+		int ret = rtsp_client_pause(mRtspClient, &range, 2000);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_pause() "
+				"failed (%d)", ret);
+			return -1;
+		}
+		mPausePoint = (uint64_t)range.start.npt.sec * 1000000 +
+			(uint64_t)range.start.npt.usec;
+	}
 
 	return 0;
 }
@@ -796,6 +836,58 @@ int StreamDemuxer::previous(
 		return -1;
 	}
 
+	if ((!mRunning) && (mRtspRunning)) {
+		int seq_valid = 0, rtptime_valid = 0;
+		uint16_t seq = 0;
+		uint32_t rtptime = 0;
+		uint64_t start, ntptime = 0;
+		float scale = mSpeed;
+		struct rtsp_range range;
+		memset(&range, 0, sizeof(range));
+		range.start.format = RTSP_TIME_FORMAT_NPT;
+		range.start.npt.sec = mPausePoint / 1000000;
+		range.start.npt.usec = mPausePoint -
+			range.start.npt.sec * 1000000;
+		/* TODO: SMPTE timestamps*/
+		int32_t start_usec = (int32_t)range.start.npt.usec - 2 * 34000;
+		if (start_usec < 0) {
+			if (range.start.npt.sec > 0) {
+				range.start.npt.sec--;
+				range.start.npt.usec = start_usec + 1000000;
+			} else {
+				range.start.npt.sec = 0;
+				range.start.npt.usec = 0;
+			}
+		} else {
+			range.start.npt.usec = start_usec;
+		}
+		range.stop = range.start;
+		range.stop.npt.usec += 4000;
+		if (range.stop.npt.usec >= 1000000) {
+			range.stop.npt.sec++;
+			range.stop.npt.usec -= 1000000;
+		}
+		int ret = rtsp_client_play(mRtspClient,
+			&range, &scale, &seq_valid, &seq,
+			&rtptime_valid, &rtptime, 2000);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_play() "
+				"failed (%d)", ret);
+			return -1;
+		}
+		mSpeed = (scale != 0.) ? scale : 1.0;
+		if (rtptime_valid) {
+			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
+				mReceiver, rtptime);
+		}
+		start = (uint64_t)range.start.npt.sec * 1000000 +
+			(uint64_t)range.start.npt.usec;
+		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) -
+			(int64_t)start;
+		mPausePoint = (uint64_t)range.stop.npt.sec * 1000000 +
+			(uint64_t)range.stop.npt.usec;
+	}
+
 	return 0;
 }
 
@@ -806,6 +898,46 @@ int StreamDemuxer::next(
 	if (!mConfigured) {
 		ULOGE("StreamDemuxer: demuxer is not configured");
 		return -1;
+	}
+
+	if ((!mRunning) && (mRtspRunning)) {
+		int seq_valid = 0, rtptime_valid = 0;
+		uint16_t seq = 0;
+		uint32_t rtptime = 0;
+		uint64_t start, ntptime = 0;
+		float scale = mSpeed;
+		struct rtsp_range range;
+		memset(&range, 0, sizeof(range));
+		range.start.format = RTSP_TIME_FORMAT_NPT;
+		range.start.npt.sec = mPausePoint / 1000000;
+		range.start.npt.usec = mPausePoint -
+			range.start.npt.sec * 1000000;
+		/* TODO: SMPTE timestamps*/
+		range.stop = range.start;
+		range.stop.npt.usec += 1000;
+		if (range.stop.npt.usec >= 1000000) {
+			range.stop.npt.sec++;
+			range.stop.npt.usec -= 1000000;
+		}
+		int ret = rtsp_client_play(mRtspClient,
+			&range, &scale, &seq_valid, &seq,
+			&rtptime_valid, &rtptime, 2000);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_play() "
+				"failed (%d)", ret);
+			return -1;
+		}
+		mSpeed = (scale != 0.) ? scale : 1.0;
+		if (rtptime_valid) {
+			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
+				mReceiver, rtptime);
+		}
+		start = (uint64_t)range.start.npt.sec * 1000000 +
+			(uint64_t)range.start.npt.usec;
+		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) -
+			(int64_t)start;
+		mPausePoint = (uint64_t)range.stop.npt.sec * 1000000 +
+			(uint64_t)range.stop.npt.usec;
 	}
 
 	return 0;
@@ -859,7 +991,41 @@ int StreamDemuxer::seekTo(
 		return -1;
 	}
 
-	return -1;
+	mRunning = true;
+
+	if (mRtspRunning) {
+		int seq_valid = 0, rtptime_valid = 0;
+		uint16_t seq = 0;
+		uint32_t rtptime = 0;
+		uint64_t start, ntptime = 0;
+		float scale = mSpeed;
+		struct rtsp_range range;
+		memset(&range, 0, sizeof(range));
+		range.start.format = RTSP_TIME_FORMAT_NPT;
+		range.start.npt.sec = timestamp / 1000000;
+		range.start.npt.usec = timestamp -
+			range.start.npt.sec * 1000000;
+		range.stop.format = RTSP_TIME_FORMAT_NPT;
+		range.stop.npt.infinity = 1;
+		int ret = rtsp_client_play(mRtspClient,
+			&range, &scale, &seq_valid, &seq,
+			&rtptime_valid, &rtptime, 2000);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_play() "
+				"failed (%d)", ret);
+			return -1;
+		}
+		mSpeed = (scale != 0.) ? scale : 1.0;
+		if (rtptime_valid) {
+			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
+				mReceiver, rtptime);
+		}
+		start = (uint64_t)range.start.npt.sec * 1000000 +
+			(uint64_t)range.start.npt.usec;
+		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) - (int64_t)start;
+	}
+
+	return 0;
 }
 
 
@@ -872,7 +1038,46 @@ int StreamDemuxer::seekForward(
 		return -1;
 	}
 
-	return -1;
+	int64_t ts = (int64_t)mCurrentTime + (int64_t)delta;
+	if (ts < 0)
+		ts = 0;
+	if (ts > (int64_t)mDuration)
+		ts = mDuration;
+
+	mRunning = true;
+	if (mRtspRunning) {
+		int seq_valid = 0, rtptime_valid = 0;
+		uint16_t seq = 0;
+		uint32_t rtptime = 0;
+		uint64_t start, ntptime = 0;
+		float scale = mSpeed;
+		struct rtsp_range range;
+		memset(&range, 0, sizeof(range));
+		range.start.format = RTSP_TIME_FORMAT_NPT;
+		range.start.npt.sec = ts / 1000000;
+		range.start.npt.usec = ts -
+			range.start.npt.sec * 1000000;
+		range.stop.format = RTSP_TIME_FORMAT_NPT;
+		range.stop.npt.infinity = 1;
+		int ret = rtsp_client_play(mRtspClient,
+			&range, &scale, &seq_valid, &seq,
+			&rtptime_valid, &rtptime, 2000);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_play() "
+				"failed (%d)", ret);
+			return -1;
+		}
+		mSpeed = (scale != 0.) ? scale : 1.0;
+		if (rtptime_valid) {
+			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
+				mReceiver, rtptime);
+		}
+		start = (uint64_t)range.start.npt.sec * 1000000 +
+			(uint64_t)range.start.npt.usec;
+		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) - (int64_t)start;
+	}
+
+	return 0;
 }
 
 
@@ -885,14 +1090,63 @@ int StreamDemuxer::seekBack(
 		return -1;
 	}
 
-	return -1;
+	int64_t ts = (int64_t)mCurrentTime - (int64_t)delta;
+	if (ts < 0)
+		ts = 0;
+	if (ts > (int64_t)mDuration)
+		ts = mDuration;
+
+	mRunning = true;
+	if (mRtspRunning) {
+		int seq_valid = 0, rtptime_valid = 0;
+		uint16_t seq = 0;
+		uint32_t rtptime = 0;
+		uint64_t start, ntptime = 0;
+		float scale = mSpeed;
+		struct rtsp_range range;
+		memset(&range, 0, sizeof(range));
+		range.start.format = RTSP_TIME_FORMAT_NPT;
+		range.start.npt.sec = ts / 1000000;
+		range.start.npt.usec = ts -
+			range.start.npt.sec * 1000000;
+		range.stop.format = RTSP_TIME_FORMAT_NPT;
+		range.stop.npt.infinity = 1;
+		int ret = rtsp_client_play(mRtspClient,
+			&range, &scale, &seq_valid, &seq,
+			&rtptime_valid, &rtptime, 2000);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_play() "
+				"failed (%d)", ret);
+			return -1;
+		}
+		mSpeed = (scale != 0.) ? scale : 1.0;
+		if (rtptime_valid) {
+			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
+				mReceiver, rtptime);
+		}
+		start = (uint64_t)range.start.npt.sec * 1000000 +
+			(uint64_t)range.start.npt.usec;
+		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) - (int64_t)start;
+	}
+
+	return 0;
+}
+
+
+uint64_t StreamDemuxer::getDuration(
+	void)
+{
+	return (mDuration != 0) ? mDuration : (uint64_t)-1;
 }
 
 
 uint64_t StreamDemuxer::getCurrentTime(
 	void)
 {
-	return (mStartTime != 0) ? mCurrentTime - mStartTime : 0;
+	if (mRtspRunning)
+		return mCurrentTime;
+	else
+		return (mStartTime != 0) ? mCurrentTime - mStartTime : 0;
 }
 
 
@@ -1318,10 +1572,15 @@ void StreamDemuxer::recvFrameCb(
 		}
 	}
 
-	/* TODO: use auNtpTimestamp */
-	demuxer->mCurrentTime = frame->timestamp; /* TODO */
-	if (demuxer->mStartTime == 0)
-		demuxer->mStartTime = frame->timestamp; /* TODO */
+	if (demuxer->mRtspRunning) {
+		demuxer->mCurrentTime = frame->timestamp * demuxer->mSpeed -
+			demuxer->mNtpToNptOffset;
+	} else {
+		/* TODO: use auNtpTimestamp */
+		demuxer->mCurrentTime = frame->timestamp; /* TODO */
+		if (demuxer->mStartTime == 0)
+			demuxer->mStartTime = frame->timestamp; /* TODO */
+	}
 
 	/* release buffer */
 	ret = demuxer->mDecoder->queueInputBuffer(buffer);

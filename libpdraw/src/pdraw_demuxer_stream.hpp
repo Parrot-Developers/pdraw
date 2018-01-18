@@ -138,9 +138,7 @@ public:
 		bool exact = false);
 
 	uint64_t getDuration(
-		void) {
-		return (uint64_t)-1;
-	}
+		void);
 
 	uint64_t getCurrentTime(
 		void);
@@ -222,7 +220,10 @@ private:
 	bool mFirstFrame;
 	bool mRunning;
 	uint64_t mStartTime;
+	uint64_t mDuration;
 	uint64_t mCurrentTime;
+	uint64_t mPausePoint;
+	int64_t mNtpToNptOffset;
 	unsigned int mWidth;
 	unsigned int mHeight;
 	unsigned int mCropLeft;
@@ -233,6 +234,7 @@ private:
 	unsigned int mSarHeight;
 	float mHfov;
 	float mVfov;
+	float mSpeed;
 };
 
 } /* namespace Pdraw */
