@@ -77,6 +77,7 @@ StreamDemuxer::StreamDemuxer(
 	mHfov = mVfov = 0.;
 	mRunning = false;
 	mFirstFrame = true;
+	mSsrc = 0;
 	memset(&mCodecInfo, 0, sizeof(mCodecInfo));
 
 	const char *userAgent = NULL;
@@ -290,9 +291,15 @@ int StreamDemuxer::configureRtsp(
 {
 	int ret;
 	char *mediaUrl = NULL, *serverAddr = NULL;
-	int remoteStreamPort = 0, remoteControlPort = 0;
+	int remoteStreamPort = 0, remoteControlPort = 0, ssrcValid = 0;
+	uint32_t ssrc = 0;
 	char *sdp = NULL;
 	struct sdp_session *session = NULL;
+	struct rtsp_range range;
+	float scale = 1.0;
+	int seq_valid = 0, rtptime_valid = 0;
+	uint16_t seq = 0;
+	uint32_t rtptime = 0;
 
 	ret = rtsp_client_connect(mRtspClient, url.c_str());
 	if (ret != 0) {
@@ -343,9 +350,10 @@ int StreamDemuxer::configureRtsp(
 	sdp_session_destroy(session);
 
 	ret = rtsp_client_setup(mRtspClient, mediaUrl,
+		RTSP_DELIVERY_UNICAST, RTSP_LOWER_TRANSPORT_UDP,
 		DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
 		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
-		&remoteStreamPort, &remoteControlPort, 2000);
+		&remoteStreamPort, &remoteControlPort, &ssrcValid, &ssrc, 2000);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: rtsp_client_setup() failed");
 		free(serverAddr);
@@ -354,6 +362,7 @@ int StreamDemuxer::configureRtsp(
 	}
 
 	free(mediaUrl);
+	mSsrc = (ssrcValid) ? ssrc : 0;
 
 	std::string remote(serverAddr);
 	ret = configureRtpAvp("0.0.0.0",
@@ -368,7 +377,13 @@ int StreamDemuxer::configureRtsp(
 
 	free(serverAddr);
 
-	ret = rtsp_client_play(mRtspClient, 2000);
+	memset(&range, 0, sizeof(range));
+	range.start.format = RTSP_TIME_FORMAT_NPT;
+	range.start.npt.now = 1;
+	range.stop.format = RTSP_TIME_FORMAT_NPT;
+	range.stop.npt.infinity = 1;
+	ret = rtsp_client_play(mRtspClient, &range, &scale,
+		&seq_valid, &seq, &rtptime_valid, &rtptime, 2000);
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: rtsp_client_play() failed");
 		return -1;

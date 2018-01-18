@@ -214,6 +214,7 @@ private:
 	struct vstrm_receiver *mReceiver;
 	struct h264_reader *mH264Reader;
 	struct vstrm_codec_info mCodecInfo;
+	uint32_t mSsrc;
 	bool mFirstFrame;
 	bool mRunning;
 	uint64_t mStartTime;
