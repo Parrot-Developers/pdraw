@@ -84,7 +84,7 @@ Required packages:
 
 Get the sources:
 
-    $ repo init -u ssh://gerrit-doc.parrot.biz/drones/pdraw/manifest
+    $ repo init -u https://github.com/Akaaba/pdraw_manifest.git
     $ repo sync
 
 Compiling for a Linux PC:
