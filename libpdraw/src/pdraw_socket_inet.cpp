@@ -88,9 +88,11 @@ InetSocket::InetSocket(
 	mLocalAddress.sin_family = AF_INET;
 	inet_aton(mLocalAddressStr.c_str(), &mLocalAddress.sin_addr);
 	mLocalAddress.sin_port = htons(mLocalPort);
-	mRemoteAddress.sin_family = AF_INET;
-	inet_aton(mRemoteAddressStr.c_str(), &mRemoteAddress.sin_addr);
-	mRemoteAddress.sin_port = htons(mRemotePort);
+	if ((!mRemoteAddressStr.empty()) && (mRemotePort != 0)) {
+		mRemoteAddress.sin_family = AF_INET;
+		inet_aton(mRemoteAddressStr.c_str(), &mRemoteAddress.sin_addr);
+		mRemoteAddress.sin_port = htons(mRemotePort);
+	}
 
 	/* Bind to rx address */
 	if (bind(mFd, (const struct sockaddr *)&mLocalAddress,
@@ -223,17 +225,24 @@ ssize_t InetSocket::read(
 	void)
 {
 	ssize_t readlen = 0;
+	struct sockaddr_in srcaddr;
+	socklen_t addrlen = sizeof(srcaddr);
+	memset(&srcaddr, 0, sizeof(srcaddr));
 
 	/* Read data, ignoring interrupts */
 	do {
 		readlen = recvfrom(mFd, mRxBuffer, mRxBufferSize,
-			0, NULL, 0);
+			0, (struct sockaddr *)&srcaddr, &addrlen);
 	} while ((readlen < 0) && (errno == EINTR));
 
 	if (readlen < 0) {
 		readlen = -errno;
 		if (errno != EAGAIN)
 			PDRAW_LOG_FD_ERRNO("recvfrom", mFd, errno);
+	}
+
+	if ((readlen >= 0) && (mRemoteAddress.sin_port == 0)) {
+		mRemoteAddress = srcaddr;
 	}
 
 	return readlen;
