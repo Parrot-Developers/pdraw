@@ -149,6 +149,60 @@ public:
 	}
 
 private:
+	static void onRtspConnectionState(
+		struct rtsp_client *client,
+		enum rtsp_conn_state state,
+		void *userdata);
+
+	static void onRtspOptionsResp(
+		struct rtsp_client *client,
+		enum rtsp_req_status status,
+		uint32_t methods,
+		void *userdata,
+		void *req_userdata);
+
+	static void onRtspDescriptionResp(
+		struct rtsp_client *client,
+		enum rtsp_req_status status,
+		const char *sdp,
+		void *userdata,
+		void *req_userdata);
+
+	static void onRtspSetupResp(
+		struct rtsp_client *client,
+		enum rtsp_req_status status,
+		int server_stream_port,
+		int server_control_port,
+		int ssrc_valid,
+		uint32_t ssrc,
+		void *userdata,
+		void *req_userdata);
+
+	static void onRtspPlayResp(
+		struct rtsp_client *client,
+		enum rtsp_req_status status,
+		const struct rtsp_range *range,
+		float scale,
+		int seq_valid,
+		uint16_t seq,
+		int rtptime_valid,
+		uint32_t rtptime,
+		void *userdata,
+		void *req_userdata);
+
+	static void onRtspPauseResp(
+		struct rtsp_client *client,
+		enum rtsp_req_status status,
+		const struct rtsp_range *range,
+		void *userdata,
+		void *req_userdata);
+
+	static void onRtspTeardownResp(
+		struct rtsp_client *client,
+		enum rtsp_req_status status,
+		void *userdata,
+		void *req_userdata);
+
 	int configureRtpAvp(
 		const std::string &localAddr,
 		int localStreamPort,
@@ -208,6 +262,8 @@ private:
 
 	AvcDecoder *mDecoder;
 	uint32_t mDecoderBitstreamFormat;
+	pthread_mutex_t mDemuxerMutex;
+	pthread_cond_t mDemuxerCond;
 	struct vbuf_buffer *mCurrentBuffer;
 	bool mRtspRunning;
 	struct rtsp_client *mRtspClient;
@@ -235,6 +291,8 @@ private:
 	float mHfov;
 	float mVfov;
 	float mSpeed;
+	std::string mRemoteAddr;
+	std::string mIfaceAddr;
 };
 
 } /* namespace Pdraw */

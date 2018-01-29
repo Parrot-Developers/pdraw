@@ -53,7 +53,16 @@ namespace Pdraw {
 StreamDemuxer::StreamDemuxer(
 	Session *session)
 {
-	int ret;
+	int ret, mutex_created = 0, cond_created = 0;
+	struct rtsp_client_cbs rtspClientCbs = {
+		.connection_state = &onRtspConnectionState,
+		.options_resp = &onRtspOptionsResp,
+		.description_resp = &onRtspDescriptionResp,
+		.setup_resp = &onRtspSetupResp,
+		.play_resp = &onRtspPlayResp,
+		.pause_resp = &onRtspPauseResp,
+		.teardown_resp = &onRtspTeardownResp,
+	};
 
 	if (session == NULL) {
 		ULOGE("StreamDemuxer: invalid session");
@@ -89,9 +98,10 @@ StreamDemuxer::StreamDemuxer(
 	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
 
 	userAgent = selfMeta->getSoftwareVersion().c_str();
-	mRtspClient = rtsp_client_new(userAgent, mSession->getLoop());
-	if (!mRtspClient) {
-		ULOGE("StreamDemuxer: rtsp_client_new() failed");
+	ret = rtsp_client_new(mSession->getLoop(), userAgent, &rtspClientCbs,
+			this, &mRtspClient);
+	if (ret < 0) {
+		ULOG_ERRNO("StreamDemuxer: rtsp_client_new() failed", -ret);
 		goto err;
 	}
 
@@ -105,9 +115,26 @@ StreamDemuxer::StreamDemuxer(
 		goto err;
 	}
 
+	ret = pthread_mutex_init(&mDemuxerMutex, NULL);
+	if (ret != 0) {
+		ULOGE("StreamDemuxer: mutex creation failed (%d)", ret);
+		goto err;
+	}
+	mutex_created = 1;
+	ret = pthread_cond_init(&mDemuxerCond, NULL);
+	if (ret != 0) {
+		ULOGE("StreamDemuxer: cond creation failed (%d)", ret);
+		goto err;
+	}
+	cond_created = 1;
+
 	return;
 
 err:
+	if (mutex_created)
+		pthread_mutex_destroy(&mDemuxerMutex);
+	if (cond_created)
+		pthread_cond_destroy(&mDemuxerCond);
 	if (mH264Reader != NULL) {
 		h264_reader_destroy(mH264Reader);
 		mH264Reader = NULL;
@@ -159,6 +186,9 @@ StreamDemuxer::~StreamDemuxer(
 		delete mControlSock;
 		mControlSock = NULL;
 	}
+
+	pthread_mutex_destroy(&mDemuxerMutex);
+	pthread_cond_destroy(&mDemuxerCond);
 }
 
 
@@ -328,42 +358,81 @@ int StreamDemuxer::configureSdp(
 }
 
 
-int StreamDemuxer::configureRtsp(
-	const std::string &url,
-	const std::string &ifaceAddr)
+void StreamDemuxer::onRtspConnectionState(
+	struct rtsp_client *client,
+	enum rtsp_conn_state state,
+	void *userdata)
 {
-	int ret;
-	char *mediaUrl = NULL, *remoteAddr = NULL;
-	int remoteStreamPort = 0, remoteControlPort = 0, ssrcValid = 0;
-	uint32_t ssrc = 0;
-	char *sdp = NULL;
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	int res = 0;
+
+	switch (state) {
+	case RTSP_CONN_STATE_DISCONNECTED:
+		ULOGI("StreamDemuxer: RTSP disconnected");
+		self->mRtspRunning = false;
+		pthread_cond_signal(&self->mDemuxerCond);
+		break;
+	case RTSP_CONN_STATE_CONNECTING:
+		ULOGI("StreamDemuxer: RTSP connecting");
+		break;
+	case RTSP_CONN_STATE_CONNECTED:
+		ULOGI("StreamDemuxer: RTSP connected");
+
+		res = rtsp_client_options(self->mRtspClient, NULL);
+		if (res != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_options() "
+				"failed (%d)", res);
+		}
+		break;
+	case RTSP_CONN_STATE_DISCONNECTING:
+		ULOGI("StreamDemuxer: RTSP disconnecting");
+		break;
+	}
+}
+
+
+void StreamDemuxer::onRtspOptionsResp(
+	struct rtsp_client *client,
+	enum rtsp_req_status status,
+	uint32_t methods,
+	void *userdata,
+	void *req_userdata)
+{
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	int res = 0;
+
+	if (status != RTSP_REQ_STATUS_OK) {
+		ULOGE("StreamDemuxer: rtsp_client_options() failed");
+		return;
+	}
+
+	res = rtsp_client_describe(self->mRtspClient, NULL);
+	if (res < 0)
+		ULOGE("StreamDemuxer: rtsp_client_describe() failed (%d)", res);
+}
+
+
+void StreamDemuxer::onRtspDescriptionResp(
+	struct rtsp_client *client,
+	enum rtsp_req_status status,
+	const char *sdp,
+	void *userdata,
+	void *req_userdata)
+ {
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	int res = 0;
 	struct sdp_session *session = NULL;
+	char *mediaUrl = NULL, *remoteAddr = NULL;
 
-	ret = rtsp_client_connect(mRtspClient, url.c_str());
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_options() failed (%d)", ret);
-		return -1;
-	}
-
-	ret = rtsp_client_options(mRtspClient, 2000);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_options() failed (%d)", ret);
-		return -1;
-	}
-
-	ret = rtsp_client_describe(mRtspClient, &sdp, 2000);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_describe() failed (%d)", ret);
-		return -1;
-	} else if (!sdp) {
-		ULOGE("StreamDemuxer: failed to get session description");
-		return -1;
+	if (status != RTSP_REQ_STATUS_OK) {
+		ULOGE("StreamDemuxer: rtsp_client_describe() failed");
+		return;
 	}
 
 	session = sdp_description_read(sdp);
 	if (session == NULL) {
 		ULOGE("StreamDemuxer: sdp_description_read() failed");
-		return -1;
+		return;
 	}
 
 	struct sdp_media *media = NULL;
@@ -374,76 +443,170 @@ int StreamDemuxer::configureRtsp(
 			if ((media->h264_fmtp.valid) &&
 				(media->h264_fmtp.sps != NULL) &&
 				(media->h264_fmtp.pps != NULL)) {
-				memset(&mCodecInfo, 0, sizeof(mCodecInfo));
-				mCodecInfo.codec = VSTRM_CODEC_VIDEO_H264;
+				memset(&self->mCodecInfo, 0,
+					sizeof(self->mCodecInfo));
+				self->mCodecInfo.codec = VSTRM_CODEC_VIDEO_H264;
 				if (media->h264_fmtp.sps_size <=
-					sizeof(mCodecInfo.h264.sps)) {
-					memcpy(mCodecInfo.h264.sps,
+					sizeof(self->mCodecInfo.h264.sps)) {
+					memcpy(self->mCodecInfo.h264.sps,
 						media->h264_fmtp.sps,
 						media->h264_fmtp.sps_size);
-					mCodecInfo.h264.spslen =
+					self->mCodecInfo.h264.spslen =
 						media->h264_fmtp.sps_size;
 				}
 				if (media->h264_fmtp.pps_size <=
-					sizeof(mCodecInfo.h264.pps)) {
-					memcpy(mCodecInfo.h264.pps,
+					sizeof(self->mCodecInfo.h264.pps)) {
+					memcpy(self->mCodecInfo.h264.pps,
 						media->h264_fmtp.pps,
 						media->h264_fmtp.pps_size);
-					mCodecInfo.h264.ppslen =
+					self->mCodecInfo.h264.ppslen =
 						media->h264_fmtp.pps_size;
 				}
 			}
 			break;
 		}
 	}
-	if (mediaUrl == NULL) {
-		ULOGE("StreamDemuxer: failed to get media control URL");
-		return -1;
-	}
-	remoteAddr = (strncmp(session->connection_addr, "0.0.0.0", 7)) ?
+	remoteAddr = (strcmp(session->connection_addr, "0.0.0.0") != 0) ?
 		strdup(session->connection_addr) :
 		strdup(session->server_addr);
+	if (mediaUrl == NULL) {
+		ULOGE("StreamDemuxer: failed to get media control URL");
+		return;
+	}
 	if (remoteAddr == NULL) {
 		ULOGE("StreamDemuxer: failed to get server address");
-		free(mediaUrl);
-		return -1;
+		return;
 	}
 	if (session->range.start.format == SDP_TIME_FORMAT_NPT) {
-		mDuration =
+		self->mDuration =
 			(uint64_t)session->range.stop.npt.sec * 1000000 +
 			(uint64_t)session->range.stop.npt.usec;
 	}
 	sdp_session_destroy(session);
 
-	ret = rtsp_client_setup(mRtspClient, mediaUrl,
-		RTSP_DELIVERY_UNICAST, RTSP_LOWER_TRANSPORT_UDP,
-		DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
-		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
-		&remoteStreamPort, &remoteControlPort, &ssrcValid, &ssrc, 2000);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_setup() failed (%d)", ret);
+	res = rtsp_client_setup(self->mRtspClient, mediaUrl,
+			RTSP_DELIVERY_UNICAST, RTSP_LOWER_TRANSPORT_UDP,
+			DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
+			DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT, NULL);
+	if (res != 0) {
+		ULOGE("StreamDemuxer: rtsp_client_setup() failed (%d)", res);
 		free(remoteAddr);
 		free(mediaUrl);
-		return -1;
+		return;
 	}
+
+	self->mRemoteAddr = std::string(remoteAddr);
 
 	free(mediaUrl);
-	mSsrc = (ssrcValid) ? ssrc : 0;
+	free(remoteAddr);
+}
 
-	std::string remote(remoteAddr);
-	ret = configureRtpAvp("0.0.0.0",
+
+void StreamDemuxer::onRtspSetupResp(
+	struct rtsp_client *client,
+	enum rtsp_req_status status,
+	int server_stream_port,
+	int server_control_port,
+	int ssrc_valid,
+	uint32_t ssrc,
+	void *userdata,
+	void *req_userdata)
+{
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	int res = 0;
+
+	self->mSsrc = (ssrc_valid) ? ssrc : 0;
+
+	res = self->configureRtpAvp("0.0.0.0",
 		DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
 		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
-		remote, remoteStreamPort, remoteControlPort, ifaceAddr);
-	if (ret != 0) {
+		self->mRemoteAddr, server_stream_port, server_control_port,
+		self->mIfaceAddr);
+	if (res != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
-		free(remoteAddr);
-		return -1;
+		return;
 	}
 
-	free(remoteAddr);
+	self->mRtspRunning = true;
+	pthread_cond_signal(&self->mDemuxerCond);
+}
 
-	mRtspRunning = true;
+
+void StreamDemuxer::onRtspPlayResp(
+	struct rtsp_client *client,
+	enum rtsp_req_status status,
+	const struct rtsp_range *range,
+	float scale,
+	int seq_valid,
+	uint16_t seq,
+	int rtptime_valid,
+	uint32_t rtptime,
+	void *userdata,
+	void *req_userdata)
+{
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	uint64_t start, ntptime = 0;
+
+	self->mSpeed = (scale != 0.) ? scale : 1.0;
+	if (rtptime_valid) {
+		ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
+			self->mReceiver, rtptime);
+	}
+	start = (uint64_t)range->start.npt.sec * 1000000 +
+		(uint64_t)range->start.npt.usec;
+	self->mNtpToNptOffset = (int64_t)(ntptime * self->mSpeed) -
+		(int64_t)start;
+	self->mPausePoint = (uint64_t)range->stop.npt.sec * 1000000 +
+		(uint64_t)range->stop.npt.usec;
+}
+
+
+void StreamDemuxer::onRtspPauseResp(
+	struct rtsp_client *client,
+	enum rtsp_req_status status,
+	const struct rtsp_range *range,
+	void *userdata,
+	void *req_userdata)
+{
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+
+	self->mPausePoint = (uint64_t)range->start.npt.sec * 1000000 +
+		(uint64_t)range->start.npt.usec;
+}
+
+
+void StreamDemuxer::onRtspTeardownResp(
+	struct rtsp_client *client,
+	enum rtsp_req_status status,
+	void *userdata,
+	void *req_userdata)
+{
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	int res;
+
+	res = rtsp_client_disconnect(self->mRtspClient);
+	if (res != 0) {
+		ULOGE("StreamDemuxer: rtsp_client_disconnect() failed");
+		return;
+	}
+}
+
+
+int StreamDemuxer::configureRtsp(
+	const std::string &url,
+	const std::string &ifaceAddr)
+{
+	int res;
+
+	res = rtsp_client_connect(mRtspClient, url.c_str());
+	if (res != 0) {
+		ULOGE("StreamDemuxer: v() failed (%d)", res);
+		return res;
+	}
+
+	pthread_mutex_lock(&mDemuxerMutex);
+	pthread_cond_wait(&mDemuxerCond, &mDemuxerMutex);
+	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return 0;
 }
@@ -754,10 +917,6 @@ int StreamDemuxer::play(
 		mSpeed = speed;
 
 		if (mRtspRunning) {
-			int seq_valid = 0, rtptime_valid = 0;
-			uint16_t seq = 0;
-			uint32_t rtptime = 0;
-			uint64_t start, ntptime = 0;
 			float scale = mSpeed;
 			struct rtsp_range range;
 			memset(&range, 0, sizeof(range));
@@ -765,23 +924,13 @@ int StreamDemuxer::play(
 			range.start.npt.now = 1;
 			range.stop.format = RTSP_TIME_FORMAT_NPT;
 			range.stop.npt.infinity = 1;
-			int ret = rtsp_client_play(mRtspClient,
-				&range, &scale, &seq_valid, &seq,
-				&rtptime_valid, &rtptime, 2000);
+			int ret = rtsp_client_play(mRtspClient, &range, scale,
+					NULL);
 			if (ret != 0) {
 				ULOGE("StreamDemuxer: rtsp_client_play() "
 					"failed (%d)", ret);
 				return -1;
 			}
-			mSpeed = (scale != 0.) ? scale : 1.0;
-			if (rtptime_valid) {
-				ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
-					mReceiver, rtptime);
-			}
-			start = (uint64_t)range.start.npt.sec * 1000000 +
-				(uint64_t)range.start.npt.usec;
-			mNtpToNptOffset = (int64_t)(ntptime * mSpeed) -
-				(int64_t)start;
 		}
 
 		return 0;
@@ -802,14 +951,12 @@ int StreamDemuxer::pause(
 	if (mRtspRunning) {
 		struct rtsp_range range;
 		memset(&range, 0, sizeof(range));
-		int ret = rtsp_client_pause(mRtspClient, &range, 2000);
+		int ret = rtsp_client_pause(mRtspClient, &range, NULL);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: rtsp_client_pause() "
 				"failed (%d)", ret);
 			return -1;
 		}
-		mPausePoint = (uint64_t)range.start.npt.sec * 1000000 +
-			(uint64_t)range.start.npt.usec;
 	}
 
 	return 0;
@@ -837,10 +984,6 @@ int StreamDemuxer::previous(
 	}
 
 	if ((!mRunning) && (mRtspRunning)) {
-		int seq_valid = 0, rtptime_valid = 0;
-		uint16_t seq = 0;
-		uint32_t rtptime = 0;
-		uint64_t start, ntptime = 0;
 		float scale = mSpeed;
 		struct rtsp_range range;
 		memset(&range, 0, sizeof(range));
@@ -867,25 +1010,12 @@ int StreamDemuxer::previous(
 			range.stop.npt.sec++;
 			range.stop.npt.usec -= 1000000;
 		}
-		int ret = rtsp_client_play(mRtspClient,
-			&range, &scale, &seq_valid, &seq,
-			&rtptime_valid, &rtptime, 2000);
+		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: rtsp_client_play() "
 				"failed (%d)", ret);
 			return -1;
 		}
-		mSpeed = (scale != 0.) ? scale : 1.0;
-		if (rtptime_valid) {
-			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
-				mReceiver, rtptime);
-		}
-		start = (uint64_t)range.start.npt.sec * 1000000 +
-			(uint64_t)range.start.npt.usec;
-		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) -
-			(int64_t)start;
-		mPausePoint = (uint64_t)range.stop.npt.sec * 1000000 +
-			(uint64_t)range.stop.npt.usec;
 	}
 
 	return 0;
@@ -901,10 +1031,6 @@ int StreamDemuxer::next(
 	}
 
 	if ((!mRunning) && (mRtspRunning)) {
-		int seq_valid = 0, rtptime_valid = 0;
-		uint16_t seq = 0;
-		uint32_t rtptime = 0;
-		uint64_t start, ntptime = 0;
 		float scale = mSpeed;
 		struct rtsp_range range;
 		memset(&range, 0, sizeof(range));
@@ -919,25 +1045,12 @@ int StreamDemuxer::next(
 			range.stop.npt.sec++;
 			range.stop.npt.usec -= 1000000;
 		}
-		int ret = rtsp_client_play(mRtspClient,
-			&range, &scale, &seq_valid, &seq,
-			&rtptime_valid, &rtptime, 2000);
+		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: rtsp_client_play() "
 				"failed (%d)", ret);
 			return -1;
 		}
-		mSpeed = (scale != 0.) ? scale : 1.0;
-		if (rtptime_valid) {
-			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
-				mReceiver, rtptime);
-		}
-		start = (uint64_t)range.start.npt.sec * 1000000 +
-			(uint64_t)range.start.npt.usec;
-		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) -
-			(int64_t)start;
-		mPausePoint = (uint64_t)range.stop.npt.sec * 1000000 +
-			(uint64_t)range.stop.npt.usec;
 	}
 
 	return 0;
@@ -955,19 +1068,15 @@ int StreamDemuxer::stop(
 	}
 
 	if ((mRtspClient != NULL) && (mRtspRunning)) {
-		ret = rtsp_client_teardown(mRtspClient, 2000);
+		ret = rtsp_client_teardown(mRtspClient, NULL);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
 			return -1;
 		}
 
-		ret = rtsp_client_disconnect(mRtspClient, 2000);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_disconnect() failed");
-			return -1;
-		}
-
-		mRtspRunning = false;
+		pthread_mutex_lock(&mDemuxerMutex);
+		pthread_cond_wait(&mDemuxerCond, &mDemuxerMutex);
+		pthread_mutex_unlock(&mDemuxerMutex);
 	}
 
 	mRunning = false;
@@ -994,10 +1103,6 @@ int StreamDemuxer::seekTo(
 	mRunning = true;
 
 	if (mRtspRunning) {
-		int seq_valid = 0, rtptime_valid = 0;
-		uint16_t seq = 0;
-		uint32_t rtptime = 0;
-		uint64_t start, ntptime = 0;
 		float scale = mSpeed;
 		struct rtsp_range range;
 		memset(&range, 0, sizeof(range));
@@ -1007,22 +1112,12 @@ int StreamDemuxer::seekTo(
 			range.start.npt.sec * 1000000;
 		range.stop.format = RTSP_TIME_FORMAT_NPT;
 		range.stop.npt.infinity = 1;
-		int ret = rtsp_client_play(mRtspClient,
-			&range, &scale, &seq_valid, &seq,
-			&rtptime_valid, &rtptime, 2000);
+		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: rtsp_client_play() "
 				"failed (%d)", ret);
 			return -1;
 		}
-		mSpeed = (scale != 0.) ? scale : 1.0;
-		if (rtptime_valid) {
-			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
-				mReceiver, rtptime);
-		}
-		start = (uint64_t)range.start.npt.sec * 1000000 +
-			(uint64_t)range.start.npt.usec;
-		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) - (int64_t)start;
 	}
 
 	return 0;
@@ -1046,10 +1141,6 @@ int StreamDemuxer::seekForward(
 
 	mRunning = true;
 	if (mRtspRunning) {
-		int seq_valid = 0, rtptime_valid = 0;
-		uint16_t seq = 0;
-		uint32_t rtptime = 0;
-		uint64_t start, ntptime = 0;
 		float scale = mSpeed;
 		struct rtsp_range range;
 		memset(&range, 0, sizeof(range));
@@ -1059,22 +1150,12 @@ int StreamDemuxer::seekForward(
 			range.start.npt.sec * 1000000;
 		range.stop.format = RTSP_TIME_FORMAT_NPT;
 		range.stop.npt.infinity = 1;
-		int ret = rtsp_client_play(mRtspClient,
-			&range, &scale, &seq_valid, &seq,
-			&rtptime_valid, &rtptime, 2000);
+		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: rtsp_client_play() "
 				"failed (%d)", ret);
 			return -1;
 		}
-		mSpeed = (scale != 0.) ? scale : 1.0;
-		if (rtptime_valid) {
-			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
-				mReceiver, rtptime);
-		}
-		start = (uint64_t)range.start.npt.sec * 1000000 +
-			(uint64_t)range.start.npt.usec;
-		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) - (int64_t)start;
 	}
 
 	return 0;
@@ -1098,10 +1179,6 @@ int StreamDemuxer::seekBack(
 
 	mRunning = true;
 	if (mRtspRunning) {
-		int seq_valid = 0, rtptime_valid = 0;
-		uint16_t seq = 0;
-		uint32_t rtptime = 0;
-		uint64_t start, ntptime = 0;
 		float scale = mSpeed;
 		struct rtsp_range range;
 		memset(&range, 0, sizeof(range));
@@ -1111,22 +1188,12 @@ int StreamDemuxer::seekBack(
 			range.start.npt.sec * 1000000;
 		range.stop.format = RTSP_TIME_FORMAT_NPT;
 		range.stop.npt.infinity = 1;
-		int ret = rtsp_client_play(mRtspClient,
-			&range, &scale, &seq_valid, &seq,
-			&rtptime_valid, &rtptime, 2000);
+		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
 		if (ret != 0) {
 			ULOGE("StreamDemuxer: rtsp_client_play() "
 				"failed (%d)", ret);
 			return -1;
 		}
-		mSpeed = (scale != 0.) ? scale : 1.0;
-		if (rtptime_valid) {
-			ntptime = vstrm_receiver_get_ntp_from_rtp_ts(
-				mReceiver, rtptime);
-		}
-		start = (uint64_t)range.start.npt.sec * 1000000 +
-			(uint64_t)range.start.npt.usec;
-		mNtpToNptOffset = (int64_t)(ntptime * mSpeed) - (int64_t)start;
 	}
 
 	return 0;
