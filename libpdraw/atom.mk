@@ -64,7 +64,7 @@ ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
   LOCAL_CFLAGS += -DUSE_FFMPEG -DUSE_GLES2
   LOCAL_LIBRARIES += \
 	ffmpeg-libav \
-	gl \
+	opengl \
 	glfw3
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
   LOCAL_CFLAGS += -DUSE_MEDIACODEC -DUSE_ANATIVEWINDOW -DUSE_GLES2
