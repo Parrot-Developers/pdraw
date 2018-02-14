@@ -157,13 +157,15 @@ private:
 	static void onRtspOptionsResp(
 		struct rtsp_client *client,
 		enum rtsp_req_status status,
+		int status_code,
 		uint32_t methods,
 		void *userdata,
 		void *req_userdata);
 
-	static void onRtspDescriptionResp(
+	static void onRtspDescribeResp(
 		struct rtsp_client *client,
 		enum rtsp_req_status status,
+		int status_code,
 		const char *sdp,
 		void *userdata,
 		void *req_userdata);
@@ -171,6 +173,7 @@ private:
 	static void onRtspSetupResp(
 		struct rtsp_client *client,
 		enum rtsp_req_status status,
+		int status_code,
 		int server_stream_port,
 		int server_control_port,
 		int ssrc_valid,
@@ -181,6 +184,7 @@ private:
 	static void onRtspPlayResp(
 		struct rtsp_client *client,
 		enum rtsp_req_status status,
+		int status_code,
 		const struct rtsp_range *range,
 		float scale,
 		int seq_valid,
@@ -193,6 +197,7 @@ private:
 	static void onRtspPauseResp(
 		struct rtsp_client *client,
 		enum rtsp_req_status status,
+		int status_code,
 		const struct rtsp_range *range,
 		void *userdata,
 		void *req_userdata);
@@ -200,6 +205,7 @@ private:
 	static void onRtspTeardownResp(
 		struct rtsp_client *client,
 		enum rtsp_req_status status,
+		int status_code,
 		void *userdata,
 		void *req_userdata);
 
