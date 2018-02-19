@@ -34,10 +34,12 @@
 #include <libpomp.h>
 #include <string>
 #include <vector>
+#include "pdraw_settings.hpp"
 #include "pdraw_metadata_session.hpp"
 #include "pdraw_media.hpp"
 #include "pdraw_demuxer.hpp"
 #include "pdraw_renderer.hpp"
+#include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
 
@@ -45,10 +47,10 @@ namespace Pdraw {
 class Settings;
 
 
-class Session {
+class Session : public IPdraw {
 public:
 	Session(
-		Settings *settings);
+		void);
 
 	~Session(
 		void);
@@ -73,6 +75,279 @@ public:
 		const std::string &sdp,
 		const std::string &ifaceAddr);
 
+	int close(
+		void);
+
+	int play(
+		float speed = 1.0f);
+
+	int pause(
+		void);
+
+	bool isPaused(
+		void);
+
+	int previousFrame(
+		void);
+
+	int nextFrame(
+		void);
+
+	int seekTo(
+		uint64_t timestamp,
+		bool exact = false);
+
+	int seekForward(
+		uint64_t delta,
+		bool exact = false);
+
+	int seekBack(
+		uint64_t delta,
+		bool exact = false);
+
+	uint64_t getDuration(
+		void);
+
+	uint64_t getCurrentTime(
+		void);
+
+	int startRenderer(
+		int windowWidth,
+		int windowHeight,
+		int renderX,
+		int renderY,
+		int renderWidth,
+		int renderHeight,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		void *uiHandler);
+
+	int stopRenderer(
+		void);
+
+	int render(
+		uint64_t lastRenderTime);
+
+	enum pdraw_session_type getSessionType(
+		void) {
+		return mSessionType;
+	}
+
+	std::string& getSelfFriendlyName(
+		void);
+
+	void setSelfFriendlyName(
+		const std::string &friendlyName);
+
+	std::string& getSelfSerialNumber(
+		void);
+
+	void setSelfSerialNumber(
+		const std::string &serialNumber);
+
+	std::string& getSelfSoftwareVersion(
+		void);
+
+	void setSelfSoftwareVersion(
+		const std::string &softwareVersion);
+
+	bool isSelfPilot(
+		void);
+
+	void setSelfPilot(
+		bool isPilot);
+
+	void getSelfLocation(
+		struct vmeta_location *loc);
+
+	void setSelfLocation(
+		const struct vmeta_location *loc);
+
+	int getControllerBatteryLevel(
+		void);
+
+	void setControllerBatteryLevel(
+		int batteryLevel);
+
+	void getSelfControllerOrientation(
+		struct vmeta_quaternion *quat);
+
+	void getSelfControllerOrientation(
+		struct vmeta_euler *euler);
+
+	void setSelfControllerOrientation(
+		const struct vmeta_quaternion *quat);
+
+	void setSelfControllerOrientation(
+		const struct vmeta_euler *euler);
+
+	void getSelfHeadOrientation(
+		struct vmeta_quaternion *quat);
+
+	void getSelfHeadOrientation(
+		struct vmeta_euler *euler);
+
+	void setSelfHeadOrientation(
+		const struct vmeta_quaternion *quat);
+
+	void setSelfHeadOrientation(
+		const struct vmeta_euler *euler);
+
+	void getSelfHeadRefOrientation(
+		struct vmeta_quaternion *quat);
+
+	void getSelfHeadRefOrientation(
+		struct vmeta_euler *euler);
+
+	void setSelfHeadRefOrientation(
+		const struct vmeta_quaternion *quat);
+
+	void setSelfHeadRefOrientation(
+		const struct vmeta_euler *euler);
+
+	void resetSelfHeadRefOrientation(
+		void);
+
+	std::string& getPeerFriendlyName(
+		void);
+
+	std::string& getPeerMaker(
+		void);
+
+	std::string& getPeerModel(
+		void);
+
+	std::string& getPeerModelId(
+		void);
+
+	enum pdraw_drone_model getPeerDroneModel(
+		void);
+
+	std::string& getPeerSerialNumber(
+		void);
+
+	std::string& getPeerSoftwareVersion(
+		void);
+
+	std::string& getPeerBuildId(
+		void);
+
+	std::string& getPeerTitle(
+		void);
+
+	std::string& getPeerComment(
+		void);
+
+	std::string& getPeerCopyright(
+		void);
+
+	std::string& getPeerRunDate(
+		void);
+
+	std::string& getPeerRunUuid(
+		void);
+
+	std::string& getPeerMediaDate(
+		void);
+
+	void getPeerTakeoffLocation(
+		struct vmeta_location *loc);
+
+	void setPeerTakeoffLocation(
+		const struct vmeta_location *loc);
+
+	void getPeerHomeLocation(
+		struct vmeta_location *loc);
+
+	void setPeerHomeLocation(
+		const struct vmeta_location *loc);
+
+	uint64_t getPeerRecordingDuration(
+		void);
+
+	void setPeerRecordingDuration(
+		uint64_t duration);
+
+	void getCameraOrientationForHeadtracking(
+		float *pan,
+		float *tilt);
+
+	int getMediaCount(
+		void);
+
+	int getMediaInfo(
+		unsigned int index,
+		struct pdraw_media_info *info);
+
+	void *addVideoFrameFilterCallback(
+		unsigned int mediaId,
+		pdraw_video_frame_filter_callback_t cb,
+		void *userPtr);
+
+	int removeVideoFrameFilterCallback(
+		unsigned int mediaId,
+		void *filterCtx);
+
+	void *addVideoFrameProducer(
+		unsigned int mediaId,
+		bool frameByFrame = false);
+
+	int removeVideoFrameProducer(
+		void *producerCtx);
+
+	/**
+	 * get last frame
+	 *
+	 * timeout: time in microseconds to wait for a frame
+	 *  0: don't wait
+	 * -1: wait forever
+	 * >0: wait time
+	 */
+	int getProducerLastFrame(
+		void *producerCtx,
+		struct pdraw_video_frame *frame,
+		int timeout = 0);
+
+	float getControllerRadarAngleSetting(
+		void);
+
+	void setControllerRadarAngleSetting(
+		float angle);
+
+	void getDisplayScreenSettings(
+		float *xdpi,
+		float *ydpi,
+		float *deviceMargin);
+
+	void setDisplayScreenSettings(
+		float xdpi,
+		float ydpi,
+		float deviceMargin);
+
+	void getHmdDistorsionCorrectionSettings(
+		enum pdraw_hmd_model *hmdModel,
+		float *ipd,
+		float *scale,
+		float *panH,
+		float *panV);
+
+	void setHmdDistorsionCorrectionSettings(
+		enum pdraw_hmd_model hmdModel,
+		float ipd,
+		float scale,
+		float panH,
+		float panV);
+
+	void *getJniEnv(
+		void) {
+		return mJniEnv;
+	}
+
+	void setJniEnv(
+		void *jniEnv) {
+		mJniEnv = jniEnv;
+	}
+
 	Media *addMedia(
 		enum elementary_stream_type esType);
 
@@ -87,26 +362,11 @@ public:
 	int removeMedia(
 		unsigned int index);
 
-	unsigned int getMediaCount(
-		void);
-
 	Media *getMedia(
 		unsigned int index);
 
 	Media *getMediaById(
 		unsigned int id);
-
-	int enableRenderer(
-		void);
-
-	int disableRenderer(
-		void);
-
-	uint64_t getDuration(
-		void);
-
-	uint64_t getCurrentTime(
-		void);
 
 	Demuxer *getDemuxer(
 		void) {
@@ -120,12 +380,7 @@ public:
 
 	Settings *getSettings(
 		void) {
-		return mSettings;
-	}
-
-	enum pdraw_session_type getSessionType(
-		void) {
-		return mSessionType;
+		return &mSettings;
 	}
 
 	SessionSelfMetadata *getSelfMetadata(
@@ -138,25 +393,27 @@ public:
 		return &mPeerMetadata;
 	}
 
-	void getCameraOrientationForHeadtracking(
-		float *pan,
-		float *tilt);
-
 	struct pomp_loop *getLoop() {
 		return mLoop;
 	}
 
-	void *getJniEnv(
+	inline static IPdraw *create(
 		void) {
-		return mJniEnv;
+		return new Session();
 	}
 
-	void setJniEnv(
-		void *jniEnv) {
-		mJniEnv = jniEnv;
+	inline static void release(
+		IPdraw *pdraw) {
+		delete pdraw;
 	}
 
 private:
+	int enableRenderer(
+		void);
+
+	int disableRenderer(
+		void);
+
 	int addMediaFromDemuxer(
 		void);
 
@@ -164,7 +421,7 @@ private:
 		void *ptr);
 
 	enum pdraw_session_type mSessionType;
-	Settings *mSettings;
+	Settings mSettings;
 	SessionSelfMetadata mSelfMetadata;
 	SessionPeerMetadata mPeerMetadata;
 	struct pomp_loop *mLoop;

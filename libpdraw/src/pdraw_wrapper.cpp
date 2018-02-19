@@ -27,7 +27,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_impl.hpp"
+#include "pdraw_session.hpp"
 #include <pdraw/pdraw.h>
 #include <errno.h>
 #include <string>
@@ -50,7 +50,7 @@ static struct pdraw *fromPdraw(
 struct pdraw *pdraw_new(
 	void)
 {
-	return fromPdraw(Pdraw::PdrawImpl::create());
+	return fromPdraw(Pdraw::Session::create());
 }
 
 
@@ -60,7 +60,7 @@ int pdraw_destroy(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	Pdraw::PdrawImpl::release(toPdraw(pdraw));
+	Pdraw::Session::release(toPdraw(pdraw));
 	return 0;
 }
 
