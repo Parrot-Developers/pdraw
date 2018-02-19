@@ -227,6 +227,28 @@ int FfmpegAvcDecoder::configure(
 }
 
 
+int FfmpegAvcDecoder::close(
+	void)
+{
+	if (!mConfigured) {
+		ULOGE("FFmpeg: decoder is not configured");
+		return -1;
+	}
+
+	mThreadShouldStop = true;
+	mConfigured = false;
+
+	if (mInputBufferPool)
+		vbuf_pool_abort(mInputBufferPool);
+	if (mOutputBufferPool)
+		vbuf_pool_abort(mOutputBufferPool);
+	if (mInputBufferQueue)
+		vbuf_queue_abort(mInputBufferQueue);
+
+	return 0;
+}
+
+
 int FfmpegAvcDecoder::getInputBuffer(
 	struct vbuf_buffer **buffer,
 	bool blocking)
@@ -413,29 +435,7 @@ int FfmpegAvcDecoder::releaseOutputBuffer(
 }
 
 
-int FfmpegAvcDecoder::stop(
-	void)
-{
-	if (!mConfigured) {
-		ULOGE("FFmpeg: decoder is not configured");
-		return -1;
-	}
-
-	mThreadShouldStop = true;
-	mConfigured = false;
-
-	if (mInputBufferPool)
-		vbuf_pool_abort(mInputBufferPool);
-	if (mOutputBufferPool)
-		vbuf_pool_abort(mOutputBufferPool);
-	if (mInputBufferQueue)
-		vbuf_queue_abort(mInputBufferQueue);
-
-	return 0;
-}
-
-
-void* FfmpegAvcDecoder::runDecoderThread(
+void *FfmpegAvcDecoder::runDecoderThread(
 	void *ptr)
 {
 	FfmpegAvcDecoder *decoder = (FfmpegAvcDecoder*)ptr;

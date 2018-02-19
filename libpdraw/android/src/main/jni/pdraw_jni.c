@@ -1137,7 +1137,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNextFrame(
 
 
 JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStop(
+Java_net_akaaba_libpdraw_Pdraw_nativeClose(
     JNIEnv *env,
     jobject thizz,
     jlong jctx)
@@ -1150,7 +1150,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStop(
         return (jint)-1;
     }
 
-    return (jint)pdraw_stop(ctx->pdraw);
+    return (jint)pdraw_close(ctx->pdraw);
 }
 
 

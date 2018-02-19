@@ -76,6 +76,10 @@ int pdraw_open_sdp(
 	const char *ifaceAddr);
 
 
+int pdraw_close(
+	struct pdraw *pdraw);
+
+
 int pdraw_play(
 	struct pdraw *pdraw);
 
@@ -99,10 +103,6 @@ int pdraw_previous_frame(
 
 int pdraw_next_frame(
         struct pdraw *pdraw);
-
-
-int pdraw_stop(
-	struct pdraw *pdraw);
 
 
 int pdraw_seek_to(

@@ -86,9 +86,9 @@ Session::~Session(
 	int ret;
 
 	if (mDemuxer != NULL) {
-		int ret = mDemuxer->stop();
+		int ret = mDemuxer->close();
 		if (ret != 0)
-			ULOGE("Session: failed to stop demuxer");
+			ULOGE("Session: failed to close demuxer");
 		else
 			delete mDemuxer;
 	}

@@ -227,6 +227,13 @@ public class Pdraw {
         nativeOpenSdp(pdrawCtx, sdp, ifaceAddr);
     }
 
+    public void close() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        nativeClose(pdrawCtx);
+    }
+
     public void play() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
@@ -268,13 +275,6 @@ public class Pdraw {
             throw new RuntimeException("invalid pdraw instance");
         }
         nativeNextFrame(pdrawCtx);
-    }
-
-    public void stop() {
-        if (!isValid()) {
-            throw new RuntimeException("invalid pdraw instance");
-        }
-        nativeStop(pdrawCtx);
     }
 
     public void seekTo(long timestamp, boolean exact) {
@@ -762,7 +762,7 @@ public class Pdraw {
     private native int nativeNextFrame(
         long pdrawCtx);
 
-    private native int nativeStop(
+    private native int nativeClose(
         long pdrawCtx);
 
     private native int nativeSeekTo(

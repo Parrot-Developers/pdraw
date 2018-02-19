@@ -44,5 +44,5 @@ while True:
         cv2.waitKey(2)
         n += 1
 
-mypdraw.stop()
+mypdraw.close()
 mypdraw.removeVideoFrameProducer(pdrawProd)

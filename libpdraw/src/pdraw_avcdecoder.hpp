@@ -99,6 +99,9 @@ public:
 		const uint8_t *pPps,
 		unsigned int ppsSize) = 0;
 
+	virtual int close(
+		void) = 0;
+
 	virtual int getInputBuffer(
 		struct vbuf_buffer **buffer,
 		bool blocking) = 0;
@@ -119,9 +122,6 @@ public:
 
 	virtual int releaseOutputBuffer(
 		struct vbuf_buffer **buffer) = 0;
-
-	virtual int stop(
-		void) = 0;
 
 	virtual VideoMedia *getVideoMedia(
 		void) = 0;

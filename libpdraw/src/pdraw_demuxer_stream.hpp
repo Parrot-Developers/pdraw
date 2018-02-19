@@ -56,11 +56,6 @@ public:
 		return DEMUXER_TYPE_STREAM;
 	}
 
-	bool isConfigured(
-		void) {
-		return mConfigured;
-	}
-
 	int configure(
 		const std::string &url);
 
@@ -80,6 +75,14 @@ public:
 	int configureWithSdp(
 		const std::string &sdp,
 		const std::string &ifaceAddr);
+
+	bool isConfigured(
+		void) {
+		return mConfigured;
+	}
+
+	int close(
+		void);
 
 	int getElementaryStreamCount(
 		void);
@@ -120,9 +123,6 @@ public:
 		void);
 
 	int next(
-		void);
-
-	int stop(
 		void);
 
 	int seekTo(

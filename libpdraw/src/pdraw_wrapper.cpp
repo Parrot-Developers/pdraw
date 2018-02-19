@@ -127,6 +127,16 @@ int pdraw_open_sdp(
 }
 
 
+int pdraw_close(
+	struct pdraw *pdraw)
+{
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->close();
+}
+
+
 int pdraw_play(
 	struct pdraw *pdraw)
 {
@@ -183,16 +193,6 @@ int pdraw_next_frame(
 		return -EINVAL;
 
 	return toPdraw(pdraw)->nextFrame();
-}
-
-
-int pdraw_stop(
-	struct pdraw *pdraw)
-{
-	if (pdraw == NULL)
-		return -EINVAL;
-
-	return toPdraw(pdraw)->stop();
 }
 
 

@@ -149,9 +149,9 @@ err:
 StreamDemuxer::~StreamDemuxer(
 	void)
 {
-	int ret = stop();
+	int ret = close();
 	if (ret != 0)
-		ULOGE("StreamDemuxer: stop() failed (%d)", ret);
+		ULOGE("StreamDemuxer: close() failed (%d)", ret);
 
 	if (mCurrentBuffer != NULL)
 		vbuf_unref(&mCurrentBuffer);
@@ -800,6 +800,40 @@ int StreamDemuxer::configureWithSdp(
 }
 
 
+int StreamDemuxer::close(
+	void)
+{
+	int ret = 0;
+
+	if (!mConfigured) {
+		ULOGE("StreamDemuxer: demuxer is not configured");
+		return -1;
+	}
+
+	if ((mRtspClient != NULL) && (mRtspRunning)) {
+		ret = rtsp_client_teardown(mRtspClient, NULL);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
+			return -1;
+		}
+
+		pthread_mutex_lock(&mDemuxerMutex);
+		pthread_cond_wait(&mDemuxerCond, &mDemuxerMutex);
+		pthread_mutex_unlock(&mDemuxerMutex);
+	}
+
+	mRunning = false;
+
+	if (mReceiver != NULL) {
+		/* Destroy the receiver */
+		vstrm_receiver_destroy(mReceiver);
+		mReceiver = NULL;
+	}
+
+	return ret;
+}
+
+
 int StreamDemuxer::getElementaryStreamCount(
 	void)
 {
@@ -1093,40 +1127,6 @@ int StreamDemuxer::next(
 	}
 
 	return 0;
-}
-
-
-int StreamDemuxer::stop(
-	void)
-{
-	int ret = 0;
-
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	if ((mRtspClient != NULL) && (mRtspRunning)) {
-		ret = rtsp_client_teardown(mRtspClient, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
-			return -1;
-		}
-
-		pthread_mutex_lock(&mDemuxerMutex);
-		pthread_cond_wait(&mDemuxerCond, &mDemuxerMutex);
-		pthread_mutex_unlock(&mDemuxerMutex);
-	}
-
-	mRunning = false;
-
-	if (mReceiver != NULL) {
-		/* Destroy the receiver */
-		vstrm_receiver_destroy(mReceiver);
-		mReceiver = NULL;
-	}
-
-	return ret;
 }
 
 

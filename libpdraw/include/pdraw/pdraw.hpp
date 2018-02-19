@@ -61,6 +61,9 @@ public:
 		const std::string &sdp,
 		const std::string &ifaceAddr) = 0;
 
+	virtual int close(
+		void) = 0;
+
 	virtual int play(
 		float speed = 1.0f) = 0;
 
@@ -74,9 +77,6 @@ public:
 		void) = 0;
 
 	virtual int nextFrame(
-		void) = 0;
-
-	virtual int stop(
 		void) = 0;
 
 	virtual int seekTo(

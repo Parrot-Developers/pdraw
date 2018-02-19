@@ -354,6 +354,28 @@ int VideoCoreOmxAvcDecoder::configure(
 }
 
 
+int VideoCoreOmxAvcDecoder::close(
+	void)
+{
+	if (!mConfigured) {
+		ULOGE("VideoCoreOmx: decoder is not configured");
+		return -1;
+	}
+
+	/* TODO */
+	mConfigured = false;
+
+	if (mInputBufferPool)
+		vbuf_pool_abort(mInputBufferPool);
+	if (mOutputBufferPool)
+		vbuf_pool_abort(mOutputBufferPool);
+	if (mInputBufferQueue)
+		vbuf_queue_abort(mInputBufferQueue);
+
+	return 0;
+}
+
+
 void VideoCoreOmxAvcDecoder::setRenderer(
 	Renderer *renderer)
 {
@@ -740,28 +762,6 @@ int VideoCoreOmxAvcDecoder::releaseOutputBuffer(
 	}
 
 	vbuf_unref(buffer);
-
-	return 0;
-}
-
-
-int VideoCoreOmxAvcDecoder::stop(
-	void)
-{
-	if (!mConfigured) {
-		ULOGE("VideoCoreOmx: decoder is not configured");
-		return -1;
-	}
-
-	/* TODO */
-	mConfigured = false;
-
-	if (mInputBufferPool)
-		vbuf_pool_abort(mInputBufferPool);
-	if (mOutputBufferPool)
-		vbuf_pool_abort(mOutputBufferPool);
-	if (mInputBufferQueue)
-		vbuf_queue_abort(mInputBufferQueue);
 
 	return 0;
 }

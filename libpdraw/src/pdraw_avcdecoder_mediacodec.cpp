@@ -283,6 +283,35 @@ out:
 }
 
 
+int MediaCodecAvcDecoder::close(
+	void)
+{
+	if (!mConfigured) {
+		ULOGE("MediaCodec: decoder is not configured");
+		return -1;
+	}
+
+	mThreadShouldStop = true;
+	mConfigured = false;
+
+	if (mMcw != NULL) {
+		enum mcw_media_status err = mMcw->mediacodec.stop(mCodec);
+		if (err != MCW_MEDIA_STATUS_OK)
+			ULOGE("MediaCodec: mediacodec.stop() failed (%d)", err);
+	}
+
+	/* TODO */
+	if (mInputBufferPool != NULL)
+		vbuf_pool_abort(mInputBufferPool);
+	if (mOutputBufferPool != NULL)
+		vbuf_pool_abort(mOutputBufferPool);
+	if (mInputBufferQueue != NULL)
+		vbuf_queue_abort(mInputBufferQueue);
+
+	return 0;
+}
+
+
 int MediaCodecAvcDecoder::getInputBuffer(
 	struct vbuf_buffer **buffer,
 	bool blocking)
@@ -476,35 +505,6 @@ int MediaCodecAvcDecoder::releaseOutputBuffer(
 
 	vbuf_mediacodec_set_render_time(*buffer, 0);
 	vbuf_unref(buffer);
-
-	return 0;
-}
-
-
-int MediaCodecAvcDecoder::stop(
-	void)
-{
-	if (!mConfigured) {
-		ULOGE("MediaCodec: decoder is not configured");
-		return -1;
-	}
-
-	mThreadShouldStop = true;
-	mConfigured = false;
-
-	if (mMcw != NULL) {
-		enum mcw_media_status err = mMcw->mediacodec.stop(mCodec);
-		if (err != MCW_MEDIA_STATUS_OK)
-			ULOGE("MediaCodec: mediacodec.stop() failed (%d)", err);
-	}
-
-	/* TODO */
-	if (mInputBufferPool != NULL)
-		vbuf_pool_abort(mInputBufferPool);
-	if (mOutputBufferPool != NULL)
-		vbuf_pool_abort(mOutputBufferPool);
-	if (mInputBufferQueue != NULL)
-		vbuf_queue_abort(mInputBufferQueue);
 
 	return 0;
 }

@@ -136,9 +136,9 @@ RecordDemuxer::~RecordDemuxer(
 {
 	int ret;
 
-	ret = stop();
+	ret = close();
 	if (ret != 0)
-		ULOGE("RecordDemuxer: stop() failed (%d)", ret);
+		ULOGE("RecordDemuxer: close() failed (%d)", ret);
 
 	pthread_mutex_destroy(&mDemuxerMutex);
 
@@ -560,7 +560,7 @@ int RecordDemuxer::next(
 }
 
 
-int RecordDemuxer::stop(
+int RecordDemuxer::close(
 	void)
 {
 	if (!mConfigured) {

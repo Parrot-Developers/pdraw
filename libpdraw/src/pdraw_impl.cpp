@@ -102,6 +102,24 @@ int PdrawImpl::openSdp(
 }
 
 
+int PdrawImpl::close(
+	void)
+{
+	if (mSession.getDemuxer() != NULL) {
+		int ret = mSession.getDemuxer()->close();
+		if (ret != 0) {
+			ULOGE("Failed to close demuxer");
+			return -1;
+		}
+	} else {
+		ULOGE("Invalid demuxer");
+		return -1;
+	}
+
+	return 0;
+}
+
+
 int PdrawImpl::play(
 	float speed)
 {
@@ -173,24 +191,6 @@ int PdrawImpl::nextFrame(
 		int ret = mSession.getDemuxer()->next();
 		if (ret != 0) {
 			ULOGE("Failed to go to next frame in the demuxer");
-			return -1;
-		}
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
-
-	return 0;
-}
-
-
-int PdrawImpl::stop(
-	void)
-{
-	if (mSession.getDemuxer() != NULL) {
-		int ret = mSession.getDemuxer()->stop();
-		if (ret != 0) {
-			ULOGE("Failed to stop demuxer");
 			return -1;
 		}
 	} else {

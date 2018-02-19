@@ -193,6 +193,27 @@ int VideoToolboxAvcDecoder::configure(
 }
 
 
+int VideoToolboxAvcDecoder::close(
+	void)
+{
+	if (!mConfigured) {
+		ULOGE("VideoToolbox: decoder is not configured");
+		return -1;
+	}
+
+	mConfigured = false;
+
+	if (mInputBufferPool)
+		vbuf_pool_abort(mInputBufferPool);
+	if (mOutputBufferPool)
+		vbuf_pool_abort(mOutputBufferPool);
+	if (mInputBufferQueue)
+		vbuf_queue_abort(mInputBufferQueue);
+
+	return 0;
+}
+
+
 int VideoToolboxAvcDecoder::getInputBuffer(
 	struct vbuf_buffer **buffer,
 	bool blocking)
@@ -442,27 +463,6 @@ int VideoToolboxAvcDecoder::releaseOutputBuffer(
 	}
 
 	vbuf_unref(buffer);
-
-	return 0;
-}
-
-
-int VideoToolboxAvcDecoder::stop(
-	void)
-{
-	if (!mConfigured) {
-		ULOGE("VideoToolbox: decoder is not configured");
-		return -1;
-	}
-
-	mConfigured = false;
-
-	if (mInputBufferPool)
-		vbuf_pool_abort(mInputBufferPool);
-	if (mOutputBufferPool)
-		vbuf_pool_abort(mOutputBufferPool);
-	if (mInputBufferQueue)
-		vbuf_queue_abort(mInputBufferQueue);
 
 	return 0;
 }

@@ -205,9 +205,9 @@ int VideoMedia::disableDecoder(
 		return -1;
 	}
 
-	int ret = ((AvcDecoder*)mDecoder)->stop();
+	int ret = ((AvcDecoder*)mDecoder)->close();
 	if (ret != 0) {
-		ULOGE("VideoMedia: failed to stop AVC decoder (%d)", ret);
+		ULOGE("VideoMedia: failed to close AVC decoder (%d)", ret);
 		return -1;
 	}
 

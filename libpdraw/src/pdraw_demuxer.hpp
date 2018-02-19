@@ -54,11 +54,14 @@ public:
 	virtual enum demuxer_type getType(
 		void) = 0;
 
+	virtual int configure(
+		const std::string &url) = 0;
+
 	virtual bool isConfigured(
 		void) = 0;
 
-	virtual int configure(
-		const std::string &url) = 0;
+	virtual int close(
+		void) = 0;
 
 	virtual int getElementaryStreamCount(
 		void) = 0;
@@ -99,9 +102,6 @@ public:
 		void) = 0;
 
 	virtual int next(
-		void) = 0;
-
-	virtual int stop(
 		void) = 0;
 
 	virtual int seekTo(
