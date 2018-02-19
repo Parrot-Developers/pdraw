@@ -39,7 +39,6 @@ LOCAL_SRC_FILES := \
 	src/pdraw_gles2_hmd_cockpitglasses2_texcoords_green.cpp \
 	src/pdraw_gles2_hmd_cockpitglasses2_texcoords_blue.cpp \
 	src/pdraw_renderer.cpp \
-	src/pdraw_renderer_null.cpp \
 	src/pdraw_renderer_videocoreegl.cpp \
 	src/pdraw_renderer_anativewindow.cpp \
 	src/pdraw_renderer_gles2.cpp \

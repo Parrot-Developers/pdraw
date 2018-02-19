@@ -28,7 +28,6 @@
  */
 
 #include "pdraw_renderer.hpp"
-#include "pdraw_renderer_null.hpp"
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_renderer_videocoreegl.hpp"
 #include "pdraw_renderer_anativewindow.hpp"
@@ -44,7 +43,7 @@ Renderer *Renderer::create(
 #elif defined(USE_GLES2)
 	return new Gles2Renderer(session);
 #else
-	return new NullRenderer(session);
+	return NULL;
 #endif
 }
 
