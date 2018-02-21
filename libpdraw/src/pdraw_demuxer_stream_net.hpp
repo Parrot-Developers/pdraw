@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Demuxer interface
+ * Streaming demuxer, net implementation
  *
  * Copyright (c) 2016 Aurelien Barre
  *
@@ -27,106 +27,64 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DEMUXER_HPP_
-#define _PDRAW_DEMUXER_HPP_
+#ifndef _PDRAW_DEMUXER_STREAM_NET_HPP_
+#define _PDRAW_DEMUXER_STREAM_NET_HPP_
 
-#include "pdraw_media.hpp"
-#include "pdraw_decoder.hpp"
+#include "pdraw_demuxer.hpp"
+#include "pdraw_demuxer_stream.hpp"
+#include "pdraw_socket_inet.hpp"
 #include <string>
 
 namespace Pdraw {
 
 
-enum demuxer_type {
-	DEMUXER_TYPE_RECORD = 0,
-	DEMUXER_TYPE_STREAM,
-};
-
-
-class Session;
-
-
-class Demuxer {
+class StreamDemuxerNet : public StreamDemuxer {
 public:
-	virtual ~Demuxer(
-		void) {}
+	StreamDemuxerNet(
+		Session *session);
 
-	virtual enum demuxer_type getType(
-		void) = 0;
+	~StreamDemuxerNet(
+		void);
 
-	virtual bool isConfigured(
-		void) = 0;
+	int configure(
+		const std::string &url,
+		const std::string &ifaceAddr);
 
-	virtual int close(
-		void) = 0;
+	int configure(
+		const std::string &localAddr,
+		int localStreamPort,
+		int localControlPort,
+		const std::string &remoteAddr,
+		int remoteStreamPort,
+		int remoteControlPort,
+		const std::string &ifaceAddr);
 
-	virtual int getElementaryStreamCount(
-		void) = 0;
+	int configureWithSdp(
+		const std::string &sdp,
+		const std::string &ifaceAddr);
 
-	virtual enum elementary_stream_type getElementaryStreamType(
-		int esIndex) = 0;
+private:
+	int configureRtpAvp(
+		void);
 
-	virtual int getElementaryStreamVideoDimensions(
-		int esIndex,
-		unsigned int *width,
-		unsigned int *height,
-		unsigned int *cropLeft,
-		unsigned int *cropRight,
-		unsigned int *cropTop,
-		unsigned int *cropBottom,
-		unsigned int *sarWidth,
-		unsigned int *sarHeight) = 0;
+	static void dataCb(
+		int fd,
+		uint32_t events,
+		void *userdata);
 
-	virtual int getElementaryStreamVideoFov(
-		int esIndex,
-		float *hfov,
-		float *vfov) = 0;
+	static void ctrlCb(
+		int fd,
+		uint32_t events,
+		void *userdata);
 
-	virtual int setElementaryStreamDecoder(
-		int esIndex,
-		Decoder *decoder) = 0;
+	int sendCtrl(
+		struct vstrm_receiver *stream,
+		struct pomp_buffer *buf);
 
-	virtual int play(
-		float speed = 1.0f) = 0;
-
-	virtual int pause(
-		void) = 0;
-
-	virtual bool isPaused(
-		void) = 0;
-
-	virtual int previous(
-		void) = 0;
-
-	virtual int next(
-		void) = 0;
-
-	virtual int seekTo(
-		uint64_t timestamp,
-		bool exact = false) = 0;
-
-	virtual int seekForward(
-		uint64_t delta,
-		bool exact = false) = 0;
-
-	virtual int seekBack(
-		uint64_t delta,
-		bool exact = false) = 0;
-
-	virtual uint64_t getDuration(
-		void) = 0;
-
-	virtual uint64_t getCurrentTime(
-		void) = 0;
-
-	virtual Session *getSession(
-		void) = 0;
-
-protected:
-	bool mConfigured;
-	Session *mSession;
+	InetSocket *mStreamSock;
+	InetSocket *mControlSock;
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_DEMUXER_HPP_ */
+#endif /* !_PDRAW_DEMUXER_STREAM_NET_HPP_ */

@@ -54,7 +54,7 @@ public:
 	}
 
 	int configure(
-		const std::string &url);
+		const std::string &fileName);
 
 	bool isConfigured(
 		void) {

@@ -37,7 +37,7 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/time.h>
-#include <sys/stat.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include <futils/futils.h>
 #include <string>
@@ -70,11 +70,13 @@ StreamDemuxer::StreamDemuxer(
 	}
 
 	mSession = session;
+	mLocalStreamPort = 0;
+	mLocalControlPort = 0;
+	mRemoteStreamPort = 0;
+	mRemoteControlPort = 0;
 	mConfigured = false;
 	mRtspRunning = false;
 	mRtspClient = NULL;
-	mStreamSock = NULL;
-	mControlSock = NULL;
 	mReceiver = NULL;
 	mCurrentBuffer = NULL;
 	mDecoder = NULL;
@@ -172,116 +174,10 @@ StreamDemuxer::~StreamDemuxer(
 		mH264Reader = NULL;
 	}
 
-	if (mReceiver != NULL) {
-		vstrm_receiver_destroy(mReceiver);
-		mReceiver = NULL;
-	}
-
-	if (mStreamSock != NULL) {
-		delete mStreamSock;
-		mStreamSock = NULL;
-	}
-
-	if (mControlSock != NULL) {
-		delete mControlSock;
-		mControlSock = NULL;
-	}
+	destroyReceiver();
 
 	pthread_mutex_destroy(&mDemuxerMutex);
 	pthread_cond_destroy(&mDemuxerCond);
-}
-
-
-int StreamDemuxer::configureRtpAvp(
-	const std::string &localAddr,
-	int localStreamPort,
-	int localControlPort,
-	const std::string &remoteAddr,
-	int remoteStreamPort,
-	int remoteControlPort,
-	const std::string &ifaceAddr)
-{
-	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
-	struct vstrm_receiver_cfg cfg;
-	struct vstrm_receiver_cbs cbs;
-	int ret;
-
-	/* Create the sockets */
-	mStreamSock = new InetSocket(localAddr, localStreamPort,
-		remoteAddr, remoteStreamPort,
-		mSession->getLoop(), dataCb, this);
-	if (mStreamSock == NULL) {
-		ULOGE("StreamDemuxer: failed to create stream socket");
-		ret = -EPROTO;
-		goto error;
-	}
-	mControlSock = new InetSocket(localAddr, localControlPort,
-		remoteAddr, remoteControlPort,
-		mSession->getLoop(), ctrlCb, this);
-	if (mControlSock == NULL) {
-		ULOGE("StreamDemuxer: failed to create control socket");
-		ret = -EPROTO;
-		goto error;
-	}
-
-	/* Create the stream receiver */
-	memset(&cfg, 0, sizeof(cfg));
-	cfg.loop = mSession->getLoop();
-	cfg.flags = VSTRM_RECEIVER_FLAGS_H264_GEN_SKIPPED_P_SLICE |
-			VSTRM_RECEIVER_FLAGS_H264_GEN_GREY_I_FRAME |
-			VSTRM_RECEIVER_FLAGS_ENABLE_RTCP |
-			VSTRM_RECEIVER_FLAGS_ENABLE_RTCP_EXT |
-			VSTRM_RECEIVER_FLAGS_H264_FILTER_SPS_PPS |
-			VSTRM_RECEIVER_FLAGS_H264_FILTER_SEI;
-	strncpy(cfg.self_meta.friendly_name,
-		selfMeta->getFriendlyName().c_str(),
-		sizeof(cfg.self_meta.friendly_name));
-	strncpy(cfg.self_meta.serial_number,
-		selfMeta->getSerialNumber().c_str(),
-		sizeof(cfg.self_meta.serial_number));
-	strncpy(cfg.self_meta.software_version,
-		selfMeta->getSoftwareVersion().c_str(),
-		sizeof(cfg.self_meta.software_version));
-	memset(&cbs, 0, sizeof(cbs));
-	cbs.userdata = this;
-	cbs.send_ctrl = &sendCtrlCb;
-	cbs.codec_info_changed = &codecInfoChangedCb;
-	cbs.recv_frame = &recvFrameCb;
-	cbs.session_metadata_peer_changed = sessionMetadataPeerChangedCb;
-	ret = vstrm_receiver_new(&cfg, &cbs, &mReceiver);
-	if (ret < 0) {
-		mReceiver = NULL;
-		ULOGE("StreamDemuxer: vstrm_receiver_new() failed (%d)", ret);
-		goto error;
-	}
-
-	/* Provide the SPS/PPS out of band if available */
-	if (mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) {
-		ret = vstrm_receiver_set_codec_info(mReceiver,
-			&mCodecInfo, mSsrc);
-		if (ret < 0) {
-			ULOGW("StreamDemuxer: vstrm_receiver_set_codec_info() "
-				"failed (%d)", ret);
-		}
-	}
-
-	return 0;
-
-error:
-	if (mReceiver != NULL) {
-		vstrm_receiver_destroy(mReceiver);
-		mReceiver = NULL;
-	}
-	if (mStreamSock != NULL) {
-		delete mStreamSock;
-		mStreamSock = NULL;
-	}
-	if (mControlSock != NULL) {
-		delete mControlSock;
-		mControlSock = NULL;
-	}
-
-	return ret;
 }
 
 
@@ -291,8 +187,6 @@ int StreamDemuxer::configureSdp(
 {
 	int ret;
 	char *remoteAddr = NULL;
-	int localStreamPort = 0, localControlPort = 0;
-	int remoteStreamPort = 0, remoteControlPort = 0;
 	struct sdp_session *session = NULL;
 
 	session = sdp_description_read(sdp.c_str());
@@ -301,11 +195,13 @@ int StreamDemuxer::configureSdp(
 		return -1;
 	}
 
+	mLocalStreamPort = 0;
+	mLocalControlPort = 0;
 	struct sdp_media *media = NULL;
 	list_walk_entry_forward(&session->medias, media, node) {
 		if (media->type == SDP_MEDIA_TYPE_VIDEO) {
-			localStreamPort = media->dst_stream_port;
-			localControlPort = media->dst_control_port;
+			mLocalStreamPort = media->dst_stream_port;
+			mLocalControlPort = media->dst_control_port;
 			if ((media->h264_fmtp.valid) &&
 				(media->h264_fmtp.sps != NULL) &&
 				(media->h264_fmtp.pps != NULL)) {
@@ -345,9 +241,12 @@ int StreamDemuxer::configureSdp(
 	}
 	sdp_session_destroy(session);
 
-	std::string remote(remoteAddr);
-	ret = configureRtpAvp("0.0.0.0", localStreamPort, localControlPort,
-		remote, remoteStreamPort, remoteControlPort, ifaceAddr);
+	mLocalAddr = "0.0.0.0";
+	mRemoteAddr = std::string(remoteAddr);
+	mRemoteStreamPort = 0;
+	mRemoteControlPort = 0;
+	mIfaceAddr = ifaceAddr;
+	ret = configureRtpAvp();
 	if (ret != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
 	}
@@ -441,10 +340,14 @@ void StreamDemuxer::onRtspDescribeResp(
 		return;
 	}
 
+	self->mLocalStreamPort = 0;
+	self->mLocalControlPort = 0;
 	struct sdp_media *media = NULL;
 	list_walk_entry_forward(&session->medias, media, node) {
 		if ((media->type == SDP_MEDIA_TYPE_VIDEO) &&
 			(media->control_url)) {
+			self->mLocalStreamPort = media->dst_stream_port;
+			self->mLocalControlPort = media->dst_control_port;
 			mediaUrl = strdup(media->control_url);
 			if ((media->h264_fmtp.valid) &&
 				(media->h264_fmtp.sps != NULL) &&
@@ -492,10 +395,19 @@ void StreamDemuxer::onRtspDescribeResp(
 	}
 	sdp_session_destroy(session);
 
+	if (self->mLocalStreamPort == 0) {
+		self->mLocalStreamPort =
+			DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
+	}
+	if (self->mLocalControlPort == 0) {
+		self->mLocalControlPort =
+			DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
+	}
+	self->mRemoteAddr = std::string(remoteAddr);
+
 	res = rtsp_client_setup(self->mRtspClient, mediaUrl,
 			RTSP_DELIVERY_UNICAST, RTSP_LOWER_TRANSPORT_UDP,
-			DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
-			DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT, NULL);
+			self->mLocalStreamPort, self->mLocalControlPort, NULL);
 	if (res != 0) {
 		ULOGE("StreamDemuxer: rtsp_client_setup() failed (%d)", res);
 		free(remoteAddr);
@@ -503,8 +415,6 @@ void StreamDemuxer::onRtspDescribeResp(
 		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
-
-	self->mRemoteAddr = std::string(remoteAddr);
 
 	free(mediaUrl);
 	free(remoteAddr);
@@ -534,11 +444,11 @@ void StreamDemuxer::onRtspSetupResp(
 
 	self->mSsrc = (ssrc_valid) ? ssrc : 0;
 
-	res = self->configureRtpAvp("0.0.0.0",
-		DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT,
-		DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT,
-		self->mRemoteAddr, server_stream_port, server_control_port,
-		self->mIfaceAddr);
+	self->mLocalAddr = "0.0.0.0";
+	self->mRemoteStreamPort = server_stream_port;
+	self->mRemoteControlPort = server_control_port;
+
+	res = self->configureRtpAvp();
 	if (res != 0) {
 		ULOGE("StreamDemuxer: configureRtpAvp() failed");
 		pthread_cond_signal(&self->mDemuxerCond);
@@ -637,6 +547,7 @@ int StreamDemuxer::configureRtsp(
 {
 	int res;
 
+	mIfaceAddr = ifaceAddr;
 	res = rtsp_client_connect(mRtspClient, url.c_str());
 	if (res != 0) {
 		ULOGE("StreamDemuxer: v() failed (%d)", res);
@@ -648,155 +559,6 @@ int StreamDemuxer::configureRtsp(
 	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return mRtspRunning ? 0 : -EPROTO;
-}
-
-
-int StreamDemuxer::configure(
-	const std::string &url)
-{
-	return configure(url, "");
-}
-
-
-int StreamDemuxer::configure(
-	const std::string &url,
-	const std::string &ifaceAddr)
-{
-	int ret;
-
-	if (mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is already configured");
-		return -1;
-	}
-	if (mSession == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
-		return -1;
-	}
-
-	std::string ext = url.substr(url.length() - 4, 4);
-	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-	if (url.substr(0, 7) == "rtsp://") {
-		ret = configureRtsp(url, ifaceAddr);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: configureRtsp() failed");
-			return -1;
-		}
-	} else if ((url.substr(0, 7) == "http://") && (ext == ".sdp")) {
-		/* TODO */
-		ULOGE("StreamDemuxer: unsupported URL");
-		return -1;
-	} else if ((url.front() == '/') && (ext == ".sdp")) {
-		struct stat sb;
-		FILE *f = NULL;
-		char *s = NULL;
-
-		f = fopen(url.c_str(), "r");
-		if (f == NULL) {
-			ULOGE("StreamDemuxer: failed to open file '%s'",
-				url.c_str());
-			return -1;
-		}
-
-		ret = fstat(fileno(f), &sb);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: stat failed on file '%s'",
-				url.c_str());
-			return -1;
-		}
-
-		s = (char *)calloc(1, sb.st_size + 1);
-		if (s == NULL) {
-			ULOGE("StreamDemuxer: allocation failed");
-			return -1;
-		}
-
-		ret = fread(s, sb.st_size, 1, f);
-		if (ret != 1) {
-			ULOGE("StreamDemuxer: failed to read "
-				"from the input file");
-			return -1;
-		}
-
-		s[sb.st_size] = '\0';
-		std::string sdp(s);
-		ret = configureSdp(sdp, ifaceAddr);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: configureSdp() failed");
-			return -1;
-		}
-	} else {
-		ULOGE("StreamDemuxer: unsupported URL");
-		return -1;
-	}
-
-	mConfigured = true;
-	ULOGI("StreamDemuxer: demuxer is configured");
-
-	return ret;
-}
-
-
-int StreamDemuxer::configure(
-	const std::string &localAddr,
-	int localStreamPort,
-	int localControlPort,
-	const std::string &remoteAddr,
-	int remoteStreamPort,
-	int remoteControlPort,
-	const std::string &ifaceAddr)
-{
-	int ret;
-
-	if (mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is already configured");
-		return -1;
-	}
-	if (mSession == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
-		return -1;
-	}
-
-	ret = configureRtpAvp(localAddr,
-		localStreamPort, localControlPort, remoteAddr,
-		remoteStreamPort, remoteControlPort, ifaceAddr);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: configureRtpAvp() failed");
-		return -1;
-	}
-
-	mConfigured = true;
-	ULOGI("StreamDemuxer: demuxer is configured");
-
-	return ret;
-}
-
-
-int StreamDemuxer::configureWithSdp(
-	const std::string &sdp,
-	const std::string &ifaceAddr)
-{
-	int ret;
-
-	if (mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is already configured");
-		return -1;
-	}
-	if (mSession == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
-		return -1;
-	}
-
-	ret = configureSdp(sdp, ifaceAddr);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: configureSdp() failed");
-		return -1;
-	}
-
-	mConfigured = true;
-	ULOGI("StreamDemuxer: demuxer is configured");
-
-	return ret;
 }
 
 
@@ -824,11 +586,7 @@ int StreamDemuxer::close(
 
 	mRunning = false;
 
-	if (mReceiver != NULL) {
-		/* Destroy the receiver */
-		vstrm_receiver_destroy(mReceiver);
-		mReceiver = NULL;
-	}
+	destroyReceiver();
 
 	return ret;
 }
@@ -948,7 +706,7 @@ int StreamDemuxer::setElementaryStreamDecoder(
 	}
 
 	/* TODO: handle multiple streams */
-	mDecoder = (AvcDecoder*)decoder;
+	mDecoder = (AvcDecoder *)decoder;
 	uint32_t formatCaps = mDecoder->getInputBitstreamFormatCaps();
 	if (formatCaps & AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) {
 		mDecoderBitstreamFormat =
@@ -1308,7 +1066,7 @@ int StreamDemuxer::configureDecoder(
 	start = (demuxer->mDecoderBitstreamFormat ==
 		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
 		htonl(0x00000001) : htonl(info->h264.spslen);
-	*((uint32_t*)sps_buf) = start;
+	*((uint32_t *)sps_buf) = start;
 	memcpy(sps_buf + 4, info->h264.sps, info->h264.spslen);
 
 	pps_buf = (uint8_t *)malloc(info->h264.ppslen + 4);
@@ -1321,7 +1079,7 @@ int StreamDemuxer::configureDecoder(
 	start = (demuxer->mDecoderBitstreamFormat ==
 		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
 		htonl(0x00000001) : htonl(info->h264.ppslen);
-	*((uint32_t*)pps_buf) = start;
+	*((uint32_t *)pps_buf) = start;
 	memcpy(pps_buf + 4, info->h264.pps, info->h264.ppslen);
 
 	ret = demuxer->mDecoder->configure(
@@ -1339,6 +1097,78 @@ int StreamDemuxer::configureDecoder(
 }
 
 
+int StreamDemuxer::createReceiver(
+	void)
+{
+	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
+	struct vstrm_receiver_cfg cfg;
+	struct vstrm_receiver_cbs cbs;
+	int ret;
+
+	/* Create the stream receiver */
+	memset(&cfg, 0, sizeof(cfg));
+	cfg.loop = mSession->getLoop();
+	cfg.flags = VSTRM_RECEIVER_FLAGS_H264_GEN_SKIPPED_P_SLICE |
+			VSTRM_RECEIVER_FLAGS_H264_GEN_GREY_I_FRAME |
+			VSTRM_RECEIVER_FLAGS_ENABLE_RTCP |
+			VSTRM_RECEIVER_FLAGS_ENABLE_RTCP_EXT |
+			VSTRM_RECEIVER_FLAGS_H264_FILTER_SPS_PPS |
+			VSTRM_RECEIVER_FLAGS_H264_FILTER_SEI;
+	strncpy(cfg.self_meta.friendly_name,
+		selfMeta->getFriendlyName().c_str(),
+		sizeof(cfg.self_meta.friendly_name));
+	strncpy(cfg.self_meta.serial_number,
+		selfMeta->getSerialNumber().c_str(),
+		sizeof(cfg.self_meta.serial_number));
+	strncpy(cfg.self_meta.software_version,
+		selfMeta->getSoftwareVersion().c_str(),
+		sizeof(cfg.self_meta.software_version));
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.userdata = this;
+	cbs.send_ctrl = &sendCtrlCb;
+	cbs.codec_info_changed = &codecInfoChangedCb;
+	cbs.recv_frame = &recvFrameCb;
+	cbs.session_metadata_peer_changed = sessionMetadataPeerChangedCb;
+	ret = vstrm_receiver_new(&cfg, &cbs, &mReceiver);
+	if (ret < 0) {
+		mReceiver = NULL;
+		ULOGE("StreamDemuxerNet: vstrm_receiver_new() failed (%d)", ret);
+		goto error;
+	}
+
+	/* Provide the SPS/PPS out of band if available */
+	if (mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) {
+		ret = vstrm_receiver_set_codec_info(mReceiver,
+			&mCodecInfo, mSsrc);
+		if (ret < 0) {
+			ULOGW("StreamDemuxerNet: vstrm_receiver_set_codec_info() "
+				"failed (%d)", ret);
+		}
+	}
+
+	return 0;
+
+error:
+	destroyReceiver();
+	return ret;
+}
+
+
+int StreamDemuxer::destroyReceiver(
+	void)
+{
+	int res;
+	if (mReceiver != NULL) {
+		/* Destroy the receiver */
+		res = vstrm_receiver_destroy(mReceiver);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("vstrm_receiver_destroy", -res);
+		mReceiver = NULL;
+	}
+	return 0;
+}
+
+
 void StreamDemuxer::h264UserDataSeiCb(
 	struct h264_ctx *ctx,
 	const uint8_t *buf,
@@ -1346,7 +1176,7 @@ void StreamDemuxer::h264UserDataSeiCb(
 	const struct h264_sei_user_data_unregistered *sei,
 	void *userdata)
 {
-	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 	int ret = 0;
 
 	if (demuxer == NULL)
@@ -1373,109 +1203,16 @@ void StreamDemuxer::h264UserDataSeiCb(
 }
 
 
-void StreamDemuxer::dataCb(
-	int fd,
-	uint32_t events,
-	void *userdata)
-{
-	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
-	int res = 0;
-	ssize_t readlen = 0;
-	struct pomp_buffer *buf = NULL;
-	struct timespec ts = { 0, 0 };
-
-	if (demuxer == NULL) {
-		ULOGE("StreamDemuxer: invalid callback params");
-		return;
-	}
-
-	do {
-		/* Read data */
-		readlen = demuxer->mStreamSock->read();
-
-		/* Something read? */
-		if (readlen > 0) {
-			/* TODO: avoid copy */
-			buf = pomp_buffer_new_with_data(
-				demuxer->mStreamSock->getRxBuffer(), readlen);
-			res = time_get_monotonic(&ts);
-			if (res < 0)
-				PDRAW_LOG_ERRNO("time_get_monotonic", -res);
-			res = vstrm_receiver_recv_data(
-				demuxer->mReceiver, buf, &ts);
-			pomp_buffer_unref(buf);
-			buf = NULL;
-			if (res < 0)
-				PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl",
-					-res);
-		} else if (readlen == 0) {
-			/* TODO: EOF */
-		}
-	} while (readlen > 0);
-}
-
-
-void StreamDemuxer::ctrlCb(
-	int fd,
-	uint32_t events,
-	void *userdata)
-{
-	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
-	int res = 0;
-	ssize_t readlen = 0;
-	struct pomp_buffer *buf = NULL;
-	struct timespec ts = { 0, 0 };
-
-	if (demuxer == NULL) {
-		ULOGE("StreamDemuxer: invalid callback params");
-		return;
-	}
-
-	do {
-		/* Read data */
-		readlen = demuxer->mControlSock->read();
-
-		/* Something read? */
-		if (readlen > 0) {
-			/* TODO: avoid copy */
-			buf = pomp_buffer_new_with_data(
-				demuxer->mControlSock->getRxBuffer(), readlen);
-			res = time_get_monotonic(&ts);
-			if (res < 0)
-				PDRAW_LOG_ERRNO("time_get_monotonic", -res);
-			res = vstrm_receiver_recv_ctrl(
-				demuxer->mReceiver, buf, &ts);
-			pomp_buffer_unref(buf);
-			buf = NULL;
-			if (res < 0)
-				PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl",
-					-res);
-		} else if (readlen == 0) {
-			/* TODO: EOF */
-		}
-	} while (readlen > 0);
-}
-
-
 int StreamDemuxer::sendCtrlCb(
 	struct vstrm_receiver *stream,
 	struct pomp_buffer *buf,
 	void *userdata)
 {
-	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
-	const void *cdata = NULL;
-	size_t len = 0;
-	ssize_t writelen = 0;
-
-	if ((demuxer == NULL) || (buf == NULL)) {
+	if (userdata == NULL) {
 		ULOGE("StreamDemuxer: invalid callback params");
 		return -EINVAL;
 	}
-
-	/* Write data */
-	pomp_buffer_get_cdata(buf, &cdata, &len, NULL);
-	writelen = demuxer->mControlSock->write(cdata, len);
-	return (writelen >= 0) ? 0 : (int)writelen;
+	return ((StreamDemuxer *)userdata)->sendCtrl(stream, buf);
 }
 
 
@@ -1484,7 +1221,7 @@ void StreamDemuxer::codecInfoChangedCb(
 	const struct vstrm_codec_info *info,
 	void *userdata)
 {
-	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 	int ret;
 
 	if ((demuxer == NULL) || (info == NULL)) {
@@ -1530,7 +1267,7 @@ void StreamDemuxer::recvFrameCb(
 	struct vstrm_frame *frame,
 	void *userdata)
 {
-	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 	struct vbuf_buffer *buffer = NULL;
 	uint32_t flags = 0, start, i;
 	size_t frame_size = 0;
@@ -1638,7 +1375,7 @@ void StreamDemuxer::recvFrameCb(
 	out_size += frame_size;
 
 	struct avcdecoder_input_buffer *data =
-		(struct avcdecoder_input_buffer*)vbuf_get_metadata_ptr(buffer);
+		(struct avcdecoder_input_buffer *)vbuf_get_metadata_ptr(buffer);
 	struct timespec t1;
 
 	vbuf_set_size(buffer, out_size);
@@ -1705,7 +1442,7 @@ void StreamDemuxer::sessionMetadataPeerChangedCb(
 	const struct vmeta_session *meta,
 	void *userdata)
 {
-	StreamDemuxer *demuxer = (StreamDemuxer*)userdata;
+	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 
 	if ((demuxer == NULL) || (meta == NULL)) {
 		ULOGE("StreamDemuxer: invalid callback params");

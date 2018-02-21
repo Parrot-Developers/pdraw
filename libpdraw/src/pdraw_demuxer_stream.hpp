@@ -32,7 +32,6 @@
 
 #include "pdraw_demuxer.hpp"
 #include "pdraw_avcdecoder.hpp"
-#include "pdraw_socket_inet.hpp"
 #include <video-streaming/vstrm.h>
 #include <librtsp.h>
 #include <libsdp.h>
@@ -48,33 +47,13 @@ public:
 	StreamDemuxer(
 		Session *session);
 
-	~StreamDemuxer(
+	virtual ~StreamDemuxer(
 		void);
 
 	enum demuxer_type getType(
 		void) {
 		return DEMUXER_TYPE_STREAM;
 	}
-
-	int configure(
-		const std::string &url);
-
-	int configure(
-		const std::string &url,
-		const std::string &ifaceAddr);
-
-	int configure(
-		const std::string &localAddr,
-		int localStreamPort,
-		int localControlPort,
-		const std::string &remoteAddr,
-		int remoteStreamPort,
-		int remoteControlPort,
-		const std::string &ifaceAddr);
-
-	int configureWithSdp(
-		const std::string &sdp,
-		const std::string &ifaceAddr);
 
 	bool isConfigured(
 		void) {
@@ -148,6 +127,37 @@ public:
 		return mSession;
 	}
 
+protected:
+	int configureSdp(
+		const std::string &sdp,
+		const std::string &ifaceAddr);
+
+	int configureRtsp(
+		const std::string &url,
+		const std::string &ifaceAddr);
+
+	int createReceiver(
+		void);
+
+	int destroyReceiver(
+		void);
+
+	virtual int configureRtpAvp(
+		void) = 0;
+
+	virtual int sendCtrl(
+		struct vstrm_receiver *stream,
+		struct pomp_buffer *buf) = 0;
+
+	std::string mLocalAddr;
+	int mLocalStreamPort;
+	int mLocalControlPort;
+	std::string mRemoteAddr;
+	int mRemoteStreamPort;
+	int mRemoteControlPort;
+	std::string mIfaceAddr;
+	struct vstrm_receiver *mReceiver;
+
 private:
 	static void onRtspConnectionState(
 		struct rtsp_client *client,
@@ -209,23 +219,6 @@ private:
 		void *userdata,
 		void *req_userdata);
 
-	int configureRtpAvp(
-		const std::string &localAddr,
-		int localStreamPort,
-		int localControlPort,
-		const std::string &remoteAddr,
-		int remoteStreamPort,
-		int remoteControlPort,
-		const std::string &ifaceAddr);
-
-	int configureSdp(
-		const std::string &sdp,
-		const std::string &ifaceAddr);
-
-	int configureRtsp(
-		const std::string &url,
-		const std::string &ifaceAddr);
-
 	static int configureDecoder(
 		StreamDemuxer *demuxer);
 
@@ -234,16 +227,6 @@ private:
 		const uint8_t *buf,
 		size_t len,
 		const struct h264_sei_user_data_unregistered *sei,
-		void *userdata);
-
-	static void dataCb(
-		int fd,
-		uint32_t events,
-		void *userdata);
-
-	static void ctrlCb(
-		int fd,
-		uint32_t events,
 		void *userdata);
 
 	static int sendCtrlCb(
@@ -273,9 +256,6 @@ private:
 	struct vbuf_buffer *mCurrentBuffer;
 	bool mRtspRunning;
 	struct rtsp_client *mRtspClient;
-	InetSocket *mStreamSock;
-	InetSocket *mControlSock;
-	struct vstrm_receiver *mReceiver;
 	struct h264_reader *mH264Reader;
 	struct vstrm_codec_info mCodecInfo;
 	uint32_t mSsrc;
@@ -297,8 +277,6 @@ private:
 	float mHfov;
 	float mVfov;
 	float mSpeed;
-	std::string mRemoteAddr;
-	std::string mIfaceAddr;
 };
 
 } /* namespace Pdraw */

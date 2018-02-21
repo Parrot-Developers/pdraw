@@ -71,9 +71,20 @@ public:
 		int remoteControlPort,
 		const std::string &ifaceAddr);
 
+	int open(
+		const std::string &url,
+		struct mux_ctx *mux);
+
+	int open(
+		struct mux_ctx *mux);
+
 	int openSdp(
 		const std::string &sdp,
 		const std::string &ifaceAddr);
+
+	int openSdp(
+		const std::string &sdp,
+		struct mux_ctx *mux);
 
 	int close(
 		void);

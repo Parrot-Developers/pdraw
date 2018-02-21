@@ -70,10 +70,27 @@ int pdraw_open_single_stream(
 	const char *ifaceAddr);
 
 
+int pdraw_open_url_mux(
+	struct pdraw *pdraw,
+	const char *url,
+	struct mux_ctx *mux);
+
+
+int pdraw_open_single_stream_mux(
+	struct pdraw *pdraw,
+	struct mux_ctx *mux);
+
+
 int pdraw_open_sdp(
 	struct pdraw *pdraw,
 	const char *sdp,
 	const char *ifaceAddr);
+
+
+int pdraw_open_sdp_mux(
+	struct pdraw *pdraw,
+	const char *sdp,
+	struct mux_ctx *mux);
 
 
 int pdraw_close(

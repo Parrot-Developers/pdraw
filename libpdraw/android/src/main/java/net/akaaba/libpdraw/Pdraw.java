@@ -30,6 +30,7 @@
 package net.akaaba.libpdraw;
 
 import android.view.Surface;
+import com.parrot.mux.Mux;
 import java.nio.ByteBuffer;
 
 import static android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar;
@@ -220,11 +221,38 @@ public class Pdraw {
             remoteStreamPort, remoteControlPort, ifaceAddr);
     }
 
+    public void open(String url, Mux mux) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        Mux.Ref muxRef = mux.newMuxRef();
+        nativeOpenUrlMux(pdrawCtx, url, muxRef.getCPtr());
+        muxRef.release();
+    }
+
+    public void open(Mux mux) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        Mux.Ref muxRef = mux.newMuxRef();
+        nativeOpenSingleStreamMux(pdrawCtx, muxRef.getCPtr());
+        muxRef.release();
+    }
+
     public void openSdp(String sdp, String ifaceAddr) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
         nativeOpenSdp(pdrawCtx, sdp, ifaceAddr);
+    }
+
+    public void openSdp(String sdp, Mux mux) {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        Mux.Ref muxRef = mux.newMuxRef();
+        nativeOpenSdpMux(pdrawCtx, sdp, muxRef.getCPtr());
+        muxRef.release();
     }
 
     public void close() {
@@ -738,10 +766,24 @@ public class Pdraw {
         int remoteControlPort,
         String ifaceAddr);
 
+    private native int nativeOpenUrlMux(
+        long pdrawCtx,
+        String url,
+        long mux);
+
+    private native int nativeOpenSingleStreamMux(
+        long pdrawCtx,
+        long mux);
+
     private native int nativeOpenSdp(
         long pdrawCtx,
         String sdp,
         String ifaceAddr);
+
+    private native int nativeOpenSdpMux(
+        long pdrawCtx,
+        String sdp,
+        long mux);
 
     private native int nativePlay(
         long pdrawCtx);

@@ -243,7 +243,7 @@ int RecordDemuxer::fetchSessionMetadata(
 
 
 int RecordDemuxer::configure(
-	const std::string &url)
+	const std::string &fileName)
 {
 	int ret;
 
@@ -252,7 +252,7 @@ int RecordDemuxer::configure(
 		return -1;
 	}
 
-	mFileName = url;
+	mFileName = fileName;
 
 	mDemux = mp4_demux_open(mFileName.c_str());
 	if (mDemux == NULL) {

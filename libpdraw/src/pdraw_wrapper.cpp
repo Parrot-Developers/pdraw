@@ -113,6 +113,30 @@ int pdraw_open_single_stream(
 }
 
 
+int pdraw_open_url_mux(
+	struct pdraw *pdraw,
+	const char *url,
+	struct mux_ctx *mux)
+{
+	if ((pdraw == NULL) || (url == NULL) || (mux == NULL))
+		return -EINVAL;
+
+	std::string u(url);
+	return toPdraw(pdraw)->open(u, mux);
+}
+
+
+int pdraw_open_single_stream_mux(
+	struct pdraw *pdraw,
+	struct mux_ctx *mux)
+{
+	if ((pdraw == NULL) || (mux == NULL))
+		return -EINVAL;
+
+	return toPdraw(pdraw)->open(mux);
+}
+
+
 int pdraw_open_sdp(
 	struct pdraw *pdraw,
 	const char *sdp,
@@ -124,6 +148,19 @@ int pdraw_open_sdp(
 	std::string s(sdp);
 	std::string i(ifaceAddr);
 	return toPdraw(pdraw)->openSdp(s, i);
+}
+
+
+int pdraw_open_sdp_mux(
+	struct pdraw *pdraw,
+	const char *sdp,
+	struct mux_ctx *mux)
+{
+	if ((pdraw == NULL) || (sdp == NULL) || (mux == NULL))
+		return -EINVAL;
+
+	std::string s(sdp);
+	return toPdraw(pdraw)->openSdp(s, mux);
 }
 
 

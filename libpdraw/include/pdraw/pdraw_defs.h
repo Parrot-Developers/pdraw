@@ -34,6 +34,10 @@
 #include <video-metadata/vmeta.h>
 
 
+/* Foward declaration */
+struct mux_ctx;
+
+
 #define PDRAW_PLAY_SPEED_MAX        1000.f
 
 

@@ -952,6 +952,10 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenUrlMcast(
     const char *c_ifaceAddr = (*env)->GetStringUTFChars(env, ifaceAddr, NULL);
 
     ret = pdraw_open_url_mcast(ctx->pdraw, c_url, c_ifaceAddr);
+    if (ret != 0)
+    {
+        LOGE("could not open URL (mcast)");
+    }
 
     (*env)->ReleaseStringUTFChars(env, url, c_url);
     (*env)->ReleaseStringUTFChars(env, ifaceAddr, c_ifaceAddr);
@@ -989,10 +993,71 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenSingleStream(
     ret = pdraw_open_single_stream(ctx->pdraw, c_localAddr,
         (int)localStreamPort, (int)localControlPort, c_remoteAddr,
         (int)remoteStreamPort, (int)remoteControlPort, c_ifaceAddr);
+    if (ret != 0)
+    {
+        LOGE("could not open single stream");
+    }
 
     (*env)->ReleaseStringUTFChars(env, localAddr, c_localAddr);
     (*env)->ReleaseStringUTFChars(env, remoteAddr, c_remoteAddr);
     (*env)->ReleaseStringUTFChars(env, ifaceAddr, c_ifaceAddr);
+
+    return (jint)ret;
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeOpenUrlMux(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jstring url,
+    jlong mux)
+{
+    int ret = 0;
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    const char *c_url = (*env)->GetStringUTFChars(env, url, NULL);
+
+    ret = pdraw_open_url_mux(ctx->pdraw, c_url, (struct mux_ctx *)mux);
+    if (ret != 0)
+    {
+        LOGE("could not open URL (mux)");
+    }
+
+    (*env)->ReleaseStringUTFChars(env, url, c_url);
+
+    return (jint)ret;
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeOpenSingleStreamMux(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jlong mux)
+{
+    int ret = 0;
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    ret = pdraw_open_single_stream_mux(ctx->pdraw, (struct mux_ctx *)mux);
+    if (ret != 0)
+    {
+        LOGE("could not open single stream (mux)");
+    }
 
     return (jint)ret;
 }
@@ -1019,9 +1084,44 @@ Java_net_akaaba_libpdraw_Pdraw_nativeOpenSdp(
     const char *c_ifaceAddr = (*env)->GetStringUTFChars(env, ifaceAddr, NULL);
 
     ret = pdraw_open_sdp(ctx->pdraw, c_sdp, c_ifaceAddr);
+    if (ret != 0)
+    {
+        LOGE("could not open SDP");
+    }
 
     (*env)->ReleaseStringUTFChars(env, sdp, c_sdp);
     (*env)->ReleaseStringUTFChars(env, ifaceAddr, c_ifaceAddr);
+
+    return (jint)ret;
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeOpenSdpMux(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx,
+    jstring sdp,
+    jlong mux)
+{
+    int ret = 0;
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)-1;
+    }
+
+    const char *c_sdp = (*env)->GetStringUTFChars(env, sdp, NULL);
+
+    ret = pdraw_open_sdp_mux(ctx->pdraw, c_sdp, (struct mux_ctx *)mux);
+    if (ret != 0)
+    {
+        LOGE("could not open SDP (mux)");
+    }
+
+    (*env)->ReleaseStringUTFChars(env, sdp, c_sdp);
 
     return (jint)ret;
 }

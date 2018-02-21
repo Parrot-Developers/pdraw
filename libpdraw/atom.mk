@@ -12,6 +12,8 @@ LOCAL_SRC_FILES := \
 	src/pdraw_settings.cpp \
 	src/pdraw_media_video.cpp \
 	src/pdraw_demuxer_stream.cpp \
+	src/pdraw_demuxer_stream_net.cpp \
+	src/pdraw_demuxer_stream_mux.cpp \
 	src/pdraw_demuxer_record.cpp \
 	src/pdraw_socket_inet.cpp \
 	src/pdraw_utils.cpp \
@@ -57,6 +59,9 @@ LOCAL_LIBRARIES := \
 	libsdp \
 	libh264 \
 	eigen
+LOCAL_CONDITIONAL_LIBRARIES := \
+	OPTIONAL:libmux
+
 
 ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
   LOCAL_CFLAGS += -DUSE_FFMPEG -DUSE_GLES2
