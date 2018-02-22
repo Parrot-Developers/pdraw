@@ -46,6 +46,10 @@ namespace Pdraw {
 SessionSelfMetadata::SessionSelfMetadata(
 	void)
 {
+	int res;
+	pthread_mutexattr_t attr;
+	bool mutex_created = false, attr_created = false;
+
 	mIsPilot = true;
 	mLocation.valid = 0;
 	mControllerBatteryLevel = 256;
@@ -62,12 +66,132 @@ SessionSelfMetadata::SessionSelfMetadata(
 	mLastControllerQuatTimestamp = 0;
 	mPrevControllerQuatTimestamp = 0;
 	mTracking = false;
+
+	res = pthread_mutexattr_init(&attr);
+	if (res < 0) {
+		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_init", -res);
+		goto error;
+	}
+	attr_created = true;
+
+	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	if (res < 0) {
+		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_settype", -res);
+		goto error;
+	}
+
+	res = pthread_mutex_init(&mMutex, &attr);
+	if (res < 0) {
+		ULOG_ERRNO("SessionMetadata: pthread_mutex_init", -res);
+		goto error;
+	}
+	mutex_created = true;
+
+	pthread_mutexattr_destroy(&attr);
+	return;
+
+error:
+	if (mutex_created)
+		pthread_mutex_destroy(&mMutex);
+	if (attr_created)
+		pthread_mutexattr_destroy(&attr);
 }
 
 
 SessionSelfMetadata::~SessionSelfMetadata(
 	void)
 {
+	pthread_mutex_destroy(&mMutex);
+}
+
+
+void SessionSelfMetadata::lock(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+}
+
+
+void SessionSelfMetadata::unlock(
+	void)
+{
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+std::string SessionSelfMetadata::getFriendlyName(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+	std::string ret = mFriendlyName;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+void SessionSelfMetadata::setFriendlyName(
+	const std::string& friendlyName)
+{
+	pthread_mutex_lock(&mMutex);
+	mFriendlyName = friendlyName;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+std::string SessionSelfMetadata::getSerialNumber(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+	std::string ret = mSerialNumber;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+void SessionSelfMetadata::setSerialNumber(
+	const std::string& serialNumber)
+{
+	pthread_mutex_lock(&mMutex);
+	mSerialNumber = serialNumber;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+std::string SessionSelfMetadata::getSoftwareVersion(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+	std::string ret = mSoftwareVersion;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+void SessionSelfMetadata::setSoftwareVersion(
+	const std::string& softwareVersion)
+{
+	pthread_mutex_lock(&mMutex);
+	mSoftwareVersion = softwareVersion;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+bool SessionSelfMetadata::isPilot(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+	bool ret = mIsPilot;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+void SessionSelfMetadata::setPilot(
+	bool isPilot)
+{
+	pthread_mutex_lock(&mMutex);
+	mIsPilot = isPilot;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -77,7 +201,9 @@ void SessionSelfMetadata::getLocation(
 	if (!loc)
 		return;
 
+	pthread_mutex_lock(&mMutex);
 	memcpy(loc, &mLocation, sizeof(*loc));
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -87,7 +213,28 @@ void SessionSelfMetadata::setLocation(
 	if (!loc)
 		return;
 
+	pthread_mutex_lock(&mMutex);
 	memcpy(&mLocation, loc, sizeof(*loc));
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+int SessionSelfMetadata::getControllerBatteryLevel(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+	int ret = mControllerBatteryLevel;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+void SessionSelfMetadata::setControllerBatteryLevel(
+	int batteryLevel)
+{
+	pthread_mutex_lock(&mMutex);
+	mControllerBatteryLevel = batteryLevel;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -97,12 +244,15 @@ bool SessionSelfMetadata::getControllerOrientation(
 	if (!quat)
 		return false;
 
+	pthread_mutex_lock(&mMutex);
 	quat->w = mControllerQuat.w();
 	quat->x = mControllerQuat.x();
 	quat->y = mControllerQuat.y();
 	quat->z = mControllerQuat.z();
+	bool valid = mIsControllerValid;
+	pthread_mutex_unlock(&mMutex);
 
-	return mIsControllerValid;
+	return valid;
 }
 
 
@@ -113,6 +263,7 @@ bool SessionSelfMetadata::getControllerOrientation(
 		return false;
 
 	struct vmeta_quaternion quat;
+	/* No lock */
 	bool ret = getControllerOrientation(&quat);
 	pdraw_quat2euler(&quat, euler);
 	return ret;
@@ -122,6 +273,8 @@ bool SessionSelfMetadata::getControllerOrientation(
 void SessionSelfMetadata::setControllerOrientation(
 	Eigen::Quaternionf &quat)
 {
+	pthread_mutex_lock(&mMutex);
+
 	mPrevControllerQuat = mControllerQuat;
 	mPrevControllerQuatTimestamp = mLastControllerQuatTimestamp;
 
@@ -141,6 +294,8 @@ void SessionSelfMetadata::setControllerOrientation(
 	} else {
 		mLastControllerQuatTimestamp = timestamp;
 	}
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -152,6 +307,7 @@ void SessionSelfMetadata::setControllerOrientation(
 
 	Eigen::Quaternionf _quat = Eigen::Quaternionf(
 		quat->w, quat->x, quat->y, quat->z);
+	/* No lock */
 	setControllerOrientation(_quat);
 }
 
@@ -164,6 +320,7 @@ void SessionSelfMetadata::setControllerOrientation(
 
 	struct vmeta_quaternion quat;
 	pdraw_euler2quat(euler, &quat);
+	/* No lock */
 	setControllerOrientation(&quat);
 }
 
@@ -174,12 +331,15 @@ bool SessionSelfMetadata::getHeadOrientation(
 	if (!quat)
 		return false;
 
+	pthread_mutex_lock(&mMutex);
 	quat->w = mHeadQuat.w();
 	quat->x = mHeadQuat.x();
 	quat->y = mHeadQuat.y();
 	quat->z = mHeadQuat.z();
+	bool valid = mIsHeadValid;
+	pthread_mutex_unlock(&mMutex);
 
-	return mIsHeadValid;
+	return valid;
 }
 
 
@@ -190,6 +350,7 @@ bool SessionSelfMetadata::getHeadOrientation(
 		return false;
 
 	struct vmeta_quaternion quat;
+	/* No lock */
 	bool ret = getHeadOrientation(&quat);
 	pdraw_quat2euler(&quat, euler);
 	return ret;
@@ -199,6 +360,8 @@ bool SessionSelfMetadata::getHeadOrientation(
 Eigen::Quaternionf SessionSelfMetadata::getDebiasedHeadOrientation(
 	void)
 {
+	pthread_mutex_lock(&mMutex);
+
 	struct timespec t1;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 	uint64_t curTime =
@@ -255,6 +418,8 @@ Eigen::Quaternionf SessionSelfMetadata::getDebiasedHeadOrientation(
 
 	qDebiasedHead = mHeadRefQuat.conjugate() * qHead;
 
+	pthread_mutex_unlock(&mMutex);
+
 	return qDebiasedHead;
 }
 
@@ -262,6 +427,8 @@ Eigen::Quaternionf SessionSelfMetadata::getDebiasedHeadOrientation(
 void SessionSelfMetadata::setHeadOrientation(
 	Eigen::Quaternionf &quat)
 {
+	pthread_mutex_lock(&mMutex);
+
 	struct vmeta_quaternion headQuat, prevHeadQuat;
 	struct vmeta_euler headOrientation, prevHeadOrientation;
 
@@ -297,6 +464,8 @@ void SessionSelfMetadata::setHeadOrientation(
 	}
 
 	mLastHeadPsiTimestamp = timestamp;
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -308,6 +477,7 @@ void SessionSelfMetadata::setHeadOrientation(
 
 	Eigen::Quaternionf _quat = Eigen::Quaternionf(
 		quat->w, quat->x, quat->y, quat->z);
+	/* No lock */
 	setHeadOrientation(_quat);
 }
 
@@ -320,6 +490,7 @@ void SessionSelfMetadata::setHeadOrientation(
 
 	struct vmeta_quaternion quat;
 	pdraw_euler2quat(euler, &quat);
+	/* No lock */
 	setHeadOrientation(&quat);
 }
 
@@ -330,12 +501,15 @@ bool SessionSelfMetadata::getHeadRefOrientation(
 	if (!quat)
 		return false;
 
+	pthread_mutex_lock(&mMutex);
 	quat->w = mHeadRefQuat.w();
 	quat->x = mHeadRefQuat.x();
 	quat->y = mHeadRefQuat.y();
 	quat->z = mHeadRefQuat.z();
+	bool valid = mIsHeadRefValid;
+	pthread_mutex_unlock(&mMutex);
 
-	return mIsHeadRefValid;
+	return valid;
 }
 
 
@@ -346,6 +520,7 @@ bool SessionSelfMetadata::getHeadRefOrientation(
 		return false;
 
 	struct vmeta_quaternion quat;
+	/* No lock */
 	bool ret = getHeadRefOrientation(&quat);
 	pdraw_quat2euler(&quat, euler);
 	return ret;
@@ -358,6 +533,8 @@ void SessionSelfMetadata::setHeadRefOrientation(
 	if (!quat)
 		return;
 
+	pthread_mutex_lock(&mMutex);
+
 	mHeadRefQuat = Eigen::Quaternionf(quat->w, quat->x, quat->y, quat->z);
 	mIsHeadRefValid = true;
 
@@ -365,7 +542,10 @@ void SessionSelfMetadata::setHeadRefOrientation(
 	mHeadPsiSpeed = 0;
 	mLastControllerQuatTimestamp = 0;
 	mControllerQuat = mHeadRefQuat;
+
 	setControllerOrientation(mControllerQuat);
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -377,6 +557,7 @@ void SessionSelfMetadata::setHeadRefOrientation(
 
 	struct vmeta_quaternion quat;
 	pdraw_euler2quat(euler, &quat);
+	/* No lock */
 	setHeadRefOrientation(&quat);
 }
 
@@ -384,6 +565,8 @@ void SessionSelfMetadata::setHeadRefOrientation(
 void SessionSelfMetadata::resetHeadRefOrientation(
 	void)
 {
+	pthread_mutex_lock(&mMutex);
+
 	mHeadRefQuat = mHeadQuat;
 	mIsHeadRefValid = true;
 
@@ -391,23 +574,74 @@ void SessionSelfMetadata::resetHeadRefOrientation(
 	mHeadPsiSpeed = 0;
 	mLastControllerQuatTimestamp = 0;
 	mControllerQuat = mHeadRefQuat;
+
 	setControllerOrientation(mControllerQuat);
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
 SessionPeerMetadata::SessionPeerMetadata(
 	void)
 {
+	int res;
+	pthread_mutexattr_t attr;
+	bool mutex_created = false, attr_created = false;
+
 	mTakeoffLocation.valid = 0;
 	mHomeLocation.valid = 0;
 	mDroneModel = PDRAW_DRONE_MODEL_UNKNOWN;
 	mRecordingStartTime = 0;
+
+	res = pthread_mutexattr_init(&attr);
+	if (res < 0) {
+		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_init", -res);
+		goto error;
+	}
+	attr_created = true;
+
+	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	if (res < 0) {
+		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_settype", -res);
+		goto error;
+	}
+
+	res = pthread_mutex_init(&mMutex, &attr);
+	if (res < 0) {
+		ULOG_ERRNO("SessionMetadata: pthread_mutex_init", -res);
+		goto error;
+	}
+	mutex_created = true;
+
+	pthread_mutexattr_destroy(&attr);
+	return;
+
+error:
+	if (mutex_created)
+		pthread_mutex_destroy(&mMutex);
+	if (attr_created)
+		pthread_mutexattr_destroy(&attr);
 }
 
 
 SessionPeerMetadata::~SessionPeerMetadata(
 	void)
 {
+	pthread_mutex_destroy(&mMutex);
+}
+
+
+void SessionPeerMetadata::lock(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+}
+
+
+void SessionPeerMetadata::unlock(
+	void)
+{
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -416,6 +650,8 @@ void SessionPeerMetadata::set(
 {
 	if (!meta)
 		return;
+
+	pthread_mutex_lock(&mMutex);
 
 	setFriendlyName(std::string(meta->friendly_name));
 	setMaker(std::string(meta->maker));
@@ -451,12 +687,16 @@ void SessionPeerMetadata::set(
 		loc.svCount = meta->takeoff_loc.svCount;
 		setTakeoffLocation(&loc);
 	}
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
 void SessionPeerMetadata::setFriendlyName(
 	const std::string& friendlyName)
 {
+	pthread_mutex_lock(&mMutex);
+
 	mFriendlyName = friendlyName;
 	if (mDroneModel == PDRAW_DRONE_MODEL_UNKNOWN) {
 		if (!mFriendlyName.compare("Parrot Bebop"))
@@ -466,12 +706,16 @@ void SessionPeerMetadata::setFriendlyName(
 		else if (!mFriendlyName.compare("Parrot Disco"))
 			mDroneModel = PDRAW_DRONE_MODEL_DISCO;
 	}
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
 void SessionPeerMetadata::setModel(
 	const std::string& model)
 {
+	pthread_mutex_lock(&mMutex);
+
 	mModel = model;
 	if (mDroneModel == PDRAW_DRONE_MODEL_UNKNOWN) {
 		if (!mModel.compare("Bebop"))
@@ -481,12 +725,16 @@ void SessionPeerMetadata::setModel(
 		else if (!mModel.compare("Disco"))
 			mDroneModel = PDRAW_DRONE_MODEL_DISCO;
 	}
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
 void SessionPeerMetadata::setModelId(
 	const std::string& modelId)
 {
+	pthread_mutex_lock(&mMutex);
+
 	mModelId = modelId;
 	if (!mModelId.compare("0901"))
 		mDroneModel = PDRAW_DRONE_MODEL_BEBOP;
@@ -494,6 +742,8 @@ void SessionPeerMetadata::setModelId(
 		mDroneModel = PDRAW_DRONE_MODEL_BEBOP2;
 	else if (!mModelId.compare("090e"))
 		mDroneModel = PDRAW_DRONE_MODEL_DISCO;
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -503,7 +753,9 @@ void SessionPeerMetadata::getTakeoffLocation(
 	if (!loc)
 		return;
 
+	pthread_mutex_lock(&mMutex);
 	memcpy(loc, &mTakeoffLocation, sizeof(*loc));
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -513,7 +765,9 @@ void SessionPeerMetadata::setTakeoffLocation(
 	if (!loc)
 		return;
 
+	pthread_mutex_lock(&mMutex);
 	memcpy(&mTakeoffLocation, loc, sizeof(*loc));
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -523,7 +777,9 @@ void SessionPeerMetadata::getHomeLocation(
 	if (!loc)
 		return;
 
+	pthread_mutex_lock(&mMutex);
 	memcpy(loc, &mHomeLocation, sizeof(*loc));
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -533,29 +789,39 @@ void SessionPeerMetadata::setHomeLocation(
 	if (!loc)
 		return;
 
+	pthread_mutex_lock(&mMutex);
 	memcpy(&mHomeLocation, loc, sizeof(*loc));
+	pthread_mutex_unlock(&mMutex);
 }
 
 
 uint64_t SessionPeerMetadata::getRecordingDuration(
 	void)
 {
+	uint64_t ret;
+	pthread_mutex_lock(&mMutex);
+
 	if (mRecordingStartTime) {
 		struct timespec t1;
 		clock_gettime(CLOCK_MONOTONIC, &t1);
 		uint64_t curTime = (uint64_t)t1.tv_sec * 1000000 +
 			(uint64_t)t1.tv_nsec / 1000;
-		return (curTime > mRecordingStartTime) ?
+		ret = (curTime > mRecordingStartTime) ?
 			curTime - mRecordingStartTime : 0;
 	} else {
-		return 0;
+		ret = 0;
 	}
+
+	pthread_mutex_unlock(&mMutex);
+	return ret;
 }
 
 
 void SessionPeerMetadata::setRecordingDuration(
 	uint64_t duration)
 {
+	pthread_mutex_lock(&mMutex);
+
 	if (duration == 0) {
 		mRecordingStartTime = 0;
 	} else {
@@ -566,6 +832,8 @@ void SessionPeerMetadata::setRecordingDuration(
 		mRecordingStartTime =
 			(curTime > duration) ? curTime - duration : 0;
 	}
+
+	pthread_mutex_unlock(&mMutex);
 }
 
 } /* namespace Pdraw */

@@ -1470,9 +1470,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfFriendlyName(
         return (jstring)NULL;
     }
 
-    const char *c_friendlyName = pdraw_get_self_friendly_name(ctx->pdraw);
-
+    char *c_friendlyName = pdraw_get_self_friendly_name(ctx->pdraw);
     jstring friendlyName = (*env)->NewStringUTF(env, c_friendlyName);
+    free(c_friendlyName);
 
     return friendlyName;
 }
@@ -1518,9 +1518,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfSerialNumber(
         return (jstring)NULL;
     }
 
-    const char *c_serialNumber = pdraw_get_self_serial_number(ctx->pdraw);
-
+    char *c_serialNumber = pdraw_get_self_serial_number(ctx->pdraw);
     jstring serialNumber = (*env)->NewStringUTF(env, c_serialNumber);
+    free(c_serialNumber);
 
     return serialNumber;
 }
@@ -1566,9 +1566,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfSoftwareVersion(
         return (jstring)NULL;
     }
 
-    const char *c_softwareVersion = pdraw_get_self_software_version(ctx->pdraw);
-
+    char *c_softwareVersion = pdraw_get_self_software_version(ctx->pdraw);
     jstring softwareVersion = (*env)->NewStringUTF(env, c_softwareVersion);
+    free(c_softwareVersion);
 
     return softwareVersion;
 }
@@ -2106,9 +2106,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerFriendlyName(
         return (jstring)NULL;
     }
 
-    const char *c_friendlyName = pdraw_get_peer_friendly_name(ctx->pdraw);
-
+    char *c_friendlyName = pdraw_get_peer_friendly_name(ctx->pdraw);
     jstring friendlyName = (*env)->NewStringUTF(env, c_friendlyName);
+    free(c_friendlyName);
 
     return friendlyName;
 }
@@ -2128,9 +2128,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerMaker(
         return (jstring)NULL;
     }
 
-    const char *c_maker = pdraw_get_peer_maker(ctx->pdraw);
-
+    char *c_maker = pdraw_get_peer_maker(ctx->pdraw);
     jstring maker = (*env)->NewStringUTF(env, c_maker);
+    free(c_maker);
 
     return maker;
 }
@@ -2150,9 +2150,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerModel(
         return (jstring)NULL;
     }
 
-    const char *c_model = pdraw_get_peer_model(ctx->pdraw);
-
+    char *c_model = pdraw_get_peer_model(ctx->pdraw);
     jstring model = (*env)->NewStringUTF(env, c_model);
+    free(c_model);
 
     return model;
 }
@@ -2172,9 +2172,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerModelId(
         return (jstring)NULL;
     }
 
-    const char *c_modelId = pdraw_get_peer_model_id(ctx->pdraw);
-
+    char *c_modelId = pdraw_get_peer_model_id(ctx->pdraw);
     jstring modelId = (*env)->NewStringUTF(env, c_modelId);
+    free(c_modelId);
 
     return modelId;
 }
@@ -2194,9 +2194,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerSerialNumber(
         return (jstring)NULL;
     }
 
-    const char *c_serialNumber = pdraw_get_peer_serial_number(ctx->pdraw);
-
+    char *c_serialNumber = pdraw_get_peer_serial_number(ctx->pdraw);
     jstring serialNumber = (*env)->NewStringUTF(env, c_serialNumber);
+    free(c_serialNumber);
 
     return serialNumber;
 }
@@ -2216,9 +2216,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerSoftwareVersion(
         return (jstring)NULL;
     }
 
-    const char *c_softwareVersion = pdraw_get_peer_software_version(ctx->pdraw);
-
+    char *c_softwareVersion = pdraw_get_peer_software_version(ctx->pdraw);
     jstring softwareVersion = (*env)->NewStringUTF(env, c_softwareVersion);
+    free(c_softwareVersion);
 
     return softwareVersion;
 }
@@ -2238,9 +2238,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerBuildId(
         return (jstring)NULL;
     }
 
-    const char *c_buildId = pdraw_get_peer_build_id(ctx->pdraw);
-
+    char *c_buildId = pdraw_get_peer_build_id(ctx->pdraw);
     jstring buildId = (*env)->NewStringUTF(env, c_buildId);
+    free(c_buildId);
 
     return buildId;
 }
@@ -2260,9 +2260,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerTitle(
         return (jstring)NULL;
     }
 
-    const char *c_title = pdraw_get_peer_title(ctx->pdraw);
-
+    char *c_title = pdraw_get_peer_title(ctx->pdraw);
     jstring title = (*env)->NewStringUTF(env, c_title);
+    free(c_title);
 
     return title;
 }
@@ -2282,9 +2282,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerComment(
         return (jstring)NULL;
     }
 
-    const char *c_comment = pdraw_get_peer_comment(ctx->pdraw);
-
+    char *c_comment = pdraw_get_peer_comment(ctx->pdraw);
     jstring comment = (*env)->NewStringUTF(env, c_comment);
+    free(c_comment);
 
     return comment;
 }
@@ -2304,9 +2304,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerCopyright(
         return (jstring)NULL;
     }
 
-    const char *c_copyright = pdraw_get_peer_copyright(ctx->pdraw);
-
+    char *c_copyright = pdraw_get_peer_copyright(ctx->pdraw);
     jstring copyright = (*env)->NewStringUTF(env, c_copyright);
+    free(c_copyright);
 
     return copyright;
 }
@@ -2326,9 +2326,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerRunDate(
         return (jstring)NULL;
     }
 
-    const char *c_runDate = pdraw_get_peer_run_date(ctx->pdraw);
-
+    char *c_runDate = pdraw_get_peer_run_date(ctx->pdraw);
     jstring runDate = (*env)->NewStringUTF(env, c_runDate);
+    free(c_runDate);
 
     return runDate;
 }
@@ -2348,9 +2348,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerRunUuid(
         return (jstring)NULL;
     }
 
-    const char *c_runUuid = pdraw_get_peer_run_uuid(ctx->pdraw);
-
+    char *c_runUuid = pdraw_get_peer_run_uuid(ctx->pdraw);
     jstring runUuid = (*env)->NewStringUTF(env, c_runUuid);
+    free(c_runUuid);
 
     return runUuid;
 }
@@ -2370,9 +2370,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetPeerMediaDate(
         return (jstring)NULL;
     }
 
-    const char *c_mediaDate = pdraw_get_peer_media_date(ctx->pdraw);
-
+    char *c_mediaDate = pdraw_get_peer_media_date(ctx->pdraw);
     jstring mediaDate = (*env)->NewStringUTF(env, c_mediaDate);
+    free(c_mediaDate);
 
     return mediaDate;
 }

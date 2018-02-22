@@ -181,10 +181,12 @@ int Gles2Renderer::initGles2(
 			float ipd = 0., scale = 0., panH = 0., panV = 0.;
 			enum pdraw_hmd_model hmdModel = PDRAW_HMD_MODEL_UNKNOWN;
 			Settings *settings = mSession->getSettings();
+			settings->lock();
 			settings->getDisplayScreenSettings(
 				&xdpi, &ydpi, &deviceMargin);
 			settings->getHmdDistorsionCorrectionSettings(
 				&hmdModel, &ipd, &scale, &panH, &panV);
+			settings->unlock();
 			mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit,
 				mRenderWidth, mRenderHeight, hmdModel,
 				xdpi, ydpi, deviceMargin, ipd,

@@ -174,7 +174,7 @@ enum pdraw_session_type pdraw_get_session_type(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_self_friendly_name(
+char *pdraw_get_self_friendly_name(
 	struct pdraw *pdraw);
 
 
@@ -183,7 +183,7 @@ int pdraw_set_self_friendly_name(
 	const char *friendlyName);
 
 
-const char *pdraw_get_self_serial_number(
+char *pdraw_get_self_serial_number(
 	struct pdraw *pdraw);
 
 
@@ -192,7 +192,7 @@ int pdraw_set_self_serial_number(
 	const char *serialNumber);
 
 
-const char *pdraw_get_self_software_version(
+char *pdraw_get_self_software_version(
 	struct pdraw *pdraw);
 
 
@@ -293,19 +293,19 @@ int pdraw_reset_self_head_ref_orientation(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_friendly_name(
+char *pdraw_get_peer_friendly_name(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_maker(
+char *pdraw_get_peer_maker(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_model(
+char *pdraw_get_peer_model(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_model_id(
+char *pdraw_get_peer_model_id(
 	struct pdraw *pdraw);
 
 
@@ -313,39 +313,39 @@ enum pdraw_drone_model pdraw_get_peer_drone_model(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_serial_number(
+char *pdraw_get_peer_serial_number(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_software_version(
+char *pdraw_get_peer_software_version(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_build_id(
+char *pdraw_get_peer_build_id(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_title(
+char *pdraw_get_peer_title(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_comment(
+char *pdraw_get_peer_comment(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_copyright(
+char *pdraw_get_peer_copyright(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_run_date(
+char *pdraw_get_peer_run_date(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_run_uuid(
+char *pdraw_get_peer_run_uuid(
 	struct pdraw *pdraw);
 
 
-const char *pdraw_get_peer_media_date(
+char *pdraw_get_peer_media_date(
 	struct pdraw *pdraw);
 
 

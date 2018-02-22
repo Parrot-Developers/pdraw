@@ -32,6 +32,7 @@
 
 #include <pdraw/pdraw_defs.h>
 #include <inttypes.h>
+#include <pthread.h>
 #include <math.h>
 
 namespace Pdraw {
@@ -55,15 +56,17 @@ public:
 	~Settings(
 		void);
 
+	void lock(
+		void);
+
+	void unlock(
+		void);
+
 	float getControllerRadarAngle(
-		void) {
-		return mControllerRadarAngle;
-	}
+		void);
 
 	void setControllerRadarAngle(
-		float angle) {
-		mControllerRadarAngle = angle;
-	}
+		float angle);
 
 	void getDisplayScreenSettings(
 		float *xdpi,
@@ -90,6 +93,7 @@ public:
 		float panV);
 
 private:
+	pthread_mutex_t mMutex;
 	float mControllerRadarAngle;
 	float mDisplayXdpi;
 	float mDisplayYdpi;

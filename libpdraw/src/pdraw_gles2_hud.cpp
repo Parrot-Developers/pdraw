@@ -532,15 +532,19 @@ int Gles2Hud::renderHud(
 		sessionType = mSession->getSessionType();
 		currentTime = mSession->getCurrentTime();
 		duration = mSession->getDuration();
+		peerMeta->lock();
 		droneModel = peerMeta->getDroneModel();
 		friendlyName = peerMeta->getFriendlyName().c_str();
 		peerMeta->getTakeoffLocation(&takeoffLocation);
 		recordingDuration = peerMeta->getRecordingDuration();
+		peerMeta->unlock();
+		selfMeta->lock();
 		controllerBattery = selfMeta->getControllerBatteryLevel();
 		selfMeta->getLocation(&selfLocation);
 		isControllerOrientationValid =
 			selfMeta->getControllerOrientation(
 				&controllerOrientation);
+		selfMeta->unlock();
 #ifdef DEBUG_RADAR /* used to test the radar on records */
 		isControllerOrientationValid = true;
 #endif

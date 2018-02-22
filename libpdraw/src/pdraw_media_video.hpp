@@ -58,25 +58,25 @@ public:
 	~VideoMedia(
 		void);
 
+	void lock(
+		void);
+
+	void unlock(
+		void);
+
 	enum pdraw_media_type getType(
 		void) {
 		return PDRAW_MEDIA_TYPE_VIDEO;
 	}
 
 	unsigned int getId(
-		void) {
-		return mId;
-	}
+		void);
 
 	enum pdraw_video_type getVideoType(
-		void) {
-		return mVideoType;
-	}
+		void);
 
 	void setVideoType(
-		enum pdraw_video_type type) {
-		mVideoType = type;
-	}
+		enum pdraw_video_type type);
 
 	void getDimensions(
 		unsigned int *width,
@@ -115,14 +115,10 @@ public:
 		void);
 
 	Session *getSession(
-		void) {
-		return mSession;
-	}
+		void);
 
 	Decoder *getDecoder(
-		void) {
-		return mDecoder;
-	}
+		void);
 
 	VideoFrameFilter *addVideoFrameFilter(
 		bool frameByFrame = false);

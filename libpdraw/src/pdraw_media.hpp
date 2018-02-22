@@ -33,6 +33,7 @@
 #include "pdraw_decoder.hpp"
 #include <pdraw/pdraw_defs.h>
 #include <inttypes.h>
+#include <pthread.h>
 #include <string>
 
 namespace Pdraw {
@@ -51,6 +52,12 @@ class Media {
 public:
 	virtual ~Media(
 		void) {}
+
+	virtual void lock(
+		void) = 0;
+
+	virtual void unlock(
+		void) = 0;
 
 	virtual enum pdraw_media_type getType(
 		void) = 0;
@@ -71,6 +78,7 @@ public:
 		void) = 0;
 
 protected:
+	pthread_mutex_t mMutex;
 	unsigned int mId;
 	Session *mSession;
 };

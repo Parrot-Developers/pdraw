@@ -144,19 +144,19 @@ public:
 		return mSessionType;
 	}
 
-	std::string& getSelfFriendlyName(
+	std::string getSelfFriendlyName(
 		void);
 
 	void setSelfFriendlyName(
 		const std::string &friendlyName);
 
-	std::string& getSelfSerialNumber(
+	std::string getSelfSerialNumber(
 		void);
 
 	void setSelfSerialNumber(
 		const std::string &serialNumber);
 
-	std::string& getSelfSoftwareVersion(
+	std::string getSelfSoftwareVersion(
 		void);
 
 	void setSelfSoftwareVersion(
@@ -219,46 +219,46 @@ public:
 	void resetSelfHeadRefOrientation(
 		void);
 
-	std::string& getPeerFriendlyName(
+	std::string getPeerFriendlyName(
 		void);
 
-	std::string& getPeerMaker(
+	std::string getPeerMaker(
 		void);
 
-	std::string& getPeerModel(
+	std::string getPeerModel(
 		void);
 
-	std::string& getPeerModelId(
+	std::string getPeerModelId(
 		void);
 
 	enum pdraw_drone_model getPeerDroneModel(
 		void);
 
-	std::string& getPeerSerialNumber(
+	std::string getPeerSerialNumber(
 		void);
 
-	std::string& getPeerSoftwareVersion(
+	std::string getPeerSoftwareVersion(
 		void);
 
-	std::string& getPeerBuildId(
+	std::string getPeerBuildId(
 		void);
 
-	std::string& getPeerTitle(
+	std::string getPeerTitle(
 		void);
 
-	std::string& getPeerComment(
+	std::string getPeerComment(
 		void);
 
-	std::string& getPeerCopyright(
+	std::string getPeerCopyright(
 		void);
 
-	std::string& getPeerRunDate(
+	std::string getPeerRunDate(
 		void);
 
-	std::string& getPeerRunUuid(
+	std::string getPeerRunUuid(
 		void);
 
-	std::string& getPeerMediaDate(
+	std::string getPeerMediaDate(
 		void);
 
 	void getPeerTakeoffLocation(

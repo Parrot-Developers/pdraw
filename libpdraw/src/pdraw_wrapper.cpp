@@ -342,13 +342,13 @@ enum pdraw_session_type pdraw_get_session_type(
 }
 
 
-const char *pdraw_get_self_friendly_name(
+char *pdraw_get_self_friendly_name(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getSelfFriendlyName().c_str();
+	return strdup(toPdraw(pdraw)->getSelfFriendlyName().c_str());
 }
 
 
@@ -365,13 +365,13 @@ int pdraw_set_self_friendly_name(
 }
 
 
-const char *pdraw_get_self_serial_number(
+char *pdraw_get_self_serial_number(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getSelfSerialNumber().c_str();
+	return strdup(toPdraw(pdraw)->getSelfSerialNumber().c_str());
 }
 
 
@@ -388,13 +388,13 @@ int pdraw_set_self_serial_number(
 }
 
 
-const char *pdraw_get_self_software_version(
+char *pdraw_get_self_software_version(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getSelfSoftwareVersion().c_str();
+	return strdup(toPdraw(pdraw)->getSelfSoftwareVersion().c_str());
 }
 
 
@@ -634,43 +634,43 @@ int pdraw_reset_self_head_ref_orientation(
 }
 
 
-const char *pdraw_get_peer_friendly_name(
+char *pdraw_get_peer_friendly_name(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerFriendlyName().c_str();
+	return strdup(toPdraw(pdraw)->getPeerFriendlyName().c_str());
 }
 
 
-const char *pdraw_get_peer_maker(
+char *pdraw_get_peer_maker(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerMaker().c_str();
+	return strdup(toPdraw(pdraw)->getPeerMaker().c_str());
 }
 
 
-const char *pdraw_get_peer_model(
+char *pdraw_get_peer_model(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerModel().c_str();
+	return strdup(toPdraw(pdraw)->getPeerModel().c_str());
 }
 
 
-const char *pdraw_get_peer_model_id(
+char *pdraw_get_peer_model_id(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerModelId().c_str();
+	return strdup(toPdraw(pdraw)->getPeerModelId().c_str());
 }
 
 
@@ -684,93 +684,93 @@ enum pdraw_drone_model pdraw_get_peer_drone_model(
 }
 
 
-const char *pdraw_get_peer_serial_number(
+char *pdraw_get_peer_serial_number(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerSerialNumber().c_str();
+	return strdup(toPdraw(pdraw)->getPeerSerialNumber().c_str());
 }
 
 
-const char *pdraw_get_peer_software_version(
+char *pdraw_get_peer_software_version(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerSoftwareVersion().c_str();
+	return strdup(toPdraw(pdraw)->getPeerSoftwareVersion().c_str());
 }
 
 
-const char *pdraw_get_peer_build_id(
+char *pdraw_get_peer_build_id(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerBuildId().c_str();
+	return strdup(toPdraw(pdraw)->getPeerBuildId().c_str());
 }
 
 
-const char *pdraw_get_peer_title(
+char *pdraw_get_peer_title(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerTitle().c_str();
+	return strdup(toPdraw(pdraw)->getPeerTitle().c_str());
 }
 
 
-const char *pdraw_get_peer_comment(
+char *pdraw_get_peer_comment(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerComment().c_str();
+	return strdup(toPdraw(pdraw)->getPeerComment().c_str());
 }
 
 
-const char *pdraw_get_peer_copyright(
+char *pdraw_get_peer_copyright(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerCopyright().c_str();
+	return strdup(toPdraw(pdraw)->getPeerCopyright().c_str());
 }
 
 
-const char *pdraw_get_peer_run_date(
+char *pdraw_get_peer_run_date(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerRunDate().c_str();
+	return strdup(toPdraw(pdraw)->getPeerRunDate().c_str());
 }
 
 
-const char *pdraw_get_peer_run_uuid(
+char *pdraw_get_peer_run_uuid(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerRunUuid().c_str();
+	return strdup(toPdraw(pdraw)->getPeerRunUuid().c_str());
 }
 
 
-const char *pdraw_get_peer_media_date(
+char *pdraw_get_peer_media_date(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->getPeerMediaDate().c_str();
+	return strdup(toPdraw(pdraw)->getPeerMediaDate().c_str());
 }
 
 

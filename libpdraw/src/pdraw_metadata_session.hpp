@@ -32,6 +32,7 @@
 
 #include "pdraw_utils.hpp"
 #include <inttypes.h>
+#include <pthread.h>
 #include <string>
 #include <vector>
 
@@ -49,45 +50,35 @@ public:
 	~SessionSelfMetadata(
 		void);
 
-	std::string& getFriendlyName(
-		void) {
-		return mFriendlyName;
-	}
+	void lock(
+		void);
+
+	void unlock(
+		void);
+
+	std::string getFriendlyName(
+		void);
 
 	void setFriendlyName(
-		const std::string& friendlyName) {
-		mFriendlyName = friendlyName;
-	}
+		const std::string& friendlyName);
 
-	std::string& getSerialNumber(
-		void) {
-		return mSerialNumber;
-	}
+	std::string getSerialNumber(
+		void);
 
 	void setSerialNumber(
-		const std::string& serialNumber) {
-		mSerialNumber = serialNumber;
-	}
+		const std::string& serialNumber);
 
-	std::string& getSoftwareVersion(
-		void) {
-		return mSoftwareVersion;
-	}
+	std::string getSoftwareVersion(
+		void);
 
 	void setSoftwareVersion(
-		const std::string& softwareVersion) {
-		mSoftwareVersion = softwareVersion;
-	}
+		const std::string& softwareVersion);
 
 	bool isPilot(
-		void) {
-		return mIsPilot;
-	}
+		void);
 
 	void setPilot(
-		bool isPilot) {
-		mIsPilot = isPilot;
-	}
+		bool isPilot);
 
 	void getLocation(
 		struct vmeta_location *loc);
@@ -96,14 +87,10 @@ public:
 		const struct vmeta_location *loc);
 
 	int getControllerBatteryLevel(
-		void) {
-		return mControllerBatteryLevel;
-	}
+		void);
 
 	void setControllerBatteryLevel(
-		int batteryLevel) {
-		mControllerBatteryLevel = batteryLevel;
-	}
+		int batteryLevel);
 
 	bool getControllerOrientation(
 		struct vmeta_quaternion *quat);
@@ -154,6 +141,7 @@ private:
 	void setHeadOrientation(
 		Eigen::Quaternionf &quat);
 
+	pthread_mutex_t mMutex;
 	std::string mFriendlyName;
 	std::string mSerialNumber;
 	std::string mSoftwareVersion;
@@ -184,10 +172,16 @@ public:
 	~SessionPeerMetadata(
 		void);
 
+	void lock(
+		void);
+
+	void unlock(
+		void);
+
 	void set(
 		const struct vmeta_session *meta);
 
-	std::string& getFriendlyName(
+	std::string getFriendlyName(
 		void) {
 		return mFriendlyName;
 	}
@@ -195,7 +189,7 @@ public:
 	void setFriendlyName(
 		const std::string& friendlyName);
 
-	std::string& getMaker(
+	std::string getMaker(
 		void) {
 		return mMaker;
 	}
@@ -205,7 +199,7 @@ public:
 		mMaker = maker;
 	}
 
-	std::string& getModel(
+	std::string getModel(
 		void) {
 		return mModel;
 	}
@@ -213,7 +207,7 @@ public:
 	void setModel(
 		const std::string& model);
 
-	std::string& getModelId(
+	std::string getModelId(
 		void) {
 		return mModelId;
 	}
@@ -226,7 +220,7 @@ public:
 		return mDroneModel;
 	}
 
-	std::string& getSerialNumber(
+	std::string getSerialNumber(
 		void) {
 		return mSerialNumber;
 	}
@@ -236,7 +230,7 @@ public:
 		mSerialNumber = serialNumber;
 	}
 
-	std::string& getSoftwareVersion(
+	std::string getSoftwareVersion(
 		void) {
 		return mSoftwareVersion;
 	}
@@ -246,7 +240,7 @@ public:
 		mSoftwareVersion = softwareVersion;
 	}
 
-	std::string& getBuildId(
+	std::string getBuildId(
 		void) {
 		return mBuildId;
 	}
@@ -256,7 +250,7 @@ public:
 		mBuildId = buildId;
 	}
 
-	std::string& getTitle(
+	std::string getTitle(
 		void) {
 		return mTitle;
 	}
@@ -266,7 +260,7 @@ public:
 		mTitle = title;
 	}
 
-	std::string& getComment(
+	std::string getComment(
 		void) {
 		return mComment;
 	}
@@ -276,7 +270,7 @@ public:
 		mComment = comment;
 	}
 
-	std::string& getCopyright(
+	std::string getCopyright(
 		void) {
 		return mCopyright;
 	}
@@ -286,7 +280,7 @@ public:
 		mCopyright = copyright;
 	}
 
-	std::string& getRunDate(
+	std::string getRunDate(
 		void) {
 		return mRunDate;
 	}
@@ -296,7 +290,7 @@ public:
 		mRunDate = runDate;
 	}
 
-	std::string& getRunUuid(
+	std::string getRunUuid(
 		void) {
 		return mRunUuid;
 	}
@@ -306,7 +300,7 @@ public:
 		mRunUuid = runUuid;
 	}
 
-	std::string& getMediaDate(
+	std::string getMediaDate(
 		void) {
 		return mMediaDate;
 	}
@@ -335,6 +329,7 @@ public:
 		uint64_t duration);
 
 private:
+	pthread_mutex_t mMutex;
 	std::string mFriendlyName;
 	std::string mMaker;
 	std::string mModel;

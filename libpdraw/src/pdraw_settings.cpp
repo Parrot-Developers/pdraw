@@ -28,6 +28,8 @@
  */
 
 #include "pdraw_settings.hpp"
+#define ULOG_TAG libpdraw
+#include <ulog.h>
 
 namespace Pdraw {
 
@@ -35,6 +37,10 @@ namespace Pdraw {
 Settings::Settings(
 	void)
 {
+	int res;
+	pthread_mutexattr_t attr;
+	bool mutex_created = false, attr_created = false;
+
 	mControllerRadarAngle = SETTINGS_HUD_CONTROLLER_RADAR_ANGLE;
 	mDisplayXdpi = SETTINGS_DISPLAY_XDPI;
 	mDisplayYdpi = SETTINGS_DISPLAY_YDPI;
@@ -44,12 +50,75 @@ Settings::Settings(
 	mHmdScale = SETTINGS_HMD_SCALE;
 	mHmdPanH = SETTINGS_HMD_PAN_H;
 	mHmdPanV = SETTINGS_HMD_PAN_V;
+
+	res = pthread_mutexattr_init(&attr);
+	if (res < 0) {
+		ULOG_ERRNO("Settings: pthread_mutexattr_init", -res);
+		goto error;
+	}
+	attr_created = true;
+
+	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	if (res < 0) {
+		ULOG_ERRNO("Settings: pthread_mutexattr_settype", -res);
+		goto error;
+	}
+
+	res = pthread_mutex_init(&mMutex, &attr);
+	if (res < 0) {
+		ULOG_ERRNO("Settings: pthread_mutex_init", -res);
+		goto error;
+	}
+	mutex_created = true;
+
+	pthread_mutexattr_destroy(&attr);
+	return;
+
+error:
+	if (mutex_created)
+		pthread_mutex_destroy(&mMutex);
+	if (attr_created)
+		pthread_mutexattr_destroy(&attr);
 }
 
 
 Settings::~Settings(
 	void)
 {
+	pthread_mutex_destroy(&mMutex);
+}
+
+
+void Settings::lock(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+}
+
+
+void Settings::unlock(
+	void)
+{
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+float Settings::getControllerRadarAngle(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+	float ret = mControllerRadarAngle;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+void Settings::setControllerRadarAngle(
+	float angle)
+{
+	pthread_mutex_lock(&mMutex);
+	mControllerRadarAngle = angle;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -58,12 +127,14 @@ void Settings::getDisplayScreenSettings(
 	float *ydpi,
 	float *deviceMargin)
 {
+	pthread_mutex_lock(&mMutex);
 	if (xdpi)
 		*xdpi = mDisplayXdpi;
 	if (ydpi)
 		*ydpi = mDisplayYdpi;
 	if (deviceMargin)
 		*deviceMargin = mDisplayDeviceMargin;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -72,9 +143,11 @@ void Settings::setDisplayScreenSettings(
 	float ydpi,
 	float deviceMargin)
 {
+	pthread_mutex_lock(&mMutex);
 	mDisplayXdpi = xdpi;
 	mDisplayYdpi = ydpi;
 	mDisplayDeviceMargin = deviceMargin;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -85,6 +158,7 @@ void Settings::getHmdDistorsionCorrectionSettings(
 	float *panH,
 	float *panV)
 {
+	pthread_mutex_lock(&mMutex);
 	if (hmdModel)
 		*hmdModel = mHmdModel;
 	if (ipd)
@@ -95,6 +169,7 @@ void Settings::getHmdDistorsionCorrectionSettings(
 		*panH = mHmdPanH;
 	if (panV)
 		*panV = mHmdPanV;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -105,11 +180,13 @@ void Settings::setHmdDistorsionCorrectionSettings(
 	float panH,
 	float panV)
 {
+	pthread_mutex_lock(&mMutex);
 	mHmdModel = hmdModel;
 	mHmdIpd = ipd;
 	mHmdScale = scale;
 	mHmdPanH = panH;
 	mHmdPanV = panV;
+	pthread_mutex_unlock(&mMutex);
 }
 
 } /* namespace Pdraw */

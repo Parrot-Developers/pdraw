@@ -537,7 +537,7 @@ int Session::render(
 }
 
 
-std::string& Session::getSelfFriendlyName(
+std::string Session::getSelfFriendlyName(
 	void)
 {
 	return mSelfMetadata.getFriendlyName();
@@ -551,7 +551,7 @@ void Session::setSelfFriendlyName(
 }
 
 
-std::string& Session::getSelfSerialNumber(
+std::string Session::getSelfSerialNumber(
 	void)
 {
 	return mSelfMetadata.getSerialNumber();
@@ -565,7 +565,7 @@ void Session::setSelfSerialNumber(
 }
 
 
-std::string& Session::getSelfSoftwareVersion(
+std::string Session::getSelfSoftwareVersion(
 	void)
 {
 	return mSelfMetadata.getSoftwareVersion();
@@ -712,28 +712,28 @@ void Session::resetSelfHeadRefOrientation(
 }
 
 
-std::string& Session::getPeerFriendlyName(
+std::string Session::getPeerFriendlyName(
 	void)
 {
 	return mPeerMetadata.getFriendlyName();
 }
 
 
-std::string& Session::getPeerMaker(
+std::string Session::getPeerMaker(
 	void)
 {
 	return mPeerMetadata.getMaker();
 }
 
 
-std::string& Session::getPeerModel(
+std::string Session::getPeerModel(
 	void)
 {
 	return mPeerMetadata.getModel();
 }
 
 
-std::string& Session::getPeerModelId(
+std::string Session::getPeerModelId(
 	void)
 {
 	return mPeerMetadata.getModelId();
@@ -747,63 +747,63 @@ enum pdraw_drone_model Session::getPeerDroneModel(
 }
 
 
-std::string& Session::getPeerSerialNumber(
+std::string Session::getPeerSerialNumber(
 	void)
 {
 	return mPeerMetadata.getSerialNumber();
 }
 
 
-std::string& Session::getPeerSoftwareVersion(
+std::string Session::getPeerSoftwareVersion(
 	void)
 {
 	return mPeerMetadata.getSoftwareVersion();
 }
 
 
-std::string& Session::getPeerBuildId(
+std::string Session::getPeerBuildId(
 	void)
 {
 	return mPeerMetadata.getBuildId();
 }
 
 
-std::string& Session::getPeerTitle(
+std::string Session::getPeerTitle(
 	void)
 {
 	return mPeerMetadata.getTitle();
 }
 
 
-std::string& Session::getPeerComment(
+std::string Session::getPeerComment(
 	void)
 {
 	return mPeerMetadata.getComment();
 }
 
 
-std::string& Session::getPeerCopyright(
+std::string Session::getPeerCopyright(
 	void)
 {
 	return mPeerMetadata.getCopyright();
 }
 
 
-std::string& Session::getPeerRunDate(
+std::string Session::getPeerRunDate(
 	void)
 {
 	return mPeerMetadata.getRunDate();
 }
 
 
-std::string& Session::getPeerRunUuid(
+std::string Session::getPeerRunUuid(
 	void)
 {
 	return mPeerMetadata.getRunUuid();
 }
 
 
-std::string& Session::getPeerMediaDate(
+std::string Session::getPeerMediaDate(
 	void)
 {
 	return mPeerMetadata.getMediaDate();

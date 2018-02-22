@@ -41,19 +41,9 @@ namespace Pdraw {
 VideoMedia::VideoMedia(
 	Session *session,
 	enum elementary_stream_type esType,
-	unsigned int id)
+	unsigned int id) :
+	VideoMedia(session, esType, id, NULL, -1)
 {
-	mSession = session;
-	mEsType = esType;
-	mId = id;
-	mVideoType = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
-	mWidth = mHeight = 0;
-	mCropLeft = mCropRight = mCropTop = mCropBottom = 0;
-	mSarWidth = mSarHeight = 0;
-	mHfov = mVfov = 0.;
-	mDemux = NULL;
-	mDemuxEsIndex = -1;
-	mDecoder = NULL;
 }
 
 
@@ -64,6 +54,10 @@ VideoMedia::VideoMedia(
 	Demuxer *demux,
 	int demuxEsIndex)
 {
+	int res;
+	pthread_mutexattr_t attr;
+	bool mutex_created = false, attr_created = false;
+
 	mSession = session;
 	mEsType = esType;
 	mId = id;
@@ -75,6 +69,35 @@ VideoMedia::VideoMedia(
 	mDemux = demux;
 	mDemuxEsIndex = demuxEsIndex;
 	mDecoder = NULL;
+
+	res = pthread_mutexattr_init(&attr);
+	if (res < 0) {
+		ULOG_ERRNO("VideoMedia: pthread_mutexattr_init", -res);
+		goto error;
+	}
+	attr_created = true;
+
+	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	if (res < 0) {
+		ULOG_ERRNO("VideoMedia: pthread_mutexattr_settype", -res);
+		goto error;
+	}
+
+	res = pthread_mutex_init(&mMutex, &attr);
+	if (res < 0) {
+		ULOG_ERRNO("VideoMedia: pthread_mutex_init", -res);
+		goto error;
+	}
+	mutex_created = true;
+
+	pthread_mutexattr_destroy(&attr);
+	return;
+
+error:
+	if (mutex_created)
+		pthread_mutex_destroy(&mMutex);
+	if (attr_created)
+		pthread_mutexattr_destroy(&attr);
 }
 
 
@@ -90,6 +113,48 @@ VideoMedia::~VideoMedia(
 
 	if (mDecoder)
 		disableDecoder();
+
+	pthread_mutex_destroy(&mMutex);
+}
+
+
+void VideoMedia::lock(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+}
+
+
+void VideoMedia::unlock(
+	void)
+{
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+unsigned int VideoMedia::getId(
+	void) {
+	pthread_mutex_lock(&mMutex);
+	unsigned int ret = mId;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+enum pdraw_video_type VideoMedia::getVideoType(
+	void) {
+	pthread_mutex_lock(&mMutex);
+	enum pdraw_video_type ret = mVideoType;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+void VideoMedia::setVideoType(
+	enum pdraw_video_type type) {
+	pthread_mutex_lock(&mMutex);
+	mVideoType = type;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -105,6 +170,7 @@ void VideoMedia::getDimensions(
 	unsigned int *sarWidth,
 	unsigned int *sarHeight)
 {
+	pthread_mutex_lock(&mMutex);
 	if (width)
 		*width = mWidth;
 	if (height)
@@ -125,6 +191,7 @@ void VideoMedia::getDimensions(
 		*sarWidth = mSarWidth;
 	if (sarHeight)
 		*sarHeight = mSarHeight;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -138,6 +205,7 @@ void VideoMedia::setDimensions(
 	unsigned int sarWidth,
 	unsigned int sarHeight)
 {
+	pthread_mutex_lock(&mMutex);
 	mWidth = width;
 	mHeight = height;
 	mCropLeft = cropLeft;
@@ -146,6 +214,7 @@ void VideoMedia::setDimensions(
 	mCropBottom = cropBottom;
 	mSarWidth = sarWidth;
 	mSarHeight = sarHeight;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -153,10 +222,12 @@ void VideoMedia::getFov(
 	float *hfov,
 	float *vfov)
 {
+	pthread_mutex_lock(&mMutex);
 	if (hfov)
 		*hfov = mHfov;
 	if (vfov)
 		*vfov = mVfov;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -164,21 +235,27 @@ void VideoMedia::setFov(
 	float hfov,
 	float vfov)
 {
+	pthread_mutex_lock(&mMutex);
 	mHfov = hfov;
 	mVfov = vfov;
+	pthread_mutex_unlock(&mMutex);
 }
 
 
 int VideoMedia::enableDecoder(
 	void)
 {
+	pthread_mutex_lock(&mMutex);
+
 	if (mDecoder != NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: decoder is already enabled");
 		return -1;
 	}
 
 	mDecoder = AvcDecoder::create(this);
 	if (mDecoder == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: failed to create AVC decoder");
 		return -1;
 	}
@@ -187,12 +264,14 @@ int VideoMedia::enableDecoder(
 		int ret = mDemux->setElementaryStreamDecoder(
 			mDemuxEsIndex, mDecoder);
 		if (ret != 0) {
+			pthread_mutex_unlock(&mMutex);
 			ULOGE("VideoMedia: setElementaryStreamDecoder() "
 				"failed (%d)", ret);
 			return -1;
 		}
 	}
 
+	pthread_mutex_unlock(&mMutex);
 	return 0;
 }
 
@@ -200,13 +279,17 @@ int VideoMedia::enableDecoder(
 int VideoMedia::disableDecoder(
 	void)
 {
+	pthread_mutex_lock(&mMutex);
+
 	if (mDecoder == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: decoder is not enabled");
 		return -1;
 	}
 
 	int ret = ((AvcDecoder*)mDecoder)->close();
 	if (ret != 0) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: failed to close AVC decoder (%d)", ret);
 		return -1;
 	}
@@ -214,14 +297,36 @@ int VideoMedia::disableDecoder(
 	delete mDecoder;
 	mDecoder = NULL;
 
+	pthread_mutex_unlock(&mMutex);
 	return 0;
+}
+
+
+Session *VideoMedia::getSession(
+	void) {
+	pthread_mutex_lock(&mMutex);
+	Session *ret = mSession;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+Decoder *VideoMedia::getDecoder(
+	void) {
+	pthread_mutex_lock(&mMutex);
+	Decoder *ret = mDecoder;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
 }
 
 
 VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	bool frameByFrame)
 {
+	pthread_mutex_lock(&mMutex);
+
 	if (mDecoder == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: decoder is not enabled");
 		return NULL;
 	}
@@ -229,11 +334,13 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	VideoFrameFilter *p = new VideoFrameFilter(
 		this, (AvcDecoder*)mDecoder, frameByFrame);
 	if (p == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: video frame filter allocation failed");
 		return NULL;
 	}
 
 	mVideoFrameFilters.push_back(p);
+	pthread_mutex_unlock(&mMutex);
 	return p;
 }
 
@@ -243,11 +350,15 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	void *userPtr,
 	bool frameByFrame)
 {
+	pthread_mutex_lock(&mMutex);
+
 	if (mDecoder == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: decoder is not enabled");
 		return NULL;
 	}
 	if (cb == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: invalid callback function");
 		return NULL;
 	}
@@ -255,11 +366,13 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	VideoFrameFilter *p = new VideoFrameFilter(
 		this, (AvcDecoder*)mDecoder, cb, userPtr, frameByFrame);
 	if (p == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: video frame filter allocation failed");
 		return NULL;
 	}
 
 	mVideoFrameFilters.push_back(p);
+	pthread_mutex_unlock(&mMutex);
 	return p;
 }
 
@@ -267,7 +380,10 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 int VideoMedia::removeVideoFrameFilter(
 	VideoFrameFilter *filter)
 {
+	pthread_mutex_lock(&mMutex);
+
 	if (filter == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: invalid video frame filter pointer");
 		return -1;
 	}
@@ -285,6 +401,7 @@ int VideoMedia::removeVideoFrameFilter(
 		p++;
 	}
 
+	pthread_mutex_unlock(&mMutex);
 	return (found) ? 0 : -1;
 }
 
@@ -292,7 +409,10 @@ int VideoMedia::removeVideoFrameFilter(
 bool VideoMedia::isVideoFrameFilterValid(
 	VideoFrameFilter *filter)
 {
+	pthread_mutex_lock(&mMutex);
+
 	if (filter == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: invalid video frame filter pointer");
 		return false;
 	}
@@ -308,6 +428,7 @@ bool VideoMedia::isVideoFrameFilterValid(
 		p++;
 	}
 
+	pthread_mutex_unlock(&mMutex);
 	return found;
 }
 

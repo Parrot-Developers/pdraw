@@ -128,17 +128,17 @@ public:
 	virtual enum pdraw_session_type getSessionType(
 		void) = 0;
 
-	virtual std::string& getSelfFriendlyName(
+	virtual std::string getSelfFriendlyName(
 		void) = 0;
 	virtual void setSelfFriendlyName(
 		const std::string &friendlyName) = 0;
 
-	virtual std::string& getSelfSerialNumber(
+	virtual std::string getSelfSerialNumber(
 		void) = 0;
 	virtual void setSelfSerialNumber(
 		const std::string &serialNumber) = 0;
 
-	virtual std::string& getSelfSoftwareVersion(
+	virtual std::string getSelfSoftwareVersion(
 		void) = 0;
 	virtual void setSelfSoftwareVersion(
 		const std::string &softwareVersion) = 0;
@@ -187,46 +187,46 @@ public:
 	virtual void resetSelfHeadRefOrientation(
 		void) = 0;
 
-	virtual std::string& getPeerFriendlyName(
+	virtual std::string getPeerFriendlyName(
 		void) = 0;
 
-	virtual std::string& getPeerMaker(
+	virtual std::string getPeerMaker(
 		void) = 0;
 
-	virtual std::string& getPeerModel(
+	virtual std::string getPeerModel(
 		void) = 0;
 
-	virtual std::string& getPeerModelId(
+	virtual std::string getPeerModelId(
 		void) = 0;
 
 	virtual enum pdraw_drone_model getPeerDroneModel(
 		void) = 0;
 
-	virtual std::string& getPeerSerialNumber(
+	virtual std::string getPeerSerialNumber(
 		void) = 0;
 
-	virtual std::string& getPeerSoftwareVersion(
+	virtual std::string getPeerSoftwareVersion(
 		void) = 0;
 
-	virtual std::string& getPeerBuildId(
+	virtual std::string getPeerBuildId(
 		void) = 0;
 
-	virtual std::string& getPeerTitle(
+	virtual std::string getPeerTitle(
 		void) = 0;
 
-	virtual std::string& getPeerComment(
+	virtual std::string getPeerComment(
 		void) = 0;
 
-	virtual std::string& getPeerCopyright(
+	virtual std::string getPeerCopyright(
 		void) = 0;
 
-	virtual std::string& getPeerRunDate(
+	virtual std::string getPeerRunDate(
 		void) = 0;
 
-	virtual std::string& getPeerRunUuid(
+	virtual std::string getPeerRunUuid(
 		void) = 0;
 
-	virtual std::string& getPeerMediaDate(
+	virtual std::string getPeerMediaDate(
 		void) = 0;
 
 	virtual void getPeerTakeoffLocation(
