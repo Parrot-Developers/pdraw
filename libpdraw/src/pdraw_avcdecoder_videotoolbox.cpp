@@ -408,9 +408,13 @@ int VideoToolboxAvcDecoder::dequeueOutputBuffer(
 	struct vbuf_buffer *buf = NULL;
 	int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
 	if ((ret != 0) || (buf == NULL)) {
-		ULOGD("VideoToolbox: failed to dequeue "
-			"an output buffer (%d)", ret);
-		return -2;
+		if (ret != -EAGAIN) {
+			ULOGW("VideoToolbox: failed to dequeue "
+				"an output buffer (%d)", ret);
+			return -1;
+		} else {
+			return -2;
+		}
 	}
 
 	struct avcdecoder_output_buffer *data =
