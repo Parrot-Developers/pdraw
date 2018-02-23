@@ -544,15 +544,11 @@ int Gles2Video::loadFrame(
 	switch (colorConversion) {
 	default:
 	case GLES2_VIDEO_COLOR_CONVERSION_NONE:
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
-			mFirstTexUnit + (intptr_t)framePlane[0]));
 		break;
 	case GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB:
 		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
-			GLCHK(glUniform1i(mUniformSamplers[colorConversion][i],
-				mFirstTexUnit + i));
 			GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
 				frameStride[i], frameHeight / ((i > 0) ? 2 : 1),
 				0, GL_LUMINANCE,
@@ -562,16 +558,12 @@ int Gles2Video::loadFrame(
 	case GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
-			mFirstTexUnit + 0));
 		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
 			frameStride[0], frameHeight,
 			0, GL_LUMINANCE, GL_UNSIGNED_BYTE, framePlane[0]));
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][1],
-			mFirstTexUnit + 1));
 		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA,
 			frameStride[1] / 2, frameHeight / 2,
 			0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, framePlane[1]));
