@@ -585,7 +585,6 @@ int Gles2Hud::renderHud(
 	}
 	int headingInt = ((int)(droneAttitude.psi * RAD_TO_DEG) + 360) % 360;
 
-	GLCHK(glDisable(GL_TEXTURE_2D));
 	GLCHK(glUseProgram(mProgram[0]));
 
 	GLCHK(glEnableVertexAttribArray(mPositionHandle));
@@ -677,7 +676,6 @@ int Gles2Hud::renderHud(
 	GLCHK(glDisableVertexAttribArray(mPositionHandle));
 	GLCHK(glDisableVertexAttribArray(mColorHandle));
 
-	GLCHK(glEnable(GL_TEXTURE_2D));
 	GLCHK(glEnable(GL_BLEND));
 	GLCHK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 
@@ -1884,7 +1882,6 @@ void Gles2Hud::drawCockpit(
 	GLCHK(glDisableVertexAttribArray(mPositionHandle));
 	GLCHK(glDisableVertexAttribArray(mColorHandle));
 
-	GLCHK(glEnable(GL_TEXTURE_2D));
 	GLCHK(glEnable(GL_BLEND));
 	GLCHK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 
@@ -1916,7 +1913,6 @@ void Gles2Hud::drawCockpit(
 	GLCHK(glDisableVertexAttribArray(mTexTexcoordHandle));
 	GLCHK(glDisableVertexAttribArray(mTexColorHandle));
 
-	GLCHK(glDisable(GL_TEXTURE_2D));
 	GLCHK(glUseProgram(mProgram[0]));
 
 	GLCHK(glEnableVertexAttribArray(mPositionHandle));

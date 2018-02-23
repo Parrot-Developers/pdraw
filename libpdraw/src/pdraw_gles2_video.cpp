@@ -603,7 +603,6 @@ int Gles2Video::renderFrame(
 	}
 
 	GLCHK(glUseProgram(mProgram[colorConversion]));
-	GLCHK(glEnable(GL_TEXTURE_2D));
 	GLCHK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
 	switch (colorConversion) {

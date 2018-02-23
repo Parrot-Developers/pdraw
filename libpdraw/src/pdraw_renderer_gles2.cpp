@@ -120,7 +120,6 @@ int Gles2Renderer::initGles2(
 	GLCHK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 	GLCHK(glDisable(GL_DITHER));
-	GLCHK(glEnable(GL_TEXTURE_2D));
 	GLCHK(glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight));
 
 	if (mHmdDistorsionCorrection) {
