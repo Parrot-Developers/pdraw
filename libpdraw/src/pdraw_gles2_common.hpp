@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Android NDK native window renderer
+ * OpenGL ES 2.0 common header
  *
  * Copyright (c) 2016 Aurelien Barre
  *
@@ -27,60 +27,49 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_ANATIVEWINDOW_HPP_
-#define _PDRAW_RENDERER_ANATIVEWINDOW_HPP_
+#ifndef _PDRAW_GLES2_COMMON_HPP_
+#define _PDRAW_GLES2_COMMON_HPP_
 
-#ifdef USE_ANATIVEWINDOW
+#ifdef USE_GLES2
 
-#include <pthread.h>
-#include <EGL/egl.h>
-#include <android/native_window.h>
-#include "pdraw_renderer_gles2.hpp"
-#include "pdraw_gles2_video.hpp"
-#include "pdraw_gles2_hud.hpp"
+#include "pdraw_log.hpp"
 
-namespace Pdraw {
+#if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
+	#include <GLES2/gl2.h>
+#elif defined(__APPLE__)
+	#include <TargetConditionals.h>
+	#if TARGET_OS_IPHONE
+		#include <OpenGLES/ES2/gl.h>
+	#else
+		#define GLFW_INCLUDE_ES2
+		#include <GLFW/glfw3.h>
+		#include <OpenGL/OpenGL.h>
+		#include <OpenGL/glext.h>
+	#endif
+#else
+	#define GLFW_INCLUDE_ES2
+	#include <GLFW/glfw3.h>
+#endif
 
+/* Uncomment to enable extra GL error checking */
+//#define CHECK_GL_ERRORS
+#if defined(CHECK_GL_ERRORS)
+#warning CHECK_GL_ERRORS is enabled
+#include <assert.h>
+#define GLCHK(X) \
+	do { \
+		GLenum err = GL_NO_ERROR; \
+		X; \
+		while ((err = glGetError())) { \
+			PDRAW_LOGE("GL error 0x%x in " #X " file %s line %d", \
+				err, __FILE__,__LINE__); \
+			assert(err == GL_NO_ERROR); \
+		} \
+	} while(0)
+#else
+#define GLCHK(X) X
+#endif /* CHECK_GL_ERRORS */
 
-class ANativeWindowRenderer : public Gles2Renderer {
-public:
-	ANativeWindowRenderer(
-		Session *session);
+#endif /* USE_GLES2 */
 
-	~ANativeWindowRenderer(
-		void);
-
-	int setRendererParams(
-		int windowWidth,
-		int windowHeight,
-		int renderX,
-		int renderY,
-		int renderWidth,
-		int renderHeight,
-		bool hmdDistorsionCorrection,
-		bool headtracking,
-		void *uiHandler);
-
-	int render(
-		uint64_t lastRenderTime);
-
-private:
-	static void* runRendererThread(
-		void *ptr);
-
-	pthread_t mRendererThread;
-	bool mRendererThreadLaunched;
-	bool mThreadShouldStop;
-	int mVideoWidth;
-	int mVideoHeight;
-	ANativeWindow *mWindow;
-	EGLDisplay mDisplay;
-	EGLSurface mSurface;
-	EGLContext mContext;
-};
-
-} /* namespace Pdraw */
-
-#endif /* USE_ANATIVEWINDOW */
-
-#endif /* !_PDRAW_RENDERER_ANATIVEWINDOW_HPP_ */
+#endif /* !_PDRAW_GLES2_COMMON_HPP_ */

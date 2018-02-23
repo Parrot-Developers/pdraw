@@ -301,8 +301,8 @@ int VideoCoreEglRenderer::render(
 	}
 
 	if (mHmdDistorsionCorrection) {
-		glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
-		glViewport(0, 0, mRenderWidth, mRenderHeight);
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mFbo));
+		GLCHK(glViewport(0, 0, mRenderWidth, mRenderHeight));
 	}
 
 	if (mGles2Video != NULL) {
@@ -339,8 +339,9 @@ int VideoCoreEglRenderer::render(
 	}
 
 	if (mHmdDistorsionCorrection) {
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+		GLCHK(glViewport(mRenderX, mRenderY,
+			mRenderWidth, mRenderHeight));
 
 		if (mGles2Hmd) {
 			ret = mGles2Hmd->renderHmd(mFboTexture,

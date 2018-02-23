@@ -33,7 +33,6 @@
 #ifdef USE_VIDEOCOREEGL
 
 #include <pthread.h>
-#include <GLES2/gl2.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include "pdraw_renderer_gles2.hpp"

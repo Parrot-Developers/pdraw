@@ -190,6 +190,8 @@ Gles2Hud::Gles2Hud(
 	mIconsTexture = 0;
 	mTextTexture = 0;
 
+	GLCHK();
+
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
 		ULOGE("Gles2Hud: failed to create vertex shader");
@@ -253,6 +255,8 @@ Gles2Hud::Gles2Hud(
 		goto err;
 	}
 
+	GLCHK();
+
 	glShaderSource(vertexShader, 1, &hudTexVertexShader, NULL);
 	glCompileShader(vertexShader);
 	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
@@ -305,6 +309,8 @@ Gles2Hud::Gles2Hud(
 	mTexTransformMatrixHandle = glGetUniformLocation(mProgram[1],
 		"transform_matrix");
 	mTexColorHandle = glGetUniformLocation(mProgram[1], "vColor");
+
+	GLCHK();
 
 	mLogoTexUnit = mFirstTexUnit;
 	ret = loadTextureFromBuffer(hudLogo,
@@ -579,11 +585,11 @@ int Gles2Hud::renderHud(
 	}
 	int headingInt = ((int)(droneAttitude.psi * RAD_TO_DEG) + 360) % 360;
 
-	glDisable(GL_TEXTURE_2D);
-	glUseProgram(mProgram[0]);
+	GLCHK(glDisable(GL_TEXTURE_2D));
+	GLCHK(glUseProgram(mProgram[0]));
 
-	glEnableVertexAttribArray(mPositionHandle);
-	glEnableVertexAttribArray(mColorHandle);
+	GLCHK(glEnableVertexAttribArray(mPositionHandle));
+	GLCHK(glEnableVertexAttribArray(mColorHandle));
 
 	if ((headtracking) && (mSession)) {
 		Eigen::Quaternionf headQuat =
@@ -610,7 +616,8 @@ int Gles2Hud::renderHud(
 	}
 
 	Eigen::Matrix4f xformMat = projMat * viewMat * modelMat;
-	glUniformMatrix4fv(mTransformMatrixHandle, 1, false, xformMat.data());
+	GLCHK(glUniformMatrix4fv(mTransformMatrixHandle,
+		1, false, xformMat.data()));
 
 	/* World */
 	if (takeoffDistance >= 50.) {
@@ -626,7 +633,8 @@ int Gles2Hud::renderHud(
 	}
 
 	xformMat = Eigen::Matrix4f::Identity();
-	glUniformMatrix4fv(mTransformMatrixHandle, 1, false, xformMat.data());
+	GLCHK(glUniformMatrix4fv(mTransformMatrixHandle,
+		1, false, xformMat.data()));
 
 	/* Helmet */
 	if (horizontalSpeed >= 0.2)
@@ -666,24 +674,23 @@ int Gles2Hud::renderHud(
 		metadata->base.location.svCount, 0., 30., 0., 5.,
 		colorGreen, colorDarkGreen, 2.);
 
-	glDisableVertexAttribArray(mPositionHandle);
-	glDisableVertexAttribArray(mColorHandle);
+	GLCHK(glDisableVertexAttribArray(mPositionHandle));
+	GLCHK(glDisableVertexAttribArray(mColorHandle));
 
+	GLCHK(glEnable(GL_TEXTURE_2D));
+	GLCHK(glEnable(GL_BLEND));
+	GLCHK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 
-	glEnable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	GLCHK(glUseProgram(mProgram[1]));
+	GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+		1, false, xformMat.data()));
 
-	glUseProgram(mProgram[1]);
-	glUniformMatrix4fv(mTexTransformMatrixHandle,
-		1, false, xformMat.data());
-
-	glActiveTexture(GL_TEXTURE0 + mIconsTexUnit);
-	glBindTexture(GL_TEXTURE_2D, mIconsTexture);
-	glUniform1i(mTexUniformSampler, mIconsTexUnit);
-	glEnableVertexAttribArray(mTexPositionHandle);
-	glEnableVertexAttribArray(mTexTexcoordHandle);
-	glEnableVertexAttribArray(mTexColorHandle);
+	GLCHK(glActiveTexture(GL_TEXTURE0 + mIconsTexUnit));
+	GLCHK(glBindTexture(GL_TEXTURE_2D, mIconsTexture));
+	GLCHK(glUniform1i(mTexUniformSampler, mIconsTexUnit));
+	GLCHK(glEnableVertexAttribArray(mTexPositionHandle));
+	GLCHK(glEnableVertexAttribArray(mTexTexcoordHandle));
+	GLCHK(glEnableVertexAttribArray(mTexColorHandle));
 
 	drawIcon(3, mHudVuMeterZoneHOffset * mRatioW,
 		(-mHudVuMeterVInterval - 0.01) * mRatioH, mSmallIconSize,
@@ -749,8 +756,8 @@ int Gles2Hud::renderHud(
 			transformMatrix[13] = deltaY;
 			transformMatrix[14] = 0;
 			transformMatrix[15] = 1;
-			glUniformMatrix4fv(mTexTransformMatrixHandle,
-				1, false, transformMatrix);
+			GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+				1, false, transformMatrix));
 			drawIcon(pdraw_droneModelIconIndex[droneModel],
 				0., 0., mSmallIconSize, mScaleW,
 				mScaleH * mVideoAspectRatio, colorGreen);
@@ -782,19 +789,19 @@ int Gles2Hud::renderHud(
 			transformMatrix[13] = deltaY;
 			transformMatrix[14] = 0;
 			transformMatrix[15] = 1;
-			glUniformMatrix4fv(mTexTransformMatrixHandle,
-				1, false, transformMatrix);
+			GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+				1, false, transformMatrix));
 			drawIcon(8, 0., cy, mSmallIconSize, mScaleW,
 				mScaleH * mVideoAspectRatio, colorGreen);
 		}
 	}
 
-	glActiveTexture(GL_TEXTURE0 + mTextTexUnit);
-	glBindTexture(GL_TEXTURE_2D, mTextTexture);
-	glUniform1i(mTexUniformSampler, mTextTexUnit);
+	GLCHK(glActiveTexture(GL_TEXTURE0 + mTextTexUnit));
+	GLCHK(glBindTexture(GL_TEXTURE_2D, mTextTexture));
+	GLCHK(glUniform1i(mTexUniformSampler, mTextTexUnit));
 
-	glUniformMatrix4fv(mTexTransformMatrixHandle,
-		1, false, xformMat.data());
+	GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+		1, false, xformMat.data()));
 
 	char str[20];
 	snprintf(str, sizeof(str), "%d%%", metadata->base.batteryPercentage);
@@ -1056,8 +1063,8 @@ int Gles2Hud::renderHud(
 			transformMatrix[1] = sinf(angle) * windowH;
 			transformMatrix[4] = -sinf(angle) * windowW;
 			transformMatrix[5] = cosf(angle) * windowH;
-			glUniformMatrix4fv(mTexTransformMatrixHandle,
-				1, false, transformMatrix);
+			GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+				1, false, transformMatrix));
 			if (i == 0)
 				snprintf(str, sizeof(str), "0");
 			else
@@ -1096,8 +1103,8 @@ int Gles2Hud::renderHud(
 			transformMatrix[1] = sinf(angle) * windowH;
 			transformMatrix[4] = -sinf(angle) * windowW;
 			transformMatrix[5] = cosf(angle) * windowH;
-			glUniformMatrix4fv(mTexTransformMatrixHandle,
-				1, false, transformMatrix);
+			GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+				1, false, transformMatrix));
 			drawText(pdraw_strHeading[i], 0., cy, mTextSize,
 				mScaleW, mScaleH * mVideoAspectRatio,
 				GLES2_HUD_TEXT_ALIGN_CENTER,
@@ -1138,8 +1145,8 @@ int Gles2Hud::renderHud(
 			transformMatrix[1] = sinf(angle) * windowH;
 			transformMatrix[4] = -sinf(angle) * windowW;
 			transformMatrix[5] = cosf(angle) * windowH;
-			glUniformMatrix4fv(mTexTransformMatrixHandle,
-				1, false, transformMatrix);
+			GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+				1, false, transformMatrix));
 			drawText(pdraw_strHeading[i], 0., cy, mTextSize,
 				mScaleW, mScaleH * mVideoAspectRatio,
 				GLES2_HUD_TEXT_ALIGN_CENTER,
@@ -1147,9 +1154,9 @@ int Gles2Hud::renderHud(
 		}
 	}
 
-	glDisableVertexAttribArray(mTexPositionHandle);
-	glDisableVertexAttribArray(mTexTexcoordHandle);
-	glDisableVertexAttribArray(mTexColorHandle);
+	GLCHK(glDisableVertexAttribArray(mTexPositionHandle));
+	GLCHK(glDisableVertexAttribArray(mTexTexcoordHandle));
+	GLCHK(glDisableVertexAttribArray(mTexColorHandle));
 
 	return 0;
 }
@@ -1172,22 +1179,22 @@ int Gles2Hud::loadTextureFromBuffer(
 
 	if ((ret == 0) && (width > 0) && (height > 0) && (buffer != NULL)) {
 		GLuint tex;
-		glGenTextures(1, &tex);
+		GLCHK(glGenTextures(1, &tex));
 
-		glActiveTexture(GL_TEXTURE0 + texUnit);
-		glBindTexture(GL_TEXTURE_2D, tex);
+		GLCHK(glActiveTexture(GL_TEXTURE0 + texUnit));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, tex));
 
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0,
-			GL_LUMINANCE, GL_UNSIGNED_BYTE, buffer);
+		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, width, height, 0,
+			GL_LUMINANCE, GL_UNSIGNED_BYTE, buffer));
 
-		glTexParameteri(GL_TEXTURE_2D,
-			GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D,
-			GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D,
-			GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D,
-			GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		GLCHK(glTexParameteri(GL_TEXTURE_2D,
+			GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+		GLCHK(glTexParameteri(GL_TEXTURE_2D,
+			GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+		GLCHK(glTexParameterf(GL_TEXTURE_2D,
+			GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+		GLCHK(glTexParameterf(GL_TEXTURE_2D,
+			GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 
 		ret = (int)tex;
 	}
@@ -1217,8 +1224,8 @@ void Gles2Hud::drawIcon(
 	vertices[6] = x + size * scaleW / 2.;
 	vertices[7] = y + size * scaleH / 2.;
 
-	glVertexAttribPointer(mTexPositionHandle,
-		2, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mTexPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
 
 	int ix = index % 3;
 	int iy = index / 3;
@@ -1232,12 +1239,12 @@ void Gles2Hud::drawIcon(
 	texCoords[6] = ((float)ix + 0.99) / 3.;
 	texCoords[7] = ((float)iy + 0.) / 3.;
 
-	glVertexAttribPointer(mTexTexcoordHandle,
-		2, GL_FLOAT, false, 0, texCoords);
+	GLCHK(glVertexAttribPointer(mTexTexcoordHandle,
+		2, GL_FLOAT, false, 0, texCoords));
 
-	glUniform4fv(mTexColorHandle, 1, color);
+	GLCHK(glUniform4fv(mTexColorHandle, 1, color));
 
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 }
 
 
@@ -1261,8 +1268,8 @@ void Gles2Hud::drawLogo(
 	vertices[6] = x + size * scaleW / 2.;
 	vertices[7] = y + size * scaleH / 2.;
 
-	glVertexAttribPointer(mTexPositionHandle,
-		2, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mTexPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
 
 	texCoords[0] = 0.;
 	texCoords[1] = 1.;
@@ -1273,12 +1280,12 @@ void Gles2Hud::drawLogo(
 	texCoords[6] = 1.;
 	texCoords[7] = 0.;
 
-	glVertexAttribPointer(mTexTexcoordHandle,
-		2, GL_FLOAT, false, 0, texCoords);
+	GLCHK(glVertexAttribPointer(mTexTexcoordHandle,
+		2, GL_FLOAT, false, 0, texCoords));
 
-	glUniform4fv(mTexColorHandle, 1, color);
+	GLCHK(glUniform4fv(mTexColorHandle, 1, color));
 
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 }
 
 
@@ -1359,7 +1366,7 @@ void Gles2Hud::drawText(
 		break;
 	}
 
-	glUniform4fv(mTexColorHandle, 1, color);
+	GLCHK(glUniform4fv(mTexColorHandle, 1, color));
 
 	const char *c = str;
 	float cx = 0.;
@@ -1390,11 +1397,11 @@ void Gles2Hud::drawText(
 			texCoords[6] = g.norm.u + g.norm.width;
 			texCoords[7] = g.norm.v;
 
-			glVertexAttribPointer(mTexPositionHandle,
-				2, GL_FLOAT, false, 0, vertices);
-			glVertexAttribPointer(mTexTexcoordHandle,
-				2, GL_FLOAT, false, 0, texCoords);
-			glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+			GLCHK(glVertexAttribPointer(mTexPositionHandle,
+				2, GL_FLOAT, false, 0, vertices));
+			GLCHK(glVertexAttribPointer(mTexTexcoordHandle,
+				2, GL_FLOAT, false, 0, texCoords));
+			GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
 			cx += g.norm.advance * size * scaleW;
 		}
@@ -1418,13 +1425,14 @@ void Gles2Hud::drawLine(
 	vertices[2] = x2;
 	vertices[3] = y2;
 
-	glLineWidth(lineWidth);
+	GLCHK(glLineWidth(lineWidth));
 
-	glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_LINES, 0, 2);
+	GLCHK(glDrawArrays(GL_LINES, 0, 2));
 }
 
 
@@ -1447,13 +1455,14 @@ void Gles2Hud::drawLineZ(
 	vertices[4] = y2;
 	vertices[5] = z2;
 
-	glLineWidth(lineWidth);
+	GLCHK(glLineWidth(lineWidth));
 
-	glVertexAttribPointer(mPositionHandle, 3, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		3, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_LINES, 0, 2);
+	GLCHK(glDrawArrays(GL_LINES, 0, 2));
 }
 
 
@@ -1476,13 +1485,14 @@ void Gles2Hud::drawRect(
 	vertices[6] = x2;
 	vertices[7] = y1;
 
-	glLineWidth(lineWidth);
+	GLCHK(glLineWidth(lineWidth));
 
-	glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_LINE_LOOP, 0, 4);
+	GLCHK(glDrawArrays(GL_LINE_LOOP, 0, 4));
 }
 
 
@@ -1518,13 +1528,14 @@ void Gles2Hud::drawArc(
 		y = s * t + c * y;
 	}
 
-	glLineWidth(lineWidth);
+	GLCHK(glLineWidth(lineWidth));
 
-	glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_LINE_STRIP, 0, numSegments + 1);
+	GLCHK(glDrawArrays(GL_LINE_STRIP, 0, numSegments + 1));
 }
 
 
@@ -1562,13 +1573,14 @@ void Gles2Hud::drawArcZ(
 		y = s * t + c * y;
 	}
 
-	glLineWidth(lineWidth);
+	GLCHK(glLineWidth(lineWidth));
 
-	glVertexAttribPointer(mPositionHandle, 3, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		3, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_LINE_STRIP, 0, numSegments + 1);
+	GLCHK(glDrawArrays(GL_LINE_STRIP, 0, numSegments + 1));
 }
 
 
@@ -1603,13 +1615,14 @@ void Gles2Hud::drawEllipse(
 		y = s * t + c * y;
 	}
 
-	glLineWidth(lineWidth);
+	GLCHK(glLineWidth(lineWidth));
 
-	glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_LINE_LOOP, 0, numSegments);
+	GLCHK(glDrawArrays(GL_LINE_LOOP, 0, numSegments));
 }
 
 
@@ -1646,13 +1659,14 @@ void Gles2Hud::drawEllipseZ(
 		y = s * t + c * y;
 	}
 
-	glLineWidth(lineWidth);
+	GLCHK(glLineWidth(lineWidth));
 
-	glVertexAttribPointer(mPositionHandle, 3, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		3, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_LINE_LOOP, 0, numSegments);
+	GLCHK(glDrawArrays(GL_LINE_LOOP, 0, numSegments));
 }
 
 
@@ -1700,11 +1714,12 @@ void Gles2Hud::drawEllipseFilled(
 	vertices[6 * i] = x * rx + cx;
 	vertices[6 * i + 1] = y * ry + cy;
 
-	glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
 
-	glUniform4fv(mColorHandle, 1, color);
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
 
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 3 * (numSegments / 2) + 1);
+	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 3 * (numSegments / 2) + 1));
 }
 
 
@@ -1822,10 +1837,10 @@ void Gles2Hud::drawCockpit(
 	float halfSphereDepth = 1.;
 
 	/* sphere */
-	glUniform4fv(mColorHandle, 1, color2);
-	glVertexAttribPointer(mPositionHandle,
-		3, GL_FLOAT, false, 0, mCockpitSphereVertices);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, mCockpitSphereVerticesCount);
+	GLCHK(glUniform4fv(mColorHandle, 1, color2));
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		3, GL_FLOAT, false, 0, mCockpitSphereVertices));
+	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, mCockpitSphereVerticesCount));
 
 	/* circles of latitude */
 	drawEllipseZ(0., 0., sinf(limitAngle) * rx, sinf(limitAngle) * ry,
@@ -1866,14 +1881,14 @@ void Gles2Hud::drawCockpit(
 	}
 
 	/* logo */
-	glDisableVertexAttribArray(mPositionHandle);
-	glDisableVertexAttribArray(mColorHandle);
+	GLCHK(glDisableVertexAttribArray(mPositionHandle));
+	GLCHK(glDisableVertexAttribArray(mColorHandle));
 
-	glEnable(GL_TEXTURE_2D);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	GLCHK(glEnable(GL_TEXTURE_2D));
+	GLCHK(glEnable(GL_BLEND));
+	GLCHK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 
-	glUseProgram(mProgram[1]);
+	GLCHK(glUseProgram(mProgram[1]));
 
 	Eigen::Matrix4f modelMat = Eigen::Matrix4f::Identity();
 	Eigen::Matrix3f rot1 = Eigen::AngleAxisf(M_PI,
@@ -1885,27 +1900,27 @@ void Gles2Hud::drawCockpit(
 	modelMat.block<3, 3>(0, 0) = scale * rot1;
 	modelMat.col(3) << 0., 0., cosf(M_PI - inc) * halfSphereDepth, 1.;
 	Eigen::Matrix4f xformMat2 = xformMat * modelMat;
-	glUniformMatrix4fv(mTexTransformMatrixHandle,
-		1, false, xformMat2.data());
+	GLCHK(glUniformMatrix4fv(mTexTransformMatrixHandle,
+		1, false, xformMat2.data()));
 
-	glActiveTexture(GL_TEXTURE0 + mLogoTexUnit);
-	glBindTexture(GL_TEXTURE_2D, mLogoTexture);
-	glUniform1i(mTexUniformSampler, mLogoTexUnit);
-	glEnableVertexAttribArray(mTexPositionHandle);
-	glEnableVertexAttribArray(mTexTexcoordHandle);
-	glEnableVertexAttribArray(mTexColorHandle);
+	GLCHK(glActiveTexture(GL_TEXTURE0 + mLogoTexUnit));
+	GLCHK(glBindTexture(GL_TEXTURE_2D, mLogoTexture));
+	GLCHK(glUniform1i(mTexUniformSampler, mLogoTexUnit));
+	GLCHK(glEnableVertexAttribArray(mTexPositionHandle));
+	GLCHK(glEnableVertexAttribArray(mTexTexcoordHandle));
+	GLCHK(glEnableVertexAttribArray(mTexColorHandle));
 
 	drawLogo(0., 0., sinf(inc), 1., 1., color);
 
-	glDisableVertexAttribArray(mTexPositionHandle);
-	glDisableVertexAttribArray(mTexTexcoordHandle);
-	glDisableVertexAttribArray(mTexColorHandle);
+	GLCHK(glDisableVertexAttribArray(mTexPositionHandle));
+	GLCHK(glDisableVertexAttribArray(mTexTexcoordHandle));
+	GLCHK(glDisableVertexAttribArray(mTexColorHandle));
 
-	glDisable(GL_TEXTURE_2D);
-	glUseProgram(mProgram[0]);
+	GLCHK(glDisable(GL_TEXTURE_2D));
+	GLCHK(glUseProgram(mProgram[0]));
 
-	glEnableVertexAttribArray(mPositionHandle);
-	glEnableVertexAttribArray(mColorHandle);
+	GLCHK(glEnableVertexAttribArray(mPositionHandle));
+	GLCHK(glEnableVertexAttribArray(mColorHandle));
 
 	/* lines of longitude */
 	modelMat = Eigen::Matrix4f::Identity();
@@ -1919,8 +1934,8 @@ void Gles2Hud::drawCockpit(
 			Eigen::Vector3f::UnitZ()).matrix();
 		modelMat.block<3, 3>(0, 0) = scale * rot2 * rot1;
 		xformMat2 = xformMat * modelMat;
-		glUniformMatrix4fv(mTransformMatrixHandle,
-			1, false, xformMat2.data());
+		GLCHK(glUniformMatrix4fv(mTransformMatrixHandle,
+			1, false, xformMat2.data()));
 
 		drawArcZ(0., 0., 1., 1., 0., centerAngle,
 			M_PI - centerAngle - inc, 40, color, lineWidth);
@@ -1976,10 +1991,11 @@ void Gles2Hud::drawArtificialHorizon(
 	vertices[8] = 0.06 * mRatioW * cosf(frame->phi - drone->phi);
 	vertices[9] = 0.06 * mRatioW * mAspectRatio *
 		sinf(frame->phi - drone->phi) + droneY;
-	glLineWidth(6.);
-	glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, false, 0, vertices);
-	glUniform4fv(mColorHandle, 1, color);
-	glDrawArrays(GL_LINE_STRIP, 0, 5);
+	GLCHK(glLineWidth(6.));
+	GLCHK(glVertexAttribPointer(mPositionHandle,
+		2, GL_FLOAT, false, 0, vertices));
+	GLCHK(glUniform4fv(mColorHandle, 1, color));
+	GLCHK(glDrawArrays(GL_LINE_STRIP, 0, 5));
 }
 
 

@@ -32,23 +32,7 @@
 
 #ifdef USE_GLES2
 
-#if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
-	#include <GLES2/gl2.h>
-#elif defined(__APPLE__)
-	#include <TargetConditionals.h>
-	#if TARGET_OS_IPHONE
-		#include <OpenGLES/ES2/gl.h>
-	#else
-		#define GLFW_INCLUDE_ES2
-		#include <GLFW/glfw3.h>
-		#include <OpenGL/OpenGL.h>
-		#include <OpenGL/glext.h>
-	#endif
-#else
-	#define GLFW_INCLUDE_ES2
-	#include <GLFW/glfw3.h>
-#endif
-
+#include "pdraw_gles2_common.hpp"
 #include "pdraw_metadata_videoframe.hpp"
 
 namespace Pdraw {

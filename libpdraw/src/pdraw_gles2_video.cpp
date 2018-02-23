@@ -152,6 +152,8 @@ Gles2Video::Gles2Video(
 		}
 	}
 
+	GLCHK();
+
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
 		ULOGE("Gles2Video: failed to create vertex shader");
@@ -304,6 +306,8 @@ Gles2Video::Gles2Video(
 	glDeleteShader(fragmentShaderYuvsp);
 	fragmentShaderYuvsp = 0;
 
+	GLCHK();
+
 	mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
 		glGetUniformLocation(
 			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
@@ -379,47 +383,54 @@ Gles2Video::Gles2Video(
 			mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB],
 			"texcoord");
 
-	glGenTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures);
+	GLCHK();
+
+	GLCHK(glGenTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
 
 	for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-		glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
-		glBindTexture(GL_TEXTURE_2D, mTextures[i]);
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
 
-		glTexParameteri(GL_TEXTURE_2D,
-			GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D,
-			GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D,
-			GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D,
-			GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		GLCHK(glTexParameteri(GL_TEXTURE_2D,
+			GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+		GLCHK(glTexParameteri(GL_TEXTURE_2D,
+			GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+		GLCHK(glTexParameterf(GL_TEXTURE_2D,
+			GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+		GLCHK(glTexParameterf(GL_TEXTURE_2D,
+			GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 	}
 
-	glGenFramebuffers(1, &mPaddingFbo);
+	GLCHK(glGenFramebuffers(1, &mPaddingFbo));
 	if (mPaddingFbo <= 0) {
 		ULOGE("Gles2Video: failed to create framebuffer");
 		goto err;
 	}
-	glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo);
+	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo));
 
-	glGenTextures(1, &mPaddingFboTexture);
+	GLCHK(glGenTextures(1, &mPaddingFboTexture));
 	if (mPaddingFboTexture <= 0) {
 		ULOGE("Gles2Video: failed to create texture");
 		goto err;
 	}
-	glActiveTexture(GL_TEXTURE0 +
-		mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT);
-	glBindTexture(GL_TEXTURE_2D, mPaddingFboTexture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, mPaddingWidth, mPaddingHeight,
-		0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	GLCHK(glActiveTexture(GL_TEXTURE0 +
+		mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT));
+	GLCHK(glBindTexture(GL_TEXTURE_2D, mPaddingFboTexture));
+	GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+		mPaddingWidth, mPaddingHeight,
+		0, GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	GLCHK(glTexParameteri(GL_TEXTURE_2D,
+		GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+	GLCHK(glTexParameteri(GL_TEXTURE_2D,
+		GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+	GLCHK(glTexParameterf(GL_TEXTURE_2D,
+		GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+	GLCHK(glTexParameterf(GL_TEXTURE_2D,
+		GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 
-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-		GL_TEXTURE_2D, mPaddingFboTexture, 0);
+	GLCHK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+		GL_TEXTURE_2D, mPaddingFboTexture, 0));
 
 	gle = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 	if (gle != GL_FRAMEBUFFER_COMPLETE) {
@@ -427,9 +438,9 @@ Gles2Video::Gles2Video(
 		goto err;
 	}
 
-	glClear(GL_COLOR_BUFFER_BIT);
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
+	GLCHK(glBindTexture(GL_TEXTURE_2D, 0));
+	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 
 	return;
 
@@ -533,37 +544,37 @@ int Gles2Video::loadFrame(
 	switch (colorConversion) {
 	default:
 	case GLES2_VIDEO_COLOR_CONVERSION_NONE:
-		glUniform1i(mUniformSamplers[colorConversion][0],
-			mFirstTexUnit + (intptr_t)framePlane[0]);
+		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+			mFirstTexUnit + (intptr_t)framePlane[0]));
 		break;
 	case GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB:
 		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-			glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
-			glBindTexture(GL_TEXTURE_2D, mTextures[i]);
-			glUniform1i(mUniformSamplers[colorConversion][i],
-				mFirstTexUnit + i);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
+			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
+			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
+			GLCHK(glUniform1i(mUniformSamplers[colorConversion][i],
+				mFirstTexUnit + i));
+			GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
 				frameStride[i], frameHeight / ((i > 0) ? 2 : 1),
 				0, GL_LUMINANCE,
-				GL_UNSIGNED_BYTE, framePlane[i]);
+				GL_UNSIGNED_BYTE, framePlane[i]));
 		}
 		break;
 	case GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB:
-		glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0);
-		glBindTexture(GL_TEXTURE_2D, mTextures[0]);
-		glUniform1i(mUniformSamplers[colorConversion][0],
-			mFirstTexUnit + 0);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
+		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+			mFirstTexUnit + 0));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE,
 			frameStride[0], frameHeight,
-			0, GL_LUMINANCE, GL_UNSIGNED_BYTE, framePlane[0]);
+			0, GL_LUMINANCE, GL_UNSIGNED_BYTE, framePlane[0]));
 
-		glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1);
-		glBindTexture(GL_TEXTURE_2D, mTextures[1]);
-		glUniform1i(mUniformSamplers[colorConversion][1],
-			mFirstTexUnit + 1);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA,
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
+		GLCHK(glUniform1i(mUniformSamplers[colorConversion][1],
+			mFirstTexUnit + 1));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA,
 			frameStride[1] / 2, frameHeight / 2,
-			0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, framePlane[1]);
+			0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, framePlane[1]));
 		break;
 	}
 
@@ -599,34 +610,34 @@ int Gles2Video::renderFrame(
 		return -1;
 	}
 
-	glUseProgram(mProgram[colorConversion]);
-	glEnable(GL_TEXTURE_2D);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	GLCHK(glUseProgram(mProgram[colorConversion]));
+	GLCHK(glEnable(GL_TEXTURE_2D));
+	GLCHK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
 	switch (colorConversion) {
 	default:
 	case GLES2_VIDEO_COLOR_CONVERSION_NONE:
-		glUniform1i(mUniformSamplers[colorConversion][0],
-			mFirstTexUnit + (intptr_t)framePlane[0]);
+		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+			mFirstTexUnit + (intptr_t)framePlane[0]));
 		break;
 	case GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB:
 		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-			glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
-			glBindTexture(GL_TEXTURE_2D, mTextures[i]);
-			glUniform1i(mUniformSamplers[colorConversion][i],
-				mFirstTexUnit + i);
+			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
+			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
+			GLCHK(glUniform1i(mUniformSamplers[colorConversion][i],
+				mFirstTexUnit + i));
 		}
 		break;
 	case GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB:
-		glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0);
-		glBindTexture(GL_TEXTURE_2D, mTextures[0]);
-		glUniform1i(mUniformSamplers[colorConversion][0],
-			mFirstTexUnit + 0);
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
+		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+			mFirstTexUnit + 0));
 
-		glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1);
-		glBindTexture(GL_TEXTURE_2D, mTextures[1]);
-		glUniform1i(mUniformSamplers[colorConversion][1],
-			mFirstTexUnit + 1);
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
+		GLCHK(glUniform1i(mUniformSamplers[colorConversion][1],
+			mFirstTexUnit + 1));
 		break;
 	}
 
@@ -698,9 +709,9 @@ int Gles2Video::renderFrame(
 
 	if (headtracking) {
 		/* Padding */
-		glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo);
-		glViewport(0, 0, mPaddingWidth, mPaddingHeight);
-		glClear(GL_COLOR_BUFFER_BIT);
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo));
+		GLCHK(glViewport(0, 0, mPaddingWidth, mPaddingHeight));
+		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 
 		vertices[0] = -1.;
 		vertices[1] = 1.;
@@ -716,12 +727,14 @@ int Gles2Video::renderFrame(
 		vertices[11] = 1.;
 
 		Eigen::Matrix4f id = Eigen::Matrix4f::Identity();
-		glUniformMatrix4fv(mProgramTransformMatrix[colorConversion],
-			1, false, id.data());
+		GLCHK(glUniformMatrix4fv(
+			mProgramTransformMatrix[colorConversion],
+			1, false, id.data()));
 
-		glVertexAttribPointer(mPositionHandle[colorConversion],
-			3, GL_FLOAT, false, 0, vertices);
-		glEnableVertexAttribArray(mPositionHandle[colorConversion]);
+		GLCHK(glVertexAttribPointer(mPositionHandle[colorConversion],
+			3, GL_FLOAT, false, 0, vertices));
+		GLCHK(glEnableVertexAttribArray(
+			mPositionHandle[colorConversion]));
 
 		texCoords[0] = 0.0f;
 		texCoords[1] = 1.0f;
@@ -732,27 +745,31 @@ int Gles2Video::renderFrame(
 		texCoords[6] = (float)frameWidth / (float)frameStride[0];
 		texCoords[7] = 0.0f;
 
-		glVertexAttribPointer(mTexcoordHandle[colorConversion],
-			2, GL_FLOAT, false, 0, texCoords);
-		glEnableVertexAttribArray(mTexcoordHandle[colorConversion]);
+		GLCHK(glVertexAttribPointer(mTexcoordHandle[colorConversion],
+			2, GL_FLOAT, false, 0, texCoords));
+		GLCHK(glEnableVertexAttribArray(
+			mTexcoordHandle[colorConversion]));
 
-		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-		glDisableVertexAttribArray(mPositionHandle[colorConversion]);
-		glDisableVertexAttribArray(mTexcoordHandle[colorConversion]);
+		GLCHK(glDisableVertexAttribArray(
+			mPositionHandle[colorConversion]));
+		GLCHK(glDisableVertexAttribArray(
+			mTexcoordHandle[colorConversion]));
 
-		glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-		glViewport(windowX, windowY, windowWidth, windowHeight);
-		glUseProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
-		glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
-			GLES2_VIDEO_TEX_UNIT_COUNT);
-		glBindTexture(GL_TEXTURE_2D, mPaddingFboTexture);
-		glUniform1i(
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
+		GLCHK(glViewport(windowX, windowY, windowWidth, windowHeight));
+		GLCHK(glUseProgram(
+			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
+			GLES2_VIDEO_TEX_UNIT_COUNT));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mPaddingFboTexture));
+		GLCHK(glUniform1i(
 			mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NONE][0],
-			mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT);
-		glUniformMatrix4fv(
+			mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT));
+		GLCHK(glUniformMatrix4fv(
 			mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			1, false, xformMat.data());
+			1, false, xformMat.data()));
 
 		vertices[0] = -40. * videoW;
 		vertices[1] = -40. * videoH;
@@ -767,11 +784,11 @@ int Gles2Video::renderFrame(
 		vertices[10] = 40. * videoH;
 		vertices[11] = 1.001;
 
-		glVertexAttribPointer(
+		GLCHK(glVertexAttribPointer(
 			mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			3, GL_FLOAT, false, 0, vertices);
-		glEnableVertexAttribArray(
-			mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+			3, GL_FLOAT, false, 0, vertices));
+		GLCHK(glEnableVertexAttribArray(
+			mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
 
 		texCoords[0] = -19.0f;
 		texCoords[1] = 20.0f;
@@ -782,24 +799,24 @@ int Gles2Video::renderFrame(
 		texCoords[6] = 20.0f;
 		texCoords[7] = -19.0f;
 
-		glVertexAttribPointer(
+		GLCHK(glVertexAttribPointer(
 			mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			2, GL_FLOAT, false, 0, texCoords);
-		glEnableVertexAttribArray(
-			mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+			2, GL_FLOAT, false, 0, texCoords));
+		GLCHK(glEnableVertexAttribArray(
+			mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
 
-		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-		glDisableVertexAttribArray(
-			mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
-		glDisableVertexAttribArray(
-			mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+		GLCHK(glDisableVertexAttribArray(
+			mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+		GLCHK(glDisableVertexAttribArray(
+			mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
 
-		glUseProgram(mProgram[colorConversion]);
+		GLCHK(glUseProgram(mProgram[colorConversion]));
 	}
 
-	glUniformMatrix4fv(mProgramTransformMatrix[colorConversion],
-		1, false, xformMat.data());
+	GLCHK(glUniformMatrix4fv(mProgramTransformMatrix[colorConversion],
+		1, false, xformMat.data()));
 
 	vertices[0] = -videoW;
 	vertices[1] = -videoH;
@@ -814,9 +831,9 @@ int Gles2Video::renderFrame(
 	vertices[10] = videoH;
 	vertices[11] = 1.;
 
-	glVertexAttribPointer(mPositionHandle[colorConversion],
-		3, GL_FLOAT, false, 0, vertices);
-	glEnableVertexAttribArray(mPositionHandle[colorConversion]);
+	GLCHK(glVertexAttribPointer(mPositionHandle[colorConversion],
+		3, GL_FLOAT, false, 0, vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[colorConversion]));
 
 	texCoords[0] = 0.0f;
 	texCoords[1] = 1.0f;
@@ -827,14 +844,14 @@ int Gles2Video::renderFrame(
 	texCoords[6] = (float)frameWidth / (float)frameStride[0];
 	texCoords[7] = 0.0f;
 
-	glVertexAttribPointer(mTexcoordHandle[colorConversion],
-		2, GL_FLOAT, false, 0, texCoords);
-	glEnableVertexAttribArray(mTexcoordHandle[colorConversion]);
+	GLCHK(glVertexAttribPointer(mTexcoordHandle[colorConversion],
+		2, GL_FLOAT, false, 0, texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[colorConversion]));
 
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	glDisableVertexAttribArray(mPositionHandle[colorConversion]);
-	glDisableVertexAttribArray(mTexcoordHandle[colorConversion]);
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[colorConversion]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[colorConversion]));
 
 	return 0;
 }
@@ -854,11 +871,11 @@ int Gles2Video::allocTextures(
 	int ret = 0, i;
 
 	for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-		glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i);
-		glBindTexture(GL_TEXTURE_2D, mTextures[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
 			videoWidth, videoHeight, 0,
-			GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+			GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 	}
 
 	return ret;

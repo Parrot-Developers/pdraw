@@ -98,6 +98,8 @@ Gles2Renderer::~Gles2Renderer(
 int Gles2Renderer::initGles2(
 	void)
 {
+	GLCHK();
+
 	mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia,
 		mGles2VideoFirstTexUnit);
 	if (mGles2Video == NULL) {
@@ -112,54 +114,57 @@ int Gles2Renderer::initGles2(
 		goto err;
 	}
 
+	GLCHK();
+
 	/* Set background color and clear buffers */
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glDisable(GL_DITHER);
-	glEnable(GL_TEXTURE_2D);
-	glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+	GLCHK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
+	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
+	GLCHK(glDisable(GL_DITHER));
+	GLCHK(glEnable(GL_TEXTURE_2D));
+	GLCHK(glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight));
 
 	if (mHmdDistorsionCorrection) {
-		glGenFramebuffers(1, &mFbo);
+		GLCHK(glGenFramebuffers(1, &mFbo));
 		if (mFbo <= 0) {
 			ULOGE("Gles2Renderer: failed to create framebuffer");
 			goto err;
 		}
-		glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mFbo));
 
-		glGenTextures(1, &mFboTexture);
+		GLCHK(glGenTextures(1, &mFboTexture));
 		if (mFboTexture <= 0) {
 			ULOGE("Gles2Renderer: failed to create texture");
 			goto err;
 		}
-		glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit);
-		glBindTexture(GL_TEXTURE_2D, mFboTexture);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mFboTexture));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
 			mRenderWidth / 2, mRenderHeight, 0,
-			GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+			GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 
-		glTexParameteri(GL_TEXTURE_2D,
-			GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D,
-			GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameterf(GL_TEXTURE_2D,
-			GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameterf(GL_TEXTURE_2D,
-			GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		GLCHK(glTexParameteri(GL_TEXTURE_2D,
+			GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+		GLCHK(glTexParameteri(GL_TEXTURE_2D,
+			GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+		GLCHK(glTexParameterf(GL_TEXTURE_2D,
+			GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+		GLCHK(glTexParameterf(GL_TEXTURE_2D,
+			GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 
-		glGenRenderbuffers(1, &mFboRenderBuffer);
+		GLCHK(glGenRenderbuffers(1, &mFboRenderBuffer));
 		if (mFboRenderBuffer <= 0) {
 			ULOGE("Gles2Renderer: failed to create render buffer");
 			goto err;
 		}
-		glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer);
-		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16,
-			mRenderWidth / 2, mRenderHeight);
+		GLCHK(glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer));
+		GLCHK(glRenderbufferStorage(GL_RENDERBUFFER,
+			GL_DEPTH_COMPONENT16, mRenderWidth / 2, mRenderHeight));
 
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-			GL_TEXTURE_2D, mFboTexture, 0);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-			GL_RENDERBUFFER, mFboRenderBuffer);
+		GLCHK(glFramebufferTexture2D(GL_FRAMEBUFFER,
+			GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboTexture, 0));
+		GLCHK(glFramebufferRenderbuffer(GL_FRAMEBUFFER,
+			GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+			mFboRenderBuffer));
 
 		GLenum gle = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 		if (gle != GL_FRAMEBUFFER_COMPLETE) {
@@ -167,10 +172,10 @@ int Gles2Renderer::initGles2(
 			goto err;
 		}
 
-		glClear(GL_COLOR_BUFFER_BIT);
-		glBindTexture(GL_TEXTURE_2D, 0);
-		glBindRenderbuffer(GL_RENDERBUFFER, 0);
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, 0));
+		GLCHK(glBindRenderbuffer(GL_RENDERBUFFER, 0));
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 
 		if (mSession != NULL) {
 			float xdpi = 0., ydpi = 0., deviceMargin = 0.;
@@ -412,9 +417,9 @@ int Gles2Renderer::render_nolock(
 		return 0;
 
 	if (mHmdDistorsionCorrection) {
-		glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
-		glViewport(0, 0, mRenderWidth / 2, mRenderHeight);
-		glClear(GL_COLOR_BUFFER_BIT);
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mFbo));
+		GLCHK(glViewport(0, 0, mRenderWidth / 2, mRenderHeight));
+		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 	}
 
 	if (mGles2Video) {
@@ -464,8 +469,9 @@ int Gles2Renderer::render_nolock(
 	}
 
 	if (mHmdDistorsionCorrection) {
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight);
+		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+		GLCHK(glViewport(mRenderX, mRenderY,
+			mRenderWidth, mRenderHeight));
 
 		if (mGles2Hmd) {
 			ret = mGles2Hmd->renderHmd(mFboTexture,
