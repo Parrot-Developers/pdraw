@@ -286,7 +286,7 @@ VideoCoreOmxAvcDecoder::~VideoCoreOmxAvcDecoder(
 }
 
 
-int VideoCoreOmxAvcDecoder::configure(
+int VideoCoreOmxAvcDecoder::open(
 	uint32_t inputBitstreamFormat,
 	const uint8_t *pSps,
 	unsigned int spsSize,

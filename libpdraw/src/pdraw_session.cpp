@@ -1372,9 +1372,9 @@ int Session::internalOpen(
 			ULOGE("Session: failed to alloc demuxer");
 			ret = -1;
 		} else {
-			ret = ((RecordDemuxer *)mDemuxer)->configure(url);
+			ret = ((RecordDemuxer *)mDemuxer)->open(url);
 			if (ret != 0) {
-				ULOGE("Session: failed to configure demuxer");
+				ULOGE("Session: failed to open demuxer");
 				delete mDemuxer;
 				mDemuxer = NULL;
 				ret = -1;
@@ -1391,10 +1391,10 @@ int Session::internalOpen(
 			ULOGE("Session: failed to alloc demuxer");
 			ret = -1;
 		} else {
-			ret = ((StreamDemuxerNet *)mDemuxer)->configure(
+			ret = ((StreamDemuxerNet *)mDemuxer)->open(
 				url, ifaceAddr);
 			if (ret != 0) {
-				ULOGE("Session: failed to configure demuxer");
+				ULOGE("Session: failed to open demuxer");
 				delete mDemuxer;
 				mDemuxer = NULL;
 				ret = -1;
@@ -1429,11 +1429,11 @@ int Session::internalOpen(
 		return -1;
 	}
 
-	ret = ((StreamDemuxerNet *)mDemuxer)->configure(localAddr,
+	ret = ((StreamDemuxerNet *)mDemuxer)->open(localAddr,
 		localStreamPort, localControlPort, remoteAddr,
 		remoteStreamPort, remoteControlPort, ifaceAddr);
 	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
+		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
 		return -1;
@@ -1459,9 +1459,9 @@ int Session::internalOpen(
 		return -1;
 	}
 
-	ret = ((StreamDemuxerMux *)mDemuxer)->configure(url, mux);
+	ret = ((StreamDemuxerMux *)mDemuxer)->open(url, mux);
 	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
+		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
 		return -1;
@@ -1489,9 +1489,9 @@ int Session::internalOpenSdp(
 		return -1;
 	}
 
-	ret = ((StreamDemuxerNet *)mDemuxer)->configureWithSdp(sdp, ifaceAddr);
+	ret = ((StreamDemuxerNet *)mDemuxer)->openSdp(sdp, ifaceAddr);
 	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
+		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
 		return -1;
@@ -1517,9 +1517,9 @@ int Session::internalOpenSdp(
 		return -1;
 	}
 
-	ret = ((StreamDemuxerMux *)mDemuxer)->configureWithSdp(sdp, mux);
+	ret = ((StreamDemuxerMux *)mDemuxer)->openSdp(sdp, mux);
 	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
+		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
 		return -1;

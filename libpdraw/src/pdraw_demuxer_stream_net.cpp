@@ -67,7 +67,7 @@ StreamDemuxerNet::~StreamDemuxerNet(
 }
 
 
-int StreamDemuxerNet::configure(
+int StreamDemuxerNet::open(
 	const std::string &url,
 	const std::string &ifaceAddr)
 {
@@ -82,9 +82,9 @@ int StreamDemuxerNet::configure(
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
 	if (url.substr(0, 7) == "rtsp://") {
-		res = configureRtsp(url, ifaceAddr);
+		res = openRtsp(url, ifaceAddr);
 		if (res < 0) {
-			PDRAW_LOG_ERRNO("StreamDemuxerNet: configureRtsp",
+			PDRAW_LOG_ERRNO("StreamDemuxerNet: openRtsp",
 				-res);
 			return res;
 		}
@@ -126,9 +126,9 @@ int StreamDemuxerNet::configure(
 
 		s[sb.st_size] = '\0';
 		std::string sdp(s);
-		res = configureSdp(sdp, ifaceAddr);
+		res = openWithSdp(sdp, ifaceAddr);
 		if (res < 0) {
-			PDRAW_LOG_ERRNO("StreamDemuxerNet: configureSdp", -res);
+			PDRAW_LOG_ERRNO("StreamDemuxerNet: openWithSdp", -res);
 			return -res;
 		}
 	} else {
@@ -143,7 +143,7 @@ int StreamDemuxerNet::configure(
 }
 
 
-int StreamDemuxerNet::configure(
+int StreamDemuxerNet::open(
 	const std::string &localAddr,
 	int localStreamPort,
 	int localControlPort,
@@ -167,9 +167,9 @@ int StreamDemuxerNet::configure(
 	mRemoteControlPort = remoteControlPort;
 	mIfaceAddr = ifaceAddr;
 
-	res = configureRtpAvp();
+	res = openRtpAvp();
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerNet: configureRtpAvp", -res);
+		PDRAW_LOG_ERRNO("StreamDemuxerNet: openRtpAvp", -res);
 		return res;
 	}
 
@@ -180,7 +180,7 @@ int StreamDemuxerNet::configure(
 }
 
 
-int StreamDemuxerNet::configureWithSdp(
+int StreamDemuxerNet::openSdp(
 	const std::string &sdp,
 	const std::string &ifaceAddr)
 {
@@ -191,9 +191,9 @@ int StreamDemuxerNet::configureWithSdp(
 		return -EEXIST;
 	}
 
-	res = configureSdp(sdp, ifaceAddr);
+	res = openWithSdp(sdp, ifaceAddr);
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerNet: configureSdp", -res);
+		PDRAW_LOG_ERRNO("StreamDemuxerNet: openWithSdp", -res);
 		return res;
 	}
 
@@ -204,7 +204,7 @@ int StreamDemuxerNet::configureWithSdp(
 }
 
 
-int StreamDemuxerNet::configureRtpAvp(
+int StreamDemuxerNet::openRtpAvp(
 	void)
 {
 	int res;

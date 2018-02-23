@@ -150,7 +150,7 @@ MediaCodecAvcDecoder::~MediaCodecAvcDecoder(
 }
 
 
-int MediaCodecAvcDecoder::configure(
+int MediaCodecAvcDecoder::open(
 	uint32_t inputBitstreamFormat,
 	const uint8_t *pSps,
 	unsigned int spsSize,

@@ -61,7 +61,7 @@ StreamDemuxerMux::~StreamDemuxerMux(
 }
 
 
-int StreamDemuxerMux::configure(
+int StreamDemuxerMux::open(
 	const std::string &url,
 	struct mux_ctx *mux)
 {
@@ -78,9 +78,9 @@ int StreamDemuxerMux::configure(
 	mMux = mux;
 	/* TODO: RTSP over mux */
 
-	res = configureRtpAvp();
+	res = openRtpAvp();
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxer: configureRtpAvp", -res);
+		PDRAW_LOG_ERRNO("StreamDemuxer: openRtpAvp", -res);
 		return res;
 	}
 
@@ -91,7 +91,7 @@ int StreamDemuxerMux::configure(
 }
 
 
-int StreamDemuxerMux::configureWithSdp(
+int StreamDemuxerMux::openSdp(
 	const std::string &sdp,
 	struct mux_ctx *mux)
 {
@@ -100,7 +100,7 @@ int StreamDemuxerMux::configureWithSdp(
 }
 
 
-int StreamDemuxerMux::configureRtpAvp(
+int StreamDemuxerMux::openRtpAvp(
 	void)
 {
 	int res = 0;

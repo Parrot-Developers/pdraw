@@ -46,11 +46,11 @@ public:
 	~StreamDemuxerNet(
 		void);
 
-	int configure(
+	int open(
 		const std::string &url,
 		const std::string &ifaceAddr);
 
-	int configure(
+	int open(
 		const std::string &localAddr,
 		int localStreamPort,
 		int localControlPort,
@@ -59,12 +59,12 @@ public:
 		int remoteControlPort,
 		const std::string &ifaceAddr);
 
-	int configureWithSdp(
+	int openSdp(
 		const std::string &sdp,
 		const std::string &ifaceAddr);
 
 private:
-	int configureRtpAvp(
+	int openRtpAvp(
 		void);
 
 	static void dataCb(

@@ -57,7 +57,7 @@ public:
 		return AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM;
 	}
 
-	int configure(
+	int open(
 		uint32_t inputBitstreamFormat,
 		const uint8_t *pSps,
 		unsigned int spsSize,

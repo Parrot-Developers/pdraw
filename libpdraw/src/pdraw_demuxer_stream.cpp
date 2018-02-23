@@ -197,7 +197,7 @@ StreamDemuxer::~StreamDemuxer(
 }
 
 
-int StreamDemuxer::configureSdp(
+int StreamDemuxer::openWithSdp(
 	const std::string &sdp,
 	const std::string &ifaceAddr)
 {
@@ -262,9 +262,9 @@ int StreamDemuxer::configureSdp(
 	mRemoteStreamPort = 0;
 	mRemoteControlPort = 0;
 	mIfaceAddr = ifaceAddr;
-	ret = configureRtpAvp();
+	ret = openRtpAvp();
 	if (ret != 0) {
-		ULOGE("StreamDemuxer: configureRtpAvp() failed");
+		ULOGE("StreamDemuxer: openRtpAvp() failed");
 	}
 
 	free(remoteAddr);
@@ -464,9 +464,9 @@ void StreamDemuxer::onRtspSetupResp(
 	self->mRemoteStreamPort = server_stream_port;
 	self->mRemoteControlPort = server_control_port;
 
-	res = self->configureRtpAvp();
+	res = self->openRtpAvp();
 	if (res != 0) {
-		ULOGE("StreamDemuxer: configureRtpAvp() failed");
+		ULOGE("StreamDemuxer: openRtpAvp() failed");
 		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
@@ -557,7 +557,7 @@ void StreamDemuxer::onRtspTeardownResp(
 }
 
 
-int StreamDemuxer::configureRtsp(
+int StreamDemuxer::openRtsp(
 	const std::string &url,
 	const std::string &ifaceAddr)
 {
@@ -738,9 +738,9 @@ int StreamDemuxer::setElementaryStreamDecoder(
 
 	if ((mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) &&
 		(!mDecoder->isConfigured())) {
-		int ret = configureDecoder(this);
+		int ret = openDecoder(this);
 		if (ret < 0) {
-			ULOGW("StreamDemuxer: configureDecoder() "
+			ULOGW("StreamDemuxer: openDecoder() "
 				"failed (%d)", ret);
 		}
 	}
@@ -974,7 +974,7 @@ uint64_t StreamDemuxer::getCurrentTime(
 }
 
 
-int StreamDemuxer::configureDecoder(
+int StreamDemuxer::openDecoder(
 	StreamDemuxer *demuxer)
 {
 	uint8_t *sps_buf = NULL, *pps_buf = NULL;
@@ -1042,7 +1042,7 @@ int StreamDemuxer::configureDecoder(
 	*((uint32_t *)pps_buf) = start;
 	memcpy(pps_buf + 4, info->h264.pps, info->h264.ppslen);
 
-	ret = demuxer->mDecoder->configure(
+	ret = demuxer->mDecoder->open(
 		demuxer->mDecoderBitstreamFormat,
 		sps_buf, info->h264.spslen + 4,
 		pps_buf, info->h264.ppslen + 4);
@@ -1225,9 +1225,9 @@ void StreamDemuxer::codecInfoChangedCb(
 
 	if ((demuxer->mDecoder != NULL) &&
 		(!demuxer->mDecoder->isConfigured())) {
-		ret = configureDecoder(demuxer);
+		ret = openDecoder(demuxer);
 		if (ret < 0)
-			ULOGW("StreamDemuxer: configureDecoder() "
+			ULOGW("StreamDemuxer: openDecoder() "
 				"failed (%d)", ret);
 	}
 }

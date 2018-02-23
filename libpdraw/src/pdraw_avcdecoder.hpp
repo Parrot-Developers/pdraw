@@ -92,7 +92,7 @@ public:
 	virtual uint32_t getInputBitstreamFormatCaps(
 		void) = 0;
 
-	virtual int configure(
+	virtual int open(
 		uint32_t inputBitstreamFormat,
 		const uint8_t *pSps,
 		unsigned int spsSize,

@@ -258,7 +258,7 @@ int RecordDemuxer::fetchSessionMetadata(
 }
 
 
-int RecordDemuxer::configure(
+int RecordDemuxer::open(
 	const std::string &fileName)
 {
 	int ret;
@@ -743,7 +743,7 @@ int RecordDemuxer::getAvcDecoderConfig(
 	*((uint32_t*)ppsBuffer) = start;
 	memcpy(ppsBuffer + 4, pps, ppsSz);
 
-	ret = demuxer->mDecoder->configure(demuxer->mDecoderBitstreamFormat,
+	ret = demuxer->mDecoder->open(demuxer->mDecoderBitstreamFormat,
 		spsBuffer, (unsigned int)spsSz + 4,
 		ppsBuffer, (unsigned int)ppsSz + 4);
 	if (ret != 0) {

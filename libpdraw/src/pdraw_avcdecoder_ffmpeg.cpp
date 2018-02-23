@@ -153,7 +153,7 @@ FfmpegAvcDecoder::~FfmpegAvcDecoder(
 }
 
 
-int FfmpegAvcDecoder::configure(
+int FfmpegAvcDecoder::open(
 	uint32_t inputBitstreamFormat,
 	const uint8_t *pSps,
 	unsigned int spsSize,

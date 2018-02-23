@@ -53,7 +53,7 @@ public:
 		return DEMUXER_TYPE_RECORD;
 	}
 
-	int configure(
+	int open(
 		const std::string &fileName);
 
 	bool isConfigured(

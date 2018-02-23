@@ -121,11 +121,11 @@ public:
 	}
 
 protected:
-	int configureSdp(
+	int openWithSdp(
 		const std::string &sdp,
 		const std::string &ifaceAddr);
 
-	int configureRtsp(
+	int openRtsp(
 		const std::string &url,
 		const std::string &ifaceAddr);
 
@@ -135,7 +135,7 @@ protected:
 	int destroyReceiver(
 		void);
 
-	virtual int configureRtpAvp(
+	virtual int openRtpAvp(
 		void) = 0;
 
 	virtual int sendCtrl(
@@ -218,7 +218,7 @@ private:
 		void *userdata,
 		void *req_userdata);
 
-	static int configureDecoder(
+	static int openDecoder(
 		StreamDemuxer *demuxer);
 
 	static void h264UserDataSeiCb(

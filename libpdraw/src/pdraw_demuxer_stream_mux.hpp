@@ -48,16 +48,16 @@ public:
 	~StreamDemuxerMux(
 		void);
 
-	int configure(
+	int open(
 		const std::string &url,
 		struct mux_ctx *mux);
 
-	int configureWithSdp(
+	int openSdp(
 		const std::string &sdp,
 		struct mux_ctx *mux);
 
 private:
-	int configureRtpAvp(
+	int openRtpAvp(
 		void);
 
 	static void dataCb(
