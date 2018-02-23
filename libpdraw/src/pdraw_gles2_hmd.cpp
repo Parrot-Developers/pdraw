@@ -321,13 +321,13 @@ Gles2HmdEye::Gles2HmdEye(
 err:
 	if ((buffer[0]) || (buffer[1]) || (buffer[2]) ||
 		(buffer[3]) || (buffer[4]) || (buffer[5]))
-		glDeleteBuffers(6, buffer);
+		GLCHK(glDeleteBuffers(6, buffer));
 	if (vertexShader > 0)
-		glDeleteShader(vertexShader);
+		GLCHK(glDeleteShader(vertexShader));
 	if (fragmentShader > 0)
-		glDeleteShader(fragmentShader);
+		GLCHK(glDeleteShader(fragmentShader));
 	if (mProgram > 0)
-		glDeleteProgram(mProgram);
+		GLCHK(glDeleteProgram(mProgram));
 	mProgram = 0;
 	mIndicesBufferHandle = 0;
 	mPositionBufferHandle = 0;
@@ -356,9 +356,9 @@ Gles2HmdEye::~Gles2HmdEye(
 	if (mTexCoord2BufferHandle > 0)
 		buffer[count++] = mTexCoord2BufferHandle;
 	if (count > 0)
-		glDeleteBuffers(count, buffer);
+		GLCHK(glDeleteBuffers(count, buffer));
 	if (mProgram > 0)
-		glDeleteProgram(mProgram);
+		GLCHK(glDeleteProgram(mProgram));
 }
 
 

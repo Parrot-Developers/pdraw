@@ -349,19 +349,19 @@ Gles2Hud::Gles2Hud(
 
 err:
 	if (vertexShader > 0)
-		glDeleteShader(vertexShader);
+		GLCHK(glDeleteShader(vertexShader));
 	if (fragmentShader > 0)
-		glDeleteShader(fragmentShader);
+		GLCHK(glDeleteShader(fragmentShader));
 	if (mLogoTexture > 0)
-		glDeleteTextures(1, &mLogoTexture);
+		GLCHK(glDeleteTextures(1, &mLogoTexture));
 	if (mIconsTexture > 0)
-		glDeleteTextures(1, &mIconsTexture);
+		GLCHK(glDeleteTextures(1, &mIconsTexture));
 	if (mTextTexture > 0)
-		glDeleteTextures(1, &mTextTexture);
+		GLCHK(glDeleteTextures(1, &mTextTexture));
 	if (mProgram[0] > 0)
-		glDeleteProgram(mProgram[0]);
+		GLCHK(glDeleteProgram(mProgram[0]));
 	if (mProgram[1] > 0)
-		glDeleteProgram(mProgram[1]);
+		GLCHK(glDeleteProgram(mProgram[1]));
 	mLogoTexture = 0;
 	mIconsTexture = 0;
 	mTextTexture = 0;
@@ -376,15 +376,15 @@ Gles2Hud::~Gles2Hud(
 	void)
 {
 	if (mLogoTexture > 0)
-		glDeleteTextures(1, &mLogoTexture);
+		GLCHK(glDeleteTextures(1, &mLogoTexture));
 	if (mIconsTexture > 0)
-		glDeleteTextures(1, &mIconsTexture);
+		GLCHK(glDeleteTextures(1, &mIconsTexture));
 	if (mTextTexture > 0)
-		glDeleteTextures(1, &mTextTexture);
+		GLCHK(glDeleteTextures(1, &mTextTexture));
 	if (mProgram[0] > 0)
-		glDeleteProgram(mProgram[0]);
+		GLCHK(glDeleteProgram(mProgram[0]));
 	if (mProgram[1] > 0)
-		glDeleteProgram(mProgram[1]);
+		GLCHK(glDeleteProgram(mProgram[1]));
 	free(mCockpitSphereVertices);
 }
 

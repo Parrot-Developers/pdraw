@@ -446,33 +446,33 @@ Gles2Video::Gles2Video(
 
 err:
 	if (mTextures[0]) {
-		glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures);
+		GLCHK(glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
 	}
 	if (mPaddingFboTexture > 0) {
-		glDeleteTextures(1, &mPaddingFboTexture);
+		GLCHK(glDeleteTextures(1, &mPaddingFboTexture));
 	}
 	if (mPaddingFbo > 0) {
-		glDeleteFramebuffers(1, &mPaddingFbo);
+		GLCHK(glDeleteFramebuffers(1, &mPaddingFbo));
 	}
 	if (vertexShader)
-		glDeleteShader(vertexShader);
+		GLCHK(glDeleteShader(vertexShader));
 	if (fragmentShaderNoconv)
-		glDeleteShader(fragmentShaderNoconv);
+		GLCHK(glDeleteShader(fragmentShaderNoconv));
 	if (fragmentShaderYuvp)
-		glDeleteShader(fragmentShaderYuvp);
+		GLCHK(glDeleteShader(fragmentShaderYuvp));
 	if (fragmentShaderYuvsp)
-		glDeleteShader(fragmentShaderYuvsp);
+		GLCHK(glDeleteShader(fragmentShaderYuvsp));
 	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE] > 0) {
-		glDeleteProgram(mProgram[
-			GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+		GLCHK(glDeleteProgram(mProgram[
+			GLES2_VIDEO_COLOR_CONVERSION_NONE]));
 	}
 	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB] > 0) {
-		glDeleteProgram(mProgram[
-			GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB]);
+		GLCHK(glDeleteProgram(mProgram[
+			GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB]));
 	}
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB]) {
-		glDeleteProgram(mProgram[
-			GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB]);
+	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB] > 0) {
+		GLCHK(glDeleteProgram(mProgram[
+			GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB]));
 	}
 	memset(mProgram, 0, sizeof(mProgram));
 	memset(mTextures, 0, sizeof(mTextures));
@@ -485,22 +485,22 @@ Gles2Video::~Gles2Video(
 	void)
 {
 	if (mTextures[0])
-		glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures);
+		GLCHK(glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
 	if (mPaddingFboTexture > 0)
-		glDeleteTextures(1, &mPaddingFboTexture);
+		GLCHK(glDeleteTextures(1, &mPaddingFboTexture));
 	if (mPaddingFbo > 0)
-		glDeleteFramebuffers(1, &mPaddingFbo);
+		GLCHK(glDeleteFramebuffers(1, &mPaddingFbo));
 	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE] > 0) {
-		glDeleteProgram(mProgram[
-			GLES2_VIDEO_COLOR_CONVERSION_NONE]);
+		GLCHK(glDeleteProgram(mProgram[
+			GLES2_VIDEO_COLOR_CONVERSION_NONE]));
 	}
 	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB] > 0) {
-		glDeleteProgram(mProgram[
-			GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB]);
+		GLCHK(glDeleteProgram(mProgram[
+			GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB]));
 	}
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB]) {
-		glDeleteProgram(mProgram[
-			GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB]);
+	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB] > 0) {
+		GLCHK(glDeleteProgram(mProgram[
+			GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB]));
 	}
 }
 

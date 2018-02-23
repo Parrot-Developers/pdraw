@@ -215,7 +215,7 @@ int Gles2Renderer::destroyGles2(
 {
 	if ((mGles2Video != NULL) ||
 		(mGles2Hud != NULL) || (mGles2Hmd != NULL))
-		glClear(GL_COLOR_BUFFER_BIT);
+		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 
 	if (mGles2Video != NULL) {
 		delete mGles2Video;
@@ -230,15 +230,15 @@ int Gles2Renderer::destroyGles2(
 		mGles2Hmd = NULL;
 	}
 	if (mFboRenderBuffer > 0) {
-		glDeleteRenderbuffers(1, &mFboRenderBuffer);
+		GLCHK(glDeleteRenderbuffers(1, &mFboRenderBuffer));
 		mFboRenderBuffer = 0;
 	}
 	if (mFboTexture > 0) {
-		glDeleteTextures(1, &mFboTexture);
+		GLCHK(glDeleteTextures(1, &mFboTexture));
 		mFboTexture = 0;
 	}
 	if (mFbo > 0) {
-		glDeleteFramebuffers(1, &mFbo);
+		GLCHK(glDeleteFramebuffers(1, &mFbo));
 		mFbo = 0;
 	}
 
