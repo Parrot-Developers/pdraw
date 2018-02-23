@@ -481,6 +481,8 @@ int Gles2Renderer::render_nolock(
 		}
 	}
 
+#if 0
+	/* TODO: remove debug */
 	struct timespec t1;
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 	uint64_t renderTimestamp, renderTimestamp1;
@@ -500,6 +502,7 @@ int Gles2Renderer::render_nolock(
 			&dHrs, &dMin, &dSec, &dMsec);
 	}
 
+
 	ULOGD("Gles2Renderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d "
 		"frame (decoding: %.2fms, rendering: %.2fms, "
 		"est. latency: %.2fms) render@%.1ffps",
@@ -512,6 +515,7 @@ int Gles2Renderer::render_nolock(
 			data->auNtpTimestampLocal) / 1000. : 0.,
 		(renderTimestamp - lastRenderTime > 0) ? 1000000. /
 			((float)(renderTimestamp - lastRenderTime)) : 0.);
+#endif
 
 	ret = 1;
 
