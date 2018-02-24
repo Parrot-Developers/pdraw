@@ -1610,10 +1610,7 @@ int Session::internalSeek(
 {
 	if (mDemuxer != NULL) {
 		int ret;
-		if (delta < 0)
-			ret = mDemuxer->seekBack((uint64_t)(-delta), exact);
-		else
-			ret = mDemuxer->seekForward((uint64_t)delta, exact);
+		ret = mDemuxer->seek(delta, exact);
 		if (ret != 0) {
 			ULOGE("Failed to seek with demuxer");
 			return -1;

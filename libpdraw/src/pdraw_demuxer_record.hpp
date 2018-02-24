@@ -92,9 +92,6 @@ public:
 	int play(
 		float speed = 1.0f);
 
-	int pause(
-		void);
-
 	bool isPaused(
 		void);
 
@@ -104,16 +101,12 @@ public:
 	int next(
 		void);
 
+	int seek(
+		int64_t delta,
+		bool exact = false);
+
 	int seekTo(
 		uint64_t timestamp,
-		bool exact = false);
-
-	int seekForward(
-		uint64_t delta,
-		bool exact = false);
-
-	int seekBack(
-		uint64_t delta,
 		bool exact = false);
 
 	uint64_t getDuration(

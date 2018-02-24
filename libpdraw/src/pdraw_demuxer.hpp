@@ -89,9 +89,6 @@ public:
 	virtual int play(
 		float speed = 1.0f) = 0;
 
-	virtual int pause(
-		void) = 0;
-
 	virtual bool isPaused(
 		void) = 0;
 
@@ -101,16 +98,12 @@ public:
 	virtual int next(
 		void) = 0;
 
+	virtual int seek(
+		int64_t delta,
+		bool exact = false) = 0;
+
 	virtual int seekTo(
 		uint64_t timestamp,
-		bool exact = false) = 0;
-
-	virtual int seekForward(
-		uint64_t delta,
-		bool exact = false) = 0;
-
-	virtual int seekBack(
-		uint64_t delta,
 		bool exact = false) = 0;
 
 	virtual uint64_t getDuration(

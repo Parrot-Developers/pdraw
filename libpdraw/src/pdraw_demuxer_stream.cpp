@@ -749,50 +749,36 @@ int StreamDemuxer::setElementaryStreamDecoder(
 }
 
 
-int StreamDemuxer::play(
+int StreamDemuxer::internalPlay(
 	float speed)
 {
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
+	mRunning = true;
+	mSpeed = speed;
 
-	if (speed == 0.) {
-		return pause();
-	} else {
-		mRunning = true;
-		mSpeed = speed;
-
-		if (mRtspRunning) {
-			float scale = mSpeed;
-			struct rtsp_range range;
-			memset(&range, 0, sizeof(range));
-			range.start.format = RTSP_TIME_FORMAT_NPT;
-			range.start.npt.now = 1;
-			range.stop.format = RTSP_TIME_FORMAT_NPT;
-			range.stop.npt.infinity = 1;
-			int ret = rtsp_client_play(mRtspClient, &range, scale,
-					NULL);
-			if (ret != 0) {
-				ULOGE("StreamDemuxer: rtsp_client_play() "
-					"failed (%d)", ret);
-				return -1;
-			}
+	if (mRtspRunning) {
+		float scale = mSpeed;
+		struct rtsp_range range;
+		memset(&range, 0, sizeof(range));
+		range.start.format = RTSP_TIME_FORMAT_NPT;
+		range.start.npt.now = 1;
+		range.stop.format = RTSP_TIME_FORMAT_NPT;
+		range.stop.npt.infinity = 1;
+		int ret = rtsp_client_play(mRtspClient, &range, scale,
+				NULL);
+		if (ret != 0) {
+			ULOGE("StreamDemuxer: rtsp_client_play() "
+				"failed (%d)", ret);
+			return -1;
 		}
-
-		return 0;
 	}
+
+	return 0;
 }
 
 
-int StreamDemuxer::pause(
+int StreamDemuxer::internalPause(
 	void)
 {
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-
 	mRunning = false;
 
 	if (mRtspRunning) {
@@ -807,6 +793,21 @@ int StreamDemuxer::pause(
 	}
 
 	return 0;
+}
+
+
+int StreamDemuxer::play(
+	float speed)
+{
+	if (!mConfigured) {
+		ULOGE("StreamDemuxer: demuxer is not configured");
+		return -1;
+	}
+
+	if (speed == 0.)
+		return internalPause();
+	else
+		return internalPlay(speed);
 }
 
 
@@ -904,6 +905,25 @@ int StreamDemuxer::next(
 }
 
 
+int StreamDemuxer::seek(
+	int64_t delta,
+	bool exact)
+{
+	if (!mConfigured) {
+		ULOGE("StreamDemuxer: demuxer is not configured");
+		return -1;
+	}
+
+	int64_t ts = (int64_t)mCurrentTime + delta;
+	if (ts < 0)
+		ts = 0;
+	if (ts > (int64_t)mDuration)
+		ts = mDuration;
+
+	return seekTo(ts, exact);
+}
+
+
 int StreamDemuxer::seekTo(
 	uint64_t timestamp,
 	bool exact)
@@ -922,82 +942,6 @@ int StreamDemuxer::seekTo(
 		range.start.format = RTSP_TIME_FORMAT_NPT;
 		range.start.npt.sec = timestamp / 1000000;
 		range.start.npt.usec = timestamp -
-			range.start.npt.sec * 1000000;
-		range.stop.format = RTSP_TIME_FORMAT_NPT;
-		range.stop.npt.infinity = 1;
-		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_play() "
-				"failed (%d)", ret);
-			return -1;
-		}
-	}
-
-	return 0;
-}
-
-
-int StreamDemuxer::seekForward(
-	uint64_t delta,
-	bool exact)
-{
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	int64_t ts = (int64_t)mCurrentTime + (int64_t)delta;
-	if (ts < 0)
-		ts = 0;
-	if (ts > (int64_t)mDuration)
-		ts = mDuration;
-
-	mRunning = true;
-	if (mRtspRunning) {
-		float scale = mSpeed;
-		struct rtsp_range range;
-		memset(&range, 0, sizeof(range));
-		range.start.format = RTSP_TIME_FORMAT_NPT;
-		range.start.npt.sec = ts / 1000000;
-		range.start.npt.usec = ts -
-			range.start.npt.sec * 1000000;
-		range.stop.format = RTSP_TIME_FORMAT_NPT;
-		range.stop.npt.infinity = 1;
-		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_play() "
-				"failed (%d)", ret);
-			return -1;
-		}
-	}
-
-	return 0;
-}
-
-
-int StreamDemuxer::seekBack(
-	uint64_t delta,
-	bool exact)
-{
-	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	int64_t ts = (int64_t)mCurrentTime - (int64_t)delta;
-	if (ts < 0)
-		ts = 0;
-	if (ts > (int64_t)mDuration)
-		ts = mDuration;
-
-	mRunning = true;
-	if (mRtspRunning) {
-		float scale = mSpeed;
-		struct rtsp_range range;
-		memset(&range, 0, sizeof(range));
-		range.start.format = RTSP_TIME_FORMAT_NPT;
-		range.start.npt.sec = ts / 1000000;
-		range.start.npt.usec = ts -
 			range.start.npt.sec * 1000000;
 		range.stop.format = RTSP_TIME_FORMAT_NPT;
 		range.stop.npt.infinity = 1;

@@ -335,6 +335,25 @@ int RecordDemuxer::configure(
 }
 
 
+int RecordDemuxer::close(
+	void)
+{
+	if (!mConfigured) {
+		ULOGE("RecordDemuxer: demuxer is not configured");
+		return -1;
+	}
+
+	pthread_mutex_lock(&mDemuxerMutex);
+
+	mRunning = false;
+	pomp_timer_clear(mTimer);
+
+	pthread_mutex_unlock(&mDemuxerMutex);
+
+	return 0;
+}
+
+
 int RecordDemuxer::getElementaryStreamCount(
 	void)
 {
@@ -495,25 +514,6 @@ int RecordDemuxer::play(
 }
 
 
-int RecordDemuxer::pause(
-	void)
-{
-	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	pthread_mutex_lock(&mDemuxerMutex);
-
-	mRunning = false;
-	mFrameByFrame = true;
-
-	pthread_mutex_unlock(&mDemuxerMutex);
-
-	return 0;
-}
-
-
 bool RecordDemuxer::isPaused(
 	void)
 {
@@ -576,8 +576,9 @@ int RecordDemuxer::next(
 }
 
 
-int RecordDemuxer::close(
-	void)
+int RecordDemuxer::seek(
+	int64_t delta,
+	bool exact)
 {
 	if (!mConfigured) {
 		ULOGE("RecordDemuxer: demuxer is not configured");
@@ -586,8 +587,17 @@ int RecordDemuxer::close(
 
 	pthread_mutex_lock(&mDemuxerMutex);
 
-	mRunning = false;
-	pomp_timer_clear(mTimer);
+	/* TODO: merge with seekTo() */
+	int64_t ts = (int64_t)mCurrentTime + delta;
+	if (ts < 0)
+		ts = 0;
+	if (ts > (int64_t)mDuration)
+		ts = mDuration;
+	mPendingSeekTs = ts;
+	mPendingSeekExact = exact;
+	mPendingSeekToPrevSample = false;
+	mRunning = true;
+	pomp_timer_set(mTimer, 1);
 
 	pthread_mutex_unlock(&mDemuxerMutex);
 
@@ -609,62 +619,6 @@ int RecordDemuxer::seekTo(
 	if (timestamp > mDuration)
 		timestamp = mDuration;
 	mPendingSeekTs = (int64_t)timestamp;
-	mPendingSeekExact = exact;
-	mPendingSeekToPrevSample = false;
-	mRunning = true;
-	pomp_timer_set(mTimer, 1);
-
-	pthread_mutex_unlock(&mDemuxerMutex);
-
-	return 0;
-}
-
-
-int RecordDemuxer::seekForward(
-	uint64_t delta,
-	bool exact)
-{
-	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	pthread_mutex_lock(&mDemuxerMutex);
-
-	int64_t ts = (int64_t)mCurrentTime + (int64_t)delta;
-	if (ts < 0)
-		ts = 0;
-	if (ts > (int64_t)mDuration)
-		ts = mDuration;
-	mPendingSeekTs = ts;
-	mPendingSeekExact = exact;
-	mPendingSeekToPrevSample = false;
-	mRunning = true;
-	pomp_timer_set(mTimer, 1);
-
-	pthread_mutex_unlock(&mDemuxerMutex);
-
-	return 0;
-}
-
-
-int RecordDemuxer::seekBack(
-	uint64_t delta,
-	bool exact)
-{
-	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
-	}
-
-	pthread_mutex_lock(&mDemuxerMutex);
-
-	int64_t ts = (int64_t)mCurrentTime - (int64_t)delta;
-	if (ts < 0)
-		ts = 0;
-	if (ts > (int64_t)mDuration)
-		ts = mDuration;
-	mPendingSeekTs = ts;
 	mPendingSeekExact = exact;
 	mPendingSeekToPrevSample = false;
 	mRunning = true;
