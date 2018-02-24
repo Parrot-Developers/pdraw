@@ -115,14 +115,6 @@ public:
 	virtual int removeOutputQueue(
 		struct vbuf_queue *queue) = 0;
 
-	virtual int dequeueOutputBuffer(
-		struct vbuf_queue *queue,
-		struct vbuf_buffer **buffer,
-		bool blocking) = 0;
-
-	virtual int releaseOutputBuffer(
-		struct vbuf_buffer **buffer) = 0;
-
 	virtual VideoMedia *getVideoMedia(
 		void) = 0;
 

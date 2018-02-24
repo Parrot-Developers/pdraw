@@ -88,14 +88,6 @@ public:
 	int removeOutputQueue(
 		struct vbuf_queue *queue);
 
-	int dequeueOutputBuffer(
-		struct vbuf_queue *queue,
-		struct vbuf_buffer **buffer,
-		bool blocking);
-
-	int releaseOutputBuffer(
-		struct vbuf_buffer **buffer);
-
 	void setRenderer(
 		Renderer *renderer);
 

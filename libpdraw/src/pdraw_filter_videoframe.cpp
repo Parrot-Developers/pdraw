@@ -245,10 +245,15 @@ void* VideoFrameFilter::runThread(
 			continue;
 		}
 
-		ret = filter->mDecoder->dequeueOutputBuffer(
-			filter->mDecoderOutputBufferQueue, &buffer, true);
-		if ((ret != 0) || (buffer == NULL))
+		ret = vbuf_queue_pop(filter->mDecoderOutputBufferQueue,
+			-1, &buffer);
+		if ((ret != 0) || (buffer == NULL)) {
+			if (ret != -EAGAIN) {
+				ULOGW("VideoFrameFilter: failed to dequeue "
+					"an output buffer (%d)", ret);
+			}
 			continue;
+		}
 
 		data = (struct avcdecoder_output_buffer *)
 			vbuf_get_metadata_ptr(buffer);
@@ -289,7 +294,7 @@ void* VideoFrameFilter::runThread(
 
 		if (filter->mCb) {
 			filter->mCb(filter, &frame, filter->mUserPtr);
-			ret = filter->mDecoder->releaseOutputBuffer(&buffer);
+			ret = vbuf_unref(&buffer);
 			if (ret != 0) {
 				ULOGE("VideoFrameFilter: failed to "
 					"release buffer (%d)", ret);
@@ -323,7 +328,7 @@ void* VideoFrameFilter::runThread(
 			(frame.colorFormat != filter->mColorFormat)) {
 			ULOGW("VideoFrameFilter: unsupported change of "
 				"frame format");
-			ret = filter->mDecoder->releaseOutputBuffer(&buffer);
+			ret = vbuf_unref(&buffer);
 			if (ret != 0) {
 				ULOGE("VideoFrameFilter: failed to "
 					"release buffer (%d)", ret);
@@ -434,7 +439,7 @@ void* VideoFrameFilter::runThread(
 		pthread_mutex_unlock(&filter->mMutex);
 		pthread_cond_signal(&filter->mCondition);
 
-		ret = filter->mDecoder->releaseOutputBuffer(&buffer);
+		ret = vbuf_unref(&buffer);
 		if (ret != 0) {
 			ULOGE("VideoFrameFilter: failed to "
 				"release buffer (%d)", ret);

@@ -290,7 +290,7 @@ int Gles2Renderer::removeAvcDecoder(
 	}
 
 	if (mCurrentBuffer != NULL) {
-		ret = mDecoder->releaseOutputBuffer(&mCurrentBuffer);
+		ret = vbuf_unref(&mCurrentBuffer);
 		if (ret != 0)
 			ULOGE("Gles2Renderer: failed to release "
 				"buffer (%d)", ret);
@@ -377,29 +377,25 @@ int Gles2Renderer::render_nolock(
 	int dequeueRet = 0;
 	bool load = false;
 
-	if ((mDecoder != NULL) && (mDecoder->isConfigured())) {
-		dequeueRet = mDecoder->dequeueOutputBuffer(
-			mDecoderOutputBufferQueue, &buffer, false);
-		while ((dequeueRet == 0) && (buffer != NULL)) {
-			if (mCurrentBuffer != NULL) {
-				int releaseRet = mDecoder->releaseOutputBuffer(
-					&mCurrentBuffer);
-				if (releaseRet != 0) {
-					ULOGE("Gles2Renderer: failed "
-						"to release buffer (%d)",
-						releaseRet);
-				}
+	dequeueRet = vbuf_queue_pop(mDecoderOutputBufferQueue,
+		0, &buffer);
+	while ((dequeueRet == 0) && (buffer != NULL)) {
+		if (mCurrentBuffer != NULL) {
+			int releaseRet = vbuf_unref(&mCurrentBuffer);
+			if (releaseRet != 0) {
+				ULOGE("Gles2Renderer: failed "
+					"to release buffer (%d)",
+					releaseRet);
 			}
-			mCurrentBuffer = buffer;
-			load = true;
-			dequeueRet = mDecoder->dequeueOutputBuffer(
-				mDecoderOutputBufferQueue, &buffer, false);
 		}
-
-		if ((dequeueRet < 0) && (dequeueRet != -2)) {
-			ULOGE("Gles2Renderer: failed to get buffer "
-				"from queue (%d)", dequeueRet);
-		}
+		mCurrentBuffer = buffer;
+		load = true;
+		dequeueRet = vbuf_queue_pop(mDecoderOutputBufferQueue,
+			0, &buffer);
+	}
+	if ((dequeueRet < 0) && (dequeueRet != -EAGAIN)) {
+		ULOGE("Gles2Renderer: failed to get buffer "
+			"from queue (%d)", dequeueRet);
 	}
 
 	if (mCurrentBuffer == NULL)

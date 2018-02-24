@@ -709,64 +709,6 @@ bool VideoCoreOmxAvcDecoder::isOutputQueueValid(
 }
 
 
-int VideoCoreOmxAvcDecoder::dequeueOutputBuffer(
-	struct vbuf_queue *queue,
-	struct vbuf_buffer **buffer,
-	bool blocking)
-{
-	if (queue == NULL) {
-		ULOGE("VideoCoreOmx: invalid queue pointer");
-		return -1;
-	}
-	if (buffer == NULL) {
-		ULOGE("VideoCoreOmx: invalid buffer pointer");
-		return -1;
-	}
-	if (!mConfigured) {
-		ULOGE("VideoCoreOmx: decoder is not configured");
-		return -1;
-	}
-	if (!mConfigured2) {
-		ULOGW("VideoCoreOmx: output params not known");
-		return -1;
-	}
-	if (!isOutputQueueValid(queue)) {
-		ULOGE("VideoCoreOmx: invalid output queue");
-		return -1;
-	}
-
-	struct vbuf_buffer *buf = NULL;
-	int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
-	if ((ret != 0) || (buf == NULL)) {
-		ULOGD("VideoCoreOmx: failed to dequeue "
-			"an output buffer (%d)", ret);
-		return -2;
-	}
-
-	*buffer = buf;
-
-	return 0;
-}
-
-
-int VideoCoreOmxAvcDecoder::releaseOutputBuffer(
-	struct vbuf_buffer **buffer)
-{
-	if (buffer == NULL) {
-		ULOGE("VideoCoreOmx: invalid buffer pointer");
-		return -1;
-	}
-	if (!mConfigured) {
-		ULOGE("VideoCoreOmx: decoder is not configured");
-		return -1;
-	}
-
-	vbuf_unref(buffer);
-
-	return 0;
-}
-
-
 void VideoCoreOmxAvcDecoder::fillBufferDoneCallback(
 	void *data,
 	COMPONENT_T *comp,

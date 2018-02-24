@@ -447,69 +447,6 @@ bool MediaCodecAvcDecoder::isOutputQueueValid(
 }
 
 
-int MediaCodecAvcDecoder::dequeueOutputBuffer(
-	struct vbuf_queue *queue,
-	struct vbuf_buffer **buffer,
-	bool blocking)
-{
-	if (queue == NULL) {
-		ULOGE("MediaCodec: invalid queue pointer");
-		return -1;
-	}
-	if (buffer == NULL) {
-		ULOGE("MediaCodec: invalid buffer pointer");
-		return -1;
-	}
-	if (!mConfigured) {
-		ULOGE("MediaCodec: decoder is not configured");
-		return -1;
-	}
-	if (!isOutputQueueValid(queue)) {
-		ULOGE("MediaCodec: invalid output queue");
-		return -1;
-	}
-
-	struct vbuf_buffer *buf = NULL;
-	int ret = vbuf_queue_pop(queue, (blocking) ? -1 : 0, &buf);
-	if ((ret != 0) || (buf == NULL)) {
-		if (ret != -EAGAIN) {
-			ULOGW("MediaCodec: failed to dequeue "
-				"an output buffer (%d)", ret);
-			return -1;
-		} else {
-			return -2;
-		}
-	}
-
-	*buffer = buf;
-
-	return 0;
-}
-
-
-int MediaCodecAvcDecoder::releaseOutputBuffer(
-	struct vbuf_buffer **buffer)
-{
-	if ((buffer == NULL) || (*buffer == NULL)) {
-		ULOGE("MediaCodec: invalid buffer pointer");
-		return -1;
-	}
-	if (!mConfigured) {
-		ULOGE("MediaCodec: decoder is not configured");
-		return -1;
-	}
-	if (mMcw == NULL) {
-		ULOGE("MediaCodec: invalid mediacodec wrapper");
-		return -1;
-	}
-
-	vbuf_mediacodec_set_render_time(*buffer, 0);
-	vbuf_unref(buffer);
-
-	return 0;
-}
-
-
 int MediaCodecAvcDecoder::pollDecoderOutput(
 	void)
 {

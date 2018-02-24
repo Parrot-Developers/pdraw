@@ -253,8 +253,6 @@ int VideoCoreEglRenderer::render(
 
 	if (!mRunning)
 		goto exit;
-	if ((mDecoder == NULL) || (!mDecoder->isConfigured()))
-		goto exit;
 	if ((mWindowWidth == 0) || (mWindowHeight == 0))
 		goto exit;
 	if ((mRenderWidth == 0) || (mRenderHeight == 0))
@@ -269,11 +267,11 @@ int VideoCoreEglRenderer::render(
 		goto out;
 	}
 
-	dequeueRet = mDecoder->dequeueOutputBuffer(
-		mDecoderOutputBufferQueue, &buffer, false);
+	dequeueRet = vbuf_queue_pop(mDecoderOutputBufferQueue,
+		0, &buffer);
 	while ((dequeueRet == 0) && (buffer)) {
 		if (mCurrentBuffer != NULL) {
-			int releaseRet = mDecoder->releaseOutputBuffer(
+			int releaseRet = vbuf_unref(
 				&mCurrentBuffer);
 			if (releaseRet != 0)
 				ULOGE("VideoCoreEglRenderer: failed to "
@@ -281,13 +279,12 @@ int VideoCoreEglRenderer::render(
 		}
 		mCurrentBuffer = buffer;
 		load = true;
-		dequeueRet = mDecoder->dequeueOutputBuffer(
-			mDecoderOutputBufferQueue, &buffer, false);
-
-		if ((dequeueRet < 0) && (dequeueRet != -2))
-			ULOGE("VideoCoreEglRenderer: failed to "
-				"get buffer from queue (%d)", dequeueRet);
+		dequeueRet = vbuf_queue_pop(mDecoderOutputBufferQueue,
+			0, &buffer);
 	}
+	if ((dequeueRet < 0) && (dequeueRet != -EAGAIN))
+		ULOGE("VideoCoreEglRenderer: failed to "
+			"get buffer from queue (%d)", dequeueRet);
 
 	if (mCurrentBuffer == NULL)
 		goto out;
