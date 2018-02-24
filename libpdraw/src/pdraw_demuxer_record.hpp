@@ -152,7 +152,6 @@ private:
 	std::string mFileName;
 	AvcDecoder *mDecoder;
 	uint32_t mDecoderBitstreamFormat;
-	pthread_mutex_t mDemuxerMutex;
 	bool mRunning;
 	bool mFrameByFrame;
 	struct mp4_demux *mDemux;

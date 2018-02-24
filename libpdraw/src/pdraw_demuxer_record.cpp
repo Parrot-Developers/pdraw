@@ -91,21 +91,9 @@ RecordDemuxer::RecordDemuxer(
 		goto err;
 	}
 
-	ret = pthread_mutex_init(&mDemuxerMutex, NULL);
-	if (ret != 0) {
-		ULOGE("RecordDemuxer: mutex creation failed (%d)", ret);
-		goto err;
-	}
-
 	mTimer = pomp_timer_new(mSession->getLoop(), timerCb, this);
 	if (mTimer == NULL) {
 		ULOGE("RecordDemuxer: pomp timer creation failed");
-		goto err;
-	}
-	/* TODO: remove wakeup once everything is called within the loop */
-	ret = pomp_loop_wakeup(mSession->getLoop());
-	if (ret < 0) {
-		ULOG_ERRNO("RecordDemuxer: pomp_loop_wakeup", -ret);
 		goto err;
 	}
 
@@ -122,16 +110,10 @@ RecordDemuxer::RecordDemuxer(
 	return;
 
 err:
-	pthread_mutex_destroy(&mDemuxerMutex);
 	if (mTimer != NULL) {
 		pomp_timer_clear(mTimer);
 		pomp_timer_destroy(mTimer);
 		mTimer = NULL;
-		/* TODO: remove wakeup once everything is
-		 * called within the loop */
-		ret = pomp_loop_wakeup(mSession->getLoop());
-		if (ret < 0)
-			ULOG_ERRNO("RecordDemuxer: pomp_loop_wakeup", -ret);
 	}
 	if (mH264Reader != NULL) {
 		h264_reader_destroy(mH264Reader);
@@ -151,8 +133,6 @@ RecordDemuxer::~RecordDemuxer(
 	if (ret != 0)
 		ULOGE("RecordDemuxer: close() failed (%d)", ret);
 
-	pthread_mutex_destroy(&mDemuxerMutex);
-
 	if (mCurrentBuffer != NULL) {
 		vbuf_unref(&mCurrentBuffer);
 		mCurrentBuffer = NULL;
@@ -167,11 +147,6 @@ RecordDemuxer::~RecordDemuxer(
 		pomp_timer_clear(mTimer);
 		pomp_timer_destroy(mTimer);
 		mTimer = NULL;
-		/* TODO: remove wakeup once everything is
-		 * called within the loop */
-		ret = pomp_loop_wakeup(mSession->getLoop());
-		if (ret < 0)
-			ULOG_ERRNO("RecordDemuxer: pomp_loop_wakeup", -ret);
 	}
 
 	if (mH264Reader != NULL) {
@@ -343,12 +318,8 @@ int RecordDemuxer::close(
 		return -1;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	mRunning = false;
 	pomp_timer_clear(mTimer);
-
-	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return 0;
 }
@@ -494,8 +465,6 @@ int RecordDemuxer::play(
 		return -1;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	if (speed == 0.) {
 		/* speed is null => pause */
 		mRunning = false;
@@ -507,8 +476,6 @@ int RecordDemuxer::play(
 		mSpeed = speed;
 		pomp_timer_set(mTimer, 1);
 	}
-
-	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return 0;
 }
@@ -522,11 +489,7 @@ bool RecordDemuxer::isPaused(
 		return false;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	bool running = mRunning && !mFrameByFrame;
-
-	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return !running;
 }
@@ -540,8 +503,6 @@ int RecordDemuxer::previous(
 		return -1;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	if (!mPendingSeekExact) {
 		/* Avoid seeking back too much if a seek to a
 		 * previous frame is already in progress */
@@ -550,8 +511,6 @@ int RecordDemuxer::previous(
 		mRunning = true;
 		pomp_timer_set(mTimer, 1);
 	}
-
-	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return 0;
 }
@@ -565,12 +524,8 @@ int RecordDemuxer::next(
 		return -1;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	mRunning = true;
 	pomp_timer_set(mTimer, 1);
-
-	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return 0;
 }
@@ -585,23 +540,12 @@ int RecordDemuxer::seek(
 		return -1;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-
-	/* TODO: merge with seekTo() */
 	int64_t ts = (int64_t)mCurrentTime + delta;
 	if (ts < 0)
 		ts = 0;
 	if (ts > (int64_t)mDuration)
 		ts = mDuration;
-	mPendingSeekTs = ts;
-	mPendingSeekExact = exact;
-	mPendingSeekToPrevSample = false;
-	mRunning = true;
-	pomp_timer_set(mTimer, 1);
-
-	pthread_mutex_unlock(&mDemuxerMutex);
-
-	return 0;
+	return seekTo(ts, exact);
 }
 
 
@@ -614,8 +558,6 @@ int RecordDemuxer::seekTo(
 		return -1;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-
 	if (timestamp > mDuration)
 		timestamp = mDuration;
 	mPendingSeekTs = (int64_t)timestamp;
@@ -623,8 +565,6 @@ int RecordDemuxer::seekTo(
 	mPendingSeekToPrevSample = false;
 	mRunning = true;
 	pomp_timer_set(mTimer, 1);
-
-	pthread_mutex_unlock(&mDemuxerMutex);
 
 	return 0;
 }
@@ -786,15 +726,12 @@ void RecordDemuxer::timerCb(
 		return;
 	}
 
-	pthread_mutex_lock(&demuxer->mDemuxerMutex);
-
 	speed = demuxer->mSpeed;
 	seekTs = demuxer->mPendingSeekTs;
 
 	if ((demuxer->mDecoder == NULL) || (!demuxer->mRunning)) {
 		demuxer->mLastFrameDuration = 0;
 		demuxer->mLastOutputError = 0;
-		pthread_mutex_unlock(&demuxer->mDemuxerMutex);
 		return;
 	}
 
@@ -1114,8 +1051,6 @@ out:
 				ret);
 		}
 	}
-
-	pthread_mutex_unlock(&demuxer->mDemuxerMutex);
 
 	free(sps);
 	free(pps);

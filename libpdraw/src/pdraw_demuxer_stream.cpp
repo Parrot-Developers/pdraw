@@ -53,7 +53,7 @@ namespace Pdraw {
 StreamDemuxer::StreamDemuxer(
 	Session *session)
 {
-	int ret, mutex_created = 0, cond_created = 0;
+	int ret;
 	struct rtsp_client_cbs rtspClientCbs = {
 		.connection_state = &onRtspConnectionState,
 		.options_resp = &onRtspOptionsResp,
@@ -106,12 +106,6 @@ StreamDemuxer::StreamDemuxer(
 		ULOG_ERRNO("StreamDemuxer: rtsp_client_new", -ret);
 		goto err;
 	}
-	/* TODO: remove wakeup once everything is called within the loop */
-	ret = pomp_loop_wakeup(mSession->getLoop());
-	if (ret < 0) {
-		ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
-		goto err;
-	}
 
 	struct h264_ctx_cbs h264_cbs;
 	memset(&h264_cbs, 0, sizeof(h264_cbs));
@@ -123,26 +117,9 @@ StreamDemuxer::StreamDemuxer(
 		goto err;
 	}
 
-	ret = pthread_mutex_init(&mDemuxerMutex, NULL);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: mutex creation failed (%d)", ret);
-		goto err;
-	}
-	mutex_created = 1;
-	ret = pthread_cond_init(&mDemuxerCond, NULL);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: cond creation failed (%d)", ret);
-		goto err;
-	}
-	cond_created = 1;
-
 	return;
 
 err:
-	if (mutex_created)
-		pthread_mutex_destroy(&mDemuxerMutex);
-	if (cond_created)
-		pthread_cond_destroy(&mDemuxerCond);
 	if (mH264Reader != NULL) {
 		h264_reader_destroy(mH264Reader);
 		mH264Reader = NULL;
@@ -150,11 +127,6 @@ err:
 	if (mRtspClient) {
 		rtsp_client_destroy(mRtspClient);
 		mRtspClient = NULL;
-		/* TODO: remove wakeup once everything is
-		 * called within the loop */
-		ret = pomp_loop_wakeup(mSession->getLoop());
-		if (ret < 0)
-			ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
 	}
 }
 
@@ -178,11 +150,6 @@ StreamDemuxer::~StreamDemuxer(
 			usleep(1000);
 		} while (ret == -EBUSY);
 		mRtspClient = NULL;
-		/* TODO: remove wakeup once everything is
-		 * called within the loop */
-		ret = pomp_loop_wakeup(mSession->getLoop());
-		if (ret < 0)
-			ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
 	}
 
 	if (mH264Reader != NULL) {
@@ -191,9 +158,6 @@ StreamDemuxer::~StreamDemuxer(
 	}
 
 	destroyReceiver();
-
-	pthread_mutex_destroy(&mDemuxerMutex);
-	pthread_cond_destroy(&mDemuxerCond);
 }
 
 
@@ -285,7 +249,8 @@ void StreamDemuxer::onRtspConnectionState(
 	case RTSP_CONN_STATE_DISCONNECTED:
 		ULOGI("StreamDemuxer: RTSP disconnected");
 		self->mRtspRunning = false;
-		pthread_cond_signal(&self->mDemuxerCond);
+		self->mRunning = false;
+		self->destroyReceiver();
 		break;
 	case RTSP_CONN_STATE_CONNECTING:
 		ULOGI("StreamDemuxer: RTSP connecting");
@@ -319,7 +284,6 @@ void StreamDemuxer::onRtspOptionsResp(
 
 	if (status != RTSP_REQ_STATUS_OK) {
 		ULOGE("StreamDemuxer: rtsp_client_options() failed");
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 
@@ -345,14 +309,12 @@ void StreamDemuxer::onRtspDescribeResp(
 	if (status != RTSP_REQ_STATUS_OK) {
 		ULOGE("StreamDemuxer: RTSP describe failed (%d: %s)",
 			status_code, rtsp_status_str(status_code));
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 
 	session = sdp_description_read(sdp);
 	if (session == NULL) {
 		ULOGE("StreamDemuxer: sdp_description_read() failed");
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 
@@ -396,12 +358,10 @@ void StreamDemuxer::onRtspDescribeResp(
 		strdup(session->server_addr);
 	if (mediaUrl == NULL) {
 		ULOGE("StreamDemuxer: failed to get media control URL");
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 	if (remoteAddr == NULL) {
 		ULOGE("StreamDemuxer: failed to get server address");
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 	if (session->range.start.format == SDP_TIME_FORMAT_NPT) {
@@ -428,7 +388,6 @@ void StreamDemuxer::onRtspDescribeResp(
 		ULOGE("StreamDemuxer: rtsp_client_setup() failed (%d)", res);
 		free(remoteAddr);
 		free(mediaUrl);
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 
@@ -454,7 +413,6 @@ void StreamDemuxer::onRtspSetupResp(
 	if (status != RTSP_REQ_STATUS_OK) {
 		ULOGE("StreamDemuxer: RTSP setup failed (%d: %s)",
 			status_code, rtsp_status_str(status_code));
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 
@@ -467,12 +425,10 @@ void StreamDemuxer::onRtspSetupResp(
 	res = self->openRtpAvp();
 	if (res != 0) {
 		ULOGE("StreamDemuxer: openRtpAvp() failed");
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 
 	self->mRtspRunning = true;
-	pthread_cond_signal(&self->mDemuxerCond);
 }
 
 
@@ -551,7 +507,6 @@ void StreamDemuxer::onRtspTeardownResp(
 	res = rtsp_client_disconnect(self->mRtspClient);
 	if (res != 0) {
 		ULOGE("StreamDemuxer: rtsp_client_disconnect() failed");
-		pthread_cond_signal(&self->mDemuxerCond);
 		return;
 	}
 }
@@ -570,11 +525,7 @@ int StreamDemuxer::openRtsp(
 		return res;
 	}
 
-	pthread_mutex_lock(&mDemuxerMutex);
-	pthread_cond_wait(&mDemuxerCond, &mDemuxerMutex);
-	pthread_mutex_unlock(&mDemuxerMutex);
-
-	return mRtspRunning ? 0 : -EPROTO;
+	return 0;
 }
 
 
@@ -594,15 +545,10 @@ int StreamDemuxer::close(
 			ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
 			return -1;
 		}
-
-		pthread_mutex_lock(&mDemuxerMutex);
-		pthread_cond_wait(&mDemuxerCond, &mDemuxerMutex);
-		pthread_mutex_unlock(&mDemuxerMutex);
+	} else {
+		mRunning = false;
+		destroyReceiver();
 	}
-
-	mRunning = false;
-
-	destroyReceiver();
 
 	return ret;
 }
@@ -1095,12 +1041,6 @@ int StreamDemuxer::createReceiver(
 		ULOGE("StreamDemuxerNet: vstrm_receiver_new() failed (%d)", ret);
 		goto error;
 	}
-	/* TODO: remove wakeup once everything is called within the loop */
-	ret = pomp_loop_wakeup(mSession->getLoop());
-	if (ret < 0) {
-		ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
-		goto error;
-	}
 
 	/* Provide the SPS/PPS out of band if available */
 	if (mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) {
@@ -1130,11 +1070,6 @@ int StreamDemuxer::destroyReceiver(
 		if (res < 0)
 			PDRAW_LOG_ERRNO("vstrm_receiver_destroy", -res);
 		mReceiver = NULL;
-		/* TODO: remove wakeup once everything is
-		 * called within the loop */
-		res = pomp_loop_wakeup(mSession->getLoop());
-		if (res < 0)
-			ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -res);
 	}
 	return 0;
 }

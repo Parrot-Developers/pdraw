@@ -250,8 +250,6 @@ private:
 
 	AvcDecoder *mDecoder;
 	uint32_t mDecoderBitstreamFormat;
-	pthread_mutex_t mDemuxerMutex;
-	pthread_cond_t mDemuxerCond;
 	struct vbuf_buffer *mCurrentBuffer;
 	bool mRtspRunning;
 	struct rtsp_client *mRtspClient;
