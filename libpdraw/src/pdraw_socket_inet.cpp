@@ -128,6 +128,12 @@ InetSocket::InetSocket(
 		PDRAW_LOG_FD_ERRNO("pomp_loop_add", mFd, -res);
 		goto error;
 	}
+	/* TODO: remove wakeup once everything is called within the loop */
+	res = pomp_loop_wakeup(mLoop);
+	if (res < 0) {
+		PDRAW_LOG_ERRNO("pomp_loop_wakeup", -res);
+		goto error;
+	}
 
 	/* Success */
 	return;
@@ -135,8 +141,16 @@ InetSocket::InetSocket(
 	/* Cleanup in case of error */
 error:
 	if (mFd >= 0) {
-		if (pomp_loop_has_fd(mLoop, mFd))
-			pomp_loop_remove(mLoop, mFd);
+		if (pomp_loop_has_fd(mLoop, mFd)) {
+			res = pomp_loop_remove(mLoop, mFd);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("pomp_loop_remove", -res);
+			/* TODO: remove wakeup once everything is
+			 * called within the loop */
+			res = pomp_loop_wakeup(mLoop);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("pomp_loop_wakeup", -res);
+		}
 		close(mFd);
 		mFd = -1;
 	}
@@ -155,6 +169,11 @@ InetSocket::~InetSocket(
 			res = pomp_loop_remove(mLoop, mFd);
 			if (res < 0)
 				PDRAW_LOG_ERRNO("pomp_loop_remove", -res);
+			/* TODO: remove wakeup once everything is
+			 * called within the loop */
+			res = pomp_loop_wakeup(mLoop);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("pomp_loop_wakeup", -res);
 		}
 		close(mFd);
 	}

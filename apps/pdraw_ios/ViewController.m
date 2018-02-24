@@ -94,9 +94,9 @@
 {
     int ret;
 
-    self.pdraw = pdraw_new();
-    if (!self.pdraw) {
-        NSLog(@"Failed to create PDrAW instance");
+    ret = pdraw_new(NULL, &self.pdraw);
+    if (ret != 0) {
+        NSLog(@"Failed to create PDrAW instance (%d)", ret);
         return;
     }
 

@@ -40,8 +40,9 @@ extern "C"  {
 struct pdraw;
 
 
-struct pdraw *pdraw_new(
-	void);
+int pdraw_new(
+	struct pomp_loop *loop,
+	struct pdraw **ret_obj);
 
 
 int pdraw_destroy(
@@ -115,29 +116,35 @@ int pdraw_is_paused(
 
 
 int pdraw_previous_frame(
-        struct pdraw *pdraw);
+	struct pdraw *pdraw);
 
 
 int pdraw_next_frame(
-        struct pdraw *pdraw);
+	struct pdraw *pdraw);
 
 
-int pdraw_seek_to(
+int pdraw_seek(
 	struct pdraw *pdraw,
-	uint64_t timestamp,
-        int exact);
+	int64_t delta,
+	int exact);
 
 
 int pdraw_seek_forward(
 	struct pdraw *pdraw,
 	uint64_t delta,
-        int exact);
+	int exact);
 
 
 int pdraw_seek_back(
 	struct pdraw *pdraw,
 	uint64_t delta,
-        int exact);
+	int exact);
+
+
+int pdraw_seek_to(
+	struct pdraw *pdraw,
+	uint64_t timestamp,
+	int exact);
 
 
 uint64_t pdraw_get_duration(
@@ -410,7 +417,7 @@ int pdraw_remove_video_frame_filter_callback(
 void *pdraw_add_video_frame_producer(
 	struct pdraw *pdraw,
 	unsigned int mediaId,
-        int frameByFrame);
+	int frameByFrame);
 
 
 int pdraw_remove_video_frame_producer(
@@ -465,8 +472,8 @@ int pdraw_set_hmd_distorsion_correction_settings(
 	float panV);
 
 int pdraw_set_jni_env
-        (struct pdraw *pdraw,
-         void *jniEnv);
+	(struct pdraw *pdraw,
+	 void *jniEnv);
 
 #ifdef __cplusplus
 }

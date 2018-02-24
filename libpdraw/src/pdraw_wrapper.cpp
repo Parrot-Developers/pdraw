@@ -30,6 +30,8 @@
 #include "pdraw_session.hpp"
 #include <pdraw/pdraw.h>
 #include <errno.h>
+#define ULOG_TAG libpdraw
+#include <ulog.h>
 #include <string>
 
 
@@ -47,10 +49,19 @@ static struct pdraw *fromPdraw(
 }
 
 
-struct pdraw *pdraw_new(
-	void)
+int pdraw_new(
+	struct pomp_loop *loop,
+	struct pdraw **ret_obj)
 {
-	return fromPdraw(Pdraw::Session::create());
+	int ret;
+	Pdraw::IPdraw *pdraw = NULL;
+	if (ret_obj == NULL) {
+		ULOGE("invalid pointer");
+		return -EINVAL;
+	}
+	ret = Pdraw::createPdraw(loop, &pdraw);
+	*ret_obj = (ret == 0) ? fromPdraw(pdraw) : NULL;
+	return ret;
 }
 
 
@@ -60,7 +71,7 @@ int pdraw_destroy(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	Pdraw::Session::release(toPdraw(pdraw));
+	delete toPdraw(pdraw);
 	return 0;
 }
 
@@ -233,15 +244,15 @@ int pdraw_next_frame(
 }
 
 
-int pdraw_seek_to(
+int pdraw_seek(
 	struct pdraw *pdraw,
-	uint64_t timestamp,
+	int64_t delta,
 	int exact)
 {
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->seekTo(timestamp, exact ? true : false);
+	return toPdraw(pdraw)->seek(delta, exact ? true : false);
 }
 
 
@@ -266,6 +277,18 @@ int pdraw_seek_back(
 		return -EINVAL;
 
 	return toPdraw(pdraw)->seekBack(delta, exact ? true : false);
+}
+
+
+int pdraw_seek_to(
+	struct pdraw *pdraw,
+	uint64_t timestamp,
+	int exact)
+{
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return toPdraw(pdraw)->seekTo(timestamp, exact ? true : false);
 }
 
 

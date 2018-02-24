@@ -103,7 +103,13 @@ StreamDemuxer::StreamDemuxer(
 	ret = rtsp_client_new(mSession->getLoop(), userAgent, &rtspClientCbs,
 			this, &mRtspClient);
 	if (ret < 0) {
-		ULOG_ERRNO("StreamDemuxer: rtsp_client_new() failed", -ret);
+		ULOG_ERRNO("StreamDemuxer: rtsp_client_new", -ret);
+		goto err;
+	}
+	/* TODO: remove wakeup once everything is called within the loop */
+	ret = pomp_loop_wakeup(mSession->getLoop());
+	if (ret < 0) {
+		ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
 		goto err;
 	}
 
@@ -144,6 +150,11 @@ err:
 	if (mRtspClient) {
 		rtsp_client_destroy(mRtspClient);
 		mRtspClient = NULL;
+		/* TODO: remove wakeup once everything is
+		 * called within the loop */
+		ret = pomp_loop_wakeup(mSession->getLoop());
+		if (ret < 0)
+			ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
 	}
 }
 
@@ -167,6 +178,11 @@ StreamDemuxer::~StreamDemuxer(
 			usleep(1000);
 		} while (ret == -EBUSY);
 		mRtspClient = NULL;
+		/* TODO: remove wakeup once everything is
+		 * called within the loop */
+		ret = pomp_loop_wakeup(mSession->getLoop());
+		if (ret < 0)
+			ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
 	}
 
 	if (mH264Reader != NULL) {
@@ -1135,6 +1151,12 @@ int StreamDemuxer::createReceiver(
 		ULOGE("StreamDemuxerNet: vstrm_receiver_new() failed (%d)", ret);
 		goto error;
 	}
+	/* TODO: remove wakeup once everything is called within the loop */
+	ret = pomp_loop_wakeup(mSession->getLoop());
+	if (ret < 0) {
+		ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -ret);
+		goto error;
+	}
 
 	/* Provide the SPS/PPS out of band if available */
 	if (mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) {
@@ -1164,6 +1186,11 @@ int StreamDemuxer::destroyReceiver(
 		if (res < 0)
 			PDRAW_LOG_ERRNO("vstrm_receiver_destroy", -res);
 		mReceiver = NULL;
+		/* TODO: remove wakeup once everything is
+		 * called within the loop */
+		res = pomp_loop_wakeup(mSession->getLoop());
+		if (res < 0)
+			ULOG_ERRNO("StreamDemuxer: pomp_loop_wakeup", -res);
 	}
 	return 0;
 }

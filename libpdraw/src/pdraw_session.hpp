@@ -32,6 +32,7 @@
 
 #include <inttypes.h>
 #include <libpomp.h>
+#include <futils/futils.h>
 #include <string>
 #include <vector>
 #include "pdraw_settings.hpp"
@@ -50,10 +51,15 @@ class Settings;
 class Session : public IPdraw {
 public:
 	Session(
-		void);
+		struct pomp_loop *loop);
 
 	~Session(
 		void);
+
+
+	/*
+	 * API methods
+	 */
 
 	int open(
 		const std::string &url);
@@ -104,8 +110,8 @@ public:
 	int nextFrame(
 		void);
 
-	int seekTo(
-		uint64_t timestamp,
+	int seek(
+		int64_t delta,
 		bool exact = false);
 
 	int seekForward(
@@ -116,12 +122,17 @@ public:
 		uint64_t delta,
 		bool exact = false);
 
+	int seekTo(
+		uint64_t timestamp,
+		bool exact = false);
+
 	uint64_t getDuration(
 		void);
 
 	uint64_t getCurrentTime(
 		void);
 
+	/* Called on the rendering thread */
 	int startRenderer(
 		int windowWidth,
 		int windowHeight,
@@ -133,16 +144,16 @@ public:
 		bool headtracking,
 		void *uiHandler);
 
+	/* Called on the rendering thread */
 	int stopRenderer(
 		void);
 
+	/* Called on the rendering thread */
 	int render(
 		uint64_t lastRenderTime);
 
 	enum pdraw_session_type getSessionType(
-		void) {
-		return mSessionType;
-	}
+		void);
 
 	std::string getSelfFriendlyName(
 		void);
@@ -359,6 +370,56 @@ public:
 		mJniEnv = jniEnv;
 	}
 
+
+	/*
+	 * Internal methods
+	 */
+
+	int internalOpen(
+		const std::string &url,
+		const std::string &ifaceAddr);
+
+	int internalOpen(
+		const std::string &localAddr,
+		int localStreamPort,
+		int localControlPort,
+		const std::string &remoteAddr,
+		int remoteStreamPort,
+		int remoteControlPort,
+		const std::string &ifaceAddr);
+
+	int internalOpen(
+		const std::string &url,
+		struct mux_ctx *mux);
+
+	int internalOpenSdp(
+		const std::string &sdp,
+		const std::string &ifaceAddr);
+
+	int internalOpenSdp(
+		const std::string &sdp,
+		struct mux_ctx *mux);
+
+	int internalClose(
+		void);
+
+	int internalPlay(
+		float speed = 1.0f);
+
+	int internalPreviousFrame(
+		void);
+
+	int internalNextFrame(
+		void);
+
+	int internalSeek(
+		int64_t delta,
+		bool exact = false);
+
+	int internalSeekTo(
+		uint64_t timestamp,
+		bool exact = false);
+
 	Media *addMedia(
 		enum elementary_stream_type esType);
 
@@ -408,16 +469,6 @@ public:
 		return mLoop;
 	}
 
-	inline static IPdraw *create(
-		void) {
-		return new Session();
-	}
-
-	inline static void release(
-		IPdraw *pdraw) {
-		delete pdraw;
-	}
-
 private:
 	int enableRenderer(
 		void);
@@ -428,17 +479,25 @@ private:
 	int addMediaFromDemuxer(
 		void);
 
+	static void mboxCb(
+		int fd,
+		uint32_t revents,
+		void *userdata);
+
 	static void* runLoopThread(
 		void *ptr);
 
-	enum pdraw_session_type mSessionType;
-	Settings mSettings;
-	SessionSelfMetadata mSelfMetadata;
-	SessionPeerMetadata mPeerMetadata;
+	bool mInternalLoop;
 	struct pomp_loop *mLoop;
 	pthread_t mLoopThread;
 	bool mLoopThreadLaunched;
 	bool mThreadShouldStop;
+	struct mbox *mMbox;
+	pthread_mutex_t mMutex;
+	enum pdraw_session_type mSessionType;
+	Settings mSettings;
+	SessionSelfMetadata mSelfMetadata;
+	SessionPeerMetadata mPeerMetadata;
 	std::vector<Media *> mMedias;
 	Demuxer *mDemuxer;
 	Renderer *mRenderer;

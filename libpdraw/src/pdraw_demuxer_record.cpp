@@ -102,6 +102,12 @@ RecordDemuxer::RecordDemuxer(
 		ULOGE("RecordDemuxer: pomp timer creation failed");
 		goto err;
 	}
+	/* TODO: remove wakeup once everything is called within the loop */
+	ret = pomp_loop_wakeup(mSession->getLoop());
+	if (ret < 0) {
+		ULOG_ERRNO("RecordDemuxer: pomp_loop_wakeup", -ret);
+		goto err;
+	}
 
 	struct h264_ctx_cbs h264_cbs;
 	memset(&h264_cbs, 0, sizeof(h264_cbs));
@@ -121,6 +127,11 @@ err:
 		pomp_timer_clear(mTimer);
 		pomp_timer_destroy(mTimer);
 		mTimer = NULL;
+		/* TODO: remove wakeup once everything is
+		 * called within the loop */
+		ret = pomp_loop_wakeup(mSession->getLoop());
+		if (ret < 0)
+			ULOG_ERRNO("RecordDemuxer: pomp_loop_wakeup", -ret);
 	}
 	if (mH264Reader != NULL) {
 		h264_reader_destroy(mH264Reader);
@@ -156,6 +167,11 @@ RecordDemuxer::~RecordDemuxer(
 		pomp_timer_clear(mTimer);
 		pomp_timer_destroy(mTimer);
 		mTimer = NULL;
+		/* TODO: remove wakeup once everything is
+		 * called within the loop */
+		ret = pomp_loop_wakeup(mSession->getLoop());
+		if (ret < 0)
+			ULOG_ERRNO("RecordDemuxer: pomp_loop_wakeup", -ret);
 	}
 
 	if (mH264Reader != NULL) {

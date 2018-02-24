@@ -32,6 +32,8 @@
 #include "pdraw_demuxer_stream_net.hpp"
 #include "pdraw_demuxer_stream_mux.hpp"
 #include "pdraw_demuxer_record.hpp"
+#include "pdraw_utils.hpp"
+#include "pdraw_log.hpp"
 #include <math.h>
 #include <string.h>
 #define ULOG_TAG libpdraw
@@ -44,54 +46,205 @@ ULOG_DECLARE_TAG(libpdraw);
 namespace Pdraw {
 
 
-IPdraw *createPdraw(
-	void)
+enum cmd_type {
+	CMD_TYPE_OPEN_SINGLE,
+	CMD_TYPE_OPEN_URL,
+	CMD_TYPE_OPEN_URL_MUX,
+	CMD_TYPE_OPEN_SDP,
+	CMD_TYPE_OPEN_SDP_MUX,
+	CMD_TYPE_CLOSE,
+	CMD_TYPE_PLAY,
+	CMD_TYPE_PREVIOUS_FRAME,
+	CMD_TYPE_NEXT_FRAME,
+	CMD_TYPE_SEEK,
+	CMD_TYPE_SEEK_TO,
+};
+
+
+struct cmd_base {
+	enum cmd_type type;
+};
+
+
+struct cmd_open_single {
+	struct cmd_base base;
+	char local_addr[16];
+	int local_stream_port;
+	int local_control_port;
+	char remote_addr[16];
+	int remote_stream_port;
+	int remote_control_port;
+	char iface_addr[16];
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_open_single) <= PIPE_BUF - 1);
+
+
+struct cmd_open_url {
+	struct cmd_base base;
+	char url[200];
+	char iface_addr[16];
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_open_url) <= PIPE_BUF - 1);
+
+
+struct cmd_open_url_mux {
+	struct cmd_base base;
+	char url[200];
+	struct mux_ctx *mux;
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_open_url_mux) <= PIPE_BUF - 1);
+
+
+struct cmd_open_sdp {
+	struct cmd_base base;
+	char sdp[PIPE_BUF - 1 -
+		sizeof(struct cmd_base) -
+		16 * sizeof(char) - 8]; /* 8 is a margin for alignment */
+	char iface_addr[16];
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_open_sdp) <= PIPE_BUF - 1);
+
+
+struct cmd_open_sdp_mux {
+	struct cmd_base base;
+	char sdp[PIPE_BUF - 1 -
+		sizeof(struct cmd_base) -
+		sizeof(struct mux_ctx *) - 8]; /* 8 is a margin for alignment */
+	struct mux_ctx *mux;
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_open_sdp_mux) <= PIPE_BUF - 1);
+
+
+struct cmd_play {
+	struct cmd_base base;
+	float speed;
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_play) <= PIPE_BUF - 1);
+
+
+struct cmd_seek {
+	struct cmd_base base;
+	int64_t delta;
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_seek) <= PIPE_BUF - 1);
+
+
+struct cmd_seek_to {
+	struct cmd_base base;
+	uint64_t timestamp;
+};
+PDRAW_STATIC_ASSERT(sizeof(struct cmd_seek_to) <= PIPE_BUF - 1);
+
+
+int createPdraw(
+	struct pomp_loop *loop,
+	IPdraw **ret_obj)
 {
-	return new Session;
+	IPdraw *pdraw = NULL;
+	if (ret_obj == NULL) {
+		ULOGE("invalid pointer");
+		return -EINVAL;
+	}
+	pdraw = new Session(loop);
+	if (pdraw == NULL) {
+		ULOGE("failed to create pdraw instance");
+		return -EPROTO;
+	}
+	*ret_obj = pdraw;
+	return 0;
 }
 
 
 Session::Session(
-	void)
+	struct pomp_loop *loop)
 {
-	int ret;
+	int res;
+	pthread_mutexattr_t attr;
+	bool mutex_created = false, attr_created = false;
 
 	mSessionType = PDRAW_SESSION_TYPE_UNKNOWN;
 	mDemuxer = NULL;
 	mRenderer = NULL;
 	mMediaIdCounter = 0;
+	mInternalLoop = false;
+	mLoop = loop;
 	mThreadShouldStop = false;
-	mLoop = NULL;
 	mLoopThreadLaunched = false;
 
-	mLoop = pomp_loop_new();
+	res = pthread_mutexattr_init(&attr);
+	if (res < 0) {
+		ULOG_ERRNO("Session: pthread_mutexattr_init", -res);
+		goto error;
+	}
+	attr_created = true;
+
+	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	if (res < 0) {
+		ULOG_ERRNO("Session: pthread_mutexattr_settype", -res);
+		goto error;
+	}
+
+	res = pthread_mutex_init(&mMutex, NULL);
+	if (res < 0) {
+		ULOG_ERRNO("Session: pthread_mutex_init", -res);
+		goto error;
+	}
+	mutex_created = true;
+
 	if (mLoop == NULL) {
-		ULOGE("Session: pomp_loop_new() failed");
-		goto err;
+		mInternalLoop = true;
+		mLoop = pomp_loop_new();
+		if (mLoop == NULL) {
+			ULOGE("Session: failed to create pomp loop");
+			goto error;
+		}
+
+		mMbox = mbox_new(PIPE_BUF - 1);
+		if (mMbox == NULL) {
+			ULOGE("Session: failed to create mailbox");
+			goto error;
+		}
+
+		res = pomp_loop_add(mLoop, mbox_get_read_fd(mMbox),
+			POMP_FD_EVENT_IN, &mboxCb, this);
+		if (res < 0) {
+			ULOG_ERRNO("Session: pomp_loop_add", -res);
+			goto error;
+		}
+
+		res = pthread_create(&mLoopThread, NULL,
+			runLoopThread, (void *)this);
+		if (res < 0) {
+			ULOG_ERRNO("Session: pthread_create", -res);
+			goto error;
+		}
+
+		mLoopThreadLaunched = true;
 	}
 
-	ret = pthread_create(&mLoopThread, NULL, runLoopThread, (void *)this);
-	if (ret != 0) {
-		ULOGE("Session: loop thread creation failed (%d)", ret);
-		goto err;
-	}
-
-	mLoopThreadLaunched = true;
-
+	pthread_mutexattr_destroy(&attr);
 	return;
 
-err:
+error:
 	if (mLoop != NULL) {
 		pomp_loop_destroy(mLoop);
 		mLoop = NULL;
 	}
+	if (mMbox != NULL) {
+		mbox_destroy(mMbox);
+		mMbox = NULL;
+	}
+	if (mutex_created)
+		pthread_mutex_destroy(&mMutex);
+	if (attr_created)
+		pthread_mutexattr_destroy(&attr);
 }
 
 
 Session::~Session(
 	void)
 {
-	int ret;
+	int res;
 
 	if (mDemuxer != NULL) {
 		int ret = mDemuxer->close();
@@ -110,23 +263,42 @@ Session::~Session(
 		m++;
 	}
 
-	mThreadShouldStop = true;
-	if (mLoop)
-		pomp_loop_wakeup(mLoop);
+	if (mInternalLoop) {
+		mThreadShouldStop = true;
+		if (mLoop) {
+			res = pomp_loop_wakeup(mLoop);
+			if (res < 0)
+				ULOG_ERRNO("Session: pomp_loop_wakeup", -res);
+		}
 
-	if (mLoopThreadLaunched) {
-		ret = pthread_join(mLoopThread, NULL);
-		if (ret != 0)
-			ULOGE("Session: pthread_join() failed (%d)", ret);
+		if (mLoopThreadLaunched) {
+			res = pthread_join(mLoopThread, NULL);
+			if (res < 0)
+				ULOG_ERRNO("Session: pthread_join", -res);
+		}
+
+		if (mMbox != NULL) {
+			res = pomp_loop_remove(mLoop, mbox_get_read_fd(mMbox));
+			if (res < 0)
+				ULOG_ERRNO("Session: pomp_loop_remove", -res);
+			mbox_destroy(mMbox);
+			mMbox = NULL;
+		}
+
+		if (mLoop) {
+			res = pomp_loop_destroy(mLoop);
+			if (res != 0)
+				ULOG_ERRNO("Session: pomp_loop_destroy", -res);
+		}
 	}
 
-	if (mLoop) {
-		ret = pomp_loop_destroy(mLoop);
-		if (ret != 0)
-			ULOGE("Session: pomp_loop_destroy() failed");
-	}
+	pthread_mutex_destroy(&mMutex);
 }
 
+
+/*
+ * API methods
+ */
 
 int Session::open(
 	const std::string &url)
@@ -139,49 +311,31 @@ int Session::open(
 	const std::string &url,
 	const std::string &ifaceAddr)
 {
-	int ret = 0;
-
-	std::string ext = url.substr(url.length() - 4, 4);
-	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-	if ((url.front() == '/') && (ext == ".mp4")) {
-		mSessionType = PDRAW_SESSION_TYPE_RECORD;
-		mDemuxer = new RecordDemuxer(this);
-		if (mDemuxer == NULL) {
-			ULOGE("Session: failed to alloc demuxer");
-			ret = -1;
-		} else {
-			ret = ((RecordDemuxer *)mDemuxer)->configure(url);
-			if (ret != 0) {
-				ULOGE("Session: failed to configure demuxer");
-				delete mDemuxer;
-				mDemuxer = NULL;
-				ret = -1;
-			}
-		}
-	} else if (((url.front() == '/') && (ext == ".sdp")) ||
-		((url.substr(0, 7) == "http://") && (ext == ".sdp")) ||
-		(url.substr(0, 7) == "rtsp://")) {
-		mSessionType = PDRAW_SESSION_TYPE_STREAM;
-		mDemuxer = new StreamDemuxerNet(this);
-		if (mDemuxer == NULL) {
-			ULOGE("Session: failed to alloc demuxer");
-			ret = -1;
-		} else {
-			ret = ((StreamDemuxerNet *)mDemuxer)->configure(
-				url, ifaceAddr);
-			if (ret != 0) {
-				ULOGE("Session: failed to configure demuxer");
-				delete mDemuxer;
-				mDemuxer = NULL;
-				ret = -1;
-			}
-		}
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_open_url *cmd = NULL;
+		PDRAW_RETURN_ERR_IF_FAILED(url.length() <
+			sizeof(cmd->url) - 1, -ENOBUFS);
+		PDRAW_RETURN_ERR_IF_FAILED(ifaceAddr.length() <
+			sizeof(cmd->iface_addr) - 1, -ENOBUFS);
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_open_url *)msg;
+		cmd->base.type = CMD_TYPE_OPEN_URL;
+		strncpy(cmd->url, url.c_str(), sizeof(cmd->url));
+		cmd->url[sizeof(cmd->url) - 1] = '\0';
+		strncpy(cmd->iface_addr, ifaceAddr.c_str(),
+			sizeof(cmd->iface_addr));
+		cmd->iface_addr[sizeof(cmd->iface_addr) - 1] = '\0';
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
 	} else {
-		ULOGE("Session: unsupported URL");
-		ret = -1;
+		return internalOpen(url, ifaceAddr);
 	}
-
-	return (ret == 0) ? addMediaFromDemuxer() : ret;
 }
 
 
@@ -194,26 +348,43 @@ int Session::open(
 	int remoteControlPort,
 	const std::string &ifaceAddr)
 {
-	int ret = 0;
-
-	mSessionType = PDRAW_SESSION_TYPE_STREAM;
-	mDemuxer = new StreamDemuxerNet(this);
-	if (mDemuxer == NULL) {
-		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_open_single *cmd = NULL;
+		PDRAW_RETURN_ERR_IF_FAILED(localAddr.length() <
+			sizeof(cmd->local_addr) - 1, -ENOBUFS);
+		PDRAW_RETURN_ERR_IF_FAILED(remoteAddr.length() <
+			sizeof(cmd->remote_addr) - 1, -ENOBUFS);
+		PDRAW_RETURN_ERR_IF_FAILED(ifaceAddr.length() <
+			sizeof(cmd->iface_addr) - 1, -ENOBUFS);
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_open_single *)msg;
+		cmd->base.type = CMD_TYPE_OPEN_SINGLE;
+		strncpy(cmd->local_addr, localAddr.c_str(),
+			sizeof(cmd->local_addr));
+		cmd->local_addr[sizeof(cmd->local_addr) - 1] = '\0';
+		cmd->local_stream_port = localStreamPort;
+		cmd->local_control_port = localControlPort;
+		strncpy(cmd->remote_addr, remoteAddr.c_str(),
+			sizeof(cmd->remote_addr));
+		cmd->remote_addr[sizeof(cmd->remote_addr) - 1] = '\0';
+		cmd->remote_stream_port = remoteStreamPort;
+		cmd->remote_control_port = remoteControlPort;
+		strncpy(cmd->iface_addr, ifaceAddr.c_str(),
+			sizeof(cmd->iface_addr));
+		cmd->iface_addr[sizeof(cmd->iface_addr) - 1] = '\0';
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
+	} else {
+		return internalOpen(localAddr, localStreamPort,
+			localControlPort, remoteAddr, remoteStreamPort,
+			remoteControlPort, ifaceAddr);
 	}
-
-	ret = ((StreamDemuxerNet *)mDemuxer)->configure(localAddr,
-		localStreamPort, localControlPort, remoteAddr,
-		remoteStreamPort, remoteControlPort, ifaceAddr);
-	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
-		delete mDemuxer;
-		mDemuxer = NULL;
-		return -1;
-	}
-
-	return addMediaFromDemuxer();
 }
 
 
@@ -222,24 +393,28 @@ int Session::open(
 	struct mux_ctx *mux)
 {
 #ifdef BUILD_LIBMUX
-	int ret = 0;
-
-	mSessionType = PDRAW_SESSION_TYPE_STREAM;
-	mDemuxer = new StreamDemuxerMux(this);
-	if (mDemuxer == NULL) {
-		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_open_url_mux *cmd = NULL;
+		PDRAW_RETURN_ERR_IF_FAILED(url.length() <
+			sizeof(cmd->url) - 1, -ENOBUFS);
+		PDRAW_RETURN_ERR_IF_FAILED(mux != NULL, -EINVAL);
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_open_url_mux *)msg;
+		cmd->base.type = CMD_TYPE_OPEN_URL_MUX;
+		strncpy(cmd->url, url.c_str(), sizeof(cmd->url));
+		cmd->url[sizeof(cmd->url) - 1] = '\0';
+		cmd->mux = mux;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
+	} else {
+		return internalOpen(url, mux);
 	}
-
-	ret = ((StreamDemuxerMux *)mDemuxer)->configure(url, mux);
-	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
-		delete mDemuxer;
-		mDemuxer = NULL;
-		return -1;
-	}
-
-	return addMediaFromDemuxer();
 #else /* BUILD_LIBMUX */
 	return -ENOSYS;
 #endif /* BUILD_LIBMUX */
@@ -257,24 +432,31 @@ int Session::openSdp(
 	const std::string &sdp,
 	const std::string &ifaceAddr)
 {
-	int ret = 0;
-
-	mSessionType = PDRAW_SESSION_TYPE_STREAM;
-	mDemuxer = new StreamDemuxerNet(this);
-	if (mDemuxer == NULL) {
-		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_open_sdp *cmd = NULL;
+		PDRAW_RETURN_ERR_IF_FAILED(sdp.length() <
+			sizeof(cmd->sdp) - 1, -ENOBUFS);
+		PDRAW_RETURN_ERR_IF_FAILED(ifaceAddr.length() <
+			sizeof(cmd->iface_addr) - 1, -ENOBUFS);
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_open_sdp *)msg;
+		cmd->base.type = CMD_TYPE_OPEN_SDP;
+		strncpy(cmd->sdp, sdp.c_str(), sizeof(cmd->sdp));
+		cmd->sdp[sizeof(cmd->sdp) - 1] = '\0';
+		strncpy(cmd->iface_addr, ifaceAddr.c_str(),
+			sizeof(cmd->iface_addr));
+		cmd->iface_addr[sizeof(cmd->iface_addr) - 1] = '\0';
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
+	} else {
+		return internalOpenSdp(sdp, ifaceAddr);
 	}
-
-	ret = ((StreamDemuxerNet *)mDemuxer)->configureWithSdp(sdp, ifaceAddr);
-	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
-		delete mDemuxer;
-		mDemuxer = NULL;
-		return -1;
-	}
-
-	return addMediaFromDemuxer();
 }
 
 
@@ -283,24 +465,28 @@ int Session::openSdp(
 	struct mux_ctx *mux)
 {
 #ifdef BUILD_LIBMUX
-	int ret = 0;
-
-	mSessionType = PDRAW_SESSION_TYPE_STREAM;
-	mDemuxer = new StreamDemuxerMux(this);
-	if (mDemuxer == NULL) {
-		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_open_sdp_mux *cmd = NULL;
+		PDRAW_RETURN_ERR_IF_FAILED(sdp.length() <
+			sizeof(cmd->sdp) - 1, -ENOBUFS);
+		PDRAW_RETURN_ERR_IF_FAILED(mux != NULL, -EINVAL);
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_open_sdp_mux *)msg;
+		cmd->base.type = CMD_TYPE_OPEN_SDP_MUX;
+		strncpy(cmd->sdp, sdp.c_str(), sizeof(cmd->sdp));
+		cmd->sdp[sizeof(cmd->sdp) - 1] = '\0';
+		cmd->mux = mux;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
+	} else {
+		return internalOpenSdp(sdp, mux);
 	}
-
-	ret = ((StreamDemuxerMux *)mDemuxer)->configureWithSdp(sdp, mux);
-	if (ret != 0) {
-		ULOGE("Session: failed to configure demuxer");
-		delete mDemuxer;
-		mDemuxer = NULL;
-		return -1;
-	}
-
-	return addMediaFromDemuxer();
 #else /* BUILD_LIBMUX */
 	return -ENOSYS;
 #endif /* BUILD_LIBMUX */
@@ -310,60 +496,59 @@ int Session::openSdp(
 int Session::close(
 	void)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->close();
-		if (ret != 0) {
-			ULOGE("Failed to close demuxer");
-			return -1;
-		}
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_base *cmd = NULL;
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_base *)msg;
+		cmd->type = CMD_TYPE_CLOSE;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
 	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
+		return internalClose();
 	}
-
-	return 0;
 }
 
 
 int Session::play(
 	float speed)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->play(speed);
-		if (ret != 0) {
-			ULOGE("Failed to start demuxer");
-			return -1;
-		}
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_play *cmd = NULL;
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_play *)msg;
+		cmd->base.type = CMD_TYPE_PLAY;
+		cmd->speed = speed;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
 	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
+		return internalPlay(speed);
 	}
-
-	return 0;
 }
 
 
 int Session::pause(
 	void)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->pause();
-		if (ret != 0) {
-			ULOGE("Failed to pause demuxer");
-			return -1;
-		}
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
-
-	return 0;
+	return play(0.);
 }
 
 
 bool Session::isPaused(
 	void)
 {
+	/* TODO */
 	if (mDemuxer != NULL)
 		return mDemuxer->isPaused();
 	else
@@ -374,55 +559,68 @@ bool Session::isPaused(
 int Session::previousFrame(
 	void)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->previous();
-		if (ret != 0) {
-			ULOGE("Failed to go to previous frame in the demuxer");
-			return -1;
-		}
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_base *cmd = NULL;
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_base *)msg;
+		cmd->type = CMD_TYPE_PREVIOUS_FRAME;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
 	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
+		return internalPreviousFrame();
 	}
-
-	return 0;
 }
 
 
 int Session::nextFrame(
 	void)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->next();
-		if (ret != 0) {
-			ULOGE("Failed to go to next frame in the demuxer");
-			return -1;
-		}
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_base *cmd = NULL;
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_base *)msg;
+		cmd->type = CMD_TYPE_NEXT_FRAME;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
 	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
+		return internalNextFrame();
 	}
-
-	return 0;
 }
 
 
-int Session::seekTo(
-	uint64_t timestamp,
+int Session::seek(
+	int64_t delta,
 	bool exact)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->seekTo(timestamp, exact);
-		if (ret != 0) {
-			ULOGE("Failed to seek with demuxer");
-			return -1;
-		}
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_seek *cmd = NULL;
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_seek *)msg;
+		cmd->base.type = CMD_TYPE_SEEK;
+		cmd->delta = delta;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
 	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
+		return internalSeek(delta);
 	}
-
-	return 0;
 }
 
 
@@ -430,18 +628,7 @@ int Session::seekForward(
 	uint64_t delta,
 	bool exact)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->seekForward(delta, exact);
-		if (ret != 0) {
-			ULOGE("Failed to seek with demuxer");
-			return -1;
-		}
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
-
-	return 0;
+	return seek((int64_t)delta);
 }
 
 
@@ -449,24 +636,38 @@ int Session::seekBack(
 	uint64_t delta,
 	bool exact)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->seekBack(delta, exact);
-		if (ret != 0) {
-			ULOGE("Failed to seek with demuxer");
-			return -1;
-		}
-	} else {
-		ULOGE("Invalid demuxer");
-		return -1;
-	}
+	return seek(-((int64_t)delta));
+}
 
-	return 0;
+
+int Session::seekTo(
+	uint64_t timestamp,
+	bool exact)
+{
+	if (mInternalLoop) {
+		/* Send a message to the loop */
+		int res;
+		struct cmd_seek_to *cmd = NULL;
+		void *msg = calloc(PIPE_BUF - 1, 1);
+		PDRAW_RETURN_ERR_IF_FAILED(msg != NULL, -ENOMEM);
+		cmd = (struct cmd_seek_to *)msg;
+		cmd->base.type = CMD_TYPE_SEEK_TO;
+		cmd->timestamp = timestamp;
+		res = mbox_push(mMbox, msg);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("mbox_push", res);
+		free(msg);
+		return res;
+	} else {
+		return internalSeekTo(timestamp);
+	}
 }
 
 
 uint64_t Session::getDuration(
 	void)
 {
+	/* TODO */
 	return (mDemuxer) ? mDemuxer->getDuration() : 0;
 }
 
@@ -474,10 +675,12 @@ uint64_t Session::getDuration(
 uint64_t Session::getCurrentTime(
 	void)
 {
+	/* TODO */
 	return (mDemuxer) ? mDemuxer->getCurrentTime() : 0;
 }
 
 
+/* Called on the rendering thread */
 int Session::startRenderer(
 	int windowWidth,
 	int windowHeight,
@@ -507,6 +710,7 @@ int Session::startRenderer(
 }
 
 
+/* Called on the rendering thread */
 int Session::stopRenderer(
 	void)
 {
@@ -525,6 +729,7 @@ int Session::stopRenderer(
 }
 
 
+/* Called on the rendering thread */
 int Session::render(
 	uint64_t lastRenderTime)
 {
@@ -534,6 +739,15 @@ int Session::render(
 		ULOGE("Invalid renderer");
 		return -1;
 	}
+}
+
+
+enum pdraw_session_type Session::getSessionType(
+	void) {
+	pthread_mutex_lock(&mMutex);
+	enum pdraw_session_type ret = mSessionType;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
 }
 
 
@@ -856,7 +1070,8 @@ void Session::getCameraOrientationForHeadtracking(
 	float *pan,
 	float *tilt)
 {
-	Eigen::Quaternionf headQuat = mSelfMetadata.getDebiasedHeadOrientation();
+	Eigen::Quaternionf headQuat =
+		mSelfMetadata.getDebiasedHeadOrientation();
 	vmeta_quaternion quat;
 	quat.w = headQuat.w();
 	quat.x = headQuat.x();
@@ -875,7 +1090,10 @@ void Session::getCameraOrientationForHeadtracking(
 int Session::getMediaCount(
 	void)
 {
-	return mMedias.size();
+	pthread_mutex_lock(&mMutex);
+	int ret = mMedias.size();
+	pthread_mutex_unlock(&mMutex);
+	return ret;
 }
 
 
@@ -895,6 +1113,7 @@ int Session::getMediaInfo(
 		return -1;
 	}
 
+	media->lock();
 	switch (media->getType()) {
 	case PDRAW_MEDIA_TYPE_VIDEO:
 		info->type = PDRAW_MEDIA_TYPE_VIDEO;
@@ -919,6 +1138,7 @@ int Session::getMediaInfo(
 		break;
 	}
 	info->id = media->getId();
+	media->unlock();
 
 	return 0;
 }
@@ -929,14 +1149,18 @@ void *Session::addVideoFrameFilterCallback(
 	pdraw_video_frame_filter_callback_t cb,
 	void *userPtr)
 {
+	pthread_mutex_lock(&mMutex);
+
 	Media *media = getMediaById(mediaId);
 
 	if (media == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid media id");
 		return NULL;
 	}
 
 	if (media->getType() != PDRAW_MEDIA_TYPE_VIDEO) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid media type");
 		return NULL;
 	}
@@ -944,9 +1168,12 @@ void *Session::addVideoFrameFilterCallback(
 	VideoFrameFilter *filter =
 		((VideoMedia*)media)->addVideoFrameFilter(cb, userPtr);
 	if (filter == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Failed to create video frame filter");
 		return NULL;
 	}
+
+	pthread_mutex_unlock(&mMutex);
 
 	return (void *)filter;
 }
@@ -956,25 +1183,34 @@ int Session::removeVideoFrameFilterCallback(
 	unsigned int mediaId,
 	void *filterCtx)
 {
+	pthread_mutex_lock(&mMutex);
+
 	Media *media = getMediaById(mediaId);
 
 	if (media == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid media id");
 		return -1;
 	}
 
 	if (media->getType() != PDRAW_MEDIA_TYPE_VIDEO) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid media type");
 		return -1;
 	}
 
 	if (filterCtx == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid context pointer");
 		return -1;
 	}
 
 	VideoFrameFilter *filter = (VideoFrameFilter*)filterCtx;
-	return ((VideoMedia*)media)->removeVideoFrameFilter(filter);
+	int ret = ((VideoMedia*)media)->removeVideoFrameFilter(filter);
+
+	pthread_mutex_unlock(&mMutex);
+
+	return ret;
 }
 
 
@@ -982,14 +1218,18 @@ void *Session::addVideoFrameProducer(
 	unsigned int mediaId,
 	bool frameByFrame)
 {
+	pthread_mutex_lock(&mMutex);
+
 	Media *media = getMediaById(mediaId);
 
 	if (media == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid media id");
 		return NULL;
 	}
 
 	if (media->getType() != PDRAW_MEDIA_TYPE_VIDEO) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid media type");
 		return NULL;
 	}
@@ -997,9 +1237,12 @@ void *Session::addVideoFrameProducer(
 	VideoFrameFilter *filter =
 		((VideoMedia*)media)->addVideoFrameFilter(frameByFrame);
 	if (filter == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Failed to create video frame filter");
 		return NULL;
 	}
+
+	pthread_mutex_unlock(&mMutex);
 
 	return (void*)filter;
 }
@@ -1013,15 +1256,22 @@ int Session::removeVideoFrameProducer(
 		return -1;
 	}
 
+	pthread_mutex_lock(&mMutex);
+
 	VideoFrameFilter *filter = (VideoFrameFilter*)producerCtx;
 	VideoMedia *media = filter->getVideoMedia();
 
 	if (media == NULL) {
+		pthread_mutex_unlock(&mMutex);
 		ULOGE("Invalid media");
 		return -1;
 	}
 
-	return media->removeVideoFrameFilter(filter);
+	int ret = media->removeVideoFrameFilter(filter);
+
+	pthread_mutex_unlock(&mMutex);
+
+	return ret;
 }
 
 
@@ -1101,7 +1351,299 @@ void Session::setHmdDistorsionCorrectionSettings(
 }
 
 
+/*
+ * Internal methods
+ */
 
+int Session::internalOpen(
+	const std::string &url,
+	const std::string &ifaceAddr)
+{
+	int ret = 0;
+
+	std::string ext = url.substr(url.length() - 4, 4);
+	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+	if ((url.front() == '/') && (ext == ".mp4")) {
+		pthread_mutex_lock(&mMutex);
+		mSessionType = PDRAW_SESSION_TYPE_RECORD;
+		pthread_mutex_unlock(&mMutex);
+		mDemuxer = new RecordDemuxer(this);
+		if (mDemuxer == NULL) {
+			ULOGE("Session: failed to alloc demuxer");
+			ret = -1;
+		} else {
+			ret = ((RecordDemuxer *)mDemuxer)->configure(url);
+			if (ret != 0) {
+				ULOGE("Session: failed to configure demuxer");
+				delete mDemuxer;
+				mDemuxer = NULL;
+				ret = -1;
+			}
+		}
+	} else if (((url.front() == '/') && (ext == ".sdp")) ||
+		((url.substr(0, 7) == "http://") && (ext == ".sdp")) ||
+		(url.substr(0, 7) == "rtsp://")) {
+		pthread_mutex_lock(&mMutex);
+		mSessionType = PDRAW_SESSION_TYPE_STREAM;
+		pthread_mutex_unlock(&mMutex);
+		mDemuxer = new StreamDemuxerNet(this);
+		if (mDemuxer == NULL) {
+			ULOGE("Session: failed to alloc demuxer");
+			ret = -1;
+		} else {
+			ret = ((StreamDemuxerNet *)mDemuxer)->configure(
+				url, ifaceAddr);
+			if (ret != 0) {
+				ULOGE("Session: failed to configure demuxer");
+				delete mDemuxer;
+				mDemuxer = NULL;
+				ret = -1;
+			}
+		}
+	} else {
+		ULOGE("Session: unsupported URL");
+		ret = -1;
+	}
+
+	return (ret == 0) ? addMediaFromDemuxer() : ret;
+}
+
+
+int Session::internalOpen(
+	const std::string &localAddr,
+	int localStreamPort,
+	int localControlPort,
+	const std::string &remoteAddr,
+	int remoteStreamPort,
+	int remoteControlPort,
+	const std::string &ifaceAddr)
+{
+	int ret = 0;
+
+	pthread_mutex_lock(&mMutex);
+	mSessionType = PDRAW_SESSION_TYPE_STREAM;
+	pthread_mutex_unlock(&mMutex);
+	mDemuxer = new StreamDemuxerNet(this);
+	if (mDemuxer == NULL) {
+		ULOGE("Session: failed to alloc demuxer");
+		return -1;
+	}
+
+	ret = ((StreamDemuxerNet *)mDemuxer)->configure(localAddr,
+		localStreamPort, localControlPort, remoteAddr,
+		remoteStreamPort, remoteControlPort, ifaceAddr);
+	if (ret != 0) {
+		ULOGE("Session: failed to configure demuxer");
+		delete mDemuxer;
+		mDemuxer = NULL;
+		return -1;
+	}
+
+	return addMediaFromDemuxer();
+}
+
+
+int Session::internalOpen(
+	const std::string &url,
+	struct mux_ctx *mux)
+{
+#ifdef BUILD_LIBMUX
+	int ret = 0;
+
+	pthread_mutex_lock(&mMutex);
+	mSessionType = PDRAW_SESSION_TYPE_STREAM;
+	pthread_mutex_unlock(&mMutex);
+	mDemuxer = new StreamDemuxerMux(this);
+	if (mDemuxer == NULL) {
+		ULOGE("Session: failed to alloc demuxer");
+		return -1;
+	}
+
+	ret = ((StreamDemuxerMux *)mDemuxer)->configure(url, mux);
+	if (ret != 0) {
+		ULOGE("Session: failed to configure demuxer");
+		delete mDemuxer;
+		mDemuxer = NULL;
+		return -1;
+	}
+
+	return addMediaFromDemuxer();
+#else /* BUILD_LIBMUX */
+	return -ENOSYS;
+#endif /* BUILD_LIBMUX */
+}
+
+
+int Session::internalOpenSdp(
+	const std::string &sdp,
+	const std::string &ifaceAddr)
+{
+	int ret = 0;
+
+	pthread_mutex_lock(&mMutex);
+	mSessionType = PDRAW_SESSION_TYPE_STREAM;
+	pthread_mutex_unlock(&mMutex);
+	mDemuxer = new StreamDemuxerNet(this);
+	if (mDemuxer == NULL) {
+		ULOGE("Session: failed to alloc demuxer");
+		return -1;
+	}
+
+	ret = ((StreamDemuxerNet *)mDemuxer)->configureWithSdp(sdp, ifaceAddr);
+	if (ret != 0) {
+		ULOGE("Session: failed to configure demuxer");
+		delete mDemuxer;
+		mDemuxer = NULL;
+		return -1;
+	}
+
+	return addMediaFromDemuxer();
+}
+
+
+int Session::internalOpenSdp(
+	const std::string &sdp,
+	struct mux_ctx *mux)
+{
+#ifdef BUILD_LIBMUX
+	int ret = 0;
+
+	pthread_mutex_lock(&mMutex);
+	mSessionType = PDRAW_SESSION_TYPE_STREAM;
+	pthread_mutex_unlock(&mMutex);
+	mDemuxer = new StreamDemuxerMux(this);
+	if (mDemuxer == NULL) {
+		ULOGE("Session: failed to alloc demuxer");
+		return -1;
+	}
+
+	ret = ((StreamDemuxerMux *)mDemuxer)->configureWithSdp(sdp, mux);
+	if (ret != 0) {
+		ULOGE("Session: failed to configure demuxer");
+		delete mDemuxer;
+		mDemuxer = NULL;
+		return -1;
+	}
+
+	return addMediaFromDemuxer();
+#else /* BUILD_LIBMUX */
+	return -ENOSYS;
+#endif /* BUILD_LIBMUX */
+}
+
+
+int Session::internalClose(
+	void)
+{
+	if (mDemuxer != NULL) {
+		int ret = mDemuxer->close();
+		if (ret != 0) {
+			ULOGE("Failed to close demuxer");
+			return -1;
+		}
+	} else {
+		ULOGE("Invalid demuxer");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int Session::internalPlay(
+	float speed)
+{
+	if (mDemuxer != NULL) {
+		int ret = mDemuxer->play(speed);
+		if (ret != 0) {
+			ULOGE("Failed to start demuxer");
+			return -1;
+		}
+	} else {
+		ULOGE("Invalid demuxer");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int Session::internalPreviousFrame(
+	void)
+{
+	if (mDemuxer != NULL) {
+		int ret = mDemuxer->previous();
+		if (ret != 0) {
+			ULOGE("Failed to go to previous frame in the demuxer");
+			return -1;
+		}
+	} else {
+		ULOGE("Invalid demuxer");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int Session::internalNextFrame(
+	void)
+{
+	if (mDemuxer != NULL) {
+		int ret = mDemuxer->next();
+		if (ret != 0) {
+			ULOGE("Failed to go to next frame in the demuxer");
+			return -1;
+		}
+	} else {
+		ULOGE("Invalid demuxer");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int Session::internalSeek(
+	int64_t delta,
+	bool exact)
+{
+	if (mDemuxer != NULL) {
+		int ret;
+		if (delta < 0)
+			ret = mDemuxer->seekBack((uint64_t)(-delta), exact);
+		else
+			ret = mDemuxer->seekForward((uint64_t)delta, exact);
+		if (ret != 0) {
+			ULOGE("Failed to seek with demuxer");
+			return -1;
+		}
+	} else {
+		ULOGE("Invalid demuxer");
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int Session::internalSeekTo(
+	uint64_t timestamp,
+	bool exact)
+{
+	if (mDemuxer != NULL) {
+		int ret = mDemuxer->seekTo(timestamp, exact);
+		if (ret != 0) {
+			ULOGE("Failed to seek with demuxer");
+			return -1;
+		}
+	} else {
+		ULOGE("Invalid demuxer");
+		return -1;
+	}
+
+	return 0;
+}
 
 
 int Session::addMediaFromDemuxer(
@@ -1154,7 +1696,9 @@ Media *Session::addMedia(
 		return NULL;
 	}
 
+	pthread_mutex_lock(&mMutex);
 	mMedias.push_back(m);
+	pthread_mutex_unlock(&mMutex);
 
 	return m;
 }
@@ -1197,7 +1741,9 @@ Media *Session::addMedia(
 		return NULL;
 	}
 
+	pthread_mutex_lock(&mMutex);
 	mMedias.push_back(m);
+	pthread_mutex_unlock(&mMutex);
 
 	return m;
 }
@@ -1207,6 +1753,9 @@ int Session::removeMedia(
 	Media *media)
 {
 	bool found = false;
+
+	pthread_mutex_lock(&mMutex);
+
 	std::vector<Media*>::iterator m = mMedias.begin();
 
 	while (m != mMedias.end()) {
@@ -1219,6 +1768,7 @@ int Session::removeMedia(
 		m++;
 	}
 
+	pthread_mutex_unlock(&mMutex);
 	return (found) ? 0 : -1;
 }
 
@@ -1226,13 +1776,18 @@ int Session::removeMedia(
 int Session::removeMedia(
 	unsigned int index)
 {
-	if (index >= mMedias.size())
+	pthread_mutex_lock(&mMutex);
+
+	if (index >= mMedias.size()) {
+		pthread_mutex_unlock(&mMutex);
 		return -1;
+	}
 
 	Media *m = mMedias.at(index);
 	mMedias.erase(mMedias.begin() + index);
 	delete m;
 
+	pthread_mutex_unlock(&mMutex);
 	return 0;
 }
 
@@ -1240,29 +1795,40 @@ int Session::removeMedia(
 Media *Session::getMedia(
 	unsigned int index)
 {
-	if (index >= mMedias.size())
-		return NULL;
+	pthread_mutex_lock(&mMutex);
 
-	return mMedias.at(index);
+	if (index >= mMedias.size()) {
+		pthread_mutex_unlock(&mMutex);
+		return NULL;
+	}
+
+	Media *ret = mMedias.at(index);
+	pthread_mutex_unlock(&mMutex);
+	return ret;
 }
 
 
 Media *Session::getMediaById(
 	unsigned int id)
 {
+	pthread_mutex_lock(&mMutex);
 	std::vector<Media*>::iterator m = mMedias.begin();
 
 	while (m != mMedias.end()) {
-		if ((*m)->getId() == id)
+		if ((*m)->getId() == id) {
+			pthread_mutex_unlock(&mMutex);
 			return *m;
+		}
 		m++;
 	}
 
+	pthread_mutex_unlock(&mMutex);
 	ULOGE("Session: unable to find media by id");
 	return NULL;
 }
 
 
+/* Called on the rendering thread */
 int Session::enableRenderer(
 	void)
 {
@@ -1280,20 +1846,27 @@ int Session::enableRenderer(
 	}
 
 	std::vector<Media*>::iterator m;
+	pthread_mutex_lock(&mMutex);
 
 	for (m = mMedias.begin(); m < mMedias.end(); m++) {
+		pthread_mutex_unlock(&mMutex);
 		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
 			ret = mRenderer->addAvcDecoder(
 				(AvcDecoder*)((*m)->getDecoder()));
-			if (ret != 0)
-				ULOGE("Session: failed add decoder to renderer");
+			if (ret != 0) {
+				ULOGE("Session: failed to add decoder "
+					"to renderer");
+			}
 		}
+		pthread_mutex_lock(&mMutex);
 	}
 
+	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
+/* Called on the rendering thread */
 int Session::disableRenderer(
 	void)
 {
@@ -1305,16 +1878,22 @@ int Session::disableRenderer(
 	}
 
 	std::vector<Media*>::iterator m;
+	pthread_mutex_lock(&mMutex);
 
 	for (m = mMedias.begin(); m < mMedias.end(); m++) {
+		pthread_mutex_unlock(&mMutex);
 		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
 			ret = mRenderer->removeAvcDecoder(
 				(AvcDecoder*)((*m)->getDecoder()));
-			if (ret != 0)
-				ULOGE("Session: failed remove decoder from renderer");
+			if (ret != 0) {
+				ULOGE("Session: failed to remove decoder "
+					"from renderer");
+			}
 		}
+		pthread_mutex_lock(&mMutex);
 	}
 
+	pthread_mutex_unlock(&mMutex);
 	delete mRenderer;
 	mRenderer = NULL;
 
@@ -1322,13 +1901,157 @@ int Session::disableRenderer(
 }
 
 
+void Session::mboxCb(
+	int fd,
+	uint32_t revents,
+	void *userdata)
+{
+	Session *self = (Session *)userdata;
+	int res;
+	void *msg;
+	struct cmd_base *base;
+
+	PDRAW_RETURN_IF_FAILED(self != NULL, -EINVAL);
+
+	msg = malloc(PIPE_BUF - 1);
+	PDRAW_RETURN_IF_FAILED(msg != NULL, -ENOMEM);
+
+	do {
+		/* Read from the mailbox */
+		res = mbox_peek(self->mMbox, msg);
+		if (res < 0) {
+			if (res != -EAGAIN)
+				PDRAW_LOG_ERRNO("mbox_peek", -res);
+			break;
+		}
+
+		base = (struct cmd_base *)msg;
+		switch (base->type) {
+		case CMD_TYPE_OPEN_SINGLE:
+		{
+			struct cmd_open_single *cmd =
+				(struct cmd_open_single *)msg;
+			std::string l(cmd->local_addr);
+			std::string r(cmd->remote_addr);
+			std::string i(cmd->iface_addr);
+			res = self->internalOpen(l, cmd->local_stream_port,
+				cmd->local_control_port, r,
+				cmd->remote_stream_port,
+				cmd->remote_control_port, i);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalOpen", -res);
+			break;
+		}
+		case CMD_TYPE_OPEN_URL:
+		{
+			struct cmd_open_url *cmd =
+				(struct cmd_open_url *)msg;
+			std::string u(cmd->url);
+			std::string i(cmd->iface_addr);
+			res = self->internalOpen(u, i);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalOpen", -res);
+			break;
+		}
+		case CMD_TYPE_OPEN_URL_MUX:
+		{
+			struct cmd_open_url_mux *cmd =
+				(struct cmd_open_url_mux *)msg;
+			std::string u(cmd->url);
+			res = self->internalOpen(u, cmd->mux);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalOpen", -res);
+			break;
+		}
+		case CMD_TYPE_OPEN_SDP:
+		{
+			struct cmd_open_sdp *cmd =
+				(struct cmd_open_sdp *)msg;
+			std::string s(cmd->sdp);
+			std::string i(cmd->iface_addr);
+			res = self->internalOpenSdp(s, i);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalOpenSdp", -res);
+			break;
+		}
+		case CMD_TYPE_OPEN_SDP_MUX:
+		{
+			struct cmd_open_sdp_mux *cmd =
+				(struct cmd_open_sdp_mux *)msg;
+			std::string s(cmd->sdp);
+			res = self->internalOpenSdp(s, cmd->mux);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalOpenSdp", -res);
+			break;
+		}
+		case CMD_TYPE_CLOSE:
+		{
+			res = self->internalClose();
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalClose", -res);
+			break;
+		}
+		case CMD_TYPE_PLAY:
+		{
+			struct cmd_play *cmd =
+				(struct cmd_play *)msg;
+			res = self->internalPlay(cmd->speed);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalPlay", -res);
+			break;
+		}
+		case CMD_TYPE_PREVIOUS_FRAME:
+		{
+			res = self->internalPreviousFrame();
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalPreviousFrame", -res);
+			break;
+		}
+		case CMD_TYPE_NEXT_FRAME:
+		{
+			res = self->internalNextFrame();
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalNextFrame", -res);
+			break;
+		}
+		case CMD_TYPE_SEEK:
+		{
+			struct cmd_seek *cmd =
+				(struct cmd_seek *)msg;
+			res = self->internalSeek(cmd->delta);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalSeek", -res);
+			break;
+		}
+		case CMD_TYPE_SEEK_TO:
+		{
+			struct cmd_seek_to *cmd =
+				(struct cmd_seek_to *)msg;
+			res = self->internalSeekTo(cmd->timestamp);
+			if (res < 0)
+				PDRAW_LOG_ERRNO("internalSeekTo", -res);
+			break;
+		}
+		default:
+			PDRAW_LOGE("unknown command");
+			break;
+		}
+	} while (res == 0);
+
+	free(msg);
+}
+
+
 void *Session::runLoopThread(
 	void *ptr)
 {
-	Session *session = (Session *)ptr;
+	Session *self = (Session *)ptr;
 
-	while (!session->mThreadShouldStop)
-		pomp_loop_wait_and_process(session->mLoop, -1);
+	if (!self->mInternalLoop)
+		return NULL;
+
+	while (!self->mThreadShouldStop)
+		pomp_loop_wait_and_process(self->mLoop, -1);
 
 	return NULL;
 }

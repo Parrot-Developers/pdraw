@@ -72,6 +72,9 @@ public:
 		return mConfigured;
 	}
 
+	int close(
+		void);
+
 	int getInputBuffer(
 		struct vbuf_buffer **buffer,
 		bool blocking);
@@ -92,9 +95,6 @@ public:
 
 	int releaseOutputBuffer(
 		struct vbuf_buffer **buffer);
-
-	int stop(
-		void);
 
 	void setRenderer(
 		Renderer *renderer);

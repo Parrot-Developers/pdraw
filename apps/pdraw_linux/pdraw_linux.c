@@ -913,11 +913,10 @@ int startPdraw(struct pdraw_app *app)
 
     ULOGI("Start libpdraw");
 
-    app->pdraw = pdraw_new();
-    if (app->pdraw == NULL)
+    ret = pdraw_new(NULL, &app->pdraw);
+    if (ret != 0)
     {
-        ULOGE("pdraw_new() failed");
-        ret = -1;
+        ULOGE("pdraw_new() failed (%d)", ret);
     }
 
     if (ret == 0)

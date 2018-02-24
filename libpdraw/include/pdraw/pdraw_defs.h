@@ -31,6 +31,7 @@
 #define _PDRAW_DEFS_H_
 
 #include <inttypes.h>
+#include <libpomp.h>
 #include <video-metadata/vmeta.h>
 
 

@@ -35,6 +35,9 @@
 #include <Eigen/Eigen>
 
 
+#define PDRAW_STATIC_ASSERT(x) typedef char __STATIC_ASSERT__[(x)?1:-1]
+
+
 void pdraw_euler2quat(
 	const struct vmeta_euler *euler,
 	struct vmeta_quaternion *quat);

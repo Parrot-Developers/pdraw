@@ -822,6 +822,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNew(
     jobject thizz)
 {
     struct pdraw_jni_ctx *ctx = calloc(1, sizeof(*ctx));
+    int ret;
 
     if (ctx == NULL)
     {
@@ -836,10 +837,10 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNew(
         goto fail;
     }
 
-    ctx->pdraw = pdraw_new();
-    if (ctx->pdraw == NULL)
+    ret = pdraw_new(NULL, &ctx->pdraw);
+    if (ret != 0)
     {
-        LOGE("pdraw_new() failed");
+        LOGE("pdraw_new() failed (%d)", ret);
         goto fail;
     }
 
