@@ -108,6 +108,11 @@ protected:
 	int render_nolock(
 		uint64_t lastRenderTime);
 
+	virtual int loadVideoFrame(
+		const uint8_t *data,
+		struct avcdecoder_output_buffer *frame,
+		enum gles2_video_color_conversion colorConversion);
+
 	pthread_mutex_t mMutex;
 	bool mRunning;
 	AvcDecoder *mDecoder;

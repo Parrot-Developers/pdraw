@@ -32,9 +32,7 @@
 
 #ifdef USE_VIDEOCOREEGL
 
-#include <pthread.h>
 #include <EGL/egl.h>
-#include <EGL/eglext.h>
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_gles2_video.hpp"
 #include "pdraw_gles2_hud.hpp"
@@ -63,13 +61,13 @@ public:
 		bool headtracking,
 		void *uiHandler);
 
-	int render(
-		uint64_t lastRenderTime);
-
 private:
+	int loadVideoFrame(
+		const uint8_t *data,
+		struct avcdecoder_output_buffer *frame,
+		enum gles2_video_color_conversion colorConversion);
+
 	EGLDisplay mDisplay;
-	EGLSurface mSurface;
-	EGLContext mContext;
 };
 
 } /* namespace Pdraw */

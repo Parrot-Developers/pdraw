@@ -374,6 +374,20 @@ int Gles2Renderer::setRendererParams(
 }
 
 
+int Gles2Renderer::loadVideoFrame(
+	const uint8_t *data,
+	struct avcdecoder_output_buffer *frame,
+	enum gles2_video_color_conversion colorConversion)
+{
+	int ret;
+	ret = mGles2Video->loadFrame(data, frame->plane_offset, frame->stride,
+		frame->width, frame->height, colorConversion, NULL);
+	if (ret < 0)
+		ULOGE("Gles2Renderer: failed to load video frame");
+	return 0;
+}
+
+
 int Gles2Renderer::render_nolock(
 	uint64_t lastRenderTime)
 {
@@ -439,29 +453,28 @@ int Gles2Renderer::render_nolock(
 			colorConversion =
 				GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB;
 			break;
+		case AVCDECODER_COLOR_FORMAT_MMAL_OPAQUE:
+			colorConversion =
+				GLES2_VIDEO_COLOR_CONVERSION_NONE;
+			break;
 		}
 
-		if (load) {
-			ret = mGles2Video->loadFrame(cdata, data->plane_offset,
-				data->stride, data->width, data->height,
-				colorConversion, NULL);
-			if (ret != 0) {
+		ret = (load) ? loadVideoFrame(cdata, data, colorConversion) : 0;
+		if (ret == 0) {
+			ret = mGles2Video->renderFrame(data->stride,
+				data->width, data->height,
+				data->sarWidth, data->sarHeight,
+				(mHmdDistorsionCorrection) ? mRenderWidth / 2 :
+				mRenderWidth, mRenderHeight,
+				(mHmdDistorsionCorrection) ? 0 : mRenderX,
+				(mHmdDistorsionCorrection) ? 0 : mRenderY,
+				colorConversion, &data->metadata, mHeadtracking,
+				(mHmdDistorsionCorrection) ? mFbo : 0);
+			if (ret < 0) {
 				ULOGE("Gles2Renderer: failed to "
-					"load video frame");
+					"render video frame");
 			}
 		}
-
-		ret = mGles2Video->renderFrame(data->stride,
-			data->width, data->height,
-			data->sarWidth, data->sarHeight,
-			(mHmdDistorsionCorrection) ? mRenderWidth / 2 :
-			mRenderWidth, mRenderHeight,
-			(mHmdDistorsionCorrection) ? 0 : mRenderX,
-			(mHmdDistorsionCorrection) ? 0 : mRenderY,
-			colorConversion, &data->metadata, mHeadtracking,
-			(mHmdDistorsionCorrection) ? mFbo : 0);
-		if (ret != 0)
-			ULOGE("Gles2Renderer: failed to render video frame");
 	}
 
 	if (mGles2Hud) {
@@ -510,7 +523,7 @@ int Gles2Renderer::render_nolock(
 	}
 
 
-	ULOGD("Gles2Renderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d "
+	ULOGI("Gles2Renderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d "
 		"frame (decoding: %.2fms, rendering: %.2fms, "
 		"est. latency: %.2fms) render@%.1ffps",
 		cHrs, cMin, cSec, cMsec, dHrs, dMin, dSec, dMsec,

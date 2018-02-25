@@ -526,6 +526,9 @@ int main(int argc, char *argv[])
                     ULOGE("pdraw_render() failed (%d)", ret);
                     failed = 1;
                 }
+                if (ret > 0)
+                    eglSwapBuffers(app->display, app->surface);
+
                 struct timespec t1;
                 clock_gettime(CLOCK_MONOTONIC, &t1);
                 lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
@@ -1203,24 +1206,15 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        struct uiParams_s
-        {
-            EGLDisplay display;
-            EGLSurface surface;
-            EGLContext context;
-        };
-        struct uiParams_s uiParams = { app->display, app->surface, app->context };
-
         ret = pdraw_start_renderer(app->pdraw,
                                    app->screenWidth, app->screenHeight, 0, 0,
-                                   app->screenWidth, app->screenHeight, 1, 0, 0, (void*)&uiParams);
+                                   app->screenWidth, app->screenHeight, 1, 0, 0,
+                                   (void*)app->display);
         if (ret < 0)
         {
             ULOGE("pdraw_start_renderer() failed (%d)", ret);
         }
         ret = 0;
-
-        eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     }
 
     return ret;
