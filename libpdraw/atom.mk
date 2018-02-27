@@ -37,9 +37,8 @@ LOCAL_SRC_FILES := \
 	src/pdraw_gles2_hmd_cockpitglasses2_texcoords_green.cpp \
 	src/pdraw_gles2_hmd_cockpitglasses2_texcoords_blue.cpp \
 	src/pdraw_renderer.cpp \
-	src/pdraw_renderer_videocoreegl.cpp \
-	src/pdraw_renderer_anativewindow.cpp \
 	src/pdraw_renderer_gles2.cpp \
+	src/pdraw_renderer_videocoreegl.cpp \
 	src/pdraw_filter_videoframe.cpp
 LOCAL_EXPORT_CXXFLAGS := -std=c++0x
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
@@ -68,7 +67,7 @@ ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
 	opengl \
 	glfw3
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
-  LOCAL_CFLAGS += -DUSE_MEDIACODEC -DUSE_ANATIVEWINDOW -DUSE_GLES2
+  LOCAL_CFLAGS += -DUSE_MEDIACODEC -DUSE_GLES2
   LOCAL_LDLIBS += -lEGL -lGLESv2 -landroid
   LOCAL_LIBRARIES += \
 	libmediacodec-wrapper

@@ -34,6 +34,7 @@
 
 #include <android/log.h>
 #include <android/native_window_jni.h>
+#include <EGL/egl.h>
 #include <pdraw/pdraw.h>
 #include <pthread.h>
 
@@ -224,9 +225,18 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved)
 struct pdraw_jni_ctx {
     struct pdraw *pdraw;
     ANativeWindow *window;
+    EGLSurface surface;
+    EGLContext context;
+    EGLDisplay display;
+    pthread_t rendererThread;
+    int rendererThreadRunning;
+    int rendererThreadShouldStop;
     jobject *thizz;
     void *filterCtx;
 };
+
+
+static void *runRendererThread(void *ptr);
 
 
 static void state_changed_cb(struct pdraw *pdraw, enum pdraw_state state, void *userdata)
@@ -491,6 +501,26 @@ static void cleanup(
 {
     if (ctx != NULL)
     {
+        ctx->rendererThreadShouldStop = 1;
+        if (ctx->rendererThreadRunning) {
+            int ret = pthread_join(ctx->rendererThread, NULL);
+            if (ret != 0)
+                LOGE("pthread_join() failed (%d)", ret);
+            ctx->rendererThreadRunning = 0;
+        }
+        if (ctx->display != EGL_NO_DISPLAY)
+        {
+            eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            if (ctx->context != EGL_NO_CONTEXT)
+            {
+                eglDestroyContext(ctx->display, ctx->context);
+            }
+            if (ctx->surface != EGL_NO_SURFACE)
+            {
+                eglDestroySurface(ctx->display, ctx->surface);
+            }
+            eglTerminate(ctx->display);
+        }
         if (ctx->window)
         {
             ANativeWindow_release(ctx->window);
@@ -1665,8 +1695,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
 {
     int ret = 0;
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+    EGLBoolean eglRet;
 
-    if ((!ctx) || (!ctx->pdraw))
+    if ((!ctx) || (!ctx->pdraw) || (!surface))
     {
         LOGE("invalid pointer");
         return (jint)-1;
@@ -1674,36 +1705,112 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
 
     if (ctx->window)
     {
-        ret = pdraw_start_renderer(ctx->pdraw,
-            0, 0, 0, 0,
-            (int)renderWidth, (int)renderHeight,
-            (hud == JNI_TRUE) ? 1 : 0,
-            (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
-            (headtracking == JNI_TRUE) ? 1 : 0, NULL);
+        LOGE("renderer is already started");
+        return (jint)-1;
+    }
+
+    ctx->window = ANativeWindow_fromSurface(env, surface);
+    if (ctx->window == NULL)
+    {
+        LOGE("failed to get window from surface");
+        return (jint)-1;
+    }
+
+    /*
+     * Here specify the attributes of the desired configuration.
+     * Below, we select an EGLConfig with at least 8 bits per color
+     * component compatible with on-screen windows
+     */
+    const EGLint attribs[] =
+    {
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_BLUE_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_RED_SIZE, 8,
+        EGL_NONE
+    };
+    EGLint w, h, format;
+    EGLint numConfigs;
+    EGLConfig config;
+
+    ctx->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+
+    eglInitialize(ctx->display, 0, 0);
+
+    /* Pick the first EGLConfig that matches our criteria */
+    eglChooseConfig(ctx->display, attribs, &config, 1, &numConfigs);
+
+    /* EGL_NATIVE_VISUAL_ID is an attribute of the EGLConfig that is
+     * guaranteed to be accepted by ANativeWindow_setBuffersGeometry().
+     * As soon as we picked a EGLConfig, we can safely reconfigure the
+     * ANativeWindow buffers to match, using EGL_NATIVE_VISUAL_ID. */
+    eglGetConfigAttrib(ctx->display, config, EGL_NATIVE_VISUAL_ID, &format);
+
+    int videoWidth = 1920; /* TODO */
+    int videoHeight = 1080; /* TODO */
+    int geoW = videoWidth, geoH = videoHeight;
+    if (hmdDistorsionCorrection) {
+        geoW = windowWidth;
+        geoH = windowHeight;
+    } else {
+        if (geoW > windowWidth) {
+            geoW = windowWidth;
+            geoH = windowWidth * videoHeight / videoWidth;
+        }
+        if (geoH > windowHeight) {
+            geoW = windowHeight * videoWidth / videoHeight;
+            geoH = windowHeight;
+        }
+        if (windowWidth * geoH > windowHeight * geoW)
+            geoW = geoH * windowWidth / windowHeight;
+        else
+            geoH = geoW * windowHeight / windowWidth;
+    }
+    LOGI("set window buffer geometry to %dx%d", geoW, geoH);
+    ANativeWindow_setBuffersGeometry(ctx->window, geoW, geoH, format);
+
+    ctx->surface = eglCreateWindowSurface(ctx->display, config, ctx->window, NULL);
+
+    const EGLint attrib_list[] =
+    {
+        EGL_CONTEXT_CLIENT_VERSION, 2,
+        EGL_NONE
+    };
+
+    ctx->context = eglCreateContext(ctx->display, config, NULL, attrib_list);
+
+    eglRet = eglMakeCurrent(ctx->display, ctx->surface, ctx->surface, ctx->context);
+    if (eglRet == EGL_FALSE)
+    {
+        LOGE("eglMakeCurrent() failed");
+        return (jint)-1;
+    }
+
+    eglQuerySurface(ctx->display, ctx->surface, EGL_WIDTH, &w);
+    eglQuerySurface(ctx->display, ctx->surface, EGL_HEIGHT, &h);
+
+    renderX = renderX * w / windowWidth;
+    renderY = renderY * h / windowHeight;
+    renderWidth = renderWidth * w / windowWidth;
+    renderHeight = renderHeight * h / windowHeight;
+
+    ret = pdraw_start_renderer(ctx->pdraw, (int)w, (int)h,
+        (int)renderX, (int)renderY, (int)renderWidth, (int)renderHeight,
+        (hud == JNI_TRUE) ? 1 : 0,
+        (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
+        (headtracking == JNI_TRUE) ? 1 : 0, (void*)ctx->window);
+
+    eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    ctx->rendererThreadShouldStop = 0;
+    if (ret == 0)
+    {
+        ret = pthread_create(&ctx->rendererThread, NULL, runRendererThread, (void *)ctx);
         if (ret != 0)
         {
-            LOGE("pdraw_start_renderer() failed on free (%d)", ret);
-        }
-
-        ANativeWindow_release(ctx->window);
-        ctx->window = NULL;
-    }
-    if (surface)
-    {
-        ctx->window = ANativeWindow_fromSurface(env, surface);
-        if (ctx->window == NULL)
-        {
-            LOGE("failed to get window from surface");
+            LOGE("renderer thread creation failed (%d)", ret);
             return (jint)-1;
         }
-
-        ret = pdraw_start_renderer(ctx->pdraw,
-            (int)windowWidth, (int)windowHeight,
-            (int)renderX, (int)renderY,
-            (int)renderWidth, (int)renderHeight,
-            (hud == JNI_TRUE) ? 1 : 0,
-            (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
-            (headtracking == JNI_TRUE) ? 1 : 0, (void*)ctx->window);
+        ctx->rendererThreadRunning = 1;
     }
 
     return (jint)ret;
@@ -1718,6 +1825,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStopRenderer(
 {
     int ret = 0;
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+    EGLBoolean eglRet;
 
     if ((!ctx) || (!ctx->pdraw))
     {
@@ -1725,8 +1833,45 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStopRenderer(
         return (jint)-1;
     }
 
+    if (!ctx->window)
+    {
+        LOGE("renderer is not started");
+        return (jint)-1;
+    }
+
+    ctx->rendererThreadShouldStop = 1;
+    if (ctx->rendererThreadRunning) {
+        ret = pthread_join(ctx->rendererThread, NULL);
+        if (ret != 0)
+            LOGE("pthread_join() failed (%d)", ret);
+        ctx->rendererThreadRunning = 0;
+    }
+
+    eglRet = eglMakeCurrent(ctx->display, ctx->surface, ctx->surface, ctx->context);
+    if (eglRet == EGL_FALSE)
+    {
+        LOGE("eglMakeCurrent() failed");
+        return (jint)-1;
+    }
+
     ret = pdraw_stop_renderer(ctx->pdraw);
 
+    eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (ctx->context != EGL_NO_CONTEXT)
+    {
+        eglDestroyContext(ctx->display, ctx->context);
+        ctx->context = EGL_NO_CONTEXT;
+    }
+    if (ctx->surface != EGL_NO_SURFACE)
+    {
+        eglDestroySurface(ctx->display, ctx->surface);
+        ctx->surface = EGL_NO_SURFACE;
+    }
+    if (ctx->display != EGL_NO_DISPLAY)
+    {
+        eglTerminate(ctx->display);
+        ctx->display = EGL_NO_DISPLAY;
+    }
     if (ctx->window)
     {
         ANativeWindow_release(ctx->window);
@@ -3138,4 +3283,36 @@ Java_net_akaaba_libpdraw_Pdraw_nativeSetHmdDistorsionCorrectionSettings(
 
     return pdraw_set_hmd_distorsion_correction_settings(
         ctx->pdraw, hmdModel, ipd, scale, panH, panV);
+}
+
+
+static void *runRendererThread(void *ptr)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)ptr;
+    uint64_t lastRenderTime = 0;
+    EGLBoolean eglRet;
+    int ret;
+
+    eglRet = eglMakeCurrent(ctx->display, ctx->surface, ctx->surface, ctx->context);
+    if (eglRet == EGL_FALSE)
+    {
+        LOGE("eglMakeCurrent() failed");
+        return NULL;
+    }
+
+    while (!ctx->rendererThreadShouldStop)
+    {
+        ret = pdraw_render(ctx->pdraw, (uint64_t)lastRenderTime);
+        if (ret < 0)
+            LOGE("pdraw_render() failed (%d)", ret);
+        if (ret > 0)
+            eglSwapBuffers(ctx->display, ctx->surface);
+        struct timespec t1;
+        clock_gettime(CLOCK_MONOTONIC, &t1);
+        lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
+    }
+
+    eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+
+    return NULL;
 }
