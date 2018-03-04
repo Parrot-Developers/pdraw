@@ -224,11 +224,11 @@ int pdraw_open_url_mcast(
 int pdraw_open_single_stream(
 	struct pdraw *pdraw,
 	const char *localAddr,
-	int localStreamPort,
-	int localControlPort,
+	uint16_t localStreamPort,
+	uint16_t localControlPort,
 	const char *remoteAddr,
-	int remoteStreamPort,
-	int remoteControlPort,
+	uint16_t remoteStreamPort,
+	uint16_t remoteControlPort,
 	const char *ifaceAddr)
 {
 	if ((pdraw == NULL) || (localAddr == NULL) || (remoteAddr == NULL))
@@ -481,6 +481,18 @@ enum pdraw_session_type pdraw_get_session_type(
 		return (enum pdraw_session_type)-EINVAL;
 
 	return pdraw->pdraw->getSessionType();
+}
+
+
+int pdraw_get_single_stream_local_ports(
+	struct pdraw *pdraw,
+	uint16_t *streamPort,
+	uint16_t *controlPort)
+{
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return pdraw->pdraw->getSingleStreamLocalPorts(streamPort, controlPort);
 }
 
 

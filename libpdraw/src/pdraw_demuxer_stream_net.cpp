@@ -145,11 +145,11 @@ int StreamDemuxerNet::open(
 
 int StreamDemuxerNet::open(
 	const std::string &localAddr,
-	int localStreamPort,
-	int localControlPort,
+	uint16_t localStreamPort,
+	uint16_t localControlPort,
 	const std::string &remoteAddr,
-	int remoteStreamPort,
-	int remoteControlPort,
+	uint16_t remoteStreamPort,
+	uint16_t remoteControlPort,
 	const std::string &ifaceAddr)
 {
 	int res;
@@ -209,6 +209,11 @@ int StreamDemuxerNet::openRtpAvp(
 {
 	int res;
 
+	if (mLocalStreamPort == 0)
+		mLocalStreamPort = DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
+	if (mLocalControlPort == 0)
+		mLocalControlPort = DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
+
 	/* Create the sockets */
 	mStreamSock = new InetSocket(mSession, mLocalAddr, mLocalStreamPort,
 		mRemoteAddr, mRemoteStreamPort,
@@ -247,6 +252,32 @@ error:
 		mControlSock = NULL;
 	}
 	return res;
+}
+
+
+int StreamDemuxerNet::getSingleStreamLocalPorts(
+	uint16_t *streamPort,
+	uint16_t *controlPort)
+{
+	if (!mConfigured) {
+		PDRAW_LOGE("StreamDemuxerNet: demuxer is not configured");
+		return -EPROTO;
+	}
+	if (mStreamSock == NULL) {
+		PDRAW_LOGE("StreamDemuxerNet: invalid stream socket");
+		return -EPROTO;
+	}
+	if (mControlSock == NULL) {
+		PDRAW_LOGE("StreamDemuxerNet: invalid control socket");
+		return -EPROTO;
+	}
+
+	if (streamPort)
+		*streamPort = mStreamSock->getLocalPort();
+	if (controlPort)
+		*controlPort = mControlSock->getLocalPort();
+
+	return 0;
 }
 
 

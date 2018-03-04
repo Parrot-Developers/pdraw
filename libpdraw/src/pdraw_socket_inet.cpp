@@ -33,8 +33,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <futils/futils.h>
 #include <string>
 
@@ -44,19 +42,17 @@ namespace Pdraw {
 InetSocket::InetSocket(
 	Session *session,
 	const std::string& localAddress,
-	int localPort,
+	uint16_t localPort,
 	const std::string& remoteAddress,
-	int remotePort,
+	uint16_t remotePort,
 	struct pomp_loop *loop,
 	pomp_fd_event_cb_t fdCb,
 	void *userdata)
 {
 	int res = 0;
+	struct sockaddr_in addr;
+	socklen_t addrlen = sizeof(addr);
 
-	mLocalAddressStr = localAddress;
-	mLocalPort = localPort;
-	mRemoteAddressStr = remoteAddress;
-	mRemotePort = remotePort;
 	mLoop = loop;
 	mFd = -1;
 	mFdCb = fdCb;
@@ -90,35 +86,60 @@ InetSocket::InetSocket(
 		goto error;
 	}
 
-	/* Setup rx and tx address */
+	/* Setup rx and tx addresses */
 	mLocalAddress.sin_family = AF_INET;
-	inet_aton(mLocalAddressStr.c_str(), &mLocalAddress.sin_addr);
-	mLocalAddress.sin_port = htons(mLocalPort);
-	if ((!mRemoteAddressStr.empty()) && (mRemotePort != 0)) {
-		mRemoteAddress.sin_family = AF_INET;
-		inet_aton(mRemoteAddressStr.c_str(), &mRemoteAddress.sin_addr);
-		mRemoteAddress.sin_port = htons(mRemotePort);
+	res = inet_pton(AF_INET, localAddress.c_str(), &mLocalAddress.sin_addr);
+	if (res <= 0) {
+		PDRAW_LOG_ERRNO("inet_pton", -res);
+		goto error;
 	}
+	mLocalAddress.sin_port = htons(localPort);
+	mRemoteAddress.sin_family = AF_INET;
+	inet_pton(AF_INET, remoteAddress.c_str(), &mRemoteAddress.sin_addr);
+	if (res <= 0) {
+		PDRAW_LOG_ERRNO("inet_pton", -res);
+		goto error;
+	}
+	mRemoteAddress.sin_port = htons(remotePort);
 
 	/* Bind to rx address */
+retry_bind:
 	if (bind(mFd, (const struct sockaddr *)&mLocalAddress,
 		sizeof(mLocalAddress)) < 0) {
 		res = -errno;
+		if ((res == -EADDRINUSE) && (mLocalAddress.sin_port != 0)) {
+			mLocalAddress.sin_port = 0;
+			goto retry_bind;
+		}
 		PDRAW_LOG_FD_ERRNO("bind", mFd, -res);
 		goto error;
 	}
 
-	/* Get the real rx port */
-	if (mLocalPort == 0) {
-		struct sockaddr_in addr;
-		socklen_t addrlen = sizeof(addr);
-		res = getsockname(mFd, (struct sockaddr *)&addr, &addrlen);
-		if (res < 0) {
-			PDRAW_LOG_FD_ERRNO("getsockname", mFd, -res);
-			goto error;
-		}
-		mLocalPort = ntohs(addr.sin_port);
+	/* Get the real bound address and port */
+	res = getsockname(mFd, (struct sockaddr *)&addr, &addrlen);
+	if (res < 0) {
+		PDRAW_LOG_FD_ERRNO("getsockname", mFd, -res);
+		goto error;
 	}
+	mLocalAddress = addr;
+
+	/* Log the addresses and ports for debugging */
+	char local_addr[16];
+	char remote_addr[16];
+	const char *res1;
+	local_addr[0] = '\0';
+	remote_addr[0] = '\0';
+	res1 = inet_ntop(AF_INET, &mLocalAddress.sin_addr,
+		local_addr, sizeof(local_addr));
+	if (res1 == NULL)
+		PDRAW_LOG_ERRNO("inet_ntop", -errno);
+	res1 = inet_ntop(AF_INET, &mRemoteAddress.sin_addr,
+		remote_addr, sizeof(remote_addr));
+	if (res1 == NULL)
+		PDRAW_LOG_ERRNO("inet_ntop", -errno);
+	PDRAW_LOGD("fd=%d local %s:%d remote %s:%d", mFd,
+		local_addr, ntohs(mLocalAddress.sin_port),
+		remote_addr, ntohs(mRemoteAddress.sin_port));
 
 	/* Create buffer */
 	mRxBufferSize = 65536;
@@ -252,6 +273,24 @@ ssize_t InetSocket::read(
 
 	if ((readlen >= 0) && (mRemoteAddress.sin_port == 0)) {
 		mRemoteAddress = srcaddr;
+
+		/* Log the addresses and ports for debugging */
+		char local_addr[16];
+		char remote_addr[16];
+		const char *res1;
+		local_addr[0] = '\0';
+		remote_addr[0] = '\0';
+		res1 = inet_ntop(AF_INET, &mLocalAddress.sin_addr,
+			local_addr, sizeof(local_addr));
+		if (res1 == NULL)
+			PDRAW_LOG_ERRNO("inet_ntop", -errno);
+		res1 = inet_ntop(AF_INET, &mRemoteAddress.sin_addr,
+			remote_addr, sizeof(remote_addr));
+		if (res1 == NULL)
+			PDRAW_LOG_ERRNO("inet_ntop", -errno);
+		PDRAW_LOGD("fd=%d local %s:%d remote %s:%d", mFd,
+			local_addr, ntohs(mLocalAddress.sin_port),
+			remote_addr, ntohs(mRemoteAddress.sin_port));
 	}
 
 	return readlen;

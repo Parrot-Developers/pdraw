@@ -42,6 +42,10 @@
 namespace Pdraw {
 
 
+#define DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT 55004
+#define DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT 55005
+
+
 class StreamDemuxer : public Demuxer {
 public:
 	StreamDemuxer(
@@ -143,11 +147,11 @@ protected:
 		struct pomp_buffer *buf) = 0;
 
 	std::string mLocalAddr;
-	int mLocalStreamPort;
-	int mLocalControlPort;
+	uint16_t mLocalStreamPort;
+	uint16_t mLocalControlPort;
 	std::string mRemoteAddr;
-	int mRemoteStreamPort;
-	int mRemoteControlPort;
+	uint16_t mRemoteStreamPort;
+	uint16_t mRemoteControlPort;
 	std::string mIfaceAddr;
 	struct vstrm_receiver *mReceiver;
 

@@ -74,11 +74,11 @@ public:
 
 	int open(
 		const std::string &localAddr,
-		int localStreamPort,
-		int localControlPort,
+		uint16_t localStreamPort,
+		uint16_t localControlPort,
 		const std::string &remoteAddr,
-		int remoteStreamPort,
-		int remoteControlPort,
+		uint16_t remoteStreamPort,
+		uint16_t remoteControlPort,
 		const std::string &ifaceAddr);
 
 	int open(
@@ -158,6 +158,10 @@ public:
 
 	enum pdraw_session_type getSessionType(
 		void);
+
+	int getSingleStreamLocalPorts(
+		uint16_t *streamPort,
+		uint16_t *controlPort);
 
 	std::string getSelfFriendlyName(
 		void);
@@ -418,11 +422,11 @@ private:
 
 	int internalOpen(
 		const std::string &localAddr,
-		int localStreamPort,
-		int localControlPort,
+		uint16_t localStreamPort,
+		uint16_t localControlPort,
 		const std::string &remoteAddr,
-		int remoteStreamPort,
-		int remoteControlPort,
+		uint16_t remoteStreamPort,
+		uint16_t remoteControlPort,
 		const std::string &ifaceAddr);
 
 	int internalOpen(
