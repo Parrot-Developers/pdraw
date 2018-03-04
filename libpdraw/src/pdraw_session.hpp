@@ -144,6 +144,7 @@ public:
 		int renderY,
 		int renderWidth,
 		int renderHeight,
+		bool hud,
 		bool hmdDistorsionCorrection,
 		bool headtracking,
 		void *uiHandler);

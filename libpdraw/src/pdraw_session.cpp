@@ -733,6 +733,7 @@ int Session::startRenderer(
 	int renderY,
 	int renderWidth,
 	int renderHeight,
+	bool hud,
 	bool hmdDistorsionCorrection,
 	bool headtracking,
 	void *uiHandler)
@@ -746,8 +747,8 @@ int Session::startRenderer(
 	if (mRenderer != NULL) {
 		return mRenderer->setRendererParams(
 			windowWidth, windowHeight, renderX, renderY,
-			renderWidth, renderHeight, hmdDistorsionCorrection,
-			headtracking, uiHandler);
+			renderWidth, renderHeight, hud,
+			hmdDistorsionCorrection, headtracking, uiHandler);
 	} else {
 		ULOGE("Invalid renderer");
 		return -1;

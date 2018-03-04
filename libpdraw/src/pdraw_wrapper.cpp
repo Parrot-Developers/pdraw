@@ -439,6 +439,7 @@ int pdraw_start_renderer(
 	int renderY,
 	int renderWidth,
 	int renderHeight,
+	int hud,
 	int hmdDistorsionCorrection,
 	int headtracking,
 	void *uiHandler)
@@ -448,6 +449,7 @@ int pdraw_start_renderer(
 
 	return pdraw->pdraw->startRenderer(windowWidth, windowHeight,
 		renderX, renderY, renderWidth, renderHeight,
+		(hud) ? true : false,
 		(hmdDistorsionCorrection) ? true : false,
 		(headtracking) ? true : false, uiHandler);
 }

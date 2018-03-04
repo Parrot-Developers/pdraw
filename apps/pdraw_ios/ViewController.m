@@ -124,7 +124,7 @@
                                (int)(_screenHeight * _contentScaleFactor), 0, 0,
                                (int)(_screenWidth * _contentScaleFactor),
                                (int)(_screenHeight * _contentScaleFactor),
-                               0, 0, NULL);
+                               1, 0, 0, NULL);
     if (ret < 0) {
         NSLog(@"pdraw_start_renderer() failed (%d)", ret);
         return;
@@ -156,7 +156,7 @@
                                        (int)(_screenHeight * _contentScaleFactor), 0, 0,
                                        (int)(_screenWidth * _contentScaleFactor),
                                        (int)(_screenHeight * _contentScaleFactor),
-                                       0, 0, NULL);
+                                       1, 0, 0, NULL);
             if (ret < 0) {
                 NSLog(@"pdraw_start_renderer() failed (%d)", ret);
                 return;

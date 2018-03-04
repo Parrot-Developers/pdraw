@@ -219,6 +219,7 @@ int pdraw_start_renderer(
 	int renderY,
 	int renderWidth,
 	int renderHeight,
+	int hud,
 	int hmdDistorsionCorrection,
 	int headtracking,
 	void *uiHandler);

@@ -79,7 +79,7 @@ ANativeWindowRenderer::~ANativeWindowRenderer(
 				"failed (%d)", ret);
 	}
 
-	ret = setRendererParams(0, 0, 0, 0, 0, 0, false, false, NULL);
+	ret = setRendererParams(0, 0, 0, 0, 0, 0, false, false, false, NULL);
 	if (ret != 0)
 		ULOGE("ANativeWindowRenderer: setRendererParams() failed (%d)",
 			ret);
@@ -93,6 +93,7 @@ int ANativeWindowRenderer::setRendererParams(
 	int renderY,
 	int renderWidth,
 	int renderHeight,
+	bool hud,
 	bool hmdDistorsionCorrection,
 	bool headtracking,
 	void *uiHandler)
@@ -112,7 +113,7 @@ int ANativeWindowRenderer::setRendererParams(
 
 		if (!uiHandler) {
 			ret = Gles2Renderer::setRendererParams_nolock(
-				0, 0, 0, 0, 0, 0, false, false, NULL);
+				0, 0, 0, 0, 0, 0, false, false, false, NULL);
 			if (ret != 0)
 				ULOGE("ANativeWindowRenderer: "
 					"setRendererParams_nolock() "
@@ -216,7 +217,7 @@ int ANativeWindowRenderer::setRendererParams(
 	eglQuerySurface(display, surface, EGL_HEIGHT, &h);
 
 	ret = Gles2Renderer::setRendererParams_nolock(w, h,
-		renderX, renderY, renderWidth, renderHeight,
+		renderX, renderY, renderWidth, renderHeight, hud,
 		hmdDistorsionCorrection, headtracking, uiHandler);
 	if (ret < 0) {
 		ULOGE("ANativeWindowRenderer: failed to set renderer params");

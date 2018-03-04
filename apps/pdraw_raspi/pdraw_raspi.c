@@ -1212,7 +1212,7 @@ int startPdraw(struct pdraw_app *app)
 
         ret = pdraw_start_renderer(app->pdraw,
                                    app->screenWidth, app->screenHeight, 0, 0,
-                                   app->screenWidth, app->screenHeight, 0, 0, (void*)&uiParams);
+                                   app->screenWidth, app->screenHeight, 1, 0, 0, (void*)&uiParams);
         if (ret < 0)
         {
             ULOGE("pdraw_start_renderer() failed (%d)", ret);

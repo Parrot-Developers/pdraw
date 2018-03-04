@@ -81,6 +81,7 @@ int VideoCoreEglRenderer::setRendererParams(
 	int renderY,
 	int renderWidth,
 	int renderHeight,
+	bool hud,
 	bool hmdDistorsionCorrection,
 	bool headtracking,
 	void *uiHandler)
@@ -95,7 +96,7 @@ int VideoCoreEglRenderer::setRendererParams(
 	pthread_mutex_lock(&mMutex);
 
 	ret = Gles2Renderer::setRendererParams_nolock(windowWidth, windowHeight,
-		renderX, renderY, renderWidth, renderHeight,
+		renderX, renderY, renderWidth, renderHeight, hud,
 		hmdDistorsionCorrection, headtracking, uiHandler);
 
 	/* TODO: do something better */

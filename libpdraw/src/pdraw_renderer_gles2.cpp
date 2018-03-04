@@ -107,11 +107,13 @@ int Gles2Renderer::initGles2(
 		goto err;
 	}
 
-	mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia,
-		mGles2HudFirstTexUnit);
-	if (mGles2Hud == NULL) {
-		ULOGE("Gles2Renderer: failed to create Gles2Hud context");
-		goto err;
+	if (mHud) {
+		mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia,
+			mGles2HudFirstTexUnit);
+		if (mGles2Hud == NULL) {
+			ULOGE("Gles2Renderer: failed to create Gles2Hud context");
+			goto err;
+		}
 	}
 
 	GLCHK();
@@ -317,6 +319,7 @@ int Gles2Renderer::setRendererParams_nolock(
 	int renderY,
 	int renderWidth,
 	int renderHeight,
+	bool hud,
 	bool hmdDistorsionCorrection,
 	bool headtracking,
 	void *uiHandler)
@@ -329,6 +332,7 @@ int Gles2Renderer::setRendererParams_nolock(
 	mRenderY = renderY;
 	mRenderWidth = (renderWidth) ? renderWidth : windowWidth;
 	mRenderHeight = (renderHeight) ? renderHeight : windowHeight;
+	mHud = hud;
 	mHmdDistorsionCorrection = hmdDistorsionCorrection;
 	mHeadtracking = headtracking;
 
@@ -348,6 +352,7 @@ int Gles2Renderer::setRendererParams(
 	int renderY,
 	int renderWidth,
 	int renderHeight,
+	bool hud,
 	bool hmdDistorsionCorrection,
 	bool headtracking,
 	void *uiHandler)
@@ -357,7 +362,7 @@ int Gles2Renderer::setRendererParams(
 	mRunning = false;
 
 	int ret = setRendererParams_nolock(windowWidth, windowHeight,
-		renderX, renderY, renderWidth, renderHeight,
+		renderX, renderY, renderWidth, renderHeight, hud,
 		hmdDistorsionCorrection, headtracking, uiHandler);
 
 	if (ret > 0)

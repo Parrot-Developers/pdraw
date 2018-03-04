@@ -365,6 +365,7 @@ public class Pdraw {
         int renderY,
         int renderWidth,
         int renderHeight,
+        boolean hud,
         boolean hmdDistorsionCorrection,
         boolean headtracking,
         Surface surface) {
@@ -372,7 +373,7 @@ public class Pdraw {
             throw new RuntimeException("invalid pdraw instance");
         }
         nativeStartRenderer(pdrawCtx, windowWidth, windowHeight, renderX, renderY,
-            renderWidth, renderHeight, hmdDistorsionCorrection,
+            renderWidth, renderHeight, hud, hmdDistorsionCorrection,
             headtracking, surface);
     }
 
@@ -854,6 +855,7 @@ public class Pdraw {
         int renderY,
         int renderWidth,
         int renderHeight,
+        boolean hud,
         boolean hmdDistorsionCorrection,
         boolean headtracking,
         Surface surface);

@@ -1658,6 +1658,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
     jint renderY,
     jint renderWidth,
     jint renderHeight,
+    jboolean hud,
     jboolean hmdDistorsionCorrection,
     jboolean headtracking,
     jobject surface)
@@ -1676,6 +1677,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
         ret = pdraw_start_renderer(ctx->pdraw,
             0, 0, 0, 0,
             (int)renderWidth, (int)renderHeight,
+            (hud == JNI_TRUE) ? 1 : 0,
             (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
             (headtracking == JNI_TRUE) ? 1 : 0, NULL);
         if (ret != 0)
@@ -1699,6 +1701,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
             (int)windowWidth, (int)windowHeight,
             (int)renderX, (int)renderY,
             (int)renderWidth, (int)renderHeight,
+            (hud == JNI_TRUE) ? 1 : 0,
             (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
             (headtracking == JNI_TRUE) ? 1 : 0, (void*)ctx->window);
     }

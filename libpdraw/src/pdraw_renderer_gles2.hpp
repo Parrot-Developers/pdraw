@@ -63,6 +63,7 @@ public:
 		int renderY,
 		int renderWidth,
 		int renderHeight,
+		bool hud,
 		bool hmdDistorsionCorrection,
 		bool headtracking,
 		void *uiHandler);
@@ -99,6 +100,7 @@ protected:
 		int renderY,
 		int renderWidth,
 		int renderHeight,
+		bool hud,
 		bool hmdDistorsionCorrection,
 		bool headtracking,
 		void *uiHandler);
@@ -117,6 +119,7 @@ protected:
 	int mRenderY;
 	int mRenderWidth;
 	int mRenderHeight;
+	bool mHud;
 	bool mHmdDistorsionCorrection;
 	bool mHeadtracking;
 	Gles2Hmd *mGles2Hmd;
