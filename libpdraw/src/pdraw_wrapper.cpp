@@ -28,39 +28,148 @@
  */
 
 #include "pdraw_session.hpp"
+#include "pdraw_utils.hpp"
+#include "pdraw_log.hpp"
 #include <pdraw/pdraw.h>
 #include <errno.h>
-#define ULOG_TAG libpdraw
-#include <ulog.h>
 #include <string>
 
 
-static Pdraw::IPdraw *toPdraw(
-	struct pdraw *ptr)
-{
-	return (Pdraw::IPdraw*)ptr;
-}
+/* codecheck_ignore[COMPLEX_MACRO] */
+#define ENUM_CASE(_prefix, _name) \
+	case _prefix##_name: return #_name
 
 
-static struct pdraw *fromPdraw(
-	Pdraw::IPdraw *ptr)
+/* NOTE: Pdraw::IPdraw::State and enum pdraw_state values
+ * must be synchronized */
+PDRAW_STATIC_ASSERT((int)Pdraw::IPdraw::State::INVALID == PDRAW_STATE_INVALID);
+PDRAW_STATIC_ASSERT((int)Pdraw::IPdraw::State::CREATED == PDRAW_STATE_CREATED);
+PDRAW_STATIC_ASSERT((int)Pdraw::IPdraw::State::OPENED == PDRAW_STATE_OPENED);
+PDRAW_STATIC_ASSERT((int)Pdraw::IPdraw::State::CLOSED == PDRAW_STATE_CLOSED);
+
+
+class PdrawListener : public Pdraw::IPdraw::Listener {
+public:
+	PdrawListener(
+		struct pdraw *pdraw,
+		const struct pdraw_cbs *cbs,
+		void *userdata) :
+		mPdraw(pdraw),
+		mCbs(*cbs),
+		mUserdata(userdata) {}
+
+	~PdrawListener() {}
+
+	void onStateChanged(
+		Pdraw::IPdraw *pdraw,
+		Pdraw::IPdraw::State state) {
+		if (mCbs.state_changed) {
+			(*mCbs.state_changed)(mPdraw,
+				(enum pdraw_state)state, mUserdata);
+		}
+	}
+
+	void openResponse(
+		Pdraw::IPdraw *pdraw,
+		int status) {
+		if (mCbs.open_resp) {
+			(*mCbs.open_resp)(mPdraw, status, mUserdata);
+		}
+	}
+
+	void closeResponse(
+		Pdraw::IPdraw *pdraw,
+		int status) {
+		if (mCbs.close_resp) {
+			(*mCbs.close_resp)(mPdraw, status, mUserdata);
+		}
+	}
+
+	void playResponse(
+		Pdraw::IPdraw *pdraw,
+		int status,
+		uint64_t timestamp) {
+		if (mCbs.play_resp) {
+			(*mCbs.play_resp)(mPdraw, status, timestamp, mUserdata);
+		}
+	}
+
+	void pauseResponse(
+		Pdraw::IPdraw *pdraw,
+		int status,
+		uint64_t timestamp) {
+		if (mCbs.pause_resp) {
+			(*mCbs.pause_resp)(mPdraw, status, timestamp, mUserdata);
+		}
+	}
+
+	void seekResponse(
+		Pdraw::IPdraw *pdraw,
+		int status,
+		uint64_t timestamp) {
+		if (mCbs.seek_resp) {
+			(*mCbs.seek_resp)(mPdraw, status, timestamp, mUserdata);
+		}
+	}
+
+private:
+	struct pdraw *mPdraw;
+	struct pdraw_cbs mCbs;
+	void *mUserdata;
+};
+
+
+struct pdraw {
+	Pdraw::IPdraw *pdraw;
+	PdrawListener *listener;
+};
+
+
+const char *pdraw_state_str(
+	enum pdraw_state val)
 {
-	return (struct pdraw*)ptr;
+	switch (val) {
+	ENUM_CASE(PDRAW_STATE_, INVALID);
+	ENUM_CASE(PDRAW_STATE_, CREATED);
+	ENUM_CASE(PDRAW_STATE_, OPENED);
+	ENUM_CASE(PDRAW_STATE_, CLOSED);
+	default: return NULL;
+	}
 }
 
 
 int pdraw_new(
 	struct pomp_loop *loop,
+	const struct pdraw_cbs *cbs,
+	void *userdata,
 	struct pdraw **ret_obj)
 {
-	int ret;
-	Pdraw::IPdraw *pdraw = NULL;
-	if (ret_obj == NULL) {
-		ULOGE("invalid pointer");
-		return -EINVAL;
+	int ret = 0;
+	struct pdraw *pdraw;
+
+	PDRAW_RETURN_ERR_IF_FAILED(cbs != NULL, -EINVAL);
+	PDRAW_RETURN_ERR_IF_FAILED(ret_obj != NULL, -EINVAL);
+
+	pdraw = (struct pdraw *)calloc(1, sizeof(*pdraw));
+	PDRAW_RETURN_ERR_IF_FAILED(pdraw != NULL, -ENOMEM);
+
+	pdraw->listener = new PdrawListener(pdraw, cbs, userdata);
+	if (pdraw->listener == NULL) {
+		ret = -ENOMEM;
+		goto error;
 	}
-	ret = Pdraw::createPdraw(loop, &pdraw);
-	*ret_obj = (ret == 0) ? fromPdraw(pdraw) : NULL;
+
+	pdraw->pdraw = new Pdraw::Session(loop, pdraw->listener);
+	if (pdraw->pdraw == NULL) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	*ret_obj = pdraw;
+	return 0;
+
+error:
+	pdraw_destroy(pdraw);
 	return ret;
 }
 
@@ -70,8 +179,11 @@ int pdraw_destroy(
 {
 	if (pdraw == NULL)
 		return -EINVAL;
-
-	delete toPdraw(pdraw);
+	if (pdraw->listener != NULL)
+		delete pdraw->listener;
+	if (pdraw->pdraw != NULL)
+		delete pdraw->pdraw;
+	free(pdraw);
 	return 0;
 }
 
@@ -84,7 +196,7 @@ int pdraw_open_url(
 		return -EINVAL;
 
 	std::string u(url);
-	return toPdraw(pdraw)->open(u);
+	return pdraw->pdraw->open(u);
 }
 
 
@@ -98,7 +210,7 @@ int pdraw_open_url_mcast(
 
 	std::string u(url);
 	std::string i(ifaceAddr);
-	return toPdraw(pdraw)->open(u, i);
+	return pdraw->pdraw->open(u, i);
 }
 
 
@@ -118,7 +230,7 @@ int pdraw_open_single_stream(
 	std::string local(localAddr);
 	std::string remote(remoteAddr);
 	std::string iface(ifaceAddr);
-	return toPdraw(pdraw)->open(local,
+	return pdraw->pdraw->open(local,
 		localStreamPort, localControlPort, remote,
 		remoteStreamPort, remoteControlPort, iface);
 }
@@ -133,7 +245,7 @@ int pdraw_open_url_mux(
 		return -EINVAL;
 
 	std::string u(url);
-	return toPdraw(pdraw)->open(u, mux);
+	return pdraw->pdraw->open(u, mux);
 }
 
 
@@ -144,7 +256,7 @@ int pdraw_open_single_stream_mux(
 	if ((pdraw == NULL) || (mux == NULL))
 		return -EINVAL;
 
-	return toPdraw(pdraw)->open(mux);
+	return pdraw->pdraw->open(mux);
 }
 
 
@@ -158,7 +270,7 @@ int pdraw_open_sdp(
 
 	std::string s(sdp);
 	std::string i(ifaceAddr);
-	return toPdraw(pdraw)->openSdp(s, i);
+	return pdraw->pdraw->openSdp(s, i);
 }
 
 
@@ -171,7 +283,7 @@ int pdraw_open_sdp_mux(
 		return -EINVAL;
 
 	std::string s(sdp);
-	return toPdraw(pdraw)->openSdp(s, mux);
+	return pdraw->pdraw->openSdp(s, mux);
 }
 
 
@@ -181,7 +293,7 @@ int pdraw_close(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->close();
+	return pdraw->pdraw->close();
 }
 
 
@@ -191,7 +303,7 @@ int pdraw_play(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->play();
+	return pdraw->pdraw->play();
 }
 
 int pdraw_play_with_speed(
@@ -201,7 +313,7 @@ int pdraw_play_with_speed(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->play(speed);
+	return pdraw->pdraw->play(speed);
 }
 
 int pdraw_pause(
@@ -210,7 +322,7 @@ int pdraw_pause(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->pause();
+	return pdraw->pdraw->pause();
 }
 
 
@@ -220,7 +332,7 @@ int pdraw_is_paused(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return (toPdraw(pdraw)->isPaused()) ? 1 : 0;
+	return (pdraw->pdraw->isPaused()) ? 1 : 0;
 }
 
 
@@ -230,7 +342,7 @@ int pdraw_previous_frame(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->previousFrame();
+	return pdraw->pdraw->previousFrame();
 }
 
 
@@ -240,7 +352,7 @@ int pdraw_next_frame(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->nextFrame();
+	return pdraw->pdraw->nextFrame();
 }
 
 
@@ -252,7 +364,7 @@ int pdraw_seek(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->seek(delta, exact ? true : false);
+	return pdraw->pdraw->seek(delta, exact ? true : false);
 }
 
 
@@ -264,7 +376,7 @@ int pdraw_seek_forward(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->seekForward(delta, exact ? true : false);
+	return pdraw->pdraw->seekForward(delta, exact ? true : false);
 }
 
 
@@ -276,7 +388,7 @@ int pdraw_seek_back(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->seekBack(delta, exact ? true : false);
+	return pdraw->pdraw->seekBack(delta, exact ? true : false);
 }
 
 
@@ -288,7 +400,7 @@ int pdraw_seek_to(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->seekTo(timestamp, exact ? true : false);
+	return pdraw->pdraw->seekTo(timestamp, exact ? true : false);
 }
 
 
@@ -298,7 +410,7 @@ uint64_t pdraw_get_duration(
 	if (pdraw == NULL)
 		return 0;
 
-	return toPdraw(pdraw)->getDuration();
+	return pdraw->pdraw->getDuration();
 }
 
 
@@ -308,7 +420,7 @@ uint64_t pdraw_get_current_time(
 	if (pdraw == NULL)
 		return 0;
 
-	return toPdraw(pdraw)->getCurrentTime();
+	return pdraw->pdraw->getCurrentTime();
 }
 
 
@@ -327,7 +439,7 @@ int pdraw_start_renderer(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->startRenderer(windowWidth, windowHeight,
+	return pdraw->pdraw->startRenderer(windowWidth, windowHeight,
 		renderX, renderY, renderWidth, renderHeight,
 		(hmdDistorsionCorrection) ? true : false,
 		(headtracking) ? true : false, uiHandler);
@@ -340,7 +452,7 @@ int pdraw_stop_renderer(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->stopRenderer();
+	return pdraw->pdraw->stopRenderer();
 }
 
 
@@ -351,7 +463,7 @@ int pdraw_render(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->render(lastRenderTime);
+	return pdraw->pdraw->render(lastRenderTime);
 }
 
 
@@ -361,7 +473,7 @@ enum pdraw_session_type pdraw_get_session_type(
 	if (pdraw == NULL)
 		return (enum pdraw_session_type)-EINVAL;
 
-	return toPdraw(pdraw)->getSessionType();
+	return pdraw->pdraw->getSessionType();
 }
 
 
@@ -371,7 +483,7 @@ char *pdraw_get_self_friendly_name(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getSelfFriendlyName().c_str());
+	return strdup(pdraw->pdraw->getSelfFriendlyName().c_str());
 }
 
 
@@ -383,7 +495,7 @@ int pdraw_set_self_friendly_name(
 		return -EINVAL;
 
 	std::string fn(friendlyName);
-	toPdraw(pdraw)->setSelfFriendlyName(fn);
+	pdraw->pdraw->setSelfFriendlyName(fn);
 	return 0;
 }
 
@@ -394,7 +506,7 @@ char *pdraw_get_self_serial_number(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getSelfSerialNumber().c_str());
+	return strdup(pdraw->pdraw->getSelfSerialNumber().c_str());
 }
 
 
@@ -406,7 +518,7 @@ int pdraw_set_self_serial_number(
 		return -EINVAL;
 
 	std::string sn(serialNumber);
-	toPdraw(pdraw)->setSelfSerialNumber(sn);
+	pdraw->pdraw->setSelfSerialNumber(sn);
 	return 0;
 }
 
@@ -417,7 +529,7 @@ char *pdraw_get_self_software_version(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getSelfSoftwareVersion().c_str());
+	return strdup(pdraw->pdraw->getSelfSoftwareVersion().c_str());
 }
 
 
@@ -429,7 +541,7 @@ int pdraw_set_self_software_version(
 		return -EINVAL;
 
 	std::string sv(softwareVersion);
-	toPdraw(pdraw)->setSelfSoftwareVersion(sv);
+	pdraw->pdraw->setSelfSoftwareVersion(sv);
 	return 0;
 }
 
@@ -440,7 +552,7 @@ int pdraw_is_self_pilot(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return (toPdraw(pdraw)->isSelfPilot()) ? 1 : 0;
+	return (pdraw->pdraw->isSelfPilot()) ? 1 : 0;
 }
 
 
@@ -451,7 +563,7 @@ int pdraw_set_self_pilot(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfPilot((isPilot) ? true : false);
+	pdraw->pdraw->setSelfPilot((isPilot) ? true : false);
 	return 0;
 }
 
@@ -463,7 +575,7 @@ int pdraw_get_self_location(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getSelfLocation(loc);
+	pdraw->pdraw->getSelfLocation(loc);
 	return 0;
 }
 
@@ -475,7 +587,7 @@ int pdraw_set_self_location(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfLocation(loc);
+	pdraw->pdraw->setSelfLocation(loc);
 	return 0;
 }
 
@@ -486,7 +598,7 @@ int pdraw_get_self_controller_battery_level(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->getControllerBatteryLevel();
+	return pdraw->pdraw->getControllerBatteryLevel();
 }
 
 
@@ -497,7 +609,7 @@ int pdraw_set_self_controller_battery_level(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setControllerBatteryLevel(batteryLevel);
+	pdraw->pdraw->setControllerBatteryLevel(batteryLevel);
 	return 0;
 }
 
@@ -509,7 +621,7 @@ int pdraw_get_self_controller_orientation_quat(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getSelfControllerOrientation(quat);
+	pdraw->pdraw->getSelfControllerOrientation(quat);
 	return 0;
 }
 
@@ -521,7 +633,7 @@ int pdraw_get_self_controller_orientation_euler(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getSelfControllerOrientation(euler);
+	pdraw->pdraw->getSelfControllerOrientation(euler);
 	return 0;
 }
 
@@ -533,7 +645,7 @@ int pdraw_set_self_controller_orientation_quat(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfControllerOrientation(quat);
+	pdraw->pdraw->setSelfControllerOrientation(quat);
 	return 0;
 }
 
@@ -545,7 +657,7 @@ int pdraw_set_self_controller_orientation_euler(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfControllerOrientation(euler);
+	pdraw->pdraw->setSelfControllerOrientation(euler);
 	return 0;
 }
 
@@ -557,7 +669,7 @@ int pdraw_get_self_head_orientation_quat(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getSelfHeadOrientation(quat);
+	pdraw->pdraw->getSelfHeadOrientation(quat);
 	return 0;
 }
 
@@ -569,7 +681,7 @@ int pdraw_get_self_head_orientation_euler(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getSelfHeadOrientation(euler);
+	pdraw->pdraw->getSelfHeadOrientation(euler);
 	return 0;
 }
 
@@ -581,7 +693,7 @@ int pdraw_set_self_head_orientation_quat(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfHeadOrientation(quat);
+	pdraw->pdraw->setSelfHeadOrientation(quat);
 	return 0;
 }
 
@@ -593,7 +705,7 @@ int pdraw_set_self_head_orientation_euler(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfHeadOrientation(euler);
+	pdraw->pdraw->setSelfHeadOrientation(euler);
 	return 0;
 }
 
@@ -605,7 +717,7 @@ int pdraw_get_self_head_ref_orientation_quat(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getSelfHeadRefOrientation(quat);
+	pdraw->pdraw->getSelfHeadRefOrientation(quat);
 	return 0;
 }
 
@@ -617,7 +729,7 @@ int pdraw_get_self_head_ref_orientation_euler(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getSelfHeadRefOrientation(euler);
+	pdraw->pdraw->getSelfHeadRefOrientation(euler);
 	return 0;
 }
 
@@ -629,7 +741,7 @@ int pdraw_set_self_head_ref_orientation_quat(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfHeadRefOrientation(quat);
+	pdraw->pdraw->setSelfHeadRefOrientation(quat);
 	return 0;
 }
 
@@ -641,7 +753,7 @@ int pdraw_set_self_head_ref_orientation_euler(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setSelfHeadRefOrientation(euler);
+	pdraw->pdraw->setSelfHeadRefOrientation(euler);
 	return 0;
 }
 
@@ -652,7 +764,7 @@ int pdraw_reset_self_head_ref_orientation(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->resetSelfHeadRefOrientation();
+	pdraw->pdraw->resetSelfHeadRefOrientation();
 	return 0;
 }
 
@@ -663,7 +775,7 @@ char *pdraw_get_peer_friendly_name(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerFriendlyName().c_str());
+	return strdup(pdraw->pdraw->getPeerFriendlyName().c_str());
 }
 
 
@@ -673,7 +785,7 @@ char *pdraw_get_peer_maker(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerMaker().c_str());
+	return strdup(pdraw->pdraw->getPeerMaker().c_str());
 }
 
 
@@ -683,7 +795,7 @@ char *pdraw_get_peer_model(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerModel().c_str());
+	return strdup(pdraw->pdraw->getPeerModel().c_str());
 }
 
 
@@ -693,7 +805,7 @@ char *pdraw_get_peer_model_id(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerModelId().c_str());
+	return strdup(pdraw->pdraw->getPeerModelId().c_str());
 }
 
 
@@ -703,7 +815,7 @@ enum pdraw_drone_model pdraw_get_peer_drone_model(
 	if (pdraw == NULL)
 		return (enum pdraw_drone_model)-EINVAL;
 
-	return toPdraw(pdraw)->getPeerDroneModel();
+	return pdraw->pdraw->getPeerDroneModel();
 }
 
 
@@ -713,7 +825,7 @@ char *pdraw_get_peer_serial_number(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerSerialNumber().c_str());
+	return strdup(pdraw->pdraw->getPeerSerialNumber().c_str());
 }
 
 
@@ -723,7 +835,7 @@ char *pdraw_get_peer_software_version(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerSoftwareVersion().c_str());
+	return strdup(pdraw->pdraw->getPeerSoftwareVersion().c_str());
 }
 
 
@@ -733,7 +845,7 @@ char *pdraw_get_peer_build_id(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerBuildId().c_str());
+	return strdup(pdraw->pdraw->getPeerBuildId().c_str());
 }
 
 
@@ -743,7 +855,7 @@ char *pdraw_get_peer_title(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerTitle().c_str());
+	return strdup(pdraw->pdraw->getPeerTitle().c_str());
 }
 
 
@@ -753,7 +865,7 @@ char *pdraw_get_peer_comment(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerComment().c_str());
+	return strdup(pdraw->pdraw->getPeerComment().c_str());
 }
 
 
@@ -763,7 +875,7 @@ char *pdraw_get_peer_copyright(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerCopyright().c_str());
+	return strdup(pdraw->pdraw->getPeerCopyright().c_str());
 }
 
 
@@ -773,7 +885,7 @@ char *pdraw_get_peer_run_date(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerRunDate().c_str());
+	return strdup(pdraw->pdraw->getPeerRunDate().c_str());
 }
 
 
@@ -783,7 +895,7 @@ char *pdraw_get_peer_run_uuid(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerRunUuid().c_str());
+	return strdup(pdraw->pdraw->getPeerRunUuid().c_str());
 }
 
 
@@ -793,7 +905,7 @@ char *pdraw_get_peer_media_date(
 	if (pdraw == NULL)
 		return NULL;
 
-	return strdup(toPdraw(pdraw)->getPeerMediaDate().c_str());
+	return strdup(pdraw->pdraw->getPeerMediaDate().c_str());
 }
 
 
@@ -804,7 +916,7 @@ int pdraw_get_peer_takeoff_location(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getPeerTakeoffLocation(loc);
+	pdraw->pdraw->getPeerTakeoffLocation(loc);
 	return 0;
 }
 
@@ -816,7 +928,7 @@ int pdraw_set_peer_takeoff_location(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setPeerTakeoffLocation(loc);
+	pdraw->pdraw->setPeerTakeoffLocation(loc);
 	return 0;
 }
 
@@ -828,7 +940,7 @@ int pdraw_get_peer_home_location(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getPeerHomeLocation(loc);
+	pdraw->pdraw->getPeerHomeLocation(loc);
 	return 0;
 }
 
@@ -840,7 +952,7 @@ int pdraw_set_peer_home_location(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setPeerHomeLocation(loc);
+	pdraw->pdraw->setPeerHomeLocation(loc);
 	return 0;
 }
 
@@ -851,7 +963,7 @@ uint64_t pdraw_get_peer_recording_duration(
 	if (pdraw == NULL)
 		return 0;
 
-	return toPdraw(pdraw)->getPeerRecordingDuration();
+	return pdraw->pdraw->getPeerRecordingDuration();
 }
 
 
@@ -862,7 +974,7 @@ int pdraw_set_peer_recording_duration(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setPeerRecordingDuration(duration);
+	pdraw->pdraw->setPeerRecordingDuration(duration);
 	return 0;
 }
 
@@ -875,7 +987,7 @@ int pdraw_get_camera_orientation_for_headtracking(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getCameraOrientationForHeadtracking(pan, tilt);
+	pdraw->pdraw->getCameraOrientationForHeadtracking(pan, tilt);
 	return 0;
 }
 
@@ -886,7 +998,7 @@ int pdraw_get_media_count(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->getMediaCount();
+	return pdraw->pdraw->getMediaCount();
 }
 
 
@@ -898,7 +1010,7 @@ int pdraw_get_media_info(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->getMediaInfo(index, info);
+	return pdraw->pdraw->getMediaInfo(index, info);
 }
 
 
@@ -911,7 +1023,7 @@ void *pdraw_add_video_frame_filter_callback(
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->addVideoFrameFilterCallback(
+	return pdraw->pdraw->addVideoFrameFilterCallback(
 		mediaId, cb, userPtr);
 }
 
@@ -924,7 +1036,7 @@ int pdraw_remove_video_frame_filter_callback(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->removeVideoFrameFilterCallback(
+	return pdraw->pdraw->removeVideoFrameFilterCallback(
 		mediaId, filterCtx);
 }
 
@@ -937,7 +1049,7 @@ void *pdraw_add_video_frame_producer(
 	if (pdraw == NULL)
 		return NULL;
 
-	return toPdraw(pdraw)->addVideoFrameProducer(
+	return pdraw->pdraw->addVideoFrameProducer(
 		mediaId, (frameByFrame) ? true : false);
 }
 
@@ -949,7 +1061,7 @@ int pdraw_remove_video_frame_producer(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->removeVideoFrameProducer(producerCtx);
+	return pdraw->pdraw->removeVideoFrameProducer(producerCtx);
 }
 
 
@@ -962,7 +1074,7 @@ int pdraw_get_producer_last_frame(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return toPdraw(pdraw)->getProducerLastFrame(
+	return pdraw->pdraw->getProducerLastFrame(
 		producerCtx, frame, timeout);
 }
 
@@ -973,7 +1085,7 @@ float pdraw_get_controller_radar_angle_setting(
 	if (pdraw == NULL)
 		return (float)-EINVAL;
 
-	return toPdraw(pdraw)->getControllerRadarAngleSetting();
+	return pdraw->pdraw->getControllerRadarAngleSetting();
 }
 
 
@@ -984,7 +1096,7 @@ int pdraw_set_controller_radar_angle_setting(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setControllerRadarAngleSetting(angle);
+	pdraw->pdraw->setControllerRadarAngleSetting(angle);
 	return 0;
 }
 
@@ -998,7 +1110,7 @@ int pdraw_get_display_screen_settings(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getDisplayScreenSettings(xdpi, ydpi, deviceMargin);
+	pdraw->pdraw->getDisplayScreenSettings(xdpi, ydpi, deviceMargin);
 	return 0;
 }
 
@@ -1012,7 +1124,7 @@ int pdraw_set_display_screen_settings(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setDisplayScreenSettings(xdpi, ydpi, deviceMargin);
+	pdraw->pdraw->setDisplayScreenSettings(xdpi, ydpi, deviceMargin);
 	return 0;
 }
 
@@ -1028,7 +1140,7 @@ int pdraw_get_hmd_distorsion_correction_settings(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->getHmdDistorsionCorrectionSettings(
+	pdraw->pdraw->getHmdDistorsionCorrectionSettings(
 		hmdModel, ipd, scale, panH, panV);
 	return 0;
 }
@@ -1045,7 +1157,7 @@ int pdraw_set_hmd_distorsion_correction_settings(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setHmdDistorsionCorrectionSettings(
+	pdraw->pdraw->setHmdDistorsionCorrectionSettings(
 		hmdModel, ipd, scale, panH, panV);
 	return 0;
 }
@@ -1058,6 +1170,6 @@ int pdraw_set_jni_env(
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	toPdraw(pdraw)->setJniEnv(jniEnv);
+	pdraw->pdraw->setJniEnv(jniEnv);
 	return 0;
 }

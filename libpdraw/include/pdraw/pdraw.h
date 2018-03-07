@@ -37,11 +37,62 @@ extern "C"  {
 #include "pdraw_defs.h"
 
 
+/* Forward declaration */
 struct pdraw;
+
+
+enum pdraw_state {
+	PDRAW_STATE_INVALID = 0,
+	PDRAW_STATE_CREATED,
+	PDRAW_STATE_OPENED,
+	PDRAW_STATE_CLOSED,
+};
+
+
+struct pdraw_cbs {
+	void (*state_changed)(
+		struct pdraw *pdraw,
+		enum pdraw_state state,
+		void *userdata);
+
+	void (*open_resp)(
+		struct pdraw *pdraw,
+		int status,
+		void *userdata);
+
+	void (*close_resp)(
+		struct pdraw *pdraw,
+		int status,
+		void *userdata);
+
+	void (*play_resp)(
+		struct pdraw *pdraw,
+		int status,
+		uint64_t timestamp,
+		void *userdata);
+
+	void (*pause_resp)(
+		struct pdraw *pdraw,
+		int status,
+		uint64_t timestamp,
+		void *userdata);
+
+	void (*seek_resp)(
+		struct pdraw *pdraw,
+		int status,
+		uint64_t timestamp,
+		void *userdata);
+};
+
+
+const char *pdraw_state_str(
+	enum pdraw_state val);
 
 
 int pdraw_new(
 	struct pomp_loop *loop,
+	const struct pdraw_cbs *cbs,
+	void *userdata,
 	struct pdraw **ret_obj);
 
 

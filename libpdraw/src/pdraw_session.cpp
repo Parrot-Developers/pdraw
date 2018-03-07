@@ -138,6 +138,7 @@ PDRAW_STATIC_ASSERT(sizeof(struct cmd_seek_to) <= PIPE_BUF - 1);
 
 int createPdraw(
 	struct pomp_loop *loop,
+	IPdraw::Listener *listener,
 	IPdraw **ret_obj)
 {
 	IPdraw *pdraw = NULL;
@@ -145,7 +146,7 @@ int createPdraw(
 		ULOGE("invalid pointer");
 		return -EINVAL;
 	}
-	pdraw = new Session(loop);
+	pdraw = new Session(loop, listener);
 	if (pdraw == NULL) {
 		ULOGE("failed to create pdraw instance");
 		return -EPROTO;
@@ -155,13 +156,33 @@ int createPdraw(
 }
 
 
+const char *pdrawStateStr(
+	enum IPdraw::State val)
+{
+	switch (val) {
+	case IPdraw::State::INVALID:
+		return "INVALID";
+	case IPdraw::State::CREATED:
+		return "CREATED";
+	case IPdraw::State::OPENED:
+		return "OPENED";
+	case IPdraw::State::CLOSED:
+		return "CLOSED";
+	default: return NULL;
+	}
+}
+
+
 Session::Session(
-	struct pomp_loop *loop)
+	struct pomp_loop *loop,
+	Listener *listener)
 {
 	int res;
 	pthread_mutexattr_t attr;
 	bool mutex_created = false, attr_created = false;
 
+	mListener = listener;
+	mState = INVALID;
 	mSessionType = PDRAW_SESSION_TYPE_UNKNOWN;
 	mDemuxer = NULL;
 	mRenderer = NULL;
@@ -196,12 +217,14 @@ Session::Session(
 		mLoop = pomp_loop_new();
 		if (mLoop == NULL) {
 			ULOGE("Session: failed to create pomp loop");
+			res = -ENOMEM;
 			goto error;
 		}
 
 		mMbox = mbox_new(PIPE_BUF - 1);
 		if (mMbox == NULL) {
 			ULOGE("Session: failed to create mailbox");
+			res = -ENOMEM;
 			goto error;
 		}
 
@@ -223,16 +246,28 @@ Session::Session(
 	}
 
 	pthread_mutexattr_destroy(&attr);
+	setState(CREATED);
 	return;
 
 error:
-	if (mLoop != NULL) {
-		pomp_loop_destroy(mLoop);
-		mLoop = NULL;
-	}
-	if (mMbox != NULL) {
-		mbox_destroy(mMbox);
-		mMbox = NULL;
+	if (mInternalLoop) {
+		if (mMbox != NULL) {
+			if (mLoop != NULL) {
+				res = pomp_loop_remove(mLoop,
+					mbox_get_read_fd(mMbox));
+				if (res < 0) {
+					ULOG_ERRNO("Session: pomp_loop_remove",
+						-res);
+				}
+			}
+			mbox_destroy(mMbox);
+			mMbox = NULL;
+		}
+		if (mLoop != NULL) {
+			pomp_loop_destroy(mLoop);
+			mLoop = NULL;
+		}
+		mInternalLoop = false;
 	}
 	if (mutex_created)
 		pthread_mutex_destroy(&mMutex);
@@ -264,6 +299,14 @@ Session::~Session(
 	}
 
 	if (mInternalLoop) {
+		if (mMbox != NULL) {
+			res = pomp_loop_remove(mLoop, mbox_get_read_fd(mMbox));
+			if (res < 0)
+				ULOG_ERRNO("Session: pomp_loop_remove", -res);
+			mbox_destroy(mMbox);
+			mMbox = NULL;
+		}
+
 		mThreadShouldStop = true;
 		if (mLoop) {
 			res = pomp_loop_wakeup(mLoop);
@@ -275,14 +318,6 @@ Session::~Session(
 			res = pthread_join(mLoopThread, NULL);
 			if (res < 0)
 				ULOG_ERRNO("Session: pthread_join", -res);
-		}
-
-		if (mMbox != NULL) {
-			res = pomp_loop_remove(mLoop, mbox_get_read_fd(mMbox));
-			if (res < 0)
-				ULOG_ERRNO("Session: pomp_loop_remove", -res);
-			mbox_destroy(mMbox);
-			mMbox = NULL;
 		}
 
 		if (mLoop) {
@@ -299,6 +334,16 @@ Session::~Session(
 /*
  * API methods
  */
+
+IPdraw::State Session::getState(
+	void)
+{
+	pthread_mutex_lock(&mMutex);
+	IPdraw::State ret = mState;
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
 
 int Session::open(
 	const std::string &url)
@@ -1370,15 +1415,15 @@ int Session::internalOpen(
 		mDemuxer = new RecordDemuxer(this);
 		if (mDemuxer == NULL) {
 			ULOGE("Session: failed to alloc demuxer");
-			ret = -1;
-		} else {
-			ret = ((RecordDemuxer *)mDemuxer)->open(url);
-			if (ret != 0) {
-				ULOGE("Session: failed to open demuxer");
-				delete mDemuxer;
-				mDemuxer = NULL;
-				ret = -1;
-			}
+			ret = -ENOMEM;
+			goto out;
+		}
+		ret = ((RecordDemuxer *)mDemuxer)->open(url);
+		if (ret < 0) {
+			ULOGE("Session: failed to open demuxer");
+			delete mDemuxer;
+			mDemuxer = NULL;
+			goto out;
 		}
 	} else if (((url.front() == '/') && (ext == ".sdp")) ||
 		((url.substr(0, 7) == "http://") && (ext == ".sdp")) ||
@@ -1389,23 +1434,35 @@ int Session::internalOpen(
 		mDemuxer = new StreamDemuxerNet(this);
 		if (mDemuxer == NULL) {
 			ULOGE("Session: failed to alloc demuxer");
-			ret = -1;
-		} else {
-			ret = ((StreamDemuxerNet *)mDemuxer)->open(
-				url, ifaceAddr);
-			if (ret != 0) {
-				ULOGE("Session: failed to open demuxer");
-				delete mDemuxer;
-				mDemuxer = NULL;
-				ret = -1;
-			}
+			ret = -ENOMEM;
+			goto out;
+		}
+		ret = ((StreamDemuxerNet *)mDemuxer)->open(
+			url, ifaceAddr);
+		if (ret < 0) {
+			ULOGE("Session: failed to open demuxer");
+			delete mDemuxer;
+			mDemuxer = NULL;
+			goto out;
 		}
 	} else {
 		ULOGE("Session: unsupported URL");
-		ret = -1;
+		ret = -ENOSYS;
+		goto out;
 	}
 
-	return (ret == 0) ? addMediaFromDemuxer() : ret;
+	ret = addMediaFromDemuxer();
+	if (ret < 0) {
+		ULOG_ERRNO("Session: addMediaFromDemuxer", -ret);
+		goto out;
+	}
+
+	setState(OPENED);
+
+out:
+	if (mListener)
+		mListener->openResponse(this, ret);
+	return ret;
 }
 
 
@@ -1426,20 +1483,32 @@ int Session::internalOpen(
 	mDemuxer = new StreamDemuxerNet(this);
 	if (mDemuxer == NULL) {
 		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+		ret = -ENOMEM;
+		goto out;
 	}
 
 	ret = ((StreamDemuxerNet *)mDemuxer)->open(localAddr,
 		localStreamPort, localControlPort, remoteAddr,
 		remoteStreamPort, remoteControlPort, ifaceAddr);
-	if (ret != 0) {
+	if (ret < 0) {
 		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
-		return -1;
+		goto out;
 	}
 
-	return addMediaFromDemuxer();
+	ret = addMediaFromDemuxer();
+	if (ret < 0) {
+		ULOG_ERRNO("Session: addMediaFromDemuxer", -ret);
+		goto out;
+	}
+
+	setState(OPENED);
+
+out:
+	if (mListener)
+		mListener->openResponse(this, ret);
+	return ret;
 }
 
 
@@ -1456,19 +1525,33 @@ int Session::internalOpen(
 	mDemuxer = new StreamDemuxerMux(this);
 	if (mDemuxer == NULL) {
 		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+		ret = -ENOMEM;
+		goto out;
 	}
 
 	ret = ((StreamDemuxerMux *)mDemuxer)->open(url, mux);
-	if (ret != 0) {
+	if (ret < 0) {
 		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
-		return -1;
+		goto out;
 	}
 
-	return addMediaFromDemuxer();
+	ret = addMediaFromDemuxer();
+	if (ret < 0) {
+		ULOG_ERRNO("Session: addMediaFromDemuxer", -ret);
+		goto out;
+	}
+
+	setState(OPENED);
+
+out:
+	if (mListener)
+		mListener->openResponse(this, ret);
+	return ret;
 #else /* BUILD_LIBMUX */
+	if (mListener)
+		mListener->openResponse(this, -ENOSYS);
 	return -ENOSYS;
 #endif /* BUILD_LIBMUX */
 }
@@ -1486,18 +1569,30 @@ int Session::internalOpenSdp(
 	mDemuxer = new StreamDemuxerNet(this);
 	if (mDemuxer == NULL) {
 		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+		ret = -ENOMEM;
+		goto out;
 	}
 
 	ret = ((StreamDemuxerNet *)mDemuxer)->openSdp(sdp, ifaceAddr);
-	if (ret != 0) {
+	if (ret < 0) {
 		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
-		return -1;
+		goto out;
 	}
 
-	return addMediaFromDemuxer();
+	ret = addMediaFromDemuxer();
+	if (ret < 0) {
+		ULOG_ERRNO("Session: addMediaFromDemuxer", -ret);
+		goto out;
+	}
+
+	setState(OPENED);
+
+out:
+	if (mListener)
+		mListener->openResponse(this, ret);
+	return ret;
 }
 
 
@@ -1514,19 +1609,33 @@ int Session::internalOpenSdp(
 	mDemuxer = new StreamDemuxerMux(this);
 	if (mDemuxer == NULL) {
 		ULOGE("Session: failed to alloc demuxer");
-		return -1;
+		ret = -ENOMEM;
+		goto out;
 	}
 
 	ret = ((StreamDemuxerMux *)mDemuxer)->openSdp(sdp, mux);
-	if (ret != 0) {
+	if (ret < 0) {
 		ULOGE("Session: failed to open demuxer");
 		delete mDemuxer;
 		mDemuxer = NULL;
-		return -1;
+		goto out;
 	}
 
-	return addMediaFromDemuxer();
+	ret = addMediaFromDemuxer();
+	if (ret < 0) {
+		ULOG_ERRNO("Session: addMediaFromDemuxer", -ret);
+		goto out;
+	}
+
+	setState(OPENED);
+
+out:
+	if (mListener)
+		mListener->openResponse(this, ret);
+	return ret;
 #else /* BUILD_LIBMUX */
+	if (mListener)
+		mListener->openResponse(this, -ENOSYS);
 	return -ENOSYS;
 #endif /* BUILD_LIBMUX */
 }
@@ -1535,72 +1644,105 @@ int Session::internalOpenSdp(
 int Session::internalClose(
 	void)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->close();
-		if (ret != 0) {
-			ULOGE("Failed to close demuxer");
-			return -1;
-		}
-	} else {
+	int ret = 0;
+
+	if (mDemuxer == NULL) {
 		ULOGE("Invalid demuxer");
-		return -1;
+		ret = -EPROTO;
+		goto out;
 	}
 
-	return 0;
+	ret = mDemuxer->close();
+	if (ret < 0) {
+		ULOGE("Failed to close demuxer");
+		goto out;
+	}
+
+	setState(CLOSED);
+
+out:
+	if (mListener)
+		mListener->closeResponse(this, ret);
+	return ret;
 }
 
 
 int Session::internalPlay(
 	float speed)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->play(speed);
-		if (ret != 0) {
-			ULOGE("Failed to start demuxer");
-			return -1;
-		}
-	} else {
+	int ret = 0;
+
+	if (mDemuxer == NULL) {
 		ULOGE("Invalid demuxer");
-		return -1;
+		ret = -EPROTO;
+		goto out;
 	}
 
-	return 0;
+	ret = mDemuxer->play(speed);
+	if (ret < 0) {
+		ULOGE("Failed to start demuxer");
+		goto out;
+	}
+
+out:
+	if (mListener) {
+		if (speed == 0.) {
+			mListener->pauseResponse(this,
+				ret, getCurrentTime()); /* TODO*/
+		} else {
+			mListener->playResponse(this,
+				ret, getCurrentTime()); /* TODO*/
+		}
+	}
+	return ret;
 }
 
 
 int Session::internalPreviousFrame(
 	void)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->previous();
-		if (ret != 0) {
-			ULOGE("Failed to go to previous frame in the demuxer");
-			return -1;
-		}
-	} else {
+	int ret = 0;
+
+	if (mDemuxer == NULL) {
 		ULOGE("Invalid demuxer");
-		return -1;
+		ret = -EPROTO;
+		goto out;
 	}
 
-	return 0;
+	ret = mDemuxer->previous();
+	if (ret < 0) {
+		ULOGE("Failed to go to previous frame in the demuxer");
+		goto out;
+	}
+
+out:
+	if (mListener)
+		mListener->seekResponse(this, ret, getCurrentTime()); /* TODO*/
+	return ret;
 }
 
 
 int Session::internalNextFrame(
 	void)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->next();
-		if (ret != 0) {
-			ULOGE("Failed to go to next frame in the demuxer");
-			return -1;
-		}
-	} else {
+	int ret = 0;
+
+	if (mDemuxer == NULL) {
 		ULOGE("Invalid demuxer");
-		return -1;
+		ret = -EPROTO;
+		goto out;
 	}
 
-	return 0;
+	ret = mDemuxer->next();
+	if (ret < 0) {
+		ULOGE("Failed to go to next frame in the demuxer");
+		goto out;
+	}
+
+out:
+	if (mListener)
+		mListener->seekResponse(this, ret, getCurrentTime()); /* TODO*/
+	return ret;
 }
 
 
@@ -1608,19 +1750,24 @@ int Session::internalSeek(
 	int64_t delta,
 	bool exact)
 {
-	if (mDemuxer != NULL) {
-		int ret;
-		ret = mDemuxer->seek(delta, exact);
-		if (ret != 0) {
-			ULOGE("Failed to seek with demuxer");
-			return -1;
-		}
-	} else {
+	int ret = 0;
+
+	if (mDemuxer == NULL) {
 		ULOGE("Invalid demuxer");
-		return -1;
+		ret = -EPROTO;
+		goto out;
 	}
 
-	return 0;
+	ret = mDemuxer->seek(delta, exact);
+	if (ret < 0) {
+		ULOGE("Failed to seek with demuxer");
+		goto out;
+	}
+
+out:
+	if (mListener)
+		mListener->seekResponse(this, ret, getCurrentTime()); /* TODO*/
+	return ret;
 }
 
 
@@ -1628,18 +1775,24 @@ int Session::internalSeekTo(
 	uint64_t timestamp,
 	bool exact)
 {
-	if (mDemuxer != NULL) {
-		int ret = mDemuxer->seekTo(timestamp, exact);
-		if (ret != 0) {
-			ULOGE("Failed to seek with demuxer");
-			return -1;
-		}
-	} else {
+	int ret = 0;
+
+	if (mDemuxer == NULL) {
 		ULOGE("Invalid demuxer");
-		return -1;
+		ret = -EPROTO;
+		goto out;
 	}
 
-	return 0;
+	ret = mDemuxer->seekTo(timestamp, exact);
+	if (ret < 0) {
+		ULOGE("Failed to seek with demuxer");
+		goto out;
+	}
+
+out:
+	if (mListener)
+		mListener->seekResponse(this, ret, getCurrentTime()); /* TODO*/
+	return ret;
 }
 
 
@@ -1685,6 +1838,14 @@ Media *Session::addMedia(
 	case ELEMENTARY_STREAM_TYPE_VIDEO_AVC:
 		m = new VideoMedia(this, esType, mMediaIdCounter++);
 		m->enableDecoder();
+		if (mRenderer != NULL) {
+			int ret = mRenderer->addAvcDecoder(
+				(AvcDecoder*)(m->getDecoder()));
+			if (ret != 0) {
+				ULOGE("Session: failed to add decoder "
+					"to renderer");
+			}
+		}
 		break;
 	}
 
@@ -1730,6 +1891,14 @@ Media *Session::addMedia(
 			((VideoMedia*)m)->setFov(hfov, vfov);
 		}
 		m->enableDecoder();
+		if (mRenderer != NULL) {
+			int ret = mRenderer->addAvcDecoder(
+				(AvcDecoder*)(m->getDecoder()));
+			if (ret != 0) {
+				ULOGE("Session: failed to add decoder "
+					"to renderer");
+			}
+		}
 		break;
 	}
 
@@ -1822,6 +1991,24 @@ Media *Session::getMediaById(
 	pthread_mutex_unlock(&mMutex);
 	ULOGE("Session: unable to find media by id");
 	return NULL;
+}
+
+
+void Session::setState(
+	enum State state)
+{
+	pthread_mutex_lock(&mMutex);
+	if (state == mState) {
+		pthread_mutex_unlock(&mMutex);
+		return;
+	}
+
+	mState = state;
+	pthread_mutex_unlock(&mMutex);
+	ULOGI("Session: state change to %s", pdrawStateStr(state));
+
+	if (mListener)
+		mListener->onStateChanged(this, state);
 }
 
 
@@ -2047,8 +2234,9 @@ void *Session::runLoopThread(
 	if (!self->mInternalLoop)
 		return NULL;
 
-	while (!self->mThreadShouldStop)
+	while (!self->mThreadShouldStop) {
 		pomp_loop_wait_and_process(self->mLoop, -1);
+	}
 
 	return NULL;
 }

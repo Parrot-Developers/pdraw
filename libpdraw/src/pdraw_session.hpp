@@ -51,7 +51,8 @@ class Settings;
 class Session : public IPdraw {
 public:
 	Session(
-		struct pomp_loop *loop);
+		struct pomp_loop *loop,
+		IPdraw::Listener *listener);
 
 	~Session(
 		void);
@@ -60,6 +61,9 @@ public:
 	/*
 	 * API methods
 	 */
+
+	IPdraw::State getState(
+		void);
 
 	int open(
 		const std::string &url);
@@ -375,6 +379,36 @@ public:
 	 * Internal methods
 	 */
 
+	Demuxer *getDemuxer(
+		void) {
+		return mDemuxer;
+	}
+
+	Renderer *getRenderer(
+		void) {
+		return mRenderer;
+	}
+
+	Settings *getSettings(
+		void) {
+		return &mSettings;
+	}
+
+	SessionSelfMetadata *getSelfMetadata(
+		void) {
+		return &mSelfMetadata;
+	}
+
+	SessionPeerMetadata *getPeerMetadata(
+		void) {
+		return &mPeerMetadata;
+	}
+
+	struct pomp_loop *getLoop() {
+		return mLoop;
+	}
+
+private:
 	int internalOpen(
 		const std::string &url,
 		const std::string &ifaceAddr);
@@ -440,36 +474,9 @@ public:
 	Media *getMediaById(
 		unsigned int id);
 
-	Demuxer *getDemuxer(
-		void) {
-		return mDemuxer;
-	}
+	void setState(
+		enum State state);
 
-	Renderer *getRenderer(
-		void) {
-		return mRenderer;
-	}
-
-	Settings *getSettings(
-		void) {
-		return &mSettings;
-	}
-
-	SessionSelfMetadata *getSelfMetadata(
-		void) {
-		return &mSelfMetadata;
-	}
-
-	SessionPeerMetadata *getPeerMetadata(
-		void) {
-		return &mPeerMetadata;
-	}
-
-	struct pomp_loop *getLoop() {
-		return mLoop;
-	}
-
-private:
 	int enableRenderer(
 		void);
 
@@ -487,6 +494,8 @@ private:
 	static void* runLoopThread(
 		void *ptr);
 
+	Listener *mListener;
+	State mState;
 	bool mInternalLoop;
 	struct pomp_loop *mLoop;
 	pthread_t mLoopThread;

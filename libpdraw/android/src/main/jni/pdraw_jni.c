@@ -29,6 +29,7 @@
 
 #include <jni.h>
 #include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 
 #include <android/log.h>
@@ -65,10 +66,21 @@ static pthread_key_t jniEnvKey;
 static struct {
    JavaVM *gJVM;
    jclass pdrawClass;
+   jclass stateClass;
    jclass videoFrameClass;
    jclass byteBufferClass;
    jmethodID videoFrameConstructor;
+   jmethodID notifyStateChanged;
+   jmethodID notifyOpenResponse;
+   jmethodID notifyCloseResponse;
+   jmethodID notifyPlayResponse;
+   jmethodID notifyPauseResponse;
+   jmethodID notifySeekResponse;
    jmethodID notifyNewFrame;
+   jfieldID stateInvalid;
+   jfieldID stateCreated;
+   jfieldID stateOpened;
+   jfieldID stateClosed;
 } globalIds;
 
 static void jniEnvDestructor(void* unused) {
@@ -96,6 +108,16 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved)
         LOGE("could not create global ref for Pdraw class");
         return -1;
     }
+    globalIds.stateClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$State");
+    if (globalIds.stateClass == NULL) {
+        LOGE("could not retrieve class");
+        return -1;
+    }
+    globalIds.stateClass = (jclass)(*env)->NewGlobalRef(env, globalIds.stateClass);
+    if (globalIds.stateClass == NULL) {
+        LOGE("could not create global ref for State class");
+        return -1;
+    }
     globalIds.videoFrameClass = (*env)->FindClass(env, "net/akaaba/libpdraw/Pdraw$VideoFrame");
     if (globalIds.videoFrameClass == NULL) {
         return -1;
@@ -121,9 +143,59 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved)
         LOGE("could not find VideoFrame default constructor");
         return -1;
     }
+    globalIds.notifyStateChanged = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyStateChanged", "(Lnet/akaaba/libpdraw/Pdraw$State;)V");
+    if (globalIds.notifyStateChanged == NULL) {
+        LOGE("could not find notifyStateChanged method");
+        return -1;
+    }
+    globalIds.notifyOpenResponse = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyOpenResponse", "(I)V");
+    if (globalIds.notifyOpenResponse == NULL) {
+        LOGE("could not find notifyOpenResponse method");
+        return -1;
+    }
+    globalIds.notifyCloseResponse = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyCloseResponse", "(I)V");
+    if (globalIds.notifyCloseResponse == NULL) {
+        LOGE("could not find notifyCloseResponse method");
+        return -1;
+    }
+    globalIds.notifyPlayResponse = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyPlayResponse", "(IJ)V");
+    if (globalIds.notifyPlayResponse == NULL) {
+        LOGE("could not find notifyPlayResponse method");
+        return -1;
+    }
+    globalIds.notifyPauseResponse = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyPauseResponse", "(IJ)V");
+    if (globalIds.notifyPauseResponse == NULL) {
+        LOGE("could not find notifyPauseResponse method");
+        return -1;
+    }
+    globalIds.notifySeekResponse = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifySeekResponse", "(IJ)V");
+    if (globalIds.notifySeekResponse == NULL) {
+        LOGE("could not find notifySeekResponse method");
+        return -1;
+    }
     globalIds.notifyNewFrame = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyNewFrame", "(Lnet/akaaba/libpdraw/Pdraw$VideoFrame;)V");
     if (globalIds.notifyNewFrame == NULL) {
         LOGE("could not find notifyNewFrame method");
+        return -1;
+    }
+    globalIds.stateInvalid = (*env)->GetStaticFieldID(env, globalIds.stateClass, "PDRAW_STATE_INVALID", "Lnet/akaaba/libpdraw/Pdraw$State;");
+    if (globalIds.stateInvalid == NULL) {
+        LOGE("could not find PDRAW_STATE_INVALID enum");
+        return -1;
+    }
+    globalIds.stateCreated = (*env)->GetStaticFieldID(env, globalIds.stateClass, "PDRAW_STATE_CREATED", "Lnet/akaaba/libpdraw/Pdraw$State;");
+    if (globalIds.stateCreated == NULL) {
+        LOGE("could not find PDRAW_STATE_CREATED enum");
+        return -1;
+    }
+    globalIds.stateOpened = (*env)->GetStaticFieldID(env, globalIds.stateClass, "PDRAW_STATE_OPENED", "Lnet/akaaba/libpdraw/Pdraw$State;");
+    if (globalIds.stateOpened == NULL) {
+        LOGE("could not find PDRAW_STATE_OPENED enum");
+        return -1;
+    }
+    globalIds.stateClosed = (*env)->GetStaticFieldID(env, globalIds.stateClass, "PDRAW_STATE_CLOSED", "Lnet/akaaba/libpdraw/Pdraw$State;");
+    if (globalIds.stateClosed == NULL) {
+        LOGE("could not find PDRAW_STATE_CLOSED enum");
         return -1;
     }
 
@@ -142,12 +214,193 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved)
     return JNI_VERSION_1_6;
 }
 
+
 struct pdraw_jni_ctx {
     struct pdraw *pdraw;
     ANativeWindow *window;
     jobject *thizz;
     void *filterCtx;
 };
+
+
+static void state_changed_cb(struct pdraw *pdraw, enum pdraw_state state, void *userdata)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userdata;
+    JNIEnv *env;
+    jobject jstate;
+
+    LOGI("state changed: state=%s", pdraw_state_str(state));
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    switch (state) {
+    default:
+    case PDRAW_STATE_INVALID:
+        jstate = (*env)->GetStaticObjectField(env, globalIds.stateClass, globalIds.stateInvalid);
+        break;
+    case PDRAW_STATE_CREATED:
+        jstate = (*env)->GetStaticObjectField(env, globalIds.stateClass, globalIds.stateCreated);
+        break;
+    case PDRAW_STATE_OPENED:
+        jstate = (*env)->GetStaticObjectField(env, globalIds.stateClass, globalIds.stateOpened);
+        break;
+    case PDRAW_STATE_CLOSED:
+        jstate = (*env)->GetStaticObjectField(env, globalIds.stateClass, globalIds.stateClosed);
+        break;
+    }
+
+    /* Call the Java-side callback */
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifyStateChanged, jstate);
+
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+
+static void open_resp_cb(struct pdraw *pdraw, int status, void *userdata)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userdata;
+    JNIEnv *env;
+
+    LOGD("open response: status=%d", status);
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    /* Call the Java-side callback */
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifyOpenResponse, (jint)status);
+
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+
+static void close_resp_cb(struct pdraw *pdraw, int status, void *userdata)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userdata;
+    JNIEnv *env;
+
+    LOGD("close response: status=%d", status);
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    /* Call the Java-side callback */
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifyCloseResponse, (jint)status);
+
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+
+static void play_resp_cb(struct pdraw *pdraw, int status, uint64_t timestamp, void *userdata)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userdata;
+    JNIEnv *env;
+
+    LOGD("play response: status=%d ts=%" PRIu64, status, timestamp);
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    /* Call the Java-side callback */
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifyPlayResponse, (jint)status, (jlong)timestamp);
+
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+
+static void pause_resp_cb(struct pdraw *pdraw, int status, uint64_t timestamp, void *userdata)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userdata;
+    JNIEnv *env;
+
+    LOGD("pause response: status=%d ts=%" PRIu64, status, timestamp);
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    /* Call the Java-side callback */
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifyPauseResponse, (jint)status, (jlong)timestamp);
+
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+
+static void seek_resp_cb(struct pdraw *pdraw, int status, uint64_t timestamp, void *userdata)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userdata;
+    JNIEnv *env;
+
+    LOGD("seek response: status=%d ts=%" PRIu64, status, timestamp);
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    /* Call the Java-side callback */
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifySeekResponse, (jint)status, (jlong)timestamp);
+
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
 
 static void frame_reception_callback(void *filterCtx, const struct pdraw_video_frame *frame, void *userPtr) {
 
@@ -823,6 +1076,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNew(
 {
     struct pdraw_jni_ctx *ctx = calloc(1, sizeof(*ctx));
     int ret;
+    struct pdraw_cbs cbs;
 
     if (ctx == NULL)
     {
@@ -837,7 +1091,15 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNew(
         goto fail;
     }
 
-    ret = pdraw_new(NULL, &ctx->pdraw);
+    memset(&cbs, 0, sizeof(cbs));
+    cbs.state_changed = &state_changed_cb;
+    cbs.open_resp = &open_resp_cb;
+    cbs.close_resp = &close_resp_cb;
+    cbs.play_resp = &play_resp_cb;
+    cbs.pause_resp = &pause_resp_cb;
+    cbs.seek_resp = &seek_resp_cb;
+
+    ret = pdraw_new(NULL, &cbs, ctx, &ctx->pdraw);
     if (ret != 0)
     {
         LOGE("pdraw_new() failed (%d)", ret);

@@ -779,13 +779,41 @@ void stopUi(struct pdraw_app *app)
 int startPdraw(struct pdraw_app *app)
 {
     int ret = 0;
+    struct pdraw_cbs cbs;
 
     ULOGI("Start libpdraw");
 
-    ret = pdraw_new(NULL, &app->pdraw);
-    if (ret != 0)
+    if (ret == 0) {
+        int ret = pthread_mutex_init(&app->pdrawMutex, NULL);
+        if (ret != 0)
+        {
+            ULOGE("Mutex creation failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0) {
+        int ret = pthread_cond_init(&app->pdrawCond, NULL);
+        if (ret != 0)
+        {
+            ULOGE("Cond creation failed (%d)", ret);
+        }
+    }
+
+    if (ret == 0)
     {
-        ULOGE("pdraw_new() failed (%d)", ret);
+        memset(&cbs, 0, sizeof(cbs));
+        cbs.state_changed = &pdrawStateChanged;
+        cbs.open_resp = &pdrawOpenResp;
+        cbs.close_resp = &pdrawCloseResp;
+        cbs.play_resp = &pdrawPlayResp;
+        cbs.pause_resp = &pdrawPauseResp;
+        cbs.seek_resp = &pdrawSeekResp;
+
+        ret = pdraw_new(NULL, &cbs, app, &app->pdraw);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_new() failed (%d)", ret);
+        }
     }
 
     if (ret == 0)
@@ -879,15 +907,6 @@ int startPdraw(struct pdraw_app *app)
     }
 #endif /* BUILD_SDL2 */
 
-    if (ret == 0)
-    {
-        ret = pdraw_play(app->pdraw);
-        if (ret != 0)
-        {
-            ULOGE("pdraw_play() failed (%d)", ret);
-        }
-    }
-
     return ret;
 }
 
@@ -900,14 +919,105 @@ void stopPdraw(struct pdraw_app *app)
 
         ULOGI("Stop libpdraw");
 
+        ret = pdraw_stop_renderer(app->pdraw);
+        if (ret < 0)
+        {
+            ULOGE("pdraw_stop_renderer() failed (%d)", ret);
+        }
+
+        ret = pdraw_close(app->pdraw);
+        if (ret != 0)
+        {
+            ULOGE("pdraw_close() failed (%d)", ret);
+        }
+
+        while (app->pdrawRunning) {
+            pthread_mutex_lock(&app->pdrawMutex);
+            pthread_cond_wait(&app->pdrawCond, &app->pdrawMutex);
+            pthread_mutex_unlock(&app->pdrawMutex);
+        }
+
         ret = pdraw_destroy(app->pdraw);
         if (ret != 0)
         {
             ULOGE("pdraw_destroy() failed (%d)", ret);
         }
-
         app->pdraw = NULL;
     }
+
+    pthread_mutex_destroy(&app->pdrawMutex);
+    pthread_cond_destroy(&app->pdrawCond);
+}
+
+
+void pdrawStateChanged(struct pdraw *pdraw,
+    enum pdraw_state state, void *userdata)
+{
+    ULOGI("State changed: state=%s", pdraw_state_str(state));
+}
+
+
+void pdrawOpenResp(struct pdraw *pdraw, int status, void *userdata)
+{
+    int ret;
+    struct pdraw_app *app = userdata;
+
+    ULOGD("Open response: status=%d", status);
+
+    if (app == NULL) {
+        ULOGE("invalid context");
+        return;
+    }
+
+    if (status != 0)
+        return;
+
+    app->pdrawRunning = 1;
+    ret = pdraw_play(app->pdraw);
+    if (ret != 0)
+    {
+        ULOGE("pdraw_play() failed (%d)", ret);
+    }
+}
+
+
+void pdrawCloseResp(struct pdraw *pdraw, int status, void *userdata)
+{
+    struct pdraw_app *app = userdata;
+
+    ULOGD("Close response: status=%d", status);
+
+    if (app == NULL) {
+        ULOGE("invalid context");
+        return;
+    }
+
+    if (status != 0)
+        return;
+
+    app->pdrawRunning = 0;
+    pthread_cond_signal(&app->pdrawCond);
+}
+
+
+void pdrawPlayResp(struct pdraw *pdraw, int status,
+    uint64_t timestamp, void *userdata)
+{
+    ULOGD("Play response: status=%d ts=%" PRIu64, status, timestamp);
+}
+
+
+void pdrawPauseResp(struct pdraw *pdraw, int status,
+    uint64_t timestamp, void *userdata)
+{
+    ULOGD("Pause response: status=%d ts=%" PRIu64, status, timestamp);
+}
+
+
+void pdrawSeekResp(struct pdraw *pdraw, int status,
+    uint64_t timestamp, void *userdata)
+{
+    ULOGD("Seek response: status=%d ts=%" PRIu64, status, timestamp);
 }
 
 

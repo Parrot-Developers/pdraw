@@ -42,7 +42,15 @@ public class Pdraw {
 
     private static final String LIBRARY_NAME = "pdraw_android";
     private long pdrawCtx;
-    private VideoFrameListener mListener;
+    private Listener mListener;
+    private VideoFrameListener mVideoFrameListener;
+
+    public enum State {
+        PDRAW_STATE_INVALID,
+        PDRAW_STATE_CREATED,
+        PDRAW_STATE_OPENED,
+        PDRAW_STATE_CLOSED,
+    }
 
     enum ColorFormat {
         PDRAW_COLOR_FORMAT_UNKNOWN,
@@ -171,12 +179,21 @@ public class Pdraw {
         }
     }
 
+    public interface Listener {
+        public void onPdrawStateChanged(State state);
+        public void pdrawOpenResponse(int status);
+        public void pdrawCloseResponse(int status);
+        public void pdrawPlayResponse(int status, long timestamp);
+        public void pdrawPauseResponse(int status, long timestamp);
+        public void pdrawSeekResponse(int status, long timestamp);
+    }
+
     public interface VideoFrameListener {
         public void onFrameReceived(VideoFrame frame);
     }
 
-
-    public Pdraw() {
+    public Pdraw(Listener listener) {
+        mListener = listener;
         this.pdrawCtx = nativeNew();
     }
 
@@ -373,12 +390,12 @@ public class Pdraw {
     }
 
     public void setVideoFrameListener(VideoFrameListener listener) {
-        VideoFrameListener old = mListener;
-        mListener = listener;
+        VideoFrameListener old = mVideoFrameListener;
+        mVideoFrameListener = listener;
         if (old == null) {
             nativeRegisterListener(pdrawCtx);
         }
-        if (mListener == null) {
+        if (mVideoFrameListener == null) {
             nativeUnregisterListener(pdrawCtx);
         }
     }
@@ -1031,9 +1048,45 @@ public class Pdraw {
         long pdrawCtx,
         HmdDistorsionCorrectionSettings hmd);
 
-    private void notifyNewFrame(VideoFrame frame) {
+    private void notifyStateChanged(State state) {
        if (mListener != null) {
-           mListener.onFrameReceived(frame);
+           mListener.onPdrawStateChanged(state);
+       }
+    }
+
+    private void notifyOpenResponse(int status) {
+       if (mListener != null) {
+           mListener.pdrawOpenResponse(status);
+       }
+    }
+
+    private void notifyCloseResponse(int status) {
+       if (mListener != null) {
+           mListener.pdrawCloseResponse(status);
+       }
+    }
+
+    private void notifyPlayResponse(int status, long timestamp) {
+       if (mListener != null) {
+           mListener.pdrawPlayResponse(status, timestamp);
+       }
+    }
+
+    private void notifyPauseResponse(int status, long timestamp) {
+       if (mListener != null) {
+           mListener.pdrawPauseResponse(status, timestamp);
+       }
+    }
+
+    private void notifySeekResponse(int status, long timestamp) {
+       if (mListener != null) {
+           mListener.pdrawSeekResponse(status, timestamp);
+       }
+    }
+
+    private void notifyNewFrame(VideoFrame frame) {
+       if (mVideoFrameListener != null) {
+           mVideoFrameListener.onFrameReceived(frame);
        }
     }
 

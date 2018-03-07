@@ -38,8 +38,51 @@ namespace Pdraw {
 
 class IPdraw {
 public:
+	enum State {
+		INVALID = 0,
+		CREATED,
+		OPENED,
+		CLOSED,
+	};
+
+	class Listener {
+	public:
+		virtual ~Listener(
+			void) {}
+
+		virtual void onStateChanged(
+			IPdraw *pdraw,
+			State state) = 0;
+
+		virtual void openResponse(
+			IPdraw *pdraw,
+			int status) = 0;
+
+		virtual void closeResponse(
+			IPdraw *pdraw,
+			int status) = 0;
+
+		virtual void playResponse(
+			IPdraw *pdraw,
+			int status,
+			uint64_t timestamp) = 0;
+
+		virtual void pauseResponse(
+			IPdraw *pdraw,
+			int status,
+			uint64_t timestamp) = 0;
+
+		virtual void seekResponse(
+			IPdraw *pdraw,
+			int status,
+			uint64_t timestamp) = 0;
+	};
+
 	virtual ~IPdraw(
 		void) {}
+
+	virtual State getState(
+		void) = 0;
 
 	virtual int open(
 		const std::string &url) = 0;
@@ -319,9 +362,16 @@ public:
 		void *jniEnv) = 0;
 };
 
+
 int createPdraw(
 	struct pomp_loop *loop,
+	IPdraw::Listener *listener,
 	IPdraw **ret_obj);
+
+
+const char *pdrawStateStr(
+	enum IPdraw::State val);
+
 
 } /* namespace Pdraw */
 

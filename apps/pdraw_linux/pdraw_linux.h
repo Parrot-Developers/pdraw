@@ -96,6 +96,9 @@ struct arcmd_reader_data
 struct pdraw_app
 {
     struct pdraw *pdraw;
+    pthread_mutex_t pdrawMutex;
+    pthread_cond_t pdrawCond;
+    int pdrawRunning;
     int run;
     float speed;
     int speedSign;
@@ -157,6 +160,16 @@ void stopUi(struct pdraw_app *app);
 
 int startPdraw(struct pdraw_app *app);
 void stopPdraw(struct pdraw_app *app);
+void pdrawStateChanged(struct pdraw *pdraw,
+    enum pdraw_state state, void *userdata);
+void pdrawOpenResp(struct pdraw *pdraw, int status, void *userdata);
+void pdrawCloseResp(struct pdraw *pdraw, int status, void *userdata);
+void pdrawPlayResp(struct pdraw *pdraw, int status,
+    uint64_t timestamp, void *userdata);
+void pdrawPauseResp(struct pdraw *pdraw, int status,
+    uint64_t timestamp, void *userdata);
+void pdrawSeekResp(struct pdraw *pdraw, int status,
+    uint64_t timestamp, void *userdata);
 
 int startArdiscoveryBrowse(struct pdraw_app *app);
 void stopArdiscoveryBrowse(struct pdraw_app *app);
