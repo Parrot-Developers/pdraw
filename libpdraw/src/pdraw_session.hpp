@@ -408,6 +408,9 @@ public:
 		return mLoop;
 	}
 
+	void socketCreated(
+		int fd);
+
 private:
 	int internalOpen(
 		const std::string &url,

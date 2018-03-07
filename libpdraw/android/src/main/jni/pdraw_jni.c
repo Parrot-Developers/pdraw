@@ -76,6 +76,7 @@ static struct {
    jmethodID notifyPlayResponse;
    jmethodID notifyPauseResponse;
    jmethodID notifySeekResponse;
+   jmethodID notifySocketCreated;
    jmethodID notifyNewFrame;
    jfieldID stateInvalid;
    jfieldID stateCreated;
@@ -171,6 +172,11 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved)
     globalIds.notifySeekResponse = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifySeekResponse", "(IJ)V");
     if (globalIds.notifySeekResponse == NULL) {
         LOGE("could not find notifySeekResponse method");
+        return -1;
+    }
+    globalIds.notifySocketCreated = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifySocketCreated", "(I)V");
+    if (globalIds.notifySocketCreated == NULL) {
+        LOGE("could not find notifySocketCreated method");
         return -1;
     }
     globalIds.notifyNewFrame = (*env)->GetMethodID(env, globalIds.pdrawClass, "notifyNewFrame", "(Lnet/akaaba/libpdraw/Pdraw$VideoFrame;)V");
@@ -402,9 +408,36 @@ out:
 }
 
 
-static void frame_reception_callback(void *filterCtx, const struct pdraw_video_frame *frame, void *userPtr) {
+static void socket_created_cb(struct pdraw *pdraw, int fd, void *userdata)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userdata;
+    JNIEnv *env;
 
-   struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userPtr;
+    LOGI("socket created: fd=%d", fd);
+
+    env = (JNIEnv*)pthread_getspecific(jniEnvKey);
+    if (env == NULL) {
+        if ((*(globalIds.gJVM))->AttachCurrentThread(globalIds.gJVM, &env, NULL) != 0) {
+            LOGE("Failed to attach current thread to JVM");
+            goto out;
+        }
+        pthread_setspecific(jniEnvKey, env);
+    }
+
+    /* Call the Java-side callback */
+    (*env)->CallVoidMethod(env, ctx->thizz, globalIds.notifySocketCreated, (jint)fd);
+
+out:
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+
+static void frame_reception_callback(void *filterCtx, const struct pdraw_video_frame *frame, void *userPtr)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx *)userPtr;
     JNIEnv *env;
     jobject pixels;
     int getEnvStat;
@@ -1098,6 +1131,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeNew(
     cbs.play_resp = &play_resp_cb;
     cbs.pause_resp = &pause_resp_cb;
     cbs.seek_resp = &seek_resp_cb;
+    cbs.socket_created = &socket_created_cb;
 
     ret = pdraw_new(NULL, &cbs, ctx, &ctx->pdraw);
     if (ret != 0)

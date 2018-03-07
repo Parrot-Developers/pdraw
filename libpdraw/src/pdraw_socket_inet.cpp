@@ -28,6 +28,7 @@
  */
 
 #include "pdraw_socket_inet.hpp"
+#include "pdraw_session.hpp"
 #include "pdraw_log.hpp"
 #include <errno.h>
 #include <fcntl.h>
@@ -41,6 +42,7 @@ namespace Pdraw {
 
 
 InetSocket::InetSocket(
+	Session *session,
 	const std::string& localAddress,
 	int localPort,
 	const std::string& remoteAddress,
@@ -71,6 +73,10 @@ InetSocket::InetSocket(
 		PDRAW_LOG_ERRNO("socket", -res);
 		goto error;
 	}
+
+	/* Call the socket creation callback if defined */
+	if (session)
+		session->socketCreated(mFd);
 
 	/* Setup flags */
 	res = fd_set_close_on_exec(mFd);

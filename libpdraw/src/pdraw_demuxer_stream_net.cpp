@@ -210,7 +210,7 @@ int StreamDemuxerNet::openRtpAvp(
 	int res;
 
 	/* Create the sockets */
-	mStreamSock = new InetSocket(mLocalAddr, mLocalStreamPort,
+	mStreamSock = new InetSocket(mSession, mLocalAddr, mLocalStreamPort,
 		mRemoteAddr, mRemoteStreamPort,
 		mSession->getLoop(), dataCb, this);
 	if (mStreamSock == NULL) {
@@ -218,7 +218,7 @@ int StreamDemuxerNet::openRtpAvp(
 		res = -EPROTO;
 		goto error;
 	}
-	mControlSock = new InetSocket(mLocalAddr, mLocalControlPort,
+	mControlSock = new InetSocket(mSession, mLocalAddr, mLocalControlPort,
 		mRemoteAddr, mRemoteControlPort,
 		mSession->getLoop(), ctrlCb, this);
 	if (mControlSock == NULL) {

@@ -82,6 +82,11 @@ struct pdraw_cbs {
 		int status,
 		uint64_t timestamp,
 		void *userdata);
+
+	void (*socket_created)(
+		struct pdraw *pdraw,
+		int fd,
+		void *userdata);
 };
 
 

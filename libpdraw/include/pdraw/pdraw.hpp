@@ -76,6 +76,10 @@ public:
 			IPdraw *pdraw,
 			int status,
 			uint64_t timestamp) = 0;
+
+		virtual void onSocketCreated(
+			IPdraw *pdraw,
+			int fd) = 0;
 	};
 
 	virtual ~IPdraw(

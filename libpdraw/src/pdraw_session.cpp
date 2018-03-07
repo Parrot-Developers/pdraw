@@ -2012,6 +2012,14 @@ void Session::setState(
 }
 
 
+void Session::socketCreated(
+	int fd)
+{
+	if (mListener)
+		mListener->onSocketCreated(this, fd);
+}
+
+
 /* Called on the rendering thread */
 int Session::enableRenderer(
 	void)

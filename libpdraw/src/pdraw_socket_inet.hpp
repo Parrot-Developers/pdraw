@@ -39,9 +39,13 @@
 namespace Pdraw {
 
 
+class Session;
+
+
 class InetSocket {
 public:
 	InetSocket(
+		Session *session,
 		const std::string& localAddress,
 		int localPort,
 		const std::string& remoteAddress,

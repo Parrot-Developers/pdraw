@@ -148,6 +148,7 @@ void pdrawPauseResp(struct pdraw *pdraw, int status,
     uint64_t timestamp, void *userdata);
 void pdrawSeekResp(struct pdraw *pdraw, int status,
     uint64_t timestamp, void *userdata);
+void pdrawSocketCreated(struct pdraw *pdraw, int fd, void *userdata);
 
 int ardiscoveryConnect(struct pdraw_app *app);
 eARDISCOVERY_ERROR ardiscoveryConnectionSendJsonCallback(uint8_t *dataTx, uint32_t *dataTxSize, void *customData);

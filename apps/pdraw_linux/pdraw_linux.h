@@ -170,6 +170,7 @@ void pdrawPauseResp(struct pdraw *pdraw, int status,
     uint64_t timestamp, void *userdata);
 void pdrawSeekResp(struct pdraw *pdraw, int status,
     uint64_t timestamp, void *userdata);
+void pdrawSocketCreated(struct pdraw *pdraw, int fd, void *userdata);
 
 int startArdiscoveryBrowse(struct pdraw_app *app);
 void stopArdiscoveryBrowse(struct pdraw_app *app);

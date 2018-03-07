@@ -939,6 +939,7 @@ int startPdraw(struct pdraw_app *app)
         cbs.play_resp = &pdrawPlayResp;
         cbs.pause_resp = &pdrawPauseResp;
         cbs.seek_resp = &pdrawSeekResp;
+        cbs.socket_created = &pdrawSocketCreated;
 
         ret = pdraw_new(NULL, &cbs, app, &app->pdraw);
         if (ret != 0)
@@ -1149,6 +1150,12 @@ void pdrawSeekResp(struct pdraw *pdraw, int status,
     uint64_t timestamp, void *userdata)
 {
     ULOGD("Seek response: status=%d ts=%" PRIu64, status, timestamp);
+}
+
+
+void pdrawSocketCreated(struct pdraw *pdraw, int fd, void *userdata)
+{
+    ULOGI("Socket created: fd=%d", fd);
 }
 
 

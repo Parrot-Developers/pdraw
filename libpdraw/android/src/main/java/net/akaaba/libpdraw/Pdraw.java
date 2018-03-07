@@ -186,6 +186,7 @@ public class Pdraw {
         public void pdrawPlayResponse(int status, long timestamp);
         public void pdrawPauseResponse(int status, long timestamp);
         public void pdrawSeekResponse(int status, long timestamp);
+        public void onPdrawSocketCreated(int fd);
     }
 
     public interface VideoFrameListener {
@@ -1081,6 +1082,12 @@ public class Pdraw {
     private void notifySeekResponse(int status, long timestamp) {
        if (mListener != null) {
            mListener.pdrawSeekResponse(status, timestamp);
+       }
+    }
+
+    private void notifySocketCreated(int fd) {
+       if (mListener != null) {
+           mListener.onPdrawSocketCreated(fd);
        }
     }
 

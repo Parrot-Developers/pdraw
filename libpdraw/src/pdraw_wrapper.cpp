@@ -112,6 +112,13 @@ public:
 		}
 	}
 
+	void onSocketCreated(
+		Pdraw::IPdraw *pdraw,
+		int fd) {
+		if (mCbs.socket_created)
+			(*mCbs.socket_created)(mPdraw, fd, mUserdata);
+	}
+
 private:
 	struct pdraw *mPdraw;
 	struct pdraw_cbs mCbs;
