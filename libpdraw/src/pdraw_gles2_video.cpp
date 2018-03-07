@@ -615,14 +615,17 @@ int Gles2Video::loadFrame(
 
 int Gles2Video::renderFrame(
 	size_t frameStride[3],
-	unsigned int frameWidth,
 	unsigned int frameHeight,
+	unsigned int cropLeft,
+	unsigned int cropTop,
+	unsigned int cropWidth,
+	unsigned int cropHeight,
 	unsigned int sarWidth,
 	unsigned int sarHeight,
-	unsigned int windowWidth,
-	unsigned int windowHeight,
-	unsigned int windowX,
-	unsigned int windowY,
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
 	enum gles2_video_color_conversion colorConversion,
 	const struct vmeta_frame_v2 *metadata,
 	bool headtracking,
@@ -632,9 +635,9 @@ int Gles2Video::renderFrame(
 	float vertices[16];
 	float texCoords[8];
 
-	if ((frameWidth == 0) || (frameHeight == 0) ||
+	if ((cropWidth == 0) || (cropHeight == 0) ||
 		(sarWidth == 0) || (sarHeight == 0) ||
-		(windowWidth == 0) || (windowHeight == 0) ||
+		(renderWidth == 0) || (renderHeight == 0) ||
 		(frameStride[0] == 0)) {
 		ULOGE("Gles2Video: invalid dimensions");
 		return -1;
@@ -675,9 +678,9 @@ int Gles2Video::renderFrame(
 	}
 
 	/* Keep the video aspect ratio */
-	float windowAR = (float)windowWidth / (float)windowHeight;
+	float windowAR = (float)renderWidth / (float)renderHeight;
 	float sar = (float)sarWidth / (float)sarHeight;
-	float videoAR = (float)frameWidth / (float)frameHeight * sar;
+	float videoAR = (float)cropWidth / (float)cropHeight * sar;
 	float windowW = 1.;
 	float windowH = windowAR;
 	float ratioW = 1.;
@@ -770,23 +773,31 @@ int Gles2Video::renderFrame(
 			mPositionHandle[colorConversion]));
 
 #ifdef BCM_VIDEOCORE
-		texCoords[0] = 0.0f;
-		texCoords[1] = 0.0f;
-		texCoords[2] = (float)frameWidth / (float)frameStride[0];
-		texCoords[3] = 0.0f;
-		texCoords[4] = 0.0f;
-		texCoords[5] = 1.0f;
-		texCoords[6] = (float)frameWidth / (float)frameStride[0];
-		texCoords[7] = 1.0f;
+		texCoords[0] = (float)cropLeft / (float)frameStride[0];
+		texCoords[1] = (float)cropTop / (float)frameHeight;
+		texCoords[2] = (float)(cropLeft + cropWidth) /
+			(float)frameStride[0];
+		texCoords[3] = (float)cropTop / (float)frameHeight;
+		texCoords[4] = (float)cropLeft / (float)frameStride[0];
+		texCoords[5] = (float)(cropTop + cropHeight) /
+			(float)frameHeight;
+		texCoords[6] = (float)(cropLeft + cropWidth) /
+			(float)frameStride[0];
+		texCoords[7] = (float)(cropTop + cropHeight) /
+			(float)frameHeight;
 #else /* BCM_VIDEOCORE */
-		texCoords[0] = 0.0f;
-		texCoords[1] = 1.0f;
-		texCoords[2] = (float)frameWidth / (float)frameStride[0];
-		texCoords[3] = 1.0f;
-		texCoords[4] = 0.0f;
-		texCoords[5] = 0.0f;
-		texCoords[6] = (float)frameWidth / (float)frameStride[0];
-		texCoords[7] = 0.0f;
+		texCoords[0] = (float)cropLeft / (float)frameStride[0];
+		texCoords[1] = (float)(cropTop + cropHeight) /
+			(float)frameHeight;
+		texCoords[2] = (float)(cropLeft + cropWidth) /
+			(float)frameStride[0];
+		texCoords[3] = (float)(cropTop + cropHeight) /
+			(float)frameHeight;
+		texCoords[4] = (float)cropLeft / (float)frameStride[0];
+		texCoords[5] = (float)cropTop / (float)frameHeight;
+		texCoords[6] = (float)(cropLeft + cropWidth) /
+			(float)frameStride[0];
+		texCoords[7] = (float)cropTop / (float)frameHeight;
 #endif /* BCM_VIDEOCORE */
 
 		GLCHK(glVertexAttribPointer(mTexcoordHandle[colorConversion],
@@ -802,7 +813,7 @@ int Gles2Video::renderFrame(
 			mTexcoordHandle[colorConversion]));
 
 		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, fbo));
-		GLCHK(glViewport(windowX, windowY, windowWidth, windowHeight));
+		GLCHK(glViewport(renderX, renderY, renderWidth, renderHeight));
 		GLCHK(glUseProgram(
 			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
@@ -891,23 +902,23 @@ int Gles2Video::renderFrame(
 	GLCHK(glEnableVertexAttribArray(mPositionHandle[colorConversion]));
 
 #ifdef BCM_VIDEOCORE
-	texCoords[0] = 0.0f;
-	texCoords[1] = 0.0f;
-	texCoords[2] = (float)frameWidth / (float)frameStride[0];
-	texCoords[3] = 0.0f;
-	texCoords[4] = 0.0f;
-	texCoords[5] = 1.0f;
-	texCoords[6] = (float)frameWidth / (float)frameStride[0];
-	texCoords[7] = 1.0f;
+	texCoords[0] = (float)cropLeft / (float)frameStride[0];
+	texCoords[1] = (float)cropTop / (float)frameHeight;
+	texCoords[2] = (float)(cropLeft + cropWidth) / (float)frameStride[0];
+	texCoords[3] = (float)cropTop / (float)frameHeight;
+	texCoords[4] = (float)cropLeft / (float)frameStride[0];
+	texCoords[5] = (float)(cropTop + cropHeight) / (float)frameHeight;
+	texCoords[6] = (float)(cropLeft + cropWidth) / (float)frameStride[0];
+	texCoords[7] = (float)(cropTop + cropHeight) / (float)frameHeight;
 #else /* BCM_VIDEOCORE */
-	texCoords[0] = 0.0f;
-	texCoords[1] = 1.0f;
-	texCoords[2] = (float)frameWidth / (float)frameStride[0];
-	texCoords[3] = 1.0f;
-	texCoords[4] = 0.0f;
-	texCoords[5] = 0.0f;
-	texCoords[6] = (float)frameWidth / (float)frameStride[0];
-	texCoords[7] = 0.0f;
+	texCoords[0] = (float)cropLeft / (float)frameStride[0];
+	texCoords[1] = (float)(cropTop + cropHeight) / (float)frameHeight;
+	texCoords[2] = (float)(cropLeft + cropWidth) / (float)frameStride[0];
+	texCoords[3] = (float)(cropTop + cropHeight) / (float)frameHeight;
+	texCoords[4] = (float)cropLeft / (float)frameStride[0];
+	texCoords[5] = (float)cropTop / (float)frameHeight;
+	texCoords[6] = (float)(cropLeft + cropWidth) / (float)frameStride[0];
+	texCoords[7] = (float)cropTop / (float)frameHeight;
 #endif /* BCM_VIDEOCORE */
 
 	GLCHK(glVertexAttribPointer(mTexcoordHandle[colorConversion],

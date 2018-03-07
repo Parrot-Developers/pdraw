@@ -439,12 +439,13 @@ int Gles2Renderer::render(
 		ret = (load) ? loadVideoFrame(cdata, data, colorConversion) : 0;
 		if (ret == 0) {
 			ret = mGles2Video->renderFrame(data->stride,
-				data->width, data->height,
+				data->height, data->cropLeft, data->cropTop,
+				data->cropWidth, data->cropHeight,
 				data->sarWidth, data->sarHeight,
-				(mHmdDistorsionCorrection) ? renderWidth / 2 :
-				renderWidth, renderHeight,
 				(mHmdDistorsionCorrection) ? 0 : renderX,
 				(mHmdDistorsionCorrection) ? 0 : renderY,
+				(mHmdDistorsionCorrection) ? renderWidth / 2 :
+				renderWidth, renderHeight,
 				colorConversion, &data->metadata, mHeadtracking,
 				(mHmdDistorsionCorrection) ? mFbo : 0);
 			if (ret < 0) {

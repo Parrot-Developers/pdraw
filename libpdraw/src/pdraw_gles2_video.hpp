@@ -94,14 +94,17 @@ public:
 
 	int renderFrame(
 		size_t frameStride[3],
-		unsigned int frameWidth,
 		unsigned int frameHeight,
+		unsigned int cropLeft,
+		unsigned int cropTop,
+		unsigned int cropWidth,
+		unsigned int cropHeight,
 		unsigned int sarWidth,
 		unsigned int sarHeight,
-		unsigned int windowWidth,
-		unsigned int windowHeight,
-		unsigned int windowX,
-		unsigned int windowY,
+		int renderX,
+		int renderY,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
 		enum gles2_video_color_conversion colorConversion,
 		const struct vmeta_frame_v2 *metadata,
 		bool headtracking, GLuint fbo);
