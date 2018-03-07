@@ -52,20 +52,16 @@ public:
 
 	int open(
 		const std::string &localAddr,
-		uint16_t localStreamPort,
-		uint16_t localControlPort,
+		int localStreamPort,
+		int localControlPort,
 		const std::string &remoteAddr,
-		uint16_t remoteStreamPort,
-		uint16_t remoteControlPort,
+		int remoteStreamPort,
+		int remoteControlPort,
 		const std::string &ifaceAddr);
 
 	int openSdp(
 		const std::string &sdp,
 		const std::string &ifaceAddr);
-
-	int getSingleStreamLocalPorts(
-		uint16_t *streamPort,
-		uint16_t *controlPort);
 
 private:
 	int openRtpAvp(

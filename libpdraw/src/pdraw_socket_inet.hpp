@@ -33,7 +33,6 @@
 #include <inttypes.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
 #include <libpomp.h>
 #include <string>
 
@@ -48,9 +47,9 @@ public:
 	InetSocket(
 		Session *session,
 		const std::string& localAddress,
-		uint16_t localPort,
+		int localPort,
 		const std::string& remoteAddress,
-		uint16_t remotePort,
+		int remotePort,
 		struct pomp_loop *loop,
 		pomp_fd_event_cb_t fdCb,
 		void *userdata);
@@ -72,24 +71,24 @@ public:
 		return mRxBuffer;
 	}
 
-	std::string getLocalAddress(
+	std::string& getLocalAddress(
 		void) {
-		return std::string(inet_ntoa(mLocalAddress.sin_addr));
+		return mLocalAddressStr;
 	}
 
-	uint16_t getLocalPort(
+	int getLocalPort(
 		void) {
-		return ntohs(mLocalAddress.sin_port);
+		return mLocalPort;
 	}
 
-	std::string getRemoteAddress(
+	std::string& getRemoteAddress(
 		void) {
-		return std::string(inet_ntoa(mRemoteAddress.sin_addr));
+		return mRemoteAddressStr;
 	}
 
-	uint16_t getRemotePort(
+	int getRemotePort(
 		void) {
-		return ntohs(mRemoteAddress.sin_port);
+		return mRemotePort;
 	}
 
 	size_t getRxBufferSize(
@@ -105,6 +104,10 @@ public:
 		size_t len);
 
 private:
+	std::string mLocalAddressStr;
+	int mLocalPort;
+	std::string mRemoteAddressStr;
+	int mRemotePort;
 	struct pomp_loop *mLoop;
 	int mFd;
 	pomp_fd_event_cb_t mFdCb;

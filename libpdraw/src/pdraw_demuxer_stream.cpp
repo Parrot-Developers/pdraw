@@ -46,6 +46,10 @@
 namespace Pdraw {
 
 
+#define DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT 55004
+#define DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT 55005
+
+
 StreamDemuxer::StreamDemuxer(
 	Session *session)
 {

@@ -97,11 +97,11 @@ public:
 
 	virtual int open(
 		const std::string &localAddr,
-		uint16_t localStreamPort,
-		uint16_t localControlPort,
+		int localStreamPort,
+		int localControlPort,
 		const std::string &remoteAddr,
-		uint16_t remoteStreamPort,
-		uint16_t remoteControlPort,
+		int remoteStreamPort,
+		int remoteControlPort,
 		const std::string &ifaceAddr) = 0;
 
 	virtual int open(
@@ -179,10 +179,6 @@ public:
 
 	virtual enum pdraw_session_type getSessionType(
 		void) = 0;
-
-	virtual int getSingleStreamLocalPorts(
-		uint16_t *streamPort,
-		uint16_t *controlPort) = 0;
 
 	virtual std::string getSelfFriendlyName(
 		void) = 0;

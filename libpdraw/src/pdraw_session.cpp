@@ -69,11 +69,11 @@ struct cmd_base {
 struct cmd_open_single {
 	struct cmd_base base;
 	char local_addr[16];
-	uint16_t local_stream_port;
-	uint16_t local_control_port;
+	int local_stream_port;
+	int local_control_port;
 	char remote_addr[16];
-	uint16_t remote_stream_port;
-	uint16_t remote_control_port;
+	int remote_stream_port;
+	int remote_control_port;
 	char iface_addr[16];
 };
 PDRAW_STATIC_ASSERT(sizeof(struct cmd_open_single) <= PIPE_BUF - 1);
@@ -386,11 +386,11 @@ int Session::open(
 
 int Session::open(
 	const std::string &localAddr,
-	uint16_t localStreamPort,
-	uint16_t localControlPort,
+	int localStreamPort,
+	int localControlPort,
 	const std::string &remoteAddr,
-	uint16_t remoteStreamPort,
-	uint16_t remoteControlPort,
+	int remoteStreamPort,
+	int remoteControlPort,
 	const std::string &ifaceAddr)
 {
 	if (mInternalLoop) {
@@ -789,38 +789,11 @@ int Session::render(
 
 
 enum pdraw_session_type Session::getSessionType(
-	void)
-{
+	void) {
 	pthread_mutex_lock(&mMutex);
 	enum pdraw_session_type ret = mSessionType;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
-}
-
-
-int Session::getSingleStreamLocalPorts(
-	uint16_t *streamPort,
-	uint16_t *controlPort)
-{
-	if (mDemuxer == NULL) {
-		ULOGE("Invalid demuxer");
-		return -EPROTO;
-	}
-
-	StreamDemuxerNet *demux = dynamic_cast<StreamDemuxerNet *>(mDemuxer);
-	if (demux == NULL) {
-		ULOGE("Invalid demuxer");
-		return -ENOSYS;
-	}
-
-	int ret = demux->getSingleStreamLocalPorts(streamPort, controlPort);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerNet::getSingleStreamLocalPorts",
-			-ret);
-		return ret;
-	}
-
-	return 0;
 }
 
 
@@ -1496,11 +1469,11 @@ out:
 
 int Session::internalOpen(
 	const std::string &localAddr,
-	uint16_t localStreamPort,
-	uint16_t localControlPort,
+	int localStreamPort,
+	int localControlPort,
 	const std::string &remoteAddr,
-	uint16_t remoteStreamPort,
-	uint16_t remoteControlPort,
+	int remoteStreamPort,
+	int remoteControlPort,
 	const std::string &ifaceAddr)
 {
 	int ret = 0;
