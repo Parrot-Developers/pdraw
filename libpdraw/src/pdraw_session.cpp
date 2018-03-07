@@ -69,11 +69,11 @@ struct cmd_base {
 struct cmd_open_single {
 	struct cmd_base base;
 	char local_addr[16];
-	int local_stream_port;
-	int local_control_port;
+	uint16_t local_stream_port;
+	uint16_t local_control_port;
 	char remote_addr[16];
-	int remote_stream_port;
-	int remote_control_port;
+	uint16_t remote_stream_port;
+	uint16_t remote_control_port;
 	char iface_addr[16];
 };
 PDRAW_STATIC_ASSERT(sizeof(struct cmd_open_single) <= PIPE_BUF - 1);
@@ -386,11 +386,11 @@ int Session::open(
 
 int Session::open(
 	const std::string &localAddr,
-	int localStreamPort,
-	int localControlPort,
+	uint16_t localStreamPort,
+	uint16_t localControlPort,
 	const std::string &remoteAddr,
-	int remoteStreamPort,
-	int remoteControlPort,
+	uint16_t remoteStreamPort,
+	uint16_t remoteControlPort,
 	const std::string &ifaceAddr)
 {
 	if (mInternalLoop) {
@@ -789,11 +789,40 @@ int Session::render(
 
 
 enum pdraw_session_type Session::getSessionType(
-	void) {
+	void)
+{
 	pthread_mutex_lock(&mMutex);
 	enum pdraw_session_type ret = mSessionType;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
+}
+
+
+uint16_t Session::getSingleStreamLocalStreamPort(
+	void)
+{
+	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(mDemuxer != NULL,
+		-EPROTO, 0, "invalid demuxer");
+
+	StreamDemuxerNet *demuxer = dynamic_cast<StreamDemuxerNet *>(mDemuxer);
+	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(demuxer != NULL,
+		-ENOSYS, 0, "invalid demuxer");
+
+	return demuxer->getSingleStreamLocalStreamPort();
+}
+
+
+uint16_t Session::getSingleStreamLocalControlPort(
+	void)
+{
+	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(mDemuxer != NULL,
+		-EPROTO, 0, "invalid demuxer");
+
+	StreamDemuxerNet *demuxer = dynamic_cast<StreamDemuxerNet *>(mDemuxer);
+	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(demuxer != NULL,
+		-ENOSYS, 0, "invalid demuxer");
+
+	return demuxer->getSingleStreamLocalControlPort();
 }
 
 
@@ -1469,11 +1498,11 @@ out:
 
 int Session::internalOpen(
 	const std::string &localAddr,
-	int localStreamPort,
-	int localControlPort,
+	uint16_t localStreamPort,
+	uint16_t localControlPort,
 	const std::string &remoteAddr,
-	int remoteStreamPort,
-	int remoteControlPort,
+	uint16_t remoteStreamPort,
+	uint16_t remoteControlPort,
 	const std::string &ifaceAddr)
 {
 	int ret = 0;

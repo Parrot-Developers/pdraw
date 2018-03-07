@@ -1756,6 +1756,42 @@ Java_net_akaaba_libpdraw_Pdraw_nativeRender(
 }
 
 
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeGetSingleStreamLocalStreamPort(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)0;
+    }
+
+    return pdraw_get_single_stream_local_stream_port(ctx->pdraw);
+}
+
+
+JNIEXPORT jint JNICALL
+Java_net_akaaba_libpdraw_Pdraw_nativeGetSingleStreamLocalControlPort(
+    JNIEnv *env,
+    jobject thizz,
+    jlong jctx)
+{
+    struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
+
+    if ((!ctx) || (!ctx->pdraw))
+    {
+        LOGE("invalid pointer");
+        return (jint)0;
+    }
+
+    return pdraw_get_single_stream_local_control_port(ctx->pdraw);
+}
+
+
 JNIEXPORT jstring JNICALL
 Java_net_akaaba_libpdraw_Pdraw_nativeGetSelfFriendlyName(
     JNIEnv *env,

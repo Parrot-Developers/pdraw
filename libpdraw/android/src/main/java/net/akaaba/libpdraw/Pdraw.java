@@ -391,6 +391,20 @@ public class Pdraw {
         nativeRender(pdrawCtx, lastRenderTime);
     }
 
+    public int getSingleStreamLocalStreamPort() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSingleStreamLocalStreamPort(pdrawCtx);
+    }
+
+    public int getSingleStreamLocalControlPort() {
+        if (!isValid()) {
+            throw new RuntimeException("invalid pdraw instance");
+        }
+        return nativeGetSingleStreamLocalControlPort(pdrawCtx);
+    }
+
     public void setVideoFrameListener(VideoFrameListener listener) {
         VideoFrameListener old = mVideoFrameListener;
         mVideoFrameListener = listener;
@@ -866,6 +880,12 @@ public class Pdraw {
     private native int nativeRender(
         long pdrawCtx,
         long lastRenderTime);
+
+    private native int nativeGetSingleStreamLocalStreamPort(
+        long pdrawCtx);
+
+    private native int nativeGetSingleStreamLocalControlPort(
+        long pdrawCtx);
 
     private native String nativeGetSelfFriendlyName(
         long pdrawCtx);
