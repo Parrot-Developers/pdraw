@@ -545,7 +545,7 @@ int Gles2Video::loadFrame(
 	unsigned int frameWidth,
 	unsigned int frameHeight,
 	enum gles2_video_color_conversion colorConversion,
-	void *eglDisplay)
+	struct egl_display *eglDisplay)
 {
 	unsigned int i;
 

@@ -44,32 +44,38 @@ namespace Pdraw {
 class Gles2Renderer : public Renderer {
 public:
 	Gles2Renderer(
-		Session *session,
-		bool initGles2 = true);
+		Session *session);
 
 	~Gles2Renderer(
 		void);
+
+	int open(
+		unsigned int windowWidth,
+		unsigned int windowHeight,
+		int renderX,
+		int renderY,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		bool hud,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		struct egl_display *eglDisplay);
+
+	int close(
+		void);
+
+	int render(
+		int renderX,
+		int renderY,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		uint64_t timestamp);
 
 	int addAvcDecoder(
 		AvcDecoder *decoder);
 
 	int removeAvcDecoder(
 		AvcDecoder *decoder);
-
-	int setRendererParams(
-		int windowWidth,
-		int windowHeight,
-		int renderX,
-		int renderY,
-		int renderWidth,
-		int renderHeight,
-		bool hud,
-		bool hmdDistorsionCorrection,
-		bool headtracking,
-		void *uiHandler);
-
-	int render(
-		uint64_t lastRenderTime);
 
 	Session *getSession(
 		void) {
@@ -87,27 +93,6 @@ public:
 	}
 
 protected:
-	int initGles2(
-		void);
-
-	int destroyGles2(
-		void);
-
-	int setRendererParams_nolock(
-		int windowWidth,
-		int windowHeight,
-		int renderX,
-		int renderY,
-		int renderWidth,
-		int renderHeight,
-		bool hud,
-		bool hmdDistorsionCorrection,
-		bool headtracking,
-		void *uiHandler);
-
-	int render_nolock(
-		uint64_t lastRenderTime);
-
 	virtual int loadVideoFrame(
 		const uint8_t *data,
 		struct avcdecoder_output_buffer *frame,
@@ -118,12 +103,8 @@ protected:
 	AvcDecoder *mDecoder;
 	struct vbuf_queue *mDecoderOutputBufferQueue;
 	struct vbuf_buffer *mCurrentBuffer;
-	int mWindowWidth;
-	int mWindowHeight;
-	int mRenderX;
-	int mRenderY;
-	int mRenderWidth;
-	int mRenderHeight;
+	unsigned int mWindowWidth;
+	unsigned int mWindowHeight;
 	bool mHud;
 	bool mHmdDistorsionCorrection;
 	bool mHeadtracking;

@@ -90,7 +90,7 @@ public:
 		unsigned int frameWidth,
 		unsigned int frameHeight,
 		enum gles2_video_color_conversion colorConversion,
-		void *eglDisplay);
+		struct egl_display *eglDisplay = NULL);
 
 	int renderFrame(
 		size_t frameStride[3],

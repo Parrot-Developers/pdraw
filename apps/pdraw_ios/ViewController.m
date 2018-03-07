@@ -119,14 +119,13 @@
         return;
     }
 
-    ret = pdraw_start_renderer(self.pdraw,
-                               (int)(_screenWidth * _contentScaleFactor),
-                               (int)(_screenHeight * _contentScaleFactor), 0, 0,
-                               (int)(_screenWidth * _contentScaleFactor),
-                               (int)(_screenHeight * _contentScaleFactor),
-                               1, 0, 0, NULL);
+    ret = pdraw_start_video_renderer(self.pdraw,
+                               (unsigned int)(_screenWidth * _contentScaleFactor),
+                               (unsigned int)(_screenHeight * _contentScaleFactor), 0, 0,
+                               (unsigned int)(_screenWidth * _contentScaleFactor),
+                               (unsigned int)(_screenHeight * _contentScaleFactor), 1, 0, 0);
     if (ret < 0) {
-        NSLog(@"pdraw_start_renderer() failed (%d)", ret);
+        NSLog(@"pdraw_start_video_renderer() failed (%d)", ret);
         return;
     }
 
@@ -151,22 +150,27 @@
             _screenWidth = screenWidth;
             _screenHeight = screenHeight;
             _contentScaleFactor = contentScaleFactor;
-            int ret = pdraw_start_renderer(self.pdraw,
+            int ret = pdraw_stop_video_renderer(self.pdraw);
+            if (ret < 0)
+            {
+                NSLog(@"pdraw_stop_video_renderer() failed (%d)", ret);
+                return;
+            }
+            ret = pdraw_start_video_renderer(self.pdraw,
                                        (int)(_screenWidth * _contentScaleFactor),
                                        (int)(_screenHeight * _contentScaleFactor), 0, 0,
                                        (int)(_screenWidth * _contentScaleFactor),
-                                       (int)(_screenHeight * _contentScaleFactor),
-                                       1, 0, 0, NULL);
+                                       (int)(_screenHeight * _contentScaleFactor), 1, 0, 0);
             if (ret < 0) {
-                NSLog(@"pdraw_start_renderer() failed (%d)", ret);
+                NSLog(@"pdraw_start_video_renderer() failed (%d)", ret);
                 return;
             }
         }
 
         struct timespec t1;
-        int ret = pdraw_render(self.pdraw, _lastRenderTime);
+        int ret = pdraw_render_video(self.pdraw, 0, 0, 0, 0, _lastRenderTime);
         if (ret < 0) {
-            NSLog(@"pdraw_render() failed (%d)", ret);
+            NSLog(@"pdraw_render_video() failed (%d)", ret);
             return;
         }
         clock_gettime(CLOCK_MONOTONIC, &t1);

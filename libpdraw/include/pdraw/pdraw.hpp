@@ -159,23 +159,27 @@ public:
 	virtual uint64_t getCurrentTime(
 		void) = 0;
 
-	virtual int startRenderer(
-		int windowWidth,
-		int windowHeight,
+	virtual int startVideoRenderer(
+		unsigned int windowWidth,
+		unsigned int windowHeight,
 		int renderX,
 		int renderY,
-		int renderWidth,
-		int renderHeight,
-		bool hud,
-		bool hmdDistorsionCorrection,
-		bool headtracking,
-		void *uiHandler) = 0;
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		bool enableHud,
+		bool enableHmdDistorsionCorrection,
+		bool enableHeadtracking,
+		struct egl_display *eglDisplay = NULL) = 0;
 
-	virtual int stopRenderer(
+	virtual int stopVideoRenderer(
 		void) = 0;
 
-	virtual int render(
-		uint64_t lastRenderTime) = 0;
+	virtual int renderVideo(
+		int renderX,
+		int renderY,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		uint64_t timestamp) = 0;
 
 	virtual enum pdraw_session_type getSessionType(
 		void) = 0;

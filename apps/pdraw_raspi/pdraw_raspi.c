@@ -520,14 +520,13 @@ int main(int argc, char *argv[])
         {
             if (app->pdraw)
             {
-                int ret = pdraw_render(app->pdraw, lastRenderTime);
+                int ret = pdraw_render_video(app->pdraw, 0, 0, 0, 0, lastRenderTime);
                 if (ret < 0)
                 {
-                    ULOGE("pdraw_render() failed (%d)", ret);
+                    ULOGE("pdraw_render_video() failed (%d)", ret);
                     failed = 1;
                 }
-                if (ret > 0)
-                    eglSwapBuffers(app->display, app->surface);
+                eglSwapBuffers(app->display, app->surface);
 
                 struct timespec t1;
                 clock_gettime(CLOCK_MONOTONIC, &t1);
@@ -1206,15 +1205,14 @@ int startPdraw(struct pdraw_app *app)
 
     if (ret == 0)
     {
-        ret = pdraw_start_renderer(app->pdraw,
-                                   app->screenWidth, app->screenHeight, 0, 0,
-                                   app->screenWidth, app->screenHeight, 1, 0, 0,
-                                   (void*)app->display);
+        ret = pdraw_start_video_renderer_egl(app->pdraw,
+                                   app->screenWidth, app->screenHeight,
+                                   0, 0, app->screenWidth, app->screenHeight,
+                                   1, 0, 0, (struct egl_display *)app->display);
         if (ret < 0)
         {
-            ULOGE("pdraw_start_renderer() failed (%d)", ret);
+            ULOGE("pdraw_start_video_renderer_egl() failed (%d)", ret);
         }
-        ret = 0;
     }
 
     return ret;
@@ -1229,10 +1227,10 @@ void stopPdraw(struct pdraw_app *app)
 
         ULOGI("Stop libpdraw");
 
-        ret = pdraw_stop_renderer(app->pdraw);
+        ret = pdraw_stop_video_renderer(app->pdraw);
         if (ret < 0)
         {
-            ULOGE("pdraw_stop_renderer() failed (%d)", ret);
+            ULOGE("pdraw_stop_video_renderer() failed (%d)", ret);
         }
 
         ret = pdraw_close(app->pdraw);

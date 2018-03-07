@@ -358,37 +358,42 @@ public class Pdraw {
         return nativeGetCurrentTime(pdrawCtx);
     }
 
-    public void startRenderer(
+    public void startVideoRenderer(
         int windowWidth,
         int windowHeight,
         int renderX,
         int renderY,
         int renderWidth,
         int renderHeight,
-        boolean hud,
-        boolean hmdDistorsionCorrection,
-        boolean headtracking,
+        boolean enableHud,
+        boolean enableHmdDistorsionCorrection,
+        boolean enableHeadtracking,
         Surface surface) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeStartRenderer(pdrawCtx, windowWidth, windowHeight, renderX, renderY,
-            renderWidth, renderHeight, hud, hmdDistorsionCorrection,
-            headtracking, surface);
+        nativeStartVideoRenderer(pdrawCtx, windowWidth, windowHeight, renderX, renderY,
+            renderWidth, renderHeight, enableHud, enableHmdDistorsionCorrection,
+            enableHeadtracking, surface);
     }
 
-    public void stopRenderer() {
+    public void stopVideoRenderer() {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeStopRenderer(pdrawCtx);
+        nativeStopVideoRenderer(pdrawCtx);
     }
 
-    public void render(long lastRenderTime) {
+    public void renderVideo(
+        int renderX,
+        int renderY,
+        int renderWidth,
+        int renderHeight,
+        long timestamp) {
         if (!isValid()) {
             throw new RuntimeException("invalid pdraw instance");
         }
-        nativeRender(pdrawCtx, lastRenderTime);
+        nativeRenderVideo(pdrawCtx, renderX, renderY, renderWidth, renderHeight, timestamp);
     }
 
     public int getSingleStreamLocalStreamPort() {
@@ -861,7 +866,7 @@ public class Pdraw {
     private native long nativeGetCurrentTime(
         long pdrawCtx);
 
-    private native int nativeStartRenderer(
+    private native int nativeStartVideoRenderer(
         long pdrawCtx,
         int windowWidth,
         int windowHeight,
@@ -869,17 +874,21 @@ public class Pdraw {
         int renderY,
         int renderWidth,
         int renderHeight,
-        boolean hud,
-        boolean hmdDistorsionCorrection,
-        boolean headtracking,
+        boolean enableHud,
+        boolean enableHmdDistorsionCorrection,
+        boolean enableHeadtracking,
         Surface surface);
 
-    private native int nativeStopRenderer(
+    private native int nativeStopVideoRenderer(
         long pdrawCtx);
 
-    private native int nativeRender(
+    private native int nativeRenderVideo(
         long pdrawCtx,
-        long lastRenderTime);
+        int renderX,
+        int renderY,
+        int renderWidth,
+        int renderHeight,
+        long timestamp);
 
     private native int nativeGetSingleStreamLocalStreamPort(
         long pdrawCtx);

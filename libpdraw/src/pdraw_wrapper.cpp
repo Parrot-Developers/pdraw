@@ -431,48 +431,76 @@ uint64_t pdraw_get_current_time(
 }
 
 
-int pdraw_start_renderer(
+int pdraw_start_video_renderer(
 	struct pdraw *pdraw,
-	int windowWidth,
-	int windowHeight,
+	unsigned int windowWidth,
+	unsigned int windowHeight,
 	int renderX,
 	int renderY,
-	int renderWidth,
-	int renderHeight,
-	int hud,
-	int hmdDistorsionCorrection,
-	int headtracking,
-	void *uiHandler)
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	int enableHud,
+	int enableHmdDistorsionCorrection,
+	int enableHeadtracking)
 {
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return pdraw->pdraw->startRenderer(windowWidth, windowHeight,
+	return pdraw->pdraw->startVideoRenderer(windowWidth, windowHeight,
 		renderX, renderY, renderWidth, renderHeight,
-		(hud) ? true : false,
-		(hmdDistorsionCorrection) ? true : false,
-		(headtracking) ? true : false, uiHandler);
+		(enableHud) ? true : false,
+		(enableHmdDistorsionCorrection) ? true : false,
+		(enableHeadtracking) ? true : false, NULL);
 }
 
 
-int pdraw_stop_renderer(
+int pdraw_start_video_renderer_egl(
+	struct pdraw *pdraw,
+	unsigned int windowWidth,
+	unsigned int windowHeight,
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	int enableHud,
+	int enableHmdDistorsionCorrection,
+	int enableHeadtracking,
+	struct egl_display *eglDisplay)
+{
+	if (pdraw == NULL)
+		return -EINVAL;
+
+	return pdraw->pdraw->startVideoRenderer(windowWidth, windowHeight,
+		renderX, renderY, renderWidth, renderHeight,
+		(enableHud) ? true : false,
+		(enableHmdDistorsionCorrection) ? true : false,
+		(enableHeadtracking) ? true : false, eglDisplay);
+}
+
+
+int pdraw_stop_video_renderer(
 	struct pdraw *pdraw)
 {
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return pdraw->pdraw->stopRenderer();
+	return pdraw->pdraw->stopVideoRenderer();
 }
 
 
-int pdraw_render(
+int pdraw_render_video(
 	struct pdraw *pdraw,
-	uint64_t lastRenderTime)
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	uint64_t timestamp)
 {
 	if (pdraw == NULL)
 		return -EINVAL;
 
-	return pdraw->pdraw->render(lastRenderTime);
+	return pdraw->pdraw->renderVideo(renderX, renderY,
+		renderWidth, renderHeight, timestamp);
 }
 
 

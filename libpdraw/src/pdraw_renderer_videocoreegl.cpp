@@ -55,37 +55,30 @@ VideoCoreEglRenderer::~VideoCoreEglRenderer(
 }
 
 
-int VideoCoreEglRenderer::setRendererParams(
-	int windowWidth,
-	int windowHeight,
+int VideoCoreEglRenderer::open(
+	unsigned int windowWidth,
+	unsigned int windowHeight,
 	int renderX,
 	int renderY,
-	int renderWidth,
-	int renderHeight,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
 	bool hud,
 	bool hmdDistorsionCorrection,
 	bool headtracking,
-	void *uiHandler)
+	struct egl_display *eglDisplay)
 {
-	int ret = 0;
+	if (eglDisplay == NULL) {
+		ULOGE("VideoCoreEglRenderer: invalid EGL display");
+		return -EINVAL;
+	}
+	mDisplay = (EGLDisplay)eglDisplay;
 
 	/* HMD distorsion correction is not supported with VideoCore 4 */
 	hmdDistorsionCorrection = false; /* TODO */
 
-	pthread_mutex_lock(&mMutex);
-
-	ret = Gles2Renderer::setRendererParams_nolock(windowWidth, windowHeight,
+	return Gles2Renderer::open(windowWidth, windowHeight,
 		renderX, renderY, renderWidth, renderHeight, hud,
-		hmdDistorsionCorrection, headtracking, uiHandler);
-
-	mDisplay = (EGLDisplay)uiHandler;
-
-	if (ret > 0)
-		mRunning = true;
-
-	pthread_mutex_unlock(&mMutex);
-
-	return ret;
+		hmdDistorsionCorrection, headtracking, eglDisplay);
 }
 
 
@@ -96,7 +89,8 @@ int VideoCoreEglRenderer::loadVideoFrame(
 {
 	int ret;
 	ret = mGles2Video->loadFrame(data, frame->plane_offset, frame->stride,
-		frame->width, frame->height, colorConversion, (void *)mDisplay);
+		frame->width, frame->height, colorConversion,
+		(struct egl_display *)mDisplay);
 	if (ret < 0)
 		ULOGE("VideoCoreEglRenderer: failed to load video frame");
 	return 0;

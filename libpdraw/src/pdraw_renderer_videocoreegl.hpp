@@ -49,17 +49,17 @@ public:
 	~VideoCoreEglRenderer(
 		void);
 
-	int setRendererParams(
-		int windowWidth,
-		int windowHeight,
+	int open(
+		unsigned int windowWidth,
+		unsigned int windowHeight,
 		int renderX,
 		int renderY,
-		int renderWidth,
-		int renderHeight,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
 		bool hud,
 		bool hmdDistorsionCorrection,
 		bool headtracking,
-		void *uiHandler);
+		struct egl_display *eglDisplay);
 
 private:
 	int loadVideoFrame(

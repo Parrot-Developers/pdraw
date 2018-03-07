@@ -453,19 +453,21 @@ int main(int argc, char *argv[])
                 {
                     if (event.window.event == SDL_WINDOWEVENT_RESIZED)
                     {
+                        int ret;
                         app->windowWidth = event.window.data1;
                         app->windowHeight = event.window.data2;
-                        int ret = pdraw_start_renderer(app->pdraw,
-                                                       app->windowWidth, app->windowHeight, 0, 0,
-                                                       app->windowWidth, app->windowHeight,
-                                                       1, app->hmd, app->headtracking, NULL);
+                        ret = pdraw_stop_video_renderer(app->pdraw);
                         if (ret < 0)
                         {
-                            ULOGE("pdraw_start_renderer() failed (%d)", ret);
+                            ULOGE("pdraw_stop_video_renderer() failed (%d)", ret);
                         }
-                        else
+                        ret = pdraw_start_video_renderer(app->pdraw,
+                                                       app->windowWidth, app->windowHeight,
+                                                       0, 0, app->windowWidth, app->windowHeight,
+                                                       1, app->hmd, app->headtracking);
+                        if (ret < 0)
                         {
-                            ret = 0;
+                            ULOGE("pdraw_start_video_renderer() failed (%d)", ret);
                         }
                     }
                     break;
@@ -683,7 +685,7 @@ int main(int argc, char *argv[])
 
         if (app->pdraw)
         {
-            int ret = pdraw_render(app->pdraw, lastRenderTime);
+            int ret = pdraw_render_video(app->pdraw, 0, 0, 0, 0, lastRenderTime);
             if (ret < 0)
             {
                 ULOGE("pdraw_render() failed (%d)", ret);
@@ -893,17 +895,13 @@ int startPdraw(struct pdraw_app *app)
 #ifdef BUILD_SDL2
     if (ret == 0)
     {
-        ret = pdraw_start_renderer(app->pdraw,
-                                   app->windowWidth, app->windowHeight, 0, 0,
+        ret = pdraw_start_video_renderer(app->pdraw,
                                    app->windowWidth, app->windowHeight,
-                                   1, app->hmd, app->headtracking, NULL);
+                                   0, 0, app->windowWidth, app->windowHeight,
+                                   1, app->hmd, app->headtracking);
         if (ret < 0)
         {
-            ULOGE("pdraw_start_renderer() failed (%d)", ret);
-        }
-        else
-        {
-            ret = 0;
+            ULOGE("pdraw_start_video_renderer() failed (%d)", ret);
         }
     }
 #endif /* BUILD_SDL2 */
@@ -920,10 +918,10 @@ void stopPdraw(struct pdraw_app *app)
 
         ULOGI("Stop libpdraw");
 
-        ret = pdraw_stop_renderer(app->pdraw);
+        ret = pdraw_stop_video_renderer(app->pdraw);
         if (ret < 0)
         {
-            ULOGE("pdraw_stop_renderer() failed (%d)", ret);
+            ULOGE("pdraw_stop_video_renderer() failed (%d)", ret);
         }
 
         ret = pdraw_close(app->pdraw);

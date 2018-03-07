@@ -45,26 +45,33 @@ public:
 	virtual ~Renderer(
 		void) {}
 
+	virtual int open(
+		unsigned int windowWidth,
+		unsigned int windowHeight,
+		int renderX,
+		int renderY,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		bool hud,
+		bool hmdDistorsionCorrection,
+		bool headtracking,
+		struct egl_display *eglDisplay) = 0;
+
+	virtual int close(
+		void) = 0;
+
+	virtual int render(
+		int renderX,
+		int renderY,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		uint64_t timestamp) = 0;
+
 	virtual int addAvcDecoder(
 		AvcDecoder *decoder) = 0;
 
 	virtual int removeAvcDecoder(
 		AvcDecoder *decoder) = 0;
-
-	virtual int setRendererParams(
-		int windowWidth,
-		int windowHeight,
-		int renderX,
-		int renderY,
-		int renderWidth,
-		int renderHeight,
-		bool hud,
-		bool hmdDistorsionCorrection,
-		bool headtracking,
-		void *uiHandler) = 0;
-
-	virtual int render(
-		uint64_t lastRenderTime) = 0;
 
 	virtual Session *getSession(
 		void) = 0;

@@ -137,25 +137,29 @@ public:
 		void);
 
 	/* Called on the rendering thread */
-	int startRenderer(
-		int windowWidth,
-		int windowHeight,
+	int startVideoRenderer(
+		unsigned int windowWidth,
+		unsigned int windowHeight,
 		int renderX,
 		int renderY,
-		int renderWidth,
-		int renderHeight,
-		bool hud,
-		bool hmdDistorsionCorrection,
-		bool headtracking,
-		void *uiHandler);
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		bool enableHud,
+		bool enableHmdDistorsionCorrection,
+		bool enableHeadtracking,
+		struct egl_display *eglDisplay = NULL);
 
 	/* Called on the rendering thread */
-	int stopRenderer(
+	int stopVideoRenderer(
 		void);
 
 	/* Called on the rendering thread */
-	int render(
-		uint64_t lastRenderTime);
+	int renderVideo(
+		int renderX,
+		int renderY,
+		unsigned int renderWidth,
+		unsigned int renderHeight,
+		uint64_t timestamp);
 
 	enum pdraw_session_type getSessionType(
 		void);
@@ -486,12 +490,6 @@ private:
 
 	void setState(
 		enum State state);
-
-	int enableRenderer(
-		void);
-
-	int disableRenderer(
-		void);
 
 	int addMediaFromDemuxer(
 		void);

@@ -211,27 +211,44 @@ uint64_t pdraw_get_current_time(
 	struct pdraw *pdraw);
 
 
-int pdraw_start_renderer(
+int pdraw_start_video_renderer(
 	struct pdraw *pdraw,
-	int windowWidth,
-	int windowHeight,
+	unsigned int windowWidth,
+	unsigned int windowHeight,
 	int renderX,
 	int renderY,
-	int renderWidth,
-	int renderHeight,
-	int hud,
-	int hmdDistorsionCorrection,
-	int headtracking,
-	void *uiHandler);
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	int enableHud,
+	int enableHmdDistorsionCorrection,
+	int enableHeadtracking);
 
 
-int pdraw_stop_renderer(
+int pdraw_start_video_renderer_egl(
+	struct pdraw *pdraw,
+	unsigned int windowWidth,
+	unsigned int windowHeight,
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	int enableHud,
+	int enableHmdDistorsionCorrection,
+	int enableHeadtracking,
+	struct egl_display *eglDisplay);
+
+
+int pdraw_stop_video_renderer(
 	struct pdraw *pdraw);
 
 
-int pdraw_render(
+int pdraw_render_video(
 	struct pdraw *pdraw,
-	uint64_t lastRenderTime);
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	uint64_t timestamp);
 
 
 enum pdraw_session_type pdraw_get_session_type(

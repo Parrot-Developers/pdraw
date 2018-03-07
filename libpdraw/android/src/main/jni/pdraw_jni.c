@@ -1678,7 +1678,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeGetCurrentTime(
 
 
 JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
+Java_net_akaaba_libpdraw_Pdraw_nativeStartVideoRenderer(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
@@ -1688,9 +1688,9 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
     jint renderY,
     jint renderWidth,
     jint renderHeight,
-    jboolean hud,
-    jboolean hmdDistorsionCorrection,
-    jboolean headtracking,
+    jboolean enableHud,
+    jboolean enableHmdDistorsionCorrection,
+    jboolean enableHeadtracking,
     jobject surface)
 {
     int ret = 0;
@@ -1700,6 +1700,11 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
     if ((!ctx) || (!ctx->pdraw) || (!surface))
     {
         LOGE("invalid pointer");
+        return (jint)-1;
+    }
+    if ((windowWidth < 0) || (windowHeight < 0) || (renderWidth < 0) || (renderHeight < 0))
+    {
+        LOGE("invalid param");
         return (jint)-1;
     }
 
@@ -1749,7 +1754,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
     int videoWidth = 1920; /* TODO */
     int videoHeight = 1080; /* TODO */
     int geoW = videoWidth, geoH = videoHeight;
-    if (hmdDistorsionCorrection) {
+    if (enableHmdDistorsionCorrection) {
         geoW = windowWidth;
         geoH = windowHeight;
     } else {
@@ -1794,14 +1799,21 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
     renderWidth = renderWidth * w / windowWidth;
     renderHeight = renderHeight * h / windowHeight;
 
-    ret = pdraw_start_renderer(ctx->pdraw, (int)w, (int)h,
-        (int)renderX, (int)renderY, (int)renderWidth, (int)renderHeight,
-        (hud == JNI_TRUE) ? 1 : 0,
-        (hmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
-        (headtracking == JNI_TRUE) ? 1 : 0, (void*)ctx->window);
+    ret = pdraw_start_video_renderer(ctx->pdraw, (unsigned int)w, (unsigned int)h,
+        (int)renderX, (int)renderY,
+        (unsigned int)renderWidth, (unsigned int)renderHeight,
+        (enableHud == JNI_TRUE) ? 1 : 0,
+        (enableHmdDistorsionCorrection == JNI_TRUE) ? 1 : 0,
+        (enableHeadtracking == JNI_TRUE) ? 1 : 0);
+    if (ret != 0)
+    {
+        LOGE("pdraw_start_video_renderer() failed (%d)", ret);
+        return (jint)-1;
+    }
 
     eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     ctx->rendererThreadShouldStop = 0;
+
     if (ret == 0)
     {
         ret = pthread_create(&ctx->rendererThread, NULL, runRendererThread, (void *)ctx);
@@ -1818,7 +1830,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStartRenderer(
 
 
 JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeStopRenderer(
+Java_net_akaaba_libpdraw_Pdraw_nativeStopVideoRenderer(
     JNIEnv *env,
     jobject thizz,
     jlong jctx)
@@ -1854,7 +1866,7 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStopRenderer(
         return (jint)-1;
     }
 
-    ret = pdraw_stop_renderer(ctx->pdraw);
+    ret = pdraw_stop_video_renderer(ctx->pdraw);
 
     eglMakeCurrent(ctx->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (ctx->context != EGL_NO_CONTEXT)
@@ -1883,11 +1895,15 @@ Java_net_akaaba_libpdraw_Pdraw_nativeStopRenderer(
 
 
 JNIEXPORT jint JNICALL
-Java_net_akaaba_libpdraw_Pdraw_nativeRender(
+Java_net_akaaba_libpdraw_Pdraw_nativeRenderVideo(
     JNIEnv *env,
     jobject thizz,
     jlong jctx,
-    jlong lastRenderTime)
+    jint renderX,
+    jint renderY,
+    jint renderWidth,
+    jint renderHeight,
+    jlong timestamp)
 {
     struct pdraw_jni_ctx *ctx = (struct pdraw_jni_ctx*)(intptr_t)jctx;
 
@@ -1896,8 +1912,16 @@ Java_net_akaaba_libpdraw_Pdraw_nativeRender(
         LOGE("invalid pointer");
         return (jint)-1;
     }
+    if ((renderWidth < 0) || (renderHeight < 0))
+    {
+        LOGE("invalid param");
+        return (jint)-1;
+    }
 
-    return (jint)pdraw_render(ctx->pdraw, (uint64_t)lastRenderTime);
+    return (jint)pdraw_render_video(ctx->pdraw,
+        (int)renderX, (int)renderY,
+        (unsigned int)renderWidth, (unsigned int)renderHeight,
+        (uint64_t)timestamp);
 }
 
 
@@ -3302,11 +3326,10 @@ static void *runRendererThread(void *ptr)
 
     while (!ctx->rendererThreadShouldStop)
     {
-        ret = pdraw_render(ctx->pdraw, (uint64_t)lastRenderTime);
+        ret = pdraw_render_video(ctx->pdraw, 0, 0, 0, 0, (uint64_t)lastRenderTime);
         if (ret < 0)
-            LOGE("pdraw_render() failed (%d)", ret);
-        if (ret > 0)
-            eglSwapBuffers(ctx->display, ctx->surface);
+            LOGE("pdraw_render_video() failed (%d)", ret);
+        eglSwapBuffers(ctx->display, ctx->surface);
         struct timespec t1;
         clock_gettime(CLOCK_MONOTONIC, &t1);
         lastRenderTime = (uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;

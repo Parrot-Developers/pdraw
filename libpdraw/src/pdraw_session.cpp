@@ -726,61 +726,101 @@ uint64_t Session::getCurrentTime(
 
 
 /* Called on the rendering thread */
-int Session::startRenderer(
-	int windowWidth,
-	int windowHeight,
+int Session::startVideoRenderer(
+	unsigned int windowWidth,
+	unsigned int windowHeight,
 	int renderX,
 	int renderY,
-	int renderWidth,
-	int renderHeight,
-	bool hud,
-	bool hmdDistorsionCorrection,
-	bool headtracking,
-	void *uiHandler)
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	bool enableHud,
+	bool enableHmdDistorsionCorrection,
+	bool enableHeadtracking,
+	struct egl_display *eglDisplay)
 {
-	if (mRenderer == NULL) {
-		int ret = enableRenderer();
-		if (ret != 0)
-			ULOGE("Failed to enable renderer");
-	}
+	int ret = 0;
 
 	if (mRenderer != NULL) {
-		return mRenderer->setRendererParams(
-			windowWidth, windowHeight, renderX, renderY,
-			renderWidth, renderHeight, hud,
-			hmdDistorsionCorrection, headtracking, uiHandler);
-	} else {
-		ULOGE("Invalid renderer");
-		return -1;
+		ULOGE("Session: a renderer is already enabled");
+		return -EBUSY;
 	}
+
+	mRenderer = Renderer::create(this);
+	if (mRenderer == NULL) {
+		ULOGE("Session: failed to create renderer");
+		return -EPROTO;
+	}
+
+	std::vector<Media*>::iterator m;
+	pthread_mutex_lock(&mMutex);
+
+	for (m = mMedias.begin(); m < mMedias.end(); m++) {
+		pthread_mutex_unlock(&mMutex);
+		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
+			ret = mRenderer->addAvcDecoder(
+				(AvcDecoder*)((*m)->getDecoder()));
+			if (ret != 0) {
+				ULOGE("Session: failed to add decoder "
+					"to renderer");
+			}
+		}
+		pthread_mutex_lock(&mMutex);
+	}
+
+	pthread_mutex_unlock(&mMutex);
+
+	return mRenderer->open(windowWidth, windowHeight, renderX, renderY,
+		renderWidth, renderHeight, enableHud,
+		enableHmdDistorsionCorrection, enableHeadtracking, eglDisplay);
 }
 
 
 /* Called on the rendering thread */
-int Session::stopRenderer(
+int Session::stopVideoRenderer(
 	void)
 {
-	if (mRenderer != NULL) {
-		int ret = disableRenderer();
-		if (ret != 0) {
-			ULOGE("Failed to disable renderer");
-			return -1;
-		}
-	} else {
-		ULOGE("Invalid renderer");
-		return -1;
+	int ret = 0;
+
+	if (mRenderer == NULL) {
+		ULOGE("Session: no renderer is enabled");
+		return -ENOENT;
 	}
+
+	std::vector<Media*>::iterator m;
+	pthread_mutex_lock(&mMutex);
+
+	for (m = mMedias.begin(); m < mMedias.end(); m++) {
+		pthread_mutex_unlock(&mMutex);
+		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
+			ret = mRenderer->removeAvcDecoder(
+				(AvcDecoder*)((*m)->getDecoder()));
+			if (ret != 0) {
+				ULOGE("Session: failed to remove decoder "
+					"from renderer");
+			}
+		}
+		pthread_mutex_lock(&mMutex);
+	}
+
+	pthread_mutex_unlock(&mMutex);
+	delete mRenderer;
+	mRenderer = NULL;
 
 	return 0;
 }
 
 
 /* Called on the rendering thread */
-int Session::render(
-	uint64_t lastRenderTime)
+int Session::renderVideo(
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	uint64_t timestamp)
 {
 	if (mRenderer != NULL) {
-		return mRenderer->render(lastRenderTime);
+		return mRenderer->render(renderX, renderY,
+			renderWidth, renderHeight, timestamp);
 	} else {
 		ULOGE("Invalid renderer");
 		return -1;
@@ -2047,79 +2087,6 @@ void Session::socketCreated(
 {
 	if (mListener)
 		mListener->onSocketCreated(this, fd);
-}
-
-
-/* Called on the rendering thread */
-int Session::enableRenderer(
-	void)
-{
-	int ret = 0;
-
-	if (mRenderer != NULL) {
-		ULOGE("Session: renderer is already enabled");
-		return -1;
-	}
-
-	mRenderer = Renderer::create(this);
-	if (mRenderer == NULL) {
-		ULOGE("Session: failed to alloc renderer");
-		return -1;
-	}
-
-	std::vector<Media*>::iterator m;
-	pthread_mutex_lock(&mMutex);
-
-	for (m = mMedias.begin(); m < mMedias.end(); m++) {
-		pthread_mutex_unlock(&mMutex);
-		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
-			ret = mRenderer->addAvcDecoder(
-				(AvcDecoder*)((*m)->getDecoder()));
-			if (ret != 0) {
-				ULOGE("Session: failed to add decoder "
-					"to renderer");
-			}
-		}
-		pthread_mutex_lock(&mMutex);
-	}
-
-	pthread_mutex_unlock(&mMutex);
-	return ret;
-}
-
-
-/* Called on the rendering thread */
-int Session::disableRenderer(
-	void)
-{
-	int ret = 0;
-
-	if (mRenderer == NULL) {
-		ULOGE("Session: renderer is not enabled");
-		return -1;
-	}
-
-	std::vector<Media*>::iterator m;
-	pthread_mutex_lock(&mMutex);
-
-	for (m = mMedias.begin(); m < mMedias.end(); m++) {
-		pthread_mutex_unlock(&mMutex);
-		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
-			ret = mRenderer->removeAvcDecoder(
-				(AvcDecoder*)((*m)->getDecoder()));
-			if (ret != 0) {
-				ULOGE("Session: failed to remove decoder "
-					"from renderer");
-			}
-		}
-		pthread_mutex_lock(&mMutex);
-	}
-
-	pthread_mutex_unlock(&mMutex);
-	delete mRenderer;
-	mRenderer = NULL;
-
-	return ret;
 }
 
 

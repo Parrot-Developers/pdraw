@@ -43,8 +43,7 @@ namespace Pdraw {
 
 
 Gles2Renderer::Gles2Renderer(
-	Session *session,
-	bool initGles2)
+	Session *session)
 {
 	int ret;
 	mRunning = false;
@@ -52,10 +51,6 @@ Gles2Renderer::Gles2Renderer(
 	mMedia = NULL;
 	mWindowWidth = 0;
 	mWindowHeight = 0;
-	mRenderX = 0;
-	mRenderY = 0;
-	mRenderWidth = 0;
-	mRenderHeight = 0;
 	mDecoder = NULL;
 	mDecoderOutputBufferQueue = NULL;
 	mCurrentBuffer = NULL;
@@ -89,15 +84,39 @@ Gles2Renderer::~Gles2Renderer(
 		}
 	}
 
-	destroyGles2();
+	close();
 
 	pthread_mutex_destroy(&mMutex);
 }
 
 
-int Gles2Renderer::initGles2(
-	void)
+int Gles2Renderer::open(
+	unsigned int windowWidth,
+	unsigned int windowHeight,
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	bool hud,
+	bool hmdDistorsionCorrection,
+	bool headtracking,
+	struct egl_display *eglDisplay)
 {
+	if ((windowWidth == 0) || (windowHeight == 0))
+		return -EINVAL;
+	if (renderWidth == 0)
+		renderWidth = windowWidth - renderX;
+	if (renderHeight == 0)
+		renderHeight = windowHeight - renderY;
+	if ((renderWidth == 0) || (renderHeight == 0))
+		return -EINVAL;
+
+	mWindowWidth = windowWidth;
+	mWindowHeight = windowHeight;
+	mHud = hud;
+	mHmdDistorsionCorrection = hmdDistorsionCorrection;
+	mHeadtracking = headtracking;
+
 	GLCHK();
 
 	mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia,
@@ -117,12 +136,9 @@ int Gles2Renderer::initGles2(
 	}
 
 	GLCHK();
-
-	/* Set background color and clear buffers */
+	GLCHK(glViewport(renderX, renderY, renderWidth, renderHeight));
 	GLCHK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
-	GLCHK(glDisable(GL_DITHER));
-	GLCHK(glViewport(mRenderX, mRenderY, mRenderWidth, mRenderHeight));
 
 	if (mHmdDistorsionCorrection) {
 		GLCHK(glGenFramebuffers(1, &mFbo));
@@ -140,7 +156,7 @@ int Gles2Renderer::initGles2(
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mFboTexture));
 		GLCHK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA,
-			mRenderWidth / 2, mRenderHeight, 0,
+			mWindowWidth / 2, mWindowHeight, 0,
 			GL_RGBA, GL_UNSIGNED_BYTE, NULL));
 
 		GLCHK(glTexParameteri(GL_TEXTURE_2D,
@@ -159,7 +175,7 @@ int Gles2Renderer::initGles2(
 		}
 		GLCHK(glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer));
 		GLCHK(glRenderbufferStorage(GL_RENDERBUFFER,
-			GL_DEPTH_COMPONENT16, mRenderWidth / 2, mRenderHeight));
+			GL_DEPTH_COMPONENT16, mWindowWidth / 2, mWindowHeight));
 
 		GLCHK(glFramebufferTexture2D(GL_FRAMEBUFFER,
 			GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mFboTexture, 0));
@@ -190,12 +206,12 @@ int Gles2Renderer::initGles2(
 				&hmdModel, &ipd, &scale, &panH, &panV);
 			settings->unlock();
 			mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit,
-				mRenderWidth, mRenderHeight, hmdModel,
+				mWindowWidth, mWindowHeight, hmdModel,
 				xdpi, ydpi, deviceMargin, ipd,
 				scale, panH, panV);
 		} else {
 			mGles2Hmd = new Gles2Hmd(mGles2HmdFirstTexUnit,
-				mRenderWidth, mRenderHeight);
+				mWindowWidth, mWindowHeight);
 		}
 		if (mGles2Hmd == NULL) {
 			ULOGE("Gles2Renderer: failed to create "
@@ -204,15 +220,16 @@ int Gles2Renderer::initGles2(
 		}
 	}
 
+	mRunning = true;
 	return 0;
 
 err:
-	destroyGles2();
+	close();
 	return -1;
 }
 
 
-int Gles2Renderer::destroyGles2(
+int Gles2Renderer::close(
 	void)
 {
 	if ((mGles2Video != NULL) ||
@@ -312,68 +329,6 @@ int Gles2Renderer::removeAvcDecoder(
 }
 
 
-int Gles2Renderer::setRendererParams_nolock(
-	int windowWidth,
-	int windowHeight,
-	int renderX,
-	int renderY,
-	int renderWidth,
-	int renderHeight,
-	bool hud,
-	bool hmdDistorsionCorrection,
-	bool headtracking,
-	void *uiHandler)
-{
-	destroyGles2();
-
-	mWindowWidth = windowWidth;
-	mWindowHeight = windowHeight;
-	mRenderX = renderX;
-	mRenderY = renderY;
-	mRenderWidth = (renderWidth) ? renderWidth : windowWidth;
-	mRenderHeight = (renderHeight) ? renderHeight : windowHeight;
-	mHud = hud;
-	mHmdDistorsionCorrection = hmdDistorsionCorrection;
-	mHeadtracking = headtracking;
-
-	if ((mRenderWidth == 0) || (mRenderHeight == 0))
-		return 0;
-
-	int ret = initGles2();
-
-	return (ret == 0) ? 1 : ret;
-}
-
-
-int Gles2Renderer::setRendererParams(
-	int windowWidth,
-	int windowHeight,
-	int renderX,
-	int renderY,
-	int renderWidth,
-	int renderHeight,
-	bool hud,
-	bool hmdDistorsionCorrection,
-	bool headtracking,
-	void *uiHandler)
-{
-	pthread_mutex_lock(&mMutex);
-
-	mRunning = false;
-
-	int ret = setRendererParams_nolock(windowWidth, windowHeight,
-		renderX, renderY, renderWidth, renderHeight, hud,
-		hmdDistorsionCorrection, headtracking, uiHandler);
-
-	if (ret > 0)
-		mRunning = true;
-
-	pthread_mutex_unlock(&mMutex);
-
-	return ret;
-}
-
-
 int Gles2Renderer::loadVideoFrame(
 	const uint8_t *data,
 	struct avcdecoder_output_buffer *frame,
@@ -381,21 +336,40 @@ int Gles2Renderer::loadVideoFrame(
 {
 	int ret;
 	ret = mGles2Video->loadFrame(data, frame->plane_offset, frame->stride,
-		frame->width, frame->height, colorConversion, NULL);
+		frame->width, frame->height, colorConversion);
 	if (ret < 0)
 		ULOGE("Gles2Renderer: failed to load video frame");
 	return 0;
 }
 
 
-int Gles2Renderer::render_nolock(
-	uint64_t lastRenderTime)
+int Gles2Renderer::render(
+	int renderX,
+	int renderY,
+	unsigned int renderWidth,
+	unsigned int renderHeight,
+	uint64_t timestamp)
 {
 	int ret = 0;
 	struct vbuf_buffer *buffer = NULL;
 	const uint8_t *cdata;
 	int dequeueRet = 0;
 	bool load = false;
+
+	if (!mRunning)
+		return 0;
+
+	if (renderWidth == 0)
+		renderWidth = mWindowWidth - renderX;
+	if (renderHeight == 0)
+		renderHeight = mWindowHeight - renderY;
+	if ((renderWidth == 0) || (renderHeight == 0))
+		return 0;
+
+	if (mDecoderOutputBufferQueue == NULL) {
+		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
+		return 0;
+	}
 
 	dequeueRet = vbuf_queue_pop(mDecoderOutputBufferQueue,
 		0, &buffer);
@@ -432,13 +406,16 @@ int Gles2Renderer::render_nolock(
 		return -1;
 	}
 
-	if ((mRenderWidth == 0) || (mRenderHeight == 0))
-		return 0;
-
 	if (mHmdDistorsionCorrection) {
 		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mFbo));
-		GLCHK(glViewport(0, 0, mRenderWidth / 2, mRenderHeight));
+		GLCHK(glViewport(0, 0, renderWidth / 2, renderHeight));
 		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
+		GLCHK(glDisable(GL_DITHER));
+	} else {
+		GLCHK(glViewport(renderX, renderY,
+			renderWidth, renderHeight));
+		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
+		GLCHK(glDisable(GL_DITHER));
 	}
 
 	if (mGles2Video) {
@@ -464,10 +441,10 @@ int Gles2Renderer::render_nolock(
 			ret = mGles2Video->renderFrame(data->stride,
 				data->width, data->height,
 				data->sarWidth, data->sarHeight,
-				(mHmdDistorsionCorrection) ? mRenderWidth / 2 :
-				mRenderWidth, mRenderHeight,
-				(mHmdDistorsionCorrection) ? 0 : mRenderX,
-				(mHmdDistorsionCorrection) ? 0 : mRenderY,
+				(mHmdDistorsionCorrection) ? renderWidth / 2 :
+				renderWidth, renderHeight,
+				(mHmdDistorsionCorrection) ? 0 : renderX,
+				(mHmdDistorsionCorrection) ? 0 : renderY,
 				colorConversion, &data->metadata, mHeadtracking,
 				(mHmdDistorsionCorrection) ? mFbo : 0);
 			if (ret < 0) {
@@ -480,8 +457,8 @@ int Gles2Renderer::render_nolock(
 	if (mGles2Hud) {
 		ret = mGles2Hud->renderHud(data->width * data->sarWidth,
 			data->height * data->sarHeight,
-			(mHmdDistorsionCorrection) ? mRenderWidth / 2 :
-			mRenderWidth, mRenderHeight, &data->metadata,
+			(mHmdDistorsionCorrection) ? renderWidth / 2 :
+			renderWidth, renderHeight, &data->metadata,
 			mHmdDistorsionCorrection, mHeadtracking);
 		if (ret != 0)
 			ULOGE("Gles2Renderer: failed to render the HUD");
@@ -489,12 +466,12 @@ int Gles2Renderer::render_nolock(
 
 	if (mHmdDistorsionCorrection) {
 		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-		GLCHK(glViewport(mRenderX, mRenderY,
-			mRenderWidth, mRenderHeight));
+		GLCHK(glViewport(renderX, renderY,
+			renderWidth, renderHeight));
 
 		if (mGles2Hmd) {
 			ret = mGles2Hmd->renderHmd(mFboTexture,
-				mRenderWidth / 2, mRenderHeight);
+				renderWidth / 2, renderHeight);
 			if (ret != 0)
 				ULOGE("Gles2Renderer: failed to render "
 					"HMD distorsion correction");
@@ -533,31 +510,11 @@ int Gles2Renderer::render_nolock(
 			data->decoderOutputTimestamp) / 1000.,
 		(data->auNtpTimestampLocal != 0) ? (float)(renderTimestamp -
 			data->auNtpTimestampLocal) / 1000. : 0.,
-		(renderTimestamp - lastRenderTime > 0) ? 1000000. /
-			((float)(renderTimestamp - lastRenderTime)) : 0.);
+		(renderTimestamp - timestamp > 0) ? 1000000. /
+			((float)(renderTimestamp - timestamp)) : 0.);
 #endif
 
-	ret = 1;
-
-	return ret;
-}
-
-
-int Gles2Renderer::render(
-	uint64_t lastRenderTime)
-{
-	pthread_mutex_lock(&mMutex);
-
-	if (!mRunning) {
-		pthread_mutex_unlock(&mMutex);
-		return 0;
-	}
-
-	int ret = render_nolock(lastRenderTime);
-
-	pthread_mutex_unlock(&mMutex);
-
-	return ret;
+	return 0;
 }
 
 } /* namespace Pdraw */
