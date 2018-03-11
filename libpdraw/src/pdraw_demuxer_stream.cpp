@@ -90,7 +90,6 @@ StreamDemuxer::StreamDemuxer(
 	mHfov = mVfov = 0.;
 	mRunning = false;
 	mSpeed = 1.0;
-	mFirstFrame = true;
 	mSsrc = 0;
 	memset(&mCodecInfo, 0, sizeof(mCodecInfo));
 
@@ -1182,7 +1181,7 @@ void StreamDemuxer::recvFrameCb(
 	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 	struct vbuf_buffer *buffer = NULL;
 	struct avcdecoder_input_buffer *data = NULL;
-	uint32_t flags = 0, start, i;
+	uint32_t flags = 0, i;
 	size_t frame_size = 0;
 	uint8_t *buf;
 	ssize_t res;
@@ -1218,36 +1217,6 @@ void StreamDemuxer::recvFrameCb(
 		return;
 	}
 	buf_size = res;
-
-	/* Insert the SPS and PPS (only needed for FFmpeg decoder) */
-	if ((demuxer->mFirstFrame) &&
-		(demuxer->mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264)) {
-		if (demuxer->mCodecInfo.h264.spslen + 4 <= buf_size) {
-			start = (demuxer->mDecoderBitstreamFormat ==
-				AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
-				htonl(0x00000001) :
-				htonl(demuxer->mCodecInfo.h264.spslen);
-			memcpy(buf, &start, sizeof(uint32_t));
-			memcpy(buf + 4, demuxer->mCodecInfo.h264.sps,
-				demuxer->mCodecInfo.h264.spslen);
-			buf += (demuxer->mCodecInfo.h264.spslen + 4);
-			buf_size -= (demuxer->mCodecInfo.h264.spslen + 4);
-			out_size += (demuxer->mCodecInfo.h264.spslen + 4);
-		}
-		if (demuxer->mCodecInfo.h264.ppslen + 4 <= buf_size) {
-			start = (demuxer->mDecoderBitstreamFormat ==
-				AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
-				htonl(0x00000001) :
-				htonl(demuxer->mCodecInfo.h264.ppslen);
-			memcpy(buf, &start, sizeof(uint32_t));
-			memcpy(buf + 4, demuxer->mCodecInfo.h264.pps,
-				demuxer->mCodecInfo.h264.ppslen);
-			buf += (demuxer->mCodecInfo.h264.ppslen + 4);
-			buf_size -= (demuxer->mCodecInfo.h264.ppslen + 4);
-			out_size += (demuxer->mCodecInfo.h264.ppslen + 4);
-		}
-		demuxer->mFirstFrame = false;
-	}
 
 	/* Decoder input format */
 	switch(demuxer->mDecoderBitstreamFormat) {
