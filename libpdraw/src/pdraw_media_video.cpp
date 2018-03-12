@@ -105,15 +105,15 @@ error:
 VideoMedia::~VideoMedia(
 	void)
 {
+	if (mDecoder)
+		disableDecoder();
+
 	std::vector<VideoFrameFilter *>::iterator p =
 		mVideoFrameFilters.begin();
 	while (p != mVideoFrameFilters.end()) {
 		delete *p;
 		p++;
 	}
-
-	if (mDecoder)
-		disableDecoder();
 
 	pthread_mutex_destroy(&mMutex);
 }
@@ -323,6 +323,7 @@ Decoder *VideoMedia::getDecoder(
 VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	bool frameByFrame)
 {
+	int ret;
 	pthread_mutex_lock(&mMutex);
 
 	if (mDecoder == NULL) {
@@ -332,10 +333,25 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	}
 
 	VideoFrameFilter *p = new VideoFrameFilter(
-		this, (AvcDecoder*)mDecoder, frameByFrame);
+		this, frameByFrame);
 	if (p == NULL) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("video frame filter creation failed", ENOMEM);
+		return NULL;
+	}
+	struct vbuf_queue *queue = NULL;
+	ret = p->getInputSourceQueue(this, &queue);
+	if (ret < 0) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("videoFrameFilter->getInputSourceQueue", -ret);
+		delete p;
+		return NULL;
+	}
+	ret = ((AvcDecoder *)mDecoder)->addOutputSink(this, queue);
+	if (ret < 0) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("decoder->addOutputSink", -ret);
+		delete p;
 		return NULL;
 	}
 
@@ -350,6 +366,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	void *userPtr,
 	bool frameByFrame)
 {
+	int ret;
 	pthread_mutex_lock(&mMutex);
 
 	if (mDecoder == NULL) {
@@ -364,10 +381,25 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 	}
 
 	VideoFrameFilter *p = new VideoFrameFilter(
-		this, (AvcDecoder*)mDecoder, cb, userPtr, frameByFrame);
+		this, cb, userPtr, frameByFrame);
 	if (p == NULL) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("video frame filter creation failed", ENOMEM);
+		return NULL;
+	}
+	struct vbuf_queue *queue = NULL;
+	ret = p->getInputSourceQueue(this, &queue);
+	if (ret < 0) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("videoFrameFilter->getInputSourceQueue", -ret);
+		delete p;
+		return NULL;
+	}
+	ret = ((AvcDecoder *)mDecoder)->addOutputSink(this, queue);
+	if (ret < 0) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("decoder->addOutputSink", -ret);
+		delete p;
 		return NULL;
 	}
 
@@ -380,6 +412,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 int VideoMedia::removeVideoFrameFilter(
 	VideoFrameFilter *filter)
 {
+	int ret;
 	pthread_mutex_lock(&mMutex);
 
 	if (filter == NULL) {
@@ -394,6 +427,19 @@ int VideoMedia::removeVideoFrameFilter(
 	while (p != mVideoFrameFilters.end()) {
 		if (*p == filter) {
 			mVideoFrameFilters.erase(p);
+			struct vbuf_queue *queue = NULL;
+			ret = (*p)->getInputSourceQueue(this, &queue);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->getInputSourceQueue",
+					-ret);
+				return ret;
+			}
+			ret = ((AvcDecoder *)mDecoder)->removeOutputSink(
+				this, queue);
+			if (ret < 0) {
+				ULOG_ERRNO("decoder->removeOutputSink", -ret);
+				return ret;
+			}
 			delete *p;
 			found = true;
 			break;

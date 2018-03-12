@@ -52,6 +52,17 @@ namespace Pdraw {
 #define AVCDECODER_INPUT_BUFFER_COUNT			(10)
 
 
+struct avcdecoder_input_source {
+	struct vbuf_queue *queue;
+	struct vbuf_pool *pool;
+	int (*queue_buffer)(
+		struct vbuf_queue *queue,
+		struct vbuf_buffer *buffer,
+		void *userdata);
+	void *userdata;
+};
+
+
 struct avcdecoder_input_buffer {
 	bool isComplete;
 	bool hasErrors;
@@ -124,17 +135,16 @@ public:
 	int close(
 		void);
 
-	int getInputBuffer(
-		struct vbuf_buffer **buffer,
-		bool blocking);
+	int getInputSource(
+		Media *media,
+		struct avcdecoder_input_source *src);
 
-	int queueInputBuffer(
-		struct vbuf_buffer *buffer);
+	int addOutputSink(
+		Media *media,
+		struct vbuf_queue *queue);
 
-	struct vbuf_queue *addOutputQueue(
-		void);
-
-	int removeOutputQueue(
+	int removeOutputSink(
+		Media *media,
 		struct vbuf_queue *queue);
 
 	Media *getMedia(
@@ -148,8 +158,10 @@ public:
 	}
 
 private:
-	bool isOutputQueueValid(
-		struct vbuf_queue *queue);
+	static int queueBufferCb(
+		struct vbuf_queue *queue,
+		struct vbuf_buffer *buffer,
+		void *userdata);
 
 	static void frameOutputCb(
 		struct vbuf_buffer *out_buf,

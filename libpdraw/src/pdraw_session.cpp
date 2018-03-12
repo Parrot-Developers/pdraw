@@ -769,10 +769,24 @@ int Session::startVideoRenderer(
 	for (m = mMedias.begin(); m < mMedias.end(); m++) {
 		pthread_mutex_unlock(&mMutex);
 		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
-			ret = mRenderer->addAvcDecoder(
-				(AvcDecoder*)((*m)->getDecoder()));
-			if (ret < 0)
-				ULOG_ERRNO("renderer->addAvcDecoder", -ret);
+			ret = mRenderer->addInputSource(*m);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->addInputSource", -ret);
+				continue;
+			}
+			struct vbuf_queue *queue = NULL;
+			ret = mRenderer->getInputSourceQueue(*m, &queue);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->getInputSourceQueue",
+					-ret);
+				continue;
+			}
+			ret = ((AvcDecoder *)(*m)->getDecoder())->addOutputSink(
+				*m, queue);
+			if (ret < 0) {
+				ULOG_ERRNO("decoder->addOutputSink", -ret);
+				continue;
+			}
 		}
 		pthread_mutex_lock(&mMutex);
 	}
@@ -802,10 +816,24 @@ int Session::stopVideoRenderer(
 	for (m = mMedias.begin(); m < mMedias.end(); m++) {
 		pthread_mutex_unlock(&mMutex);
 		if ((*m)->getType() == PDRAW_MEDIA_TYPE_VIDEO) {
-			ret = mRenderer->removeAvcDecoder(
-				(AvcDecoder*)((*m)->getDecoder()));
+			struct vbuf_queue *queue = NULL;
+			ret = mRenderer->getInputSourceQueue(*m, &queue);
 			if (ret < 0) {
-				ULOG_ERRNO("renderer->removeAvcDecoder", -ret);
+				ULOG_ERRNO("renderer->getInputSourceQueue",
+					-ret);
+				continue;
+			}
+			ret = ((AvcDecoder *)
+				(*m)->getDecoder())->removeOutputSink(
+				*m, queue);
+			if (ret < 0) {
+				ULOG_ERRNO("decoder->removeOutputSink", -ret);
+				continue;
+			}
+			ret = mRenderer->removeInputSource(*m);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->removeInputSource", -ret);
+				continue;
 			}
 		}
 		pthread_mutex_lock(&mMutex);
@@ -1915,10 +1943,24 @@ Media *Session::addMedia(
 		m = new VideoMedia(this, esType, mMediaIdCounter++);
 		m->enableDecoder();
 		if (mRenderer != NULL) {
-			int ret = mRenderer->addAvcDecoder(
-				(AvcDecoder*)(m->getDecoder()));
-			if (ret < 0)
-				ULOG_ERRNO("renderer->addAvcDecoder", -ret);
+			int ret = mRenderer->addInputSource(m);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->addInputSource", -ret);
+				break;
+			}
+			struct vbuf_queue *queue = NULL;
+			ret = mRenderer->getInputSourceQueue(m, &queue);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->getInputSourceQueue",
+					-ret);
+				break;
+			}
+			ret = ((AvcDecoder *)m->getDecoder())->addOutputSink(
+				m, queue);
+			if (ret < 0) {
+				ULOG_ERRNO("decoder->addOutputSink", -ret);
+				break;
+			}
 		}
 		break;
 	}
@@ -1966,10 +2008,24 @@ Media *Session::addMedia(
 		}
 		m->enableDecoder();
 		if (mRenderer != NULL) {
-			int ret = mRenderer->addAvcDecoder(
-				(AvcDecoder*)(m->getDecoder()));
-			if (ret < 0)
-				ULOG_ERRNO("renderer->addAvcDecoder", -ret);
+			int ret = mRenderer->addInputSource(m);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->addInputSource", -ret);
+				break;
+			}
+			struct vbuf_queue *queue = NULL;
+			ret = mRenderer->getInputSourceQueue(m, &queue);
+			if (ret < 0) {
+				ULOG_ERRNO("renderer->getInputSourceQueue",
+					-ret);
+				break;
+			}
+			ret = ((AvcDecoder *)m->getDecoder())->addOutputSink(
+				m, queue);
+			if (ret < 0) {
+				ULOG_ERRNO("decoder->addOutputSink", -ret);
+				break;
+			}
 		}
 		break;
 	}

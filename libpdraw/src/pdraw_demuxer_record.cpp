@@ -67,6 +67,7 @@ RecordDemuxer::RecordDemuxer(
 	mMetadataMimeType = NULL;
 	mFirstFrame = true;
 	mDecoder = NULL;
+	memset(&mDecoderSource, 0, sizeof(mDecoderSource));
 	mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_UNKNOWN;
 	mAvgOutputInterval = 0;
 	mLastFrameOutputTime = 0;
@@ -678,6 +679,17 @@ int RecordDemuxer::openAvcDecoder(
 		return ret;
 	}
 
+	ret = demuxer->mDecoder->getInputSource(
+		demuxer->mDecoder->getMedia(), &demuxer->mDecoderSource);
+	if (ret < 0) {
+		ULOG_ERRNO("decoder->getInputSource", -ret);
+		free(spsBuffer);
+		free(ppsBuffer);
+		return ret;
+	}
+
+	free(spsBuffer);
+	free(ppsBuffer);
 	return 0;
 }
 
@@ -726,18 +738,18 @@ void RecordDemuxer::timerCb(
 		}
 	}
 
-	if (!demuxer->mDecoder->isConfigured()) {
+	if (demuxer->mDecoderSource.pool == NULL) {
 		ULOGE("decoder is not configured");
 		retry = 1;
 		goto out;
 	}
 
 	if (demuxer->mCurrentBuffer == NULL) {
-		ret = demuxer->mDecoder->getInputBuffer(
-			&demuxer->mCurrentBuffer, false);
+		ret = vbuf_pool_get(demuxer->mDecoderSource.pool,
+			0, &demuxer->mCurrentBuffer);
 		if ((ret < 0) || (demuxer->mCurrentBuffer == NULL)) {
-			ULOGW("decoder->getInputBuffer err=%d(%s)",
-				ret, strerror(-ret));
+			if (ret != -EAGAIN)
+				ULOG_ERRNO("vbuf_pool_get", -ret);
 			retry = 1;
 			goto out;
 		}
@@ -856,11 +868,12 @@ void RecordDemuxer::timerCb(
 	/* Queue the buffer for decoding */
 	ret = vbuf_write_lock(demuxer->mCurrentBuffer);
 	if (ret < 0)
-		ULOGW("vbuf_write_lock err=%d(%s)", ret, strerror(-ret));
-	ret = demuxer->mDecoder->queueInputBuffer(demuxer->mCurrentBuffer);
-	if (ret != 0) {
-		ULOGW("decoder->queueInputBuffer err=%d(%s)",
-			ret, strerror(-ret));
+		ULOG_ERRNO("vbuf_write_lock", -ret);
+	ret = (*demuxer->mDecoderSource.queue_buffer)(
+		demuxer->mDecoderSource.queue, demuxer->mCurrentBuffer,
+		demuxer->mDecoderSource.userdata);
+	if (ret < 0) {
+		ULOG_ERRNO("decoderSource->queue_buffer", -ret);
 	} else {
 		vbuf_unref(&demuxer->mCurrentBuffer);
 		demuxer->mCurrentBuffer = NULL;

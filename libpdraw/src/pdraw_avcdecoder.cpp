@@ -203,68 +203,47 @@ int AvcDecoder::open(
 }
 
 
-int AvcDecoder::getInputBuffer(
-	struct vbuf_buffer **buffer,
-	bool blocking)
-{
-	if (buffer == NULL)
-		return -EINVAL;
-	if (!mConfigured) {
-		ULOGE("decoder is not configured");
-		return -EPROTO;
-	}
-	if (mInputBufferPool == NULL) {
-		ULOGE("invalid input buffer pool");
-		return -EPROTO;
-	}
-
-	struct vbuf_buffer *buf = NULL;
-	int ret = vbuf_pool_get(mInputBufferPool, (blocking) ? -1 : 0, &buf);
-	if (ret < 0) {
-		if ((ret != -EAGAIN) && (ret != -ETIMEDOUT))
-			ULOG_ERRNO("vbuf_pool_get:input", -ret);
-		return ret;
-	}
-	*buffer = buf;
-
-	return 0;
-}
-
-
-int AvcDecoder::queueInputBuffer(
-	struct vbuf_buffer *buffer)
+int AvcDecoder::queueBufferCb(
+	struct vbuf_queue *queue,
+	struct vbuf_buffer *buffer,
+	void *userdata)
 {
 	int ret;
+	AvcDecoder *decoder = (AvcDecoder *)userdata;
 	struct avcdecoder_input_buffer *in_meta;
 	struct vdec_input_metadata *vdec_meta;
 	unsigned int level = 0;
 
+	if (queue == NULL)
+		return -EINVAL;
 	if (buffer == NULL)
 		return -EINVAL;
-	if (!mConfigured) {
+	if (decoder == NULL)
+		return -EINVAL;
+	if (!decoder->mConfigured) {
 		ULOGE("decoder is not configured");
 		return -EPROTO;
 	}
-	if (mInputBufferQueue == NULL) {
+	if (queue != decoder->mInputBufferQueue) {
 		ULOGE("invalid input buffer queue");
 		return -EPROTO;
 	}
 
 	in_meta = (struct avcdecoder_input_buffer *)vbuf_metadata_get(buffer,
-		mMedia, &level, NULL);
+		decoder->mMedia, &level, NULL);
 	if (in_meta == NULL) {
 		ULOG_ERRNO("vbuf_metadata_get", EPROTO);
 		return -EPROTO;
 	}
 	vdec_meta = (struct vdec_input_metadata *)vbuf_metadata_add(buffer,
-		mVdec, level + 1, sizeof(*vdec_meta));
+		decoder->mVdec, level + 1, sizeof(*vdec_meta));
 	if (vdec_meta == NULL) {
 		ULOG_ERRNO("vbuf_metadata_add", ENOMEM);
 		return -ENOMEM;
 	}
 	vdec_meta->timestamp = in_meta->auNtpTimestampRaw;
-	vdec_meta->index = mFrameIndex++;
-	vdec_meta->format = mInputFormat;
+	vdec_meta->index = decoder->mFrameIndex++;
+	vdec_meta->format = decoder->mInputFormat;
 	vdec_meta->complete = in_meta->isComplete;
 	vdec_meta->errors = in_meta->hasErrors;
 	vdec_meta->ref = in_meta->isRef;
@@ -274,7 +253,7 @@ int AvcDecoder::queueInputBuffer(
 	vdec_meta->input_time =
 		(uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 
-	ret = vbuf_queue_push(mInputBufferQueue, buffer);
+	ret = vbuf_queue_push(queue, buffer);
 	if (ret < 0)
 		ULOG_ERRNO("vbuf_queue_push:input", -ret);
 
@@ -282,25 +261,59 @@ int AvcDecoder::queueInputBuffer(
 }
 
 
-struct vbuf_queue *AvcDecoder::addOutputQueue(
-	void)
+int AvcDecoder::getInputSource(
+	Media *media,
+	struct avcdecoder_input_source *src)
 {
-	struct vbuf_queue *q = vbuf_queue_new(0, 0);
-	if (q == NULL) {
-		ULOG_ERRNO("vbuf_queue_new:output", ENOMEM);
-		return NULL;
+	if (media == NULL)
+		return -EINVAL;
+	if (src == NULL)
+		return -EINVAL;
+	if (media != mMedia) {
+		ULOGE("invalid media");
+		return -ENOENT;
 	}
 
-	mOutputBufferQueues.push_back(q);
-	return q;
+	src->queue = mInputBufferQueue;
+	src->pool = mInputBufferPool;
+	src->queue_buffer = &queueBufferCb;
+	src->userdata = this;
+
+	return 0;
 }
 
 
-int AvcDecoder::removeOutputQueue(
+int AvcDecoder::addOutputSink(
+	Media *media,
 	struct vbuf_queue *queue)
 {
-	if (!queue)
+	if (media == NULL)
 		return -EINVAL;
+	if (queue == NULL)
+		return -EINVAL;
+	if (media != mMedia) {
+		ULOGE("invalid media");
+		return -ENOENT;
+	}
+
+	mOutputBufferQueues.push_back(queue);
+
+	return 0;
+}
+
+
+int AvcDecoder::removeOutputSink(
+	Media *media,
+	struct vbuf_queue *queue)
+{
+	if (media == NULL)
+		return -EINVAL;
+	if (queue == NULL)
+		return -EINVAL;
+	if (media != mMedia) {
+		ULOGE("invalid media");
+		return -ENOENT;
+	}
 
 	bool found = false;
 	std::vector<struct vbuf_queue *>::iterator q =
@@ -309,9 +322,6 @@ int AvcDecoder::removeOutputQueue(
 	while (q != mOutputBufferQueues.end()) {
 		if (*q == queue) {
 			mOutputBufferQueues.erase(q);
-			int ret = vbuf_queue_destroy(*q);
-			if (ret < 0)
-				ULOG_ERRNO("vbuf_queue_destroy:output", -ret);
 			found = true;
 			break;
 		}
@@ -319,30 +329,6 @@ int AvcDecoder::removeOutputQueue(
 	}
 
 	return (found) ? 0 : -ENOENT;
-}
-
-
-bool AvcDecoder::isOutputQueueValid(
-	struct vbuf_queue *queue)
-{
-	if (queue == NULL) {
-		ULOG_ERRNO("queue", EINVAL);
-		return false;
-	}
-
-	bool found = false;
-	std::vector<struct vbuf_queue*>::iterator q =
-		mOutputBufferQueues.begin();
-
-	while (q != mOutputBufferQueues.end()) {
-		if (*q == queue) {
-			found = true;
-			break;
-		}
-		q++;
-	}
-
-	return found;
 }
 
 

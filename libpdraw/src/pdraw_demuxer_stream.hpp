@@ -253,6 +253,7 @@ private:
 		void *userdata);
 
 	AvcDecoder *mDecoder;
+	struct avcdecoder_input_source mDecoderSource;
 	uint32_t mDecoderBitstreamFormat;
 	struct vbuf_buffer *mCurrentBuffer;
 	bool mRtspRunning;

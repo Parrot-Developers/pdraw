@@ -67,11 +67,15 @@ public:
 		unsigned int renderHeight,
 		uint64_t timestamp) = 0;
 
-	virtual int addAvcDecoder(
-		AvcDecoder *decoder) = 0;
+	virtual int addInputSource(
+		Media *media) = 0;
 
-	virtual int removeAvcDecoder(
-		AvcDecoder *decoder) = 0;
+	virtual int removeInputSource(
+		Media *media) = 0;
+
+	virtual int getInputSourceQueue(
+		Media *media,
+		struct vbuf_queue **queue) = 0;
 
 	virtual Session *getSession(
 		void) = 0;

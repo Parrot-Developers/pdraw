@@ -78,6 +78,7 @@ StreamDemuxer::StreamDemuxer(
 	mReceiver = NULL;
 	mCurrentBuffer = NULL;
 	mDecoder = NULL;
+	memset(&mDecoderSource, 0, sizeof(mDecoderSource));
 	mDecoderBitstreamFormat = AVCDECODER_BITSTREAM_FORMAT_UNKNOWN;
 	mStartTime = 0;
 	mCurrentTime = 0;
@@ -1006,8 +1007,21 @@ int StreamDemuxer::openDecoder(
 		demuxer->mDecoderBitstreamFormat,
 		sps_buf, info->h264.spslen + 4,
 		pps_buf, info->h264.ppslen + 4);
-	if (ret < 0)
+	if (ret < 0) {
 		ULOG_ERRNO("decoder->open", -ret);
+		free(sps_buf);
+		free(pps_buf);
+		return ret;
+	}
+
+	ret = demuxer->mDecoder->getInputSource(
+		demuxer->mDecoder->getMedia(), &demuxer->mDecoderSource);
+	if (ret < 0) {
+		ULOG_ERRNO("decoder->getInputSource", -ret);
+		free(sps_buf);
+		free(pps_buf);
+		return ret;
+	}
 
 	free(sps_buf);
 	free(pps_buf);
@@ -1194,7 +1208,7 @@ void StreamDemuxer::recvFrameCb(
 		ULOGD("no decoder configured");
 		return;
 	}
-	if (!demuxer->mDecoder->isConfigured()) {
+	if (demuxer->mDecoderSource.pool == NULL) {
 		ULOGD("decoder is not configured");
 		return;
 	}
@@ -1202,8 +1216,8 @@ void StreamDemuxer::recvFrameCb(
 	/* Get a decoder input buffer */
 	if (demuxer->mCurrentBuffer != NULL)
 		buffer = demuxer->mCurrentBuffer;
-	else if ((ret = demuxer->mDecoder->getInputBuffer(
-		&demuxer->mCurrentBuffer, false)) == 0)
+	else if ((ret = vbuf_pool_get(demuxer->mDecoderSource.pool,
+		0, &demuxer->mCurrentBuffer)) == 0)
 		buffer = demuxer->mCurrentBuffer;
 	if (buffer == NULL) {
 		ULOGW("failed to get an input buffer (%d)", ret);
@@ -1312,9 +1326,11 @@ void StreamDemuxer::recvFrameCb(
 	ret = vbuf_write_lock(buffer);
 	if (ret < 0)
 		ULOG_ERRNO("vbuf_write_lock", -ret);
-	ret = demuxer->mDecoder->queueInputBuffer(buffer);
+	ret = (*demuxer->mDecoderSource.queue_buffer)(
+		demuxer->mDecoderSource.queue, buffer,
+		demuxer->mDecoderSource.userdata);
 	if (ret < 0) {
-		ULOG_ERRNO("decoder->queueInputBuffer", -ret);
+		ULOG_ERRNO("decoderSource->queue_buffer", -ret);
 	} else {
 		vbuf_unref(&demuxer->mCurrentBuffer);
 		demuxer->mCurrentBuffer = NULL;

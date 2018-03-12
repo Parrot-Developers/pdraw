@@ -71,11 +71,15 @@ public:
 		unsigned int renderHeight,
 		uint64_t timestamp);
 
-	int addAvcDecoder(
-		AvcDecoder *decoder);
+	int addInputSource(
+		Media *media);
 
-	int removeAvcDecoder(
-		AvcDecoder *decoder);
+	int removeInputSource(
+		Media *media);
+
+	int getInputSourceQueue(
+		Media *media,
+		struct vbuf_queue **queue);
 
 	Session *getSession(
 		void) {
@@ -100,8 +104,7 @@ protected:
 
 	pthread_mutex_t mMutex;
 	bool mRunning;
-	AvcDecoder *mDecoder;
-	struct vbuf_queue *mDecoderOutputBufferQueue;
+	struct vbuf_queue *mQueue;
 	struct vbuf_buffer *mCurrentBuffer;
 	unsigned int mWindowWidth;
 	unsigned int mWindowHeight;

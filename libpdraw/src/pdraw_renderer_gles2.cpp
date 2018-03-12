@@ -30,6 +30,7 @@
 #include "pdraw_renderer_gles2.hpp"
 #include "pdraw_settings.hpp"
 #include "pdraw_session.hpp"
+#include "pdraw_media_video.hpp"
 
 #ifdef USE_GLES2
 
@@ -52,8 +53,7 @@ Gles2Renderer::Gles2Renderer(
 	mMedia = NULL;
 	mWindowWidth = 0;
 	mWindowHeight = 0;
-	mDecoder = NULL;
-	mDecoderOutputBufferQueue = NULL;
+	mQueue = NULL;
 	mCurrentBuffer = NULL;
 	mGles2Video = NULL;
 	mGles2Hud = NULL;
@@ -77,10 +77,10 @@ Gles2Renderer::Gles2Renderer(
 Gles2Renderer::~Gles2Renderer(
 	void)
 {
-	if (mDecoder != NULL) {
-		int ret = removeAvcDecoder(mDecoder);
+	if (mMedia != NULL) {
+		int ret = removeInputSource(mMedia);
 		if (ret < 0)
-			ULOG_ERRNO("removeAvcDecoder", -ret);
+			ULOG_ERRNO("removeInputSource", -ret);
 	}
 
 	close();
@@ -263,43 +263,47 @@ int Gles2Renderer::close(
 }
 
 
-int Gles2Renderer::addAvcDecoder(
-	AvcDecoder *decoder)
+int Gles2Renderer::addInputSource(
+	Media *media)
 {
-	if (decoder == NULL)
+	if (media == NULL)
 		return -EINVAL;
-	if (mDecoder != NULL) {
-		ULOGE("multiple decoders are not supported");
+	if (mMedia != NULL) {
+		ULOGE("multiple input media are not supported");
 		return -ENOSYS;
 	}
+	VideoMedia *vmedia = dynamic_cast<VideoMedia *>(media);
+	if (vmedia == NULL) {
+		ULOGE("media is not a video media");
+		return -EPROTO;
+	}
 
-	mDecoderOutputBufferQueue = decoder->addOutputQueue();
-	if (mDecoderOutputBufferQueue == NULL) {
-		ULOGE("failed to add output queue to decoder");
+	mQueue = vbuf_queue_new(0, 0);
+	if (mQueue == NULL) {
+		ULOGE("failed to create queue");
 		return -ENOMEM;
 	}
 
-	mDecoder = decoder;
-	mMedia = mDecoder->getMedia();
+	mMedia = media;
 	if (mGles2Video)
-		mGles2Video->setVideoMedia((VideoMedia*)mMedia);
+		mGles2Video->setVideoMedia(vmedia);
 	if (mGles2Hud)
-		mGles2Hud->setVideoMedia((VideoMedia*)mMedia);
+		mGles2Hud->setVideoMedia(vmedia);
 
 	return 0;
 }
 
 
-int Gles2Renderer::removeAvcDecoder(
-	AvcDecoder *decoder)
+int Gles2Renderer::removeInputSource(
+	Media *media)
 {
 	int ret;
 
-	if (decoder == NULL)
+	if (media == NULL)
 		return -EINVAL;
-	if (decoder != mDecoder) {
-		ULOGE("invalid decoder");
-		return -EPROTO;
+	if (media != mMedia) {
+		ULOGE("invalid media");
+		return -ENOENT;
 	}
 
 	if (mCurrentBuffer != NULL) {
@@ -308,14 +312,33 @@ int Gles2Renderer::removeAvcDecoder(
 			ULOG_ERRNO("vbuf_unref", -ret);
 	}
 
-	if (mDecoderOutputBufferQueue != NULL) {
-		ret = decoder->removeOutputQueue(mDecoderOutputBufferQueue);
+	if (mQueue != NULL) {
+		ret = vbuf_queue_destroy(mQueue);
 		if (ret < 0)
-			ULOG_ERRNO("decoder->removeOutputQueue", -ret);
+			ULOG_ERRNO("vbuf_queue_destroy", -ret);
+		mQueue = NULL;
 	}
 
-	mDecoder = NULL;
-	mDecoderOutputBufferQueue = NULL;
+	mMedia = NULL;
+
+	return 0;
+}
+
+
+int Gles2Renderer::getInputSourceQueue(
+	Media *media,
+	struct vbuf_queue **queue)
+{
+	if (media == NULL)
+		return -EINVAL;
+	if (queue == NULL)
+		return -EINVAL;
+	if (media != mMedia) {
+		ULOGE("invalid media");
+		return -ENOENT;
+	}
+
+	*queue = mQueue;
 
 	return 0;
 }
@@ -358,13 +381,12 @@ int Gles2Renderer::render(
 	if ((renderWidth == 0) || (renderHeight == 0))
 		return 0;
 
-	if (mDecoderOutputBufferQueue == NULL) {
+	if (mQueue == NULL) {
 		GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 		return 0;
 	}
 
-	dequeueRet = vbuf_queue_pop(mDecoderOutputBufferQueue,
-		0, &buffer);
+	dequeueRet = vbuf_queue_pop(mQueue, 0, &buffer);
 	while ((dequeueRet == 0) && (buffer != NULL)) {
 		if (mCurrentBuffer != NULL) {
 			int releaseRet = vbuf_unref(&mCurrentBuffer);
@@ -373,8 +395,7 @@ int Gles2Renderer::render(
 		}
 		mCurrentBuffer = buffer;
 		load = true;
-		dequeueRet = vbuf_queue_pop(mDecoderOutputBufferQueue,
-			0, &buffer);
+		dequeueRet = vbuf_queue_pop(mQueue, 0, &buffer);
 	}
 	if ((dequeueRet < 0) && (dequeueRet != -EAGAIN)) {
 		ULOG_ERRNO("vbuf_queue_pop", -dequeueRet);
@@ -386,8 +407,7 @@ int Gles2Renderer::render(
 	cdata = vbuf_get_cdata(mCurrentBuffer);
 	struct avcdecoder_output_buffer *data =
 		(struct avcdecoder_output_buffer *)
-		vbuf_metadata_get(mCurrentBuffer,
-		mDecoder->getMedia(), NULL, NULL);
+		vbuf_metadata_get(mCurrentBuffer, mMedia, NULL, NULL);
 
 	if ((cdata == NULL) || (data == NULL)) {
 		ULOGE("invalid buffer data");

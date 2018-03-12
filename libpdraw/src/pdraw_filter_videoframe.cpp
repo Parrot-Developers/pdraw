@@ -46,16 +46,14 @@ namespace Pdraw {
 
 VideoFrameFilter::VideoFrameFilter(
 	VideoMedia *media,
-	AvcDecoder *decoder,
 	bool frameByFrame) :
-	VideoFrameFilter(media, decoder, NULL, NULL, frameByFrame)
+	VideoFrameFilter(media, NULL, NULL, frameByFrame)
 {
 }
 
 
 VideoFrameFilter::VideoFrameFilter(
 	VideoMedia *media,
-	AvcDecoder *decoder,
 	pdraw_video_frame_filter_callback_t cb,
 	void *userPtr,
 	bool frameByFrame)
@@ -63,8 +61,7 @@ VideoFrameFilter::VideoFrameFilter(
 	int ret;
 
 	mMedia = (Media*)media;
-	mDecoder = NULL;
-	mDecoderOutputBufferQueue = NULL;
+	mQueue = NULL;
 	mThreadLaunched = false;
 	mThreadShouldStop = false;
 	mFrameByFrame = frameByFrame;
@@ -88,18 +85,11 @@ VideoFrameFilter::VideoFrameFilter(
 		return;
 	}
 
-	if (decoder == NULL) {
-		ULOGE("invalid decoder");
+	mQueue = vbuf_queue_new(0, 0);
+	if (mQueue == NULL) {
+		ULOGE("failed to create queue");
 		return;
 	}
-
-	mDecoderOutputBufferQueue = decoder->addOutputQueue();
-	if (mDecoderOutputBufferQueue == NULL) {
-		ULOGE("failed to add output buffer queue to decoder");
-		return;
-	}
-
-	mDecoder = decoder;
 
 	ret = pthread_mutex_init(&mMutex, NULL);
 	if (ret < 0) {
@@ -123,8 +113,8 @@ VideoFrameFilter::~VideoFrameFilter(
 	int ret;
 
 	mThreadShouldStop = true;
-	if (mDecoderOutputBufferQueue != NULL)
-		vbuf_queue_abort(mDecoderOutputBufferQueue);
+	if (mQueue != NULL)
+		vbuf_queue_abort(mQueue);
 
 	if (mThreadLaunched) {
 		ret = pthread_join(mThread, NULL);
@@ -142,13 +132,11 @@ VideoFrameFilter::~VideoFrameFilter(
 	pthread_cond_broadcast(&mCondition);
 	pthread_mutex_unlock(&mMutex);
 
-	if (mDecoder != NULL) {
-		if (mDecoderOutputBufferQueue != NULL) {
-			ret = mDecoder->removeOutputQueue(
-				mDecoderOutputBufferQueue);
-			if (ret < 0)
-				ULOG_ERRNO("decoder->removeOutputQueue", -ret);
-		}
+	if (mQueue != NULL) {
+		ret = vbuf_queue_destroy(mQueue);
+		if (ret < 0)
+			ULOG_ERRNO("vbuf_queue_destroy", -ret);
+		mQueue = NULL;
 	}
 
 	free(mBuffer[0]);
@@ -157,6 +145,25 @@ VideoFrameFilter::~VideoFrameFilter(
 	free(mUserData[1]);
 
 	pthread_mutex_destroy(&mMutex);
+}
+
+
+int VideoFrameFilter::getInputSourceQueue(
+	Media *media,
+	struct vbuf_queue **queue)
+{
+	if (media == NULL)
+		return -EINVAL;
+	if (queue == NULL)
+		return -EINVAL;
+	if (media != mMedia) {
+		ULOGE("invalid media");
+		return -ENOENT;
+	}
+
+	*queue = mQueue;
+
+	return 0;
 }
 
 
@@ -234,14 +241,12 @@ void* VideoFrameFilter::runThread(
 	unsigned int idx;
 
 	while (!filter->mThreadShouldStop) {
-		if ((filter->mDecoder == NULL) ||
-			(!filter->mDecoder->isConfigured())) {
+		if (filter->mQueue == NULL) {
 			usleep(5000); /* TODO */
 			continue;
 		}
 
-		ret = vbuf_queue_pop(filter->mDecoderOutputBufferQueue,
-			-1, &buffer);
+		ret = vbuf_queue_pop(filter->mQueue, -1, &buffer);
 		if ((ret < 0) || (buffer == NULL)) {
 			if (ret != -EAGAIN)
 				ULOG_ERRNO("vbuf_queue_pop", -ret);
@@ -250,8 +255,7 @@ void* VideoFrameFilter::runThread(
 
 		cdata = vbuf_get_cdata(buffer);
 		data = (struct avcdecoder_output_buffer *)
-			vbuf_metadata_get(buffer,
-			filter->mDecoder->getMedia(), NULL, NULL);
+			vbuf_metadata_get(buffer, filter->mMedia, NULL, NULL);
 		memset(&frame, 0, sizeof(frame));
 		switch(data->colorFormat) {
 		default:

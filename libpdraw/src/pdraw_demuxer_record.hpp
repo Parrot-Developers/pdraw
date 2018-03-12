@@ -147,6 +147,7 @@ private:
 
 	std::string mFileName;
 	AvcDecoder *mDecoder;
+	struct avcdecoder_input_source mDecoderSource;
 	uint32_t mDecoderBitstreamFormat;
 	bool mRunning;
 	bool mFrameByFrame;

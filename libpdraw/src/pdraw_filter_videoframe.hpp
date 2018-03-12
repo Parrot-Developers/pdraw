@@ -45,18 +45,20 @@ class VideoFrameFilter {
 public:
 	VideoFrameFilter(
 		VideoMedia *media,
-		AvcDecoder *decoder,
 		bool frameByFrame = false);
 
 	VideoFrameFilter(
 		VideoMedia *media,
-		AvcDecoder *decoder,
 		pdraw_video_frame_filter_callback_t cb,
 		void *userPtr,
 		bool frameByFrame = false);
 
 	~VideoFrameFilter(
 		void);
+
+	int getInputSourceQueue(
+		Media *media,
+		struct vbuf_queue **queue);
 
 	/**
 	 * timeout : time in microseconds to wait for a frame
@@ -83,8 +85,7 @@ private:
 		void *ptr);
 
 	Media *mMedia;
-	AvcDecoder *mDecoder;
-	struct vbuf_queue *mDecoderOutputBufferQueue;
+	struct vbuf_queue *mQueue;
 	pthread_mutex_t mMutex;
 	pthread_t mThread;
 	pthread_cond_t mCondition;
