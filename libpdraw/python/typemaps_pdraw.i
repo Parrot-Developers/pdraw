@@ -41,11 +41,11 @@ import_array();
 
 /* conversion to numpy array */
 
-PyObject* plane2numpyArray(uint8_t* plane, int w, int h)
+PyObject* plane2numpyArray(const uint8_t* plane, int w, int h)
 {
     int type = NPY_UINT8;
     npy_intp dim[3] = { h, w, 1 };
-    PyObject *ret = PyArray_SimpleNewFromData(3, dim, type, plane);
+    PyObject *ret = PyArray_SimpleNewFromData(3, dim, type, (void*)plane);
     return ret;
 }
 
