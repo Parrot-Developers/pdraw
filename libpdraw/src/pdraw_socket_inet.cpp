@@ -29,11 +29,13 @@
 
 #include "pdraw_socket_inet.hpp"
 #include "pdraw_session.hpp"
-#include "pdraw_log.hpp"
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <futils/futils.h>
+#define ULOG_TAG pdraw_sockinet
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_sockinet);
 #include <string>
 
 namespace Pdraw {
@@ -66,7 +68,7 @@ InetSocket::InetSocket(
 	mFd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (mFd < 0) {
 		res = -errno;
-		PDRAW_LOG_ERRNO("socket", -res);
+		ULOG_ERRNO("socket", -res);
 		goto error;
 	}
 
@@ -77,12 +79,12 @@ InetSocket::InetSocket(
 	/* Setup flags */
 	res = fd_set_close_on_exec(mFd);
 	if (res < 0) {
-		PDRAW_LOG_FD_ERRNO("fd_set_close_on_exec", mFd, -res);
+		ULOG_ERRNO("fd_set_close_on_exec", -res);
 		goto error;
 	}
 	res = fd_add_flags(mFd, O_NONBLOCK);
 	if (res < 0) {
-		PDRAW_LOG_FD_ERRNO("fd_add_flags", mFd, -res);
+		ULOG_ERRNO("fd_add_flags", -res);
 		goto error;
 	}
 
@@ -90,14 +92,14 @@ InetSocket::InetSocket(
 	mLocalAddress.sin_family = AF_INET;
 	res = inet_pton(AF_INET, localAddress.c_str(), &mLocalAddress.sin_addr);
 	if (res <= 0) {
-		PDRAW_LOG_ERRNO("inet_pton", -res);
+		ULOG_ERRNO("inet_pton", -res);
 		goto error;
 	}
 	mLocalAddress.sin_port = htons(localPort);
 	mRemoteAddress.sin_family = AF_INET;
 	inet_pton(AF_INET, remoteAddress.c_str(), &mRemoteAddress.sin_addr);
 	if (res <= 0) {
-		PDRAW_LOG_ERRNO("inet_pton", -res);
+		ULOG_ERRNO("inet_pton", -res);
 		goto error;
 	}
 	mRemoteAddress.sin_port = htons(remotePort);
@@ -111,14 +113,14 @@ retry_bind:
 			mLocalAddress.sin_port = 0;
 			goto retry_bind;
 		}
-		PDRAW_LOG_FD_ERRNO("bind", mFd, -res);
+		ULOG_ERRNO("bind", -res);
 		goto error;
 	}
 
 	/* Get the real bound address and port */
 	res = getsockname(mFd, (struct sockaddr *)&addr, &addrlen);
 	if (res < 0) {
-		PDRAW_LOG_FD_ERRNO("getsockname", mFd, -res);
+		ULOG_ERRNO("getsockname", -res);
 		goto error;
 	}
 	mLocalAddress = addr;
@@ -132,12 +134,12 @@ retry_bind:
 	res1 = inet_ntop(AF_INET, &mLocalAddress.sin_addr,
 		local_addr, sizeof(local_addr));
 	if (res1 == NULL)
-		PDRAW_LOG_ERRNO("inet_ntop", -errno);
+		ULOG_ERRNO("inet_ntop", -errno);
 	res1 = inet_ntop(AF_INET, &mRemoteAddress.sin_addr,
 		remote_addr, sizeof(remote_addr));
 	if (res1 == NULL)
-		PDRAW_LOG_ERRNO("inet_ntop", -errno);
-	PDRAW_LOGD("fd=%d local %s:%d remote %s:%d", mFd,
+		ULOG_ERRNO("inet_ntop", -errno);
+	ULOGD("fd=%d local %s:%d remote %s:%d", mFd,
 		local_addr, ntohs(mLocalAddress.sin_port),
 		remote_addr, ntohs(mRemoteAddress.sin_port));
 
@@ -152,7 +154,7 @@ retry_bind:
 	/* Start monitoring for input */
 	res = pomp_loop_add(mLoop, mFd, POMP_FD_EVENT_IN, mFdCb, mUserdata);
 	if (res < 0) {
-		PDRAW_LOG_FD_ERRNO("pomp_loop_add", mFd, -res);
+		ULOG_ERRNO("pomp_loop_add", -res);
 		goto error;
 	}
 
@@ -165,7 +167,7 @@ error:
 		if (pomp_loop_has_fd(mLoop, mFd)) {
 			res = pomp_loop_remove(mLoop, mFd);
 			if (res < 0)
-				PDRAW_LOG_ERRNO("pomp_loop_remove", -res);
+				ULOG_ERRNO("pomp_loop_remove", -res);
 		}
 		close(mFd);
 		mFd = -1;
@@ -184,7 +186,7 @@ InetSocket::~InetSocket(
 		if (pomp_loop_has_fd(mLoop, mFd)) {
 			res = pomp_loop_remove(mLoop, mFd);
 			if (res < 0)
-				PDRAW_LOG_ERRNO("pomp_loop_remove", -res);
+				ULOG_ERRNO("pomp_loop_remove", -res);
 		}
 		close(mFd);
 	}
@@ -204,7 +206,7 @@ int InetSocket::setRxBufferSize(
 	if (setsockopt(mFd, SOL_SOCKET,
 		SO_RCVBUF, &_size, sizeof(_size)) < 0) {
 		res = -errno;
-		PDRAW_LOG_FD_ERRNO("setsockopt:SO_RCVBUF", mFd, -res);
+		ULOG_ERRNO("setsockopt:SO_RCVBUF", -res);
 		return res;
 	}
 
@@ -228,7 +230,7 @@ int InetSocket::setTxBufferSize(
 	if (setsockopt(mFd, SOL_SOCKET,
 		SO_SNDBUF, &_size, sizeof(_size)) < 0) {
 		res = -errno;
-		PDRAW_LOG_FD_ERRNO("setsockopt:SO_RCVBUF", mFd, -res);
+		ULOG_ERRNO("setsockopt:SO_RCVBUF", -res);
 	}
 
 	return res;
@@ -244,7 +246,7 @@ int InetSocket::setClass(
 	if (setsockopt(mFd, IPPROTO_IP,
 		IP_TOS, &_cls, sizeof(_cls)) < 0) {
 		res = -errno;
-		PDRAW_LOG_FD_ERRNO("setsockopt:IP_TOS", mFd, -res);
+		ULOG_ERRNO("setsockopt:IP_TOS", -res);
 	}
 
 	return res;
@@ -268,7 +270,7 @@ ssize_t InetSocket::read(
 	if (readlen < 0) {
 		readlen = -errno;
 		if (errno != EAGAIN)
-			PDRAW_LOG_FD_ERRNO("recvfrom", mFd, errno);
+			ULOG_ERRNO("recvfrom", errno);
 	}
 
 	if ((readlen >= 0) && (mRemoteAddress.sin_port == 0)) {
@@ -283,12 +285,12 @@ ssize_t InetSocket::read(
 		res1 = inet_ntop(AF_INET, &mLocalAddress.sin_addr,
 			local_addr, sizeof(local_addr));
 		if (res1 == NULL)
-			PDRAW_LOG_ERRNO("inet_ntop", -errno);
+			ULOG_ERRNO("inet_ntop", -errno);
 		res1 = inet_ntop(AF_INET, &mRemoteAddress.sin_addr,
 			remote_addr, sizeof(remote_addr));
 		if (res1 == NULL)
-			PDRAW_LOG_ERRNO("inet_ntop", -errno);
-		PDRAW_LOGD("fd=%d local %s:%d remote %s:%d", mFd,
+			ULOG_ERRNO("inet_ntop", -errno);
+		ULOGD("fd=%d local %s:%d remote %s:%d", mFd,
 			local_addr, ntohs(mLocalAddress.sin_port),
 			remote_addr, ntohs(mRemoteAddress.sin_port));
 	}
@@ -312,13 +314,13 @@ ssize_t InetSocket::write(
 
 	if (writelen >= 0) {
 		if ((size_t)writelen != len) {
-			PDRAW_LOGW("partial write on fd=%d (%u/%u)", mFd,
+			ULOGW("partial write on fd=%d (%u/%u)", mFd,
 				(unsigned int)writelen, (unsigned int)len);
 		}
 	} else {
 		writelen = -errno;
 		if (errno != EAGAIN)
-			PDRAW_LOG_FD_ERRNO("sendto", mFd, errno);
+			ULOG_ERRNO("sendto", errno);
 	}
 
 	return writelen;

@@ -30,7 +30,6 @@
 #include "pdraw_demuxer_stream.hpp"
 #include "pdraw_session.hpp"
 #include "pdraw_media_video.hpp"
-#include "pdraw_log.hpp"
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -40,6 +39,9 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <futils/futils.h>
+#define ULOG_TAG pdraw_dmxstrm
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_dmxstrm);
 #include <string>
 #include <algorithm>
 
@@ -61,7 +63,7 @@ StreamDemuxer::StreamDemuxer(
 	};
 
 	if (session == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
+		ULOGE("invalid session");
 		return;
 	}
 
@@ -99,7 +101,7 @@ StreamDemuxer::StreamDemuxer(
 	ret = rtsp_client_new(mSession->getLoop(), userAgent, &rtspClientCbs,
 			this, &mRtspClient);
 	if (ret < 0) {
-		ULOG_ERRNO("StreamDemuxer: rtsp_client_new", -ret);
+		ULOG_ERRNO("rtsp_client_new", -ret);
 		goto err;
 	}
 
@@ -109,7 +111,7 @@ StreamDemuxer::StreamDemuxer(
 	h264_cbs.sei_user_data_unregistered = &h264UserDataSeiCb;
 	ret = h264_reader_new(&h264_cbs, &mH264Reader);
 	if (ret < 0) {
-		ULOGE("StreamDemuxer: h264_reader_new() failed (%d)", ret);
+		ULOG_ERRNO("h264_reader_new", -ret);
 		goto err;
 	}
 
@@ -117,11 +119,15 @@ StreamDemuxer::StreamDemuxer(
 
 err:
 	if (mH264Reader != NULL) {
-		h264_reader_destroy(mH264Reader);
+		ret = h264_reader_destroy(mH264Reader);
+		if (ret < 0)
+			ULOG_ERRNO("h264_reader_destroy", -ret);
 		mH264Reader = NULL;
 	}
 	if (mRtspClient) {
-		rtsp_client_destroy(mRtspClient);
+		ret = rtsp_client_destroy(mRtspClient);
+		if (ret < 0)
+			ULOG_ERRNO("rtsp_client_destroy", -ret);
 		mRtspClient = NULL;
 	}
 }
@@ -130,9 +136,11 @@ err:
 StreamDemuxer::~StreamDemuxer(
 	void)
 {
-	int ret = close();
-	if (ret != 0)
-		ULOGE("StreamDemuxer: close() failed (%d)", ret);
+	int ret;
+
+	ret = close();
+	if (ret < 0)
+		ULOG_ERRNO("close", -ret);
 
 	if (mCurrentBuffer != NULL)
 		vbuf_unref(&mCurrentBuffer);
@@ -140,16 +148,17 @@ StreamDemuxer::~StreamDemuxer(
 	if (mRtspClient != NULL) {
 		do {
 			ret = rtsp_client_destroy(mRtspClient);
-			if ((ret != 0) && (ret != -EBUSY))
-				ULOGE("StreamDemuxer: rtsp_client_destroy() "
-					"failed");
+			if ((ret < 0) && (ret != -EBUSY))
+				ULOG_ERRNO("rtsp_client_destroy", -ret);
 			usleep(1000);
 		} while (ret == -EBUSY);
 		mRtspClient = NULL;
 	}
 
 	if (mH264Reader != NULL) {
-		h264_reader_destroy(mH264Reader);
+		ret = h264_reader_destroy(mH264Reader);
+		if (ret < 0)
+			ULOG_ERRNO("h264_reader_destroy", -ret);
 		mH264Reader = NULL;
 	}
 
@@ -167,8 +176,8 @@ int StreamDemuxer::openWithSdp(
 
 	session = sdp_description_read(sdp.c_str());
 	if (!session) {
-		ULOGE("StreamDemuxer: sdp_description_read() failed");
-		return -1;
+		ULOG_ERRNO("sdp_description_read", EPROTO);
+		return -EPROTO;
 	}
 
 	mLocalStreamPort = 0;
@@ -207,8 +216,8 @@ int StreamDemuxer::openWithSdp(
 		strdup(session->connection_addr) :
 		strdup(session->server_addr);
 	if (!remoteAddr) {
-		ULOGE("StreamDemuxer: failed to get server address");
-		return -1;
+		ULOGE("failed to get server address");
+		return -EPROTO;
 	}
 	if (session->range.start.format == SDP_TIME_FORMAT_NPT) {
 		mDuration =
@@ -223,9 +232,8 @@ int StreamDemuxer::openWithSdp(
 	mRemoteControlPort = 0;
 	mIfaceAddr = ifaceAddr;
 	ret = openRtpAvp();
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: openRtpAvp() failed");
-	}
+	if (ret < 0)
+		ULOG_ERRNO("openRtpAvp", -ret);
 
 	free(remoteAddr);
 
@@ -243,25 +251,24 @@ void StreamDemuxer::onRtspConnectionState(
 
 	switch (state) {
 	case RTSP_CONN_STATE_DISCONNECTED:
-		ULOGI("StreamDemuxer: RTSP disconnected");
+		ULOGI("RTSP disconnected");
 		self->mRtspRunning = false;
 		self->mRunning = false;
 		self->destroyReceiver();
 		break;
 	case RTSP_CONN_STATE_CONNECTING:
-		ULOGI("StreamDemuxer: RTSP connecting");
+		ULOGI("RTSP connecting");
 		break;
 	case RTSP_CONN_STATE_CONNECTED:
-		ULOGI("StreamDemuxer: RTSP connected");
+		ULOGI("RTSP connected");
 
 		res = rtsp_client_options(self->mRtspClient, NULL);
-		if (res != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_options() "
-				"failed (%d)", res);
+		if (res < 0) {
+			ULOG_ERRNO("rtsp_client_options", -res);
 		}
 		break;
 	case RTSP_CONN_STATE_DISCONNECTING:
-		ULOGI("StreamDemuxer: RTSP disconnecting");
+		ULOGI("RTSP disconnecting");
 		break;
 	}
 }
@@ -279,13 +286,18 @@ void StreamDemuxer::onRtspOptionsResp(
 	int res = 0;
 
 	if (status != RTSP_REQ_STATUS_OK) {
-		ULOGE("StreamDemuxer: rtsp_client_options() failed");
+		if (status == RTSP_REQ_STATUS_FAILED) {
+			ULOGE("RTSP options request failed (%d: %s)",
+				status_code, rtsp_status_str(status_code));
+		} else {
+			ULOGE("RTSP options request aborted or canceled");
+		}
 		return;
 	}
 
 	res = rtsp_client_describe(self->mRtspClient, NULL);
 	if (res < 0)
-		ULOGE("StreamDemuxer: rtsp_client_describe() failed (%d)", res);
+		ULOG_ERRNO("rtsp_client_describe", -res);
 }
 
 
@@ -303,14 +315,18 @@ void StreamDemuxer::onRtspDescribeResp(
 	char *mediaUrl = NULL, *remoteAddr = NULL;
 
 	if (status != RTSP_REQ_STATUS_OK) {
-		ULOGE("StreamDemuxer: RTSP describe failed (%d: %s)",
-			status_code, rtsp_status_str(status_code));
+		if (status == RTSP_REQ_STATUS_FAILED) {
+			ULOGE("RTSP describe request failed (%d: %s)",
+				status_code, rtsp_status_str(status_code));
+		} else {
+			ULOGE("RTSP describe request aborted or canceled");
+		}
 		return;
 	}
 
 	session = sdp_description_read(sdp);
 	if (session == NULL) {
-		ULOGE("StreamDemuxer: sdp_description_read() failed");
+		ULOG_ERRNO("sdp_description_read", EPROTO);
 		return;
 	}
 
@@ -353,11 +369,11 @@ void StreamDemuxer::onRtspDescribeResp(
 		strdup(session->connection_addr) :
 		strdup(session->server_addr);
 	if (mediaUrl == NULL) {
-		ULOGE("StreamDemuxer: failed to get media control URL");
+		ULOGE("failed to get media control URL");
 		return;
 	}
 	if (remoteAddr == NULL) {
-		ULOGE("StreamDemuxer: failed to get server address");
+		ULOGE("failed to get server address");
 		return;
 	}
 	if (session->range.start.format == SDP_TIME_FORMAT_NPT) {
@@ -380,8 +396,8 @@ void StreamDemuxer::onRtspDescribeResp(
 	res = rtsp_client_setup(self->mRtspClient, mediaUrl,
 			RTSP_DELIVERY_UNICAST, RTSP_LOWER_TRANSPORT_UDP,
 			self->mLocalStreamPort, self->mLocalControlPort, NULL);
-	if (res != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_setup() failed (%d)", res);
+	if (res < 0) {
+		ULOG_ERRNO("rtsp_client_setup", -res);
 		free(remoteAddr);
 		free(mediaUrl);
 		return;
@@ -407,8 +423,12 @@ void StreamDemuxer::onRtspSetupResp(
 	int res = 0;
 
 	if (status != RTSP_REQ_STATUS_OK) {
-		ULOGE("StreamDemuxer: RTSP setup failed (%d: %s)",
-			status_code, rtsp_status_str(status_code));
+		if (status == RTSP_REQ_STATUS_FAILED) {
+			ULOGE("RTSP setup request failed (%d: %s)",
+				status_code, rtsp_status_str(status_code));
+		} else {
+			ULOGE("RTSP setup request aborted or canceled");
+		}
 		return;
 	}
 
@@ -419,8 +439,8 @@ void StreamDemuxer::onRtspSetupResp(
 	self->mRemoteControlPort = server_control_port;
 
 	res = self->openRtpAvp();
-	if (res != 0) {
-		ULOGE("StreamDemuxer: openRtpAvp() failed");
+	if (res < 0) {
+		ULOG_ERRNO("openRtpAvp", -res);
 		return;
 	}
 
@@ -445,8 +465,12 @@ void StreamDemuxer::onRtspPlayResp(
 	uint64_t start, ntptime = 0;
 
 	if (status != RTSP_REQ_STATUS_OK) {
-		ULOGE("StreamDemuxer: RTSP play failed (%d: %s)",
-			status_code, rtsp_status_str(status_code));
+		if (status == RTSP_REQ_STATUS_FAILED) {
+			ULOGE("RTSP play request failed (%d: %s)",
+				status_code, rtsp_status_str(status_code));
+		} else {
+			ULOGE("RTSP play request aborted or canceled");
+		}
 		return;
 	}
 
@@ -475,8 +499,12 @@ void StreamDemuxer::onRtspPauseResp(
 	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
 
 	if (status != RTSP_REQ_STATUS_OK) {
-		ULOGE("StreamDemuxer: RTSP pause failed (%d: %s)",
-			status_code, rtsp_status_str(status_code));
+		if (status == RTSP_REQ_STATUS_FAILED) {
+			ULOGE("RTSP pause request failed (%d: %s)",
+				status_code, rtsp_status_str(status_code));
+		} else {
+			ULOGE("RTSP pause request aborted or canceled");
+		}
 		return;
 	}
 
@@ -496,13 +524,18 @@ void StreamDemuxer::onRtspTeardownResp(
 	int res;
 
 	if (status != RTSP_REQ_STATUS_OK) {
-		ULOGE("StreamDemuxer: RTSP teardown failed (%d: %s)",
-			status_code, rtsp_status_str(status_code));
+		if (status == RTSP_REQ_STATUS_FAILED) {
+			ULOGE("RTSP teardown request failed (%d: %s)",
+				status_code, rtsp_status_str(status_code));
+		} else {
+			ULOGE("RTSP teardown request aborted or canceled");
+		}
+		return;
 	}
 
 	res = rtsp_client_disconnect(self->mRtspClient);
-	if (res != 0) {
-		ULOGE("StreamDemuxer: rtsp_client_disconnect() failed");
+	if (res < 0) {
+		ULOG_ERRNO("rtsp_client_disconnect", -res);
 		return;
 	}
 }
@@ -516,8 +549,8 @@ int StreamDemuxer::openRtsp(
 
 	mIfaceAddr = ifaceAddr;
 	res = rtsp_client_connect(mRtspClient, url.c_str());
-	if (res != 0) {
-		ULOGE("StreamDemuxer: v() failed (%d)", res);
+	if (res < 0) {
+		ULOG_ERRNO("rtsp_client_connect", -res);
 		return res;
 	}
 
@@ -531,15 +564,15 @@ int StreamDemuxer::close(
 	int ret = 0;
 
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	if ((mRtspClient != NULL) && (mRtspRunning)) {
 		ret = rtsp_client_teardown(mRtspClient, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_teardown() failed");
-			return -1;
+		if (ret < 0) {
+			ULOG_ERRNO("rtsp_client_teardown", -ret);
+			return ret;
 		}
 	} else {
 		mRunning = false;
@@ -554,8 +587,8 @@ int StreamDemuxer::getElementaryStreamCount(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
+		return 0;
 	}
 
 	/* TODO: handle multiple streams */
@@ -567,12 +600,12 @@ enum elementary_stream_type StreamDemuxer::getElementaryStreamType(
 	int esIndex)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return (enum elementary_stream_type)-1;
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
+		return ELEMENTARY_STREAM_TYPE_UNKNOWN;
 	}
 	if ((esIndex < 0) || (esIndex >= 1)) {
-		ULOGE("StreamDemuxer: invalid ES index");
-		return (enum elementary_stream_type)-1;
+		ULOG_ERRNO("invalid ES index", ENOENT);
+		return ELEMENTARY_STREAM_TYPE_UNKNOWN;
 	}
 
 	/* TODO: handle multiple streams */
@@ -592,12 +625,12 @@ int StreamDemuxer::getElementaryStreamVideoDimensions(
 	unsigned int *sarHeight)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 	if ((esIndex < 0) || (esIndex >= 1)) {
-		ULOGE("StreamDemuxer: invalid ES index");
-		return -1;
+		ULOGE("invalid ES index");
+		return -ENOENT;
 	}
 
 	/* TODO: handle multiple streams */
@@ -628,12 +661,12 @@ int StreamDemuxer::getElementaryStreamVideoFov(
 	float *vfov)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 	if ((esIndex < 0) || (esIndex >= 1)) {
-		ULOGE("StreamDemuxer: invalid ES index");
-		return -1;
+		ULOGE("invalid ES index");
+		return -ENOENT;
 	}
 
 	/* TODO: handle multiple streams */
@@ -650,17 +683,15 @@ int StreamDemuxer::setElementaryStreamDecoder(
 	int esIndex,
 	Decoder *decoder)
 {
+	if (decoder == NULL)
+		return -EINVAL;
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
-	}
-	if (decoder == NULL) {
-		ULOGE("StreamDemuxer: invalid decoder");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 	if ((esIndex < 0) || (esIndex >= 1)) {
-		ULOGE("StreamDemuxer: invalid ES index");
-		return -1;
+		ULOGE("invalid ES index");
+		return -ENOENT;
 	}
 
 	/* TODO: handle multiple streams */
@@ -673,18 +704,15 @@ int StreamDemuxer::setElementaryStreamDecoder(
 		mDecoderBitstreamFormat =
 			AVCDECODER_BITSTREAM_FORMAT_AVCC;
 	} else {
-		ULOGE("StreamDemuxer: unsupported decoder "
-			"input bitstream format");
-		return -1;
+		ULOGE("unsupported decoder input bitstream format");
+		return -ENOSYS;
 	}
 
 	if ((mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) &&
 		(!mDecoder->isConfigured())) {
 		int ret = openDecoder(this);
-		if (ret < 0) {
-			ULOGW("StreamDemuxer: openDecoder() "
-				"failed (%d)", ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("openDecoder", -ret);
 	}
 
 	return 0;
@@ -707,10 +735,9 @@ int StreamDemuxer::internalPlay(
 		range.stop.npt.infinity = 1;
 		int ret = rtsp_client_play(mRtspClient, &range, scale,
 				NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_play() "
-				"failed (%d)", ret);
-			return -1;
+		if (ret < 0) {
+			ULOG_ERRNO("rtsp_client_play", -ret);
+			return ret;
 		}
 	}
 
@@ -727,10 +754,9 @@ int StreamDemuxer::internalPause(
 		struct rtsp_range range;
 		memset(&range, 0, sizeof(range));
 		int ret = rtsp_client_pause(mRtspClient, &range, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_pause() "
-				"failed (%d)", ret);
-			return -1;
+		if (ret < 0) {
+			ULOG_ERRNO("rtsp_client_pause", -ret);
+			return ret;
 		}
 	}
 
@@ -742,8 +768,8 @@ int StreamDemuxer::play(
 	float speed)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	if (speed == 0.)
@@ -757,7 +783,7 @@ bool StreamDemuxer::isPaused(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
 		return false;
 	}
 
@@ -769,8 +795,8 @@ int StreamDemuxer::previous(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	if ((!mRunning) && (mRtspRunning)) {
@@ -801,10 +827,9 @@ int StreamDemuxer::previous(
 			range.stop.npt.usec -= 1000000;
 		}
 		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_play() "
-				"failed (%d)", ret);
-			return -1;
+		if (ret < 0) {
+			ULOG_ERRNO("rtsp_client_play", -ret);
+			return ret;
 		}
 	}
 
@@ -816,8 +841,8 @@ int StreamDemuxer::next(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	if ((!mRunning) && (mRtspRunning)) {
@@ -836,10 +861,9 @@ int StreamDemuxer::next(
 			range.stop.npt.usec -= 1000000;
 		}
 		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_play() "
-				"failed (%d)", ret);
-			return -1;
+		if (ret < 0) {
+			ULOG_ERRNO("rtsp_client_play", -ret);
+			return ret;
 		}
 	}
 
@@ -852,8 +876,8 @@ int StreamDemuxer::seek(
 	bool exact)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	int64_t ts = (int64_t)mCurrentTime + delta;
@@ -871,8 +895,8 @@ int StreamDemuxer::seekTo(
 	bool exact)
 {
 	if (!mConfigured) {
-		ULOGE("StreamDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	mRunning = true;
@@ -888,10 +912,9 @@ int StreamDemuxer::seekTo(
 		range.stop.format = RTSP_TIME_FORMAT_NPT;
 		range.stop.npt.infinity = 1;
 		int ret = rtsp_client_play(mRtspClient, &range, scale, NULL);
-		if (ret != 0) {
-			ULOGE("StreamDemuxer: rtsp_client_play() "
-				"failed (%d)", ret);
-			return -1;
+		if (ret < 0) {
+			ULOG_ERRNO("rtsp_client_play", -ret);
+			return ret;
 		}
 	}
 
@@ -923,19 +946,17 @@ int StreamDemuxer::openDecoder(
 	uint32_t start;
 	int ret = 0;
 
-	if (demuxer == NULL) {
-		ULOGE("StreamDemuxer: invalid demuxer");
-		return -1;
-	}
+	if (demuxer == NULL)
+		return -EINVAL;
 	if (demuxer->mDecoder == NULL) {
-		ULOGE("StreamDemuxer: invalid decoder");
-		return -1;
+		ULOGE("invalid decoder");
+		return -EPROTO;
 	}
 
 	struct vstrm_codec_info *info = &demuxer->mCodecInfo;
 	if (info->codec != VSTRM_CODEC_VIDEO_H264) {
-		ULOGE("StreamDemuxer: invalid codec");
-		return -1;
+		ULOGE("invalid codec");
+		return -EPROTO;
 	}
 
 	ret = pdraw_videoDimensionsFromH264Sps(
@@ -944,10 +965,8 @@ int StreamDemuxer::openDecoder(
 		&demuxer->mCropLeft, &demuxer->mCropRight,
 		&demuxer->mCropTop, &demuxer->mCropBottom,
 		&demuxer->mSarWidth, &demuxer->mSarHeight);
-	if (ret != 0) {
-		ULOGW("StreamDemuxer: "
-			"pdraw_videoDimensionsFromH264Sps() "
-			"failed (%d)", ret);
+	if (ret < 0) {
+		ULOG_ERRNO("pdraw_videoDimensionsFromH264Sps", -ret);
 	} else {
 		VideoMedia *vm = demuxer->mDecoder->getVideoMedia();
 		if (vm)
@@ -961,7 +980,7 @@ int StreamDemuxer::openDecoder(
 
 	sps_buf = (uint8_t *)malloc(info->h264.spslen + 4);
 	if (sps_buf == NULL) {
-		ULOGE("RecordDemuxer: SPS buffer allocation failed");
+		ULOGE("SPS buffer allocation failed");
 		return -ENOMEM;
 	}
 
@@ -973,7 +992,7 @@ int StreamDemuxer::openDecoder(
 
 	pps_buf = (uint8_t *)malloc(info->h264.ppslen + 4);
 	if (pps_buf == NULL) {
-		ULOGE("RecordDemuxer: PPS buffer allocation failed");
+		ULOGE("PPS buffer allocation failed");
 		free(sps_buf);
 		return -ENOMEM;
 	}
@@ -988,9 +1007,8 @@ int StreamDemuxer::openDecoder(
 		demuxer->mDecoderBitstreamFormat,
 		sps_buf, info->h264.spslen + 4,
 		pps_buf, info->h264.ppslen + 4);
-	if (ret != 0) {
-		ULOGE("StreamDemuxer: decoder configuration failed (%d)", ret);
-	}
+	if (ret < 0)
+		ULOG_ERRNO("decoder->open", -ret);
 
 	free(sps_buf);
 	free(pps_buf);
@@ -1034,7 +1052,7 @@ int StreamDemuxer::createReceiver(
 	ret = vstrm_receiver_new(&cfg, &cbs, &mReceiver);
 	if (ret < 0) {
 		mReceiver = NULL;
-		ULOGE("StreamDemuxerNet: vstrm_receiver_new() failed (%d)", ret);
+		ULOG_ERRNO("vstrm_receiver_new", -ret);
 		goto error;
 	}
 
@@ -1042,10 +1060,8 @@ int StreamDemuxer::createReceiver(
 	if (mCodecInfo.codec == VSTRM_CODEC_VIDEO_H264) {
 		ret = vstrm_receiver_set_codec_info(mReceiver,
 			&mCodecInfo, mSsrc);
-		if (ret < 0) {
-			ULOGW("StreamDemuxerNet: vstrm_receiver_set_codec_info() "
-				"failed (%d)", ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("vstrm_receiver_set_codec_info", -ret);
 	}
 
 	return 0;
@@ -1064,7 +1080,7 @@ int StreamDemuxer::destroyReceiver(
 		/* Destroy the receiver */
 		res = vstrm_receiver_destroy(mReceiver);
 		if (res < 0)
-			PDRAW_LOG_ERRNO("vstrm_receiver_destroy", -res);
+			ULOG_ERRNO("vstrm_receiver_destroy", -res);
 		mReceiver = NULL;
 	}
 	return 0;
@@ -1095,7 +1111,7 @@ void StreamDemuxer::h264UserDataSeiCb(
 
 	ret = vbuf_set_userdata_capacity(demuxer->mCurrentBuffer, len);
 	if (ret < (signed)len) {
-		ULOGE("StreamDemuxer: failed to realloc user data buffer");
+		ULOG_ERRNO("vbuf_set_userdata_capacity", -ret);
 		return;
 	}
 
@@ -1110,10 +1126,9 @@ int StreamDemuxer::sendCtrlCb(
 	struct pomp_buffer *buf,
 	void *userdata)
 {
-	if (userdata == NULL) {
-		ULOGE("StreamDemuxer: invalid callback params");
+	if (userdata == NULL)
 		return -EINVAL;
-	}
+
 	return ((StreamDemuxer *)userdata)->sendCtrl(stream, buf);
 }
 
@@ -1126,31 +1141,27 @@ void StreamDemuxer::codecInfoChangedCb(
 	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 	int ret;
 
-	if ((demuxer == NULL) || (info == NULL)) {
-		ULOGE("StreamDemuxer: invalid callback params");
+	if ((demuxer == NULL) || (info == NULL))
 		return;
-	}
 	if (info->codec != VSTRM_CODEC_VIDEO_H264) {
-		ULOGE("StreamDemuxer: unsupported codec");
+		ULOG_ERRNO("info->codec", EPROTO);
 		return;
 	}
 
-	ULOGI("StreamDemuxer: received SPS/PPS");
+	ULOGI("received SPS/PPS");
 	demuxer->mCodecInfo = *info;
 
 	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0,
 		info->h264.sps, info->h264.spslen);
 	if (ret < 0) {
-		ULOGW("StreamDemuxer: h264_reader_parse_nalu() "
-			"failed (%d)", ret);
+		ULOG_ERRNO("h264_reader_parse_nalu:sps", -ret);
 		return;
 	}
 
 	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0,
 		info->h264.pps, info->h264.ppslen);
 	if (ret < 0) {
-		ULOGW("StreamDemuxer: h264_reader_parse_nalu() "
-			"failed (%d)", ret);
+		ULOG_ERRNO("h264_reader_parse_nalu:pps", -ret);
 		return;
 	}
 
@@ -1158,8 +1169,7 @@ void StreamDemuxer::codecInfoChangedCb(
 		(!demuxer->mDecoder->isConfigured())) {
 		ret = openDecoder(demuxer);
 		if (ret < 0)
-			ULOGW("StreamDemuxer: openDecoder() "
-				"failed (%d)", ret);
+			ULOG_ERRNO("openDecoder", -ret);
 	}
 }
 
@@ -1179,16 +1189,14 @@ void StreamDemuxer::recvFrameCb(
 	size_t buf_size, out_size = 0;
 	int ret;
 
-	if ((demuxer == NULL) || (frame == NULL)) {
-		ULOGE("StreamDemuxer: invalid callback params");
+	if ((demuxer == NULL) || (frame == NULL))
 		return;
-	}
 	if (demuxer->mDecoder == NULL) {
-		ULOGD("StreamDemuxer: no decoder configured");
+		ULOGD("no decoder configured");
 		return;
 	}
 	if (!demuxer->mDecoder->isConfigured()) {
-		ULOGD("StreamDemuxer: decoder is not configured");
+		ULOGD("decoder is not configured");
 		return;
 	}
 
@@ -1199,14 +1207,14 @@ void StreamDemuxer::recvFrameCb(
 		&demuxer->mCurrentBuffer, false)) == 0)
 		buffer = demuxer->mCurrentBuffer;
 	if (buffer == NULL) {
-		ULOGW("StreamDemuxer: failed to get an input buffer (%d)", ret);
+		ULOGW("failed to get an input buffer (%d)", ret);
 		return;
 	}
 
 	buf = vbuf_get_data(buffer);
 	res = vbuf_get_capacity(buffer);
 	if ((buf == NULL) || (res <= 0)) {
-		ULOGE("StreamDemuxer: invalid input buffer");
+		ULOGE("invalid input buffer");
 		return;
 	}
 	buf_size = res;
@@ -1250,20 +1258,19 @@ void StreamDemuxer::recvFrameCb(
 		flags = VSTRM_FRAME_COPY_FLAGS_INSERT_NALU_SIZE;
 		break;
 	default:
-		ULOGE("StreamDemuxer: unsupported decoder "
-			"input bitstream format");
+		ULOGE("unsupported decoder input bitstream format");
 		return;
 	}
 
 	/* Get the size of the frame */
 	ret = vstrm_frame_get_size(frame, &frame_size, flags);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("vstrm_frame_get_size", -ret);
+		ULOG_ERRNO("vstrm_frame_get_size", -ret);
 		return;
 	}
 
 	if ((unsigned)buf_size < frame_size) {
-		ULOGW("StreamDemuxer: input buffer too small (%zi vs. %zu",
+		ULOGW("input buffer too small (%zi vs. %zu",
 			buf_size, frame_size);
 		return;
 	}
@@ -1272,7 +1279,7 @@ void StreamDemuxer::recvFrameCb(
 	/* TODO: avoid copy? */
 	ret = vstrm_frame_copy(frame, buf, frame_size, flags);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("vstrm_frame_copy", -ret);
+		ULOG_ERRNO("vstrm_frame_copy", -ret);
 		return;
 	}
 	out_size += frame_size;
@@ -1281,7 +1288,7 @@ void StreamDemuxer::recvFrameCb(
 		vbuf_metadata_add(buffer,
 		demuxer->mDecoder->getMedia(), 1, sizeof(*data));
 	if (data == NULL) {
-		ULOGW("StreamDemuxer: vbuf_metadata_add() failed");
+		ULOG_ERRNO("vbuf_metadata_add", ENOMEM);
 		return;
 	}
 	struct timespec t1;
@@ -1317,8 +1324,7 @@ void StreamDemuxer::recvFrameCb(
 			ret = h264_reader_parse_nalu(demuxer->mH264Reader,
 				0, frame->nalus[i].cdata, frame->nalus[i].len);
 			if (ret < 0)
-				ULOGW("StreamDemuxer: h264_reader_parse_nalu() "
-					"failed (%d)", ret);
+				ULOG_ERRNO("h264_reader_parse_nalu:sei", -ret);
 			break;
 		}
 	}
@@ -1336,11 +1342,10 @@ void StreamDemuxer::recvFrameCb(
 	/* release buffer */
 	ret = vbuf_write_lock(buffer);
 	if (ret < 0)
-		ULOGW("StreamDemuxer: vbuf_write_lock() failed (%d)", ret);
+		ULOG_ERRNO("vbuf_write_lock", -ret);
 	ret = demuxer->mDecoder->queueInputBuffer(buffer);
-	if (ret != 0) {
-		ULOGW("StreamDemuxer: failed to release the input buffer (%d)",
-			ret);
+	if (ret < 0) {
+		ULOG_ERRNO("decoder->queueInputBuffer", -ret);
 	} else {
 		vbuf_unref(&demuxer->mCurrentBuffer);
 		demuxer->mCurrentBuffer = NULL;
@@ -1355,12 +1360,10 @@ void StreamDemuxer::sessionMetadataPeerChangedCb(
 {
 	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 
-	if ((demuxer == NULL) || (meta == NULL)) {
-		ULOGE("StreamDemuxer: invalid callback params");
+	if ((demuxer == NULL) || (meta == NULL))
 		return;
-	}
 	if (demuxer->mSession == NULL) {
-		ULOGE("StreamDemuxer: invalid session");
+		ULOGE("invalid session");
 		return;
 	}
 

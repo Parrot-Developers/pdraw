@@ -28,8 +28,9 @@
  */
 
 #include "pdraw_settings.hpp"
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_settings
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_settings);
 
 namespace Pdraw {
 
@@ -53,20 +54,20 @@ Settings::Settings(
 
 	res = pthread_mutexattr_init(&attr);
 	if (res < 0) {
-		ULOG_ERRNO("Settings: pthread_mutexattr_init", -res);
+		ULOG_ERRNO("pthread_mutexattr_init", -res);
 		goto error;
 	}
 	attr_created = true;
 
 	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	if (res < 0) {
-		ULOG_ERRNO("Settings: pthread_mutexattr_settype", -res);
+		ULOG_ERRNO("pthread_mutexattr_settype", -res);
 		goto error;
 	}
 
 	res = pthread_mutex_init(&mMutex, &attr);
 	if (res < 0) {
-		ULOG_ERRNO("Settings: pthread_mutex_init", -res);
+		ULOG_ERRNO("pthread_mutex_init", -res);
 		goto error;
 	}
 	mutex_created = true;

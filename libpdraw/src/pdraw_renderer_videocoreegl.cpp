@@ -35,8 +35,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_rndvidvcgl
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_rndvidvcgl);
 
 namespace Pdraw {
 
@@ -68,7 +69,7 @@ int VideoCoreEglRenderer::open(
 	struct egl_display *eglDisplay)
 {
 	if (eglDisplay == NULL) {
-		ULOGE("VideoCoreEglRenderer: invalid EGL display");
+		ULOGE("invalid EGL display");
 		return -EINVAL;
 	}
 	mDisplay = (EGLDisplay)eglDisplay;
@@ -92,7 +93,7 @@ int VideoCoreEglRenderer::loadVideoFrame(
 		frame->width, frame->height, colorConversion,
 		(struct egl_display *)mDisplay);
 	if (ret < 0)
-		ULOGE("VideoCoreEglRenderer: failed to load video frame");
+		ULOG_ERRNO("gles2Video->loadFrame", -ret);
 	return 0;
 }
 

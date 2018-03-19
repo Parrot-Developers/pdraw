@@ -30,8 +30,9 @@
 #include "pdraw_metadata_videoframe.hpp"
 #include <math.h>
 #include <string.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_metafrm
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_metafrm);
 
 namespace Pdraw {
 
@@ -138,9 +139,8 @@ bool VideoFrameMetadata::decodeMetadata(
 		mimeType = NULL;
 
 	err = vmeta_frame_read(&buf, &meta, mimeType);
-	if (err != 0) {
-		ULOGE("VideoFrameMetadata: vmeta_frame_read() "
-			"failed (%d: '%s')", err, strerror(err));
+	if (err < 0) {
+		ULOG_ERRNO("vmeta_frame_read", -err);
 	} else {
 		switch (meta.type) {
 		case VMETA_FRAME_TYPE_V2:
@@ -161,8 +161,7 @@ bool VideoFrameMetadata::decodeMetadata(
 			ret = true;
 			break;
 		default:
-			ULOGW("VideoFrameMetadata: invalid metadata type %d",
-				meta.type);
+			ULOGD("unsupported metadata type %d", meta.type);
 			break;
 		}
 	}

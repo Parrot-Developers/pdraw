@@ -28,16 +28,16 @@
  */
 
 #include "pdraw_avcdecoder.hpp"
-#include "pdraw_log.hpp"
 #include <unistd.h>
 #include <time.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_decavc
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_decavc);
 #include <video-buffers/vbuf_generic.h>
 #include <vector>
 
-
 namespace Pdraw {
+
 
 AvcDecoder::AvcDecoder(
 	VideoMedia *media)
@@ -62,7 +62,7 @@ AvcDecoder::AvcDecoder(
 	} else if (supported_input_format & VDEC_INPUT_FORMAT_AVCC) {
 		mInputFormat = VDEC_INPUT_FORMAT_AVCC;
 	} else {
-		PDRAW_LOGE("unsuppoted input format");
+		ULOGE("unsuppoted input format");
 		goto error;
 	}
 
@@ -79,7 +79,7 @@ AvcDecoder::AvcDecoder(
 	cbs.stop = &stopCb;
 	ret = vdec_new(&cfg, &cbs, this, &mVdec);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vdec_new", -ret);
+		ULOG_ERRNO("vdec_new", -ret);
 		goto error;
 	}
 
@@ -89,7 +89,7 @@ error:
 	if (mVdec) {
 		ret = vdec_destroy(mVdec);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("AvcDecoder:vdec_destroy", -ret);
+			ULOG_ERRNO("vdec_destroy", -ret);
 		mVdec = NULL;
 	}
 }
@@ -103,17 +103,15 @@ AvcDecoder::~AvcDecoder(
 	if (mVdec) {
 		ret = vdec_destroy(mVdec);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("AvcDecoder:vdec_destroy", -ret);
+			ULOG_ERRNO("vdec_destroy", -ret);
 		mVdec = NULL;
 		mInputBufferQueue = NULL;
 	}
 
 	if ((mInputBufferPool != NULL) && (mInputBufferPoolAllocated)) {
 		ret = vbuf_pool_destroy(mInputBufferPool);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("AvcDecoder:vbuf_pool_destroy:input",
-				-ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("vbuf_pool_destroy:input", -ret);
 		mInputBufferPool = NULL;
 	}
 	mInputBufferPool = NULL;
@@ -153,26 +151,26 @@ int AvcDecoder::open(
 	unsigned int width = 0, height = 0;
 
 	if (mConfigured) {
-		PDRAW_LOGE("AvcDecoder: decoder is already configured");
+		ULOGE("decoder is already configured");
 		return -EPROTO;
 	}
 	if ((inputBitstreamFormat != AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) &&
 		(inputBitstreamFormat != AVCDECODER_BITSTREAM_FORMAT_AVCC)) {
-		PDRAW_LOGE("AvcDecoder: unsupported input bitstream format");
+		ULOGE("unsupported input bitstream format");
 		return -EINVAL;
 	}
 
 	ret = vdec_set_sps_pps(mVdec, pSps, spsSize, pPps, ppsSize,
 		mInputFormat);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vdec_set_sps_pps", -ret);
+		ULOG_ERRNO("vdec_set_sps_pps", -ret);
 		return ret;
 	}
 
 	ret = vdec_get_video_dimensions(mVdec, &width, &height,
 		NULL, NULL, NULL, NULL, NULL, NULL);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vdec_get_video_dimensions", -ret);
+		ULOG_ERRNO("vdec_get_video_dimensions", -ret);
 		return ret;
 	}
 
@@ -182,8 +180,7 @@ int AvcDecoder::open(
 	if (mInputBufferPool == NULL) {
 		ret = vbuf_generic_get_cbs(&cbs);
 		if (ret < 0) {
-			PDRAW_LOG_ERRNO(
-				"AvcDecoder:vbuf_generic_get_cbs", -ret);
+			ULOG_ERRNO("vbuf_generic_get_cbs", -ret);
 			return ret;
 		}
 
@@ -193,15 +190,14 @@ int AvcDecoder::open(
 			width * height * 3 / 4, 0,
 			&cbs); /* TODO: number of buffers and buffers size */
 		if (mInputBufferPool == NULL) {
-			PDRAW_LOG_ERRNO("AvcDecoder:vbuf_pool_new:input",
-				ENOMEM);
+			ULOG_ERRNO("vbuf_pool_new:input", ENOMEM);
 			return -ENOMEM;
 		}
 		mInputBufferPoolAllocated = true;
 	}
 
 	mConfigured = true;
-	PDRAW_LOGI("AvcDecoder: decoder is configured");
+	ULOGI("decoder is configured");
 
 	return 0;
 }
@@ -211,17 +207,14 @@ int AvcDecoder::getInputBuffer(
 	struct vbuf_buffer **buffer,
 	bool blocking)
 {
-	if (buffer == NULL) {
-		PDRAW_LOGE("AvcDecoder: invalid buffer pointer");
+	if (buffer == NULL)
 		return -EINVAL;
-	}
 	if (!mConfigured) {
-		PDRAW_LOGE("AvcDecoder: decoder is not configured");
+		ULOGE("decoder is not configured");
 		return -EPROTO;
 	}
 	if (mInputBufferPool == NULL) {
-		PDRAW_LOGE("AvcDecoder: input buffer pool "
-			"has not been created");
+		ULOGE("invalid input buffer pool");
 		return -EPROTO;
 	}
 
@@ -229,7 +222,7 @@ int AvcDecoder::getInputBuffer(
 	int ret = vbuf_pool_get(mInputBufferPool, (blocking) ? -1 : 0, &buf);
 	if (ret < 0) {
 		if ((ret != -EAGAIN) && (ret != -ETIMEDOUT))
-			PDRAW_LOG_ERRNO("AvcDecoder:vbuf_pool_get:input", -ret);
+			ULOG_ERRNO("vbuf_pool_get:input", -ret);
 		return ret;
 	}
 	*buffer = buf;
@@ -246,29 +239,27 @@ int AvcDecoder::queueInputBuffer(
 	struct vdec_input_metadata *vdec_meta;
 	unsigned int level = 0;
 
-	if (buffer == NULL) {
-		PDRAW_LOGE("AvcDecoder: invalid buffer pointer");
+	if (buffer == NULL)
 		return -EINVAL;
-	}
 	if (!mConfigured) {
-		PDRAW_LOGE("AvcDecoder: decoder is not configured");
+		ULOGE("decoder is not configured");
 		return -EPROTO;
 	}
 	if (mInputBufferQueue == NULL) {
-		PDRAW_LOGE("AvcDecoder: input queue has not been created");
+		ULOGE("invalid input buffer queue");
 		return -EPROTO;
 	}
 
 	in_meta = (struct avcdecoder_input_buffer *)vbuf_metadata_get(buffer,
 		mMedia, &level, NULL);
 	if (in_meta == NULL) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vbuf_metadata_get", EPROTO);
+		ULOG_ERRNO("vbuf_metadata_get", EPROTO);
 		return -EPROTO;
 	}
 	vdec_meta = (struct vdec_input_metadata *)vbuf_metadata_add(buffer,
 		mVdec, level + 1, sizeof(*vdec_meta));
 	if (vdec_meta == NULL) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vbuf_metadata_add", ENOMEM);
+		ULOG_ERRNO("vbuf_metadata_add", ENOMEM);
 		return -ENOMEM;
 	}
 	vdec_meta->timestamp = in_meta->auNtpTimestampRaw;
@@ -284,8 +275,8 @@ int AvcDecoder::queueInputBuffer(
 		(uint64_t)t1.tv_sec * 1000000 + (uint64_t)t1.tv_nsec / 1000;
 
 	ret = vbuf_queue_push(mInputBufferQueue, buffer);
-	if (ret != 0)
-		PDRAW_LOG_ERRNO("AvcDecoder:vbuf_queue_push:input", -ret);
+	if (ret < 0)
+		ULOG_ERRNO("vbuf_queue_push:input", -ret);
 
 	return 0;
 }
@@ -296,7 +287,7 @@ struct vbuf_queue *AvcDecoder::addOutputQueue(
 {
 	struct vbuf_queue *q = vbuf_queue_new(0, 0);
 	if (q == NULL) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vbuf_queue_new:output", ENOMEM);
+		ULOG_ERRNO("vbuf_queue_new:output", ENOMEM);
 		return NULL;
 	}
 
@@ -308,10 +299,8 @@ struct vbuf_queue *AvcDecoder::addOutputQueue(
 int AvcDecoder::removeOutputQueue(
 	struct vbuf_queue *queue)
 {
-	if (!queue) {
-		PDRAW_LOGE("AvcDecoder: invalid queue pointer");
+	if (!queue)
 		return -EINVAL;
-	}
 
 	bool found = false;
 	std::vector<struct vbuf_queue *>::iterator q =
@@ -321,10 +310,8 @@ int AvcDecoder::removeOutputQueue(
 		if (*q == queue) {
 			mOutputBufferQueues.erase(q);
 			int ret = vbuf_queue_destroy(*q);
-			if (ret != 0) {
-				PDRAW_LOG_ERRNO("AvcDecoder:vbuf_queue_destroy:"
-					"output", -ret);
-			}
+			if (ret < 0)
+				ULOG_ERRNO("vbuf_queue_destroy:output", -ret);
 			found = true;
 			break;
 		}
@@ -339,7 +326,7 @@ bool AvcDecoder::isOutputQueueValid(
 	struct vbuf_queue *queue)
 {
 	if (queue == NULL) {
-		PDRAW_LOGE("AvcDecoder: invalid queue pointer");
+		ULOG_ERRNO("queue", EINVAL);
 		return false;
 	}
 
@@ -365,7 +352,7 @@ int AvcDecoder::flush(
 	int ret;
 
 	if (!mConfigured) {
-		PDRAW_LOGE("AvcDecoder: decoder is not configured");
+		ULOGE("decoder is not configured");
 		return -EPROTO;
 	}
 
@@ -374,10 +361,8 @@ int AvcDecoder::flush(
 		mOutputBufferQueues.begin();
 	while (q != mOutputBufferQueues.end()) {
 		ret = vbuf_queue_flush(*q);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("AvcDecoder:vbuf_queue_flush:output",
-				-ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("vbuf_queue_flush:output", -ret);
 		q++;
 	}
 
@@ -386,7 +371,7 @@ int AvcDecoder::flush(
 	/* Flush the decoder */
 	ret = vdec_flush(mVdec, 1);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vdec_flush", -ret);
+		ULOG_ERRNO("vdec_flush", -ret);
 		return ret;
 	}
 
@@ -400,7 +385,7 @@ int AvcDecoder::close(
 	int ret;
 
 	if (!mConfigured) {
-		PDRAW_LOGE("AvcDecoder: decoder is not configured");
+		ULOGE("decoder is not configured");
 		return -EPROTO;
 	}
 
@@ -409,15 +394,14 @@ int AvcDecoder::close(
 	if (mInputBufferPool) {
 		ret = vbuf_pool_abort(mInputBufferPool);
 		if (ret < 0) {
-			PDRAW_LOG_ERRNO("AvcDecoder:vbuf_pool_abort:input",
-				-ret);
+			ULOG_ERRNO("vbuf_pool_abort:input", -ret);
 			return ret;
 		}
 	}
 
 	ret = vdec_stop(mVdec);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vdec_stop", -ret);
+		ULOG_ERRNO("vdec_stop", -ret);
 		return ret;
 	}
 
@@ -437,8 +421,12 @@ void AvcDecoder::frameOutputCb(
 	struct avcdecoder_output_buffer *out_meta;
 	unsigned int level = 0;
 
-	if ((decoder == NULL) || (out_buf == NULL)) {
-		PDRAW_LOGE("AvcDecoder: invalid callback params");
+	if (userdata == NULL) {
+		ULOG_ERRNO("userdata", EINVAL);
+		return;
+	}
+	if (out_buf == NULL) {
+		ULOG_ERRNO("out_buf", EINVAL);
 		return;
 	}
 
@@ -505,7 +493,7 @@ void AvcDecoder::frameOutputCb(
 
 #if 0
 	/* TODO: remove debug */
-	PDRAW_LOGI("AvcDecoder: frame #%u dequeue=%.2fms decode=%.2fms",
+	ULOGI("frame #%u dequeue=%.2fms decode=%.2fms",
 		vdec_meta->index,
 		(float)(vdec_meta->dequeue_time -
 			vdec_meta->input_time) / 1000.,
@@ -516,19 +504,19 @@ void AvcDecoder::frameOutputCb(
 	/* Remove the vdec metadata */
 	ret = vbuf_metadata_remove(out_buf, decoder->mVdec);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("AvcDecoder:vbuf_metadata_remove", -ret);
+		ULOG_ERRNO("vbuf_metadata_remove", -ret);
 
 	/* Remove the pdraw input metadata */
 	ret = vbuf_metadata_remove(out_buf, decoder->mMedia);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("AvcDecoder:vbuf_metadata_remove", -ret);
+		ULOG_ERRNO("vbuf_metadata_remove", -ret);
 
 	/* Add the pdraw output metadata */
 	out_meta = (struct avcdecoder_output_buffer *)
 		vbuf_metadata_add(out_buf, decoder->mMedia,
 		level, sizeof(*out_meta));
 	if (out_meta == NULL) {
-		PDRAW_LOG_ERRNO("AvcDecoder:vbuf_metadata_add", ENOMEM);
+		ULOG_ERRNO("vbuf_metadata_add", ENOMEM);
 		return;
 	}
 	memcpy(out_meta, &_out_meta, sizeof(*out_meta));
@@ -539,14 +527,12 @@ void AvcDecoder::frameOutputCb(
 			decoder->mOutputBufferQueues.begin();
 		while (q != decoder->mOutputBufferQueues.end()) {
 			ret = vbuf_queue_push(*q, out_buf);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("AvcDecoder:vbuf_queue_push:"
-					"output", -ret);
-			}
+			if (ret < 0)
+				ULOG_ERRNO("vbuf_queue_push:output", -ret);
 			q++;
 		}
 	} else {
-		PDRAW_LOGD("AvcDecoder: silent frame (ignored)");
+		ULOGD("silent frame (ignored)");
 	}
 }
 
@@ -554,7 +540,7 @@ void AvcDecoder::frameOutputCb(
 void AvcDecoder::flushCb(
 	void *userdata)
 {
-	PDRAW_LOGI("AvcDecoder: decoder is flushed");
+	ULOGI("decoder is flushed");
 
 	/* TODO: signal the upstream elements */
 }
@@ -563,7 +549,7 @@ void AvcDecoder::flushCb(
 void AvcDecoder::stopCb(
 	void *userdata)
 {
-	PDRAW_LOGI("AvcDecoder: decoder is stopped");
+	ULOGI("decoder is stopped");
 
 	/* TODO: signal the upstream elements */
 }

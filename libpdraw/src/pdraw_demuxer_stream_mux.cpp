@@ -29,7 +29,9 @@
 
 #include "pdraw_demuxer_stream_mux.hpp"
 #include "pdraw_session.hpp"
-#include "pdraw_log.hpp"
+#define ULOG_TAG pdraw_dmxstrmmux
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_dmxstrmmux);
 
 #ifdef BUILD_LIBMUX
 
@@ -68,11 +70,11 @@ int StreamDemuxerMux::open(
 	int res;
 
 	if (mConfigured) {
-		PDRAW_LOGE("StreamDemuxer: demuxer is already configured");
+		ULOGE("demuxer is already configured");
 		return -EEXIST;
 	}
 	if (mux == NULL) {
-		PDRAW_LOGE("StreamDemuxer: invalid mux handle");
+		ULOGE("invalid mux handle");
 		return -EINVAL;
 	}
 	mMux = mux;
@@ -80,12 +82,12 @@ int StreamDemuxerMux::open(
 
 	res = openRtpAvp();
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxer: openRtpAvp", -res);
+		ULOG_ERRNO("openRtpAvp", -res);
 		return res;
 	}
 
 	mConfigured = true;
-	PDRAW_LOGI("StreamDemuxer: demuxer is configured");
+	ULOGI("demuxer is configured");
 
 	return 0;
 }
@@ -106,7 +108,7 @@ int StreamDemuxerMux::openRtpAvp(
 	int res = 0;
 
 	if (mMux == NULL) {
-		PDRAW_LOGE("StreamDemuxerMux: invalid mux handle");
+		ULOGE("invalid mux handle");
 		return -EPROTO;
 	}
 
@@ -116,14 +118,14 @@ int StreamDemuxerMux::openRtpAvp(
 	res = mux_channel_open(mMux, MUX_ARSDK_CHANNEL_ID_STREAM_DATA,
 		&dataCb, this);
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerMux: mux_channel_open", -res);
+		ULOG_ERRNO("mux_channel_open", -res);
 		goto error;
 	}
 
 	res = mux_channel_open(mMux, MUX_ARSDK_CHANNEL_ID_STREAM_CONTROL,
 		&ctrlCb, this);
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerMux: mux_channel_open", -res);
+		ULOG_ERRNO("mux_channel_open", -res);
 		goto error;
 	}
 
@@ -152,22 +154,16 @@ void StreamDemuxerMux::dataCb(
 	int res = 0;
 	struct timespec ts = { 0, 0 };
 
-	if (self == NULL) {
-		PDRAW_LOGE("StreamDemuxerMux: invalid callback params");
+	if (self == NULL)
 		return;
-	}
 
 	res = time_get_monotonic(&ts);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerMux: time_get_monotonic",
-			-res);
-	}
+	if (res < 0)
+		ULOG_ERRNO("time_get_monotonic", -res);
 
 	res = vstrm_receiver_recv_data(self->mReceiver, buf, &ts);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerMux: vstrm_receiver_recv_data",
-			-res);
-	}
+	if (res < 0)
+		ULOG_ERRNO("vstrm_receiver_recv_data", -res);
 }
 
 
@@ -182,22 +178,16 @@ void StreamDemuxerMux::ctrlCb(
 	int res = 0;
 	struct timespec ts = { 0, 0 };
 
-	if (self == NULL) {
-		PDRAW_LOGE("StreamDemuxerMux: invalid callback params");
+	if (self == NULL)
 		return;
-	}
 
 	res = time_get_monotonic(&ts);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerMux: time_get_monotonic",
-			-res);
-	}
+	if (res < 0)
+		ULOG_ERRNO("time_get_monotonic", -res);
 
 	res = vstrm_receiver_recv_ctrl(self->mReceiver, buf, &ts);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerMux: vstrm_receiver_recv_ctrl",
-			-res);
-	}
+	if (res < 0)
+		ULOG_ERRNO("vstrm_receiver_recv_ctrl", -res);
 }
 
 
@@ -206,7 +196,7 @@ int StreamDemuxerMux::sendCtrl(
 	struct pomp_buffer *buf)
 {
 	if (buf == NULL) {
-		PDRAW_LOGE("StreamDemuxerMux: invalid buffer");
+		ULOGE("invalid buffer");
 		return -EINVAL;
 	}
 

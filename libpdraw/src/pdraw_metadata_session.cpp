@@ -30,8 +30,9 @@
 #include "pdraw_metadata_session.hpp"
 #include <math.h>
 #include <string.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_metasess
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_metasess);
 #include <string>
 
 #ifdef __APPLE__
@@ -69,20 +70,20 @@ SessionSelfMetadata::SessionSelfMetadata(
 
 	res = pthread_mutexattr_init(&attr);
 	if (res < 0) {
-		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_init", -res);
+		ULOG_ERRNO("pthread_mutexattr_init", -res);
 		goto error;
 	}
 	attr_created = true;
 
 	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	if (res < 0) {
-		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_settype", -res);
+		ULOG_ERRNO("pthread_mutexattr_settype", -res);
 		goto error;
 	}
 
 	res = pthread_mutex_init(&mMutex, &attr);
 	if (res < 0) {
-		ULOG_ERRNO("SessionMetadata: pthread_mutex_init", -res);
+		ULOG_ERRNO("pthread_mutex_init", -res);
 		goto error;
 	}
 	mutex_created = true;
@@ -595,20 +596,20 @@ SessionPeerMetadata::SessionPeerMetadata(
 
 	res = pthread_mutexattr_init(&attr);
 	if (res < 0) {
-		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_init", -res);
+		ULOG_ERRNO("pthread_mutexattr_init", -res);
 		goto error;
 	}
 	attr_created = true;
 
 	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	if (res < 0) {
-		ULOG_ERRNO("SessionMetadata: pthread_mutexattr_settype", -res);
+		ULOG_ERRNO("pthread_mutexattr_settype", -res);
 		goto error;
 	}
 
 	res = pthread_mutex_init(&mMutex, &attr);
 	if (res < 0) {
-		ULOG_ERRNO("SessionMetadata: pthread_mutex_init", -res);
+		ULOG_ERRNO("pthread_mutex_init", -res);
 		goto error;
 	}
 	mutex_created = true;

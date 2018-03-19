@@ -34,8 +34,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_filtrfrm
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_filtrfrm);
 
 namespace Pdraw {
 
@@ -83,33 +84,32 @@ VideoFrameFilter::VideoFrameFilter(
 	mCondition = PTHREAD_COND_INITIALIZER;
 
 	if (media == NULL) {
-		ULOGE("VideoFrameFilter: invalid media");
+		ULOGE("invalid media");
 		return;
 	}
 
 	if (decoder == NULL) {
-		ULOGE("VideoFrameFilter: invalid decoder");
+		ULOGE("invalid decoder");
 		return;
 	}
 
 	mDecoderOutputBufferQueue = decoder->addOutputQueue();
 	if (mDecoderOutputBufferQueue == NULL) {
-		ULOGE("VideoFrameFilter: failed to add "
-			"output buffer queue to decoder");
+		ULOGE("failed to add output buffer queue to decoder");
 		return;
 	}
 
 	mDecoder = decoder;
 
 	ret = pthread_mutex_init(&mMutex, NULL);
-	if (ret != 0) {
-		ULOGE("VideoFrameFilter: mutex creation failed (%d)", ret);
+	if (ret < 0) {
+		ULOG_ERRNO("pthread_mutex_init", -ret);
 		return;
 	}
 
 	ret = pthread_create(&mThread, NULL, runThread, (void*)this);
-	if (ret != 0) {
-		ULOGE("VideoFrameFilter: thread creation failed (%d)", ret);
+	if (ret < 0) {
+		ULOG_ERRNO("pthread_create", -ret);
 		return;
 	}
 
@@ -128,10 +128,8 @@ VideoFrameFilter::~VideoFrameFilter(
 
 	if (mThreadLaunched) {
 		ret = pthread_join(mThread, NULL);
-		if (ret != 0) {
-			ULOGE("VideoFrameFilter: pthread_join() "
-				"failed (%d)", ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("pthread_join", -ret);
 	}
 
 	/**
@@ -148,10 +146,8 @@ VideoFrameFilter::~VideoFrameFilter(
 		if (mDecoderOutputBufferQueue != NULL) {
 			ret = mDecoder->removeOutputQueue(
 				mDecoderOutputBufferQueue);
-			if (ret != 0) {
-				ULOGE("VideoFrameFilter: failed to remove "
-					"output queue from decoder");
-			}
+			if (ret < 0)
+				ULOG_ERRNO("decoder->removeOutputQueue", -ret);
 		}
 	}
 
@@ -183,12 +179,12 @@ int VideoFrameFilter::getLastFrame(
 	int timeout)
 {
 	if (frame == NULL) {
-		ULOGE("VideoFrameFilter: invalid frame structure pointer");
-		return -1;
+		ULOGE("invalid frame structure pointer");
+		return -EINVAL;
 	}
 	if (mCb != NULL) {
-		ULOGE("VideoFrameFilter: unsupported in callback mode");
-		return -1;
+		ULOGE("unsupported in callback mode");
+		return -ENOSYS;
 	}
 
 	pthread_mutex_lock(&mMutex);
@@ -205,8 +201,8 @@ int VideoFrameFilter::getLastFrame(
 
 	if (!mFrameAvailable) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGI("VideoFrameFilter: no frame available");
-		return -2;
+		ULOGI("no frame available");
+		return -ENOENT;
 	}
 
 	mBufferIndex ^= 1;
@@ -218,10 +214,8 @@ int VideoFrameFilter::getLastFrame(
 	if ((mFrameByFrame) && (mMedia != NULL)) {
 		Demuxer *demuxer = mMedia->getSession()->getDemuxer();
 		int ret = demuxer->next();
-		if (ret < 0) {
-			ULOGE("VideoFrameFilter: failed to advance "
-				"to next frame");
-		}
+		if (ret < 0)
+			ULOG_ERRNO("demuxer->next", -ret);
 	}
 
 	return 0;
@@ -248,11 +242,9 @@ void* VideoFrameFilter::runThread(
 
 		ret = vbuf_queue_pop(filter->mDecoderOutputBufferQueue,
 			-1, &buffer);
-		if ((ret != 0) || (buffer == NULL)) {
-			if (ret != -EAGAIN) {
-				ULOGW("VideoFrameFilter: failed to dequeue "
-					"an output buffer (%d)", ret);
-			}
+		if ((ret < 0) || (buffer == NULL)) {
+			if (ret != -EAGAIN)
+				ULOG_ERRNO("vbuf_queue_pop", -ret);
 			continue;
 		}
 
@@ -298,10 +290,8 @@ void* VideoFrameFilter::runThread(
 		if (filter->mCb) {
 			filter->mCb(filter, &frame, filter->mUserPtr);
 			ret = vbuf_unref(&buffer);
-			if (ret != 0) {
-				ULOGE("VideoFrameFilter: failed to "
-					"release buffer (%d)", ret);
-			}
+			if (ret < 0)
+				ULOG_ERRNO("vbuf_unref", -ret);
 			continue;
 		}
 
@@ -310,13 +300,13 @@ void* VideoFrameFilter::runThread(
 			unsigned int size = frame.width * frame.height * 3 / 2;
 			filter->mBuffer[0] = (uint8_t *)malloc(size);
 			if (filter->mBuffer[0] == NULL) {
-				ULOGE("VideoFrameFilter: frame allocation "
-					"failed (size %d)", size);
+				ULOGE("frame allocation failed (size %d)",
+					size);
 			}
 			filter->mBuffer[1] = (uint8_t *)malloc(size);
 			if (filter->mBuffer[1] == NULL) {
-				ULOGE("VideoFrameFilter: frame allocation "
-					"failed (size %d)", size);
+				ULOGE("frame allocation failed (size %d)",
+					size);
 			}
 			if ((filter->mBuffer[0] != NULL) &&
 				(filter->mBuffer[1] != NULL)) {
@@ -329,12 +319,10 @@ void* VideoFrameFilter::runThread(
 		if ((frame.width != filter->mWidth) ||
 			(frame.height != filter->mHeight) ||
 			(frame.colorFormat != filter->mColorFormat)) {
-			ULOGW("VideoFrameFilter: unsupported change of "
-				"frame format");
+			ULOGW("unsupported change of frame format");
 			ret = vbuf_unref(&buffer);
-			if (ret != 0) {
-				ULOGE("VideoFrameFilter: failed to "
-					"release buffer (%d)", ret);
+			if (ret < 0) {
+				ULOG_ERRNO("vbuf_unref", -ret);
 			}
 			continue;
 		}
@@ -443,10 +431,8 @@ void* VideoFrameFilter::runThread(
 		pthread_cond_signal(&filter->mCondition);
 
 		ret = vbuf_unref(&buffer);
-		if (ret != 0) {
-			ULOGE("VideoFrameFilter: failed to "
-				"release buffer (%d)", ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("vbuf_unref", -ret);
 	}
 
 	return NULL;

@@ -37,8 +37,9 @@
 #include <unistd.h>
 #include <json-c/json.h>
 #include <video-streaming/vstrm.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_dmxrec
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_dmxrec);
 #include <string>
 
 namespace Pdraw {
@@ -50,7 +51,7 @@ RecordDemuxer::RecordDemuxer(
 	int ret;
 
 	if (session == NULL) {
-		ULOGE("RecordDemuxer: invalid session");
+		ULOGE("invalid session");
 		return;
 	}
 
@@ -86,14 +87,13 @@ RecordDemuxer::RecordDemuxer(
 	mMetadataBufferSize = 1024;
 	mMetadataBuffer = (uint8_t*)malloc(mMetadataBufferSize);
 	if (mMetadataBuffer == NULL) {
-		ULOGE("RecordDemuxer: allocation failed size %zu",
-			mMetadataBufferSize);
+		ULOG_ERRNO("malloc", ENOMEM);
 		goto err;
 	}
 
 	mTimer = pomp_timer_new(mSession->getLoop(), timerCb, this);
 	if (mTimer == NULL) {
-		ULOGE("RecordDemuxer: pomp timer creation failed");
+		ULOGE("pomp_timer_new failed");
 		goto err;
 	}
 
@@ -103,7 +103,7 @@ RecordDemuxer::RecordDemuxer(
 	h264_cbs.sei_user_data_unregistered = &h264UserDataSeiCb;
 	ret = h264_reader_new(&h264_cbs, &mH264Reader);
 	if (ret < 0) {
-		ULOGE("RecordDemuxer: h264_reader_new() failed (%d)", ret);
+		ULOG_ERRNO("h264_reader_new", -ret);
 		goto err;
 	}
 
@@ -111,12 +111,18 @@ RecordDemuxer::RecordDemuxer(
 
 err:
 	if (mTimer != NULL) {
-		pomp_timer_clear(mTimer);
-		pomp_timer_destroy(mTimer);
+		ret = pomp_timer_clear(mTimer);
+		if (ret < 0)
+			ULOG_ERRNO("pomp_timer_clear", -ret);
+		ret = pomp_timer_destroy(mTimer);
+		if (ret < 0)
+			ULOG_ERRNO("pomp_timer_destroy", -ret);
 		mTimer = NULL;
 	}
 	if (mH264Reader != NULL) {
-		h264_reader_destroy(mH264Reader);
+		ret = h264_reader_destroy(mH264Reader);
+		if (ret < 0)
+			ULOG_ERRNO("h264_reader_destroy", -ret);
 		mH264Reader = NULL;
 	}
 	free(mMetadataBuffer);
@@ -130,8 +136,8 @@ RecordDemuxer::~RecordDemuxer(
 	int ret;
 
 	ret = close();
-	if (ret != 0)
-		ULOGE("RecordDemuxer: close() failed (%d)", ret);
+	if (ret < 0)
+		ULOG_ERRNO("close", errno);
 
 	if (mCurrentBuffer != NULL) {
 		vbuf_unref(&mCurrentBuffer);
@@ -139,18 +145,26 @@ RecordDemuxer::~RecordDemuxer(
 	}
 
 	if (mDemux != NULL) {
-		mp4_demux_close(mDemux);
+		ret = mp4_demux_close(mDemux);
+		if (ret < 0)
+			ULOG_ERRNO("mp4_demux_close", -ret);
 		mDemux = NULL;
 	}
 
 	if (mTimer != NULL) {
-		pomp_timer_clear(mTimer);
-		pomp_timer_destroy(mTimer);
+		ret = pomp_timer_clear(mTimer);
+		if (ret < 0)
+			ULOG_ERRNO("pomp_timer_clear", -ret);
+		ret = pomp_timer_destroy(mTimer);
+		if (ret < 0)
+			ULOG_ERRNO("pomp_timer_destroy", -ret);
 		mTimer = NULL;
 	}
 
 	if (mH264Reader != NULL) {
-		h264_reader_destroy(mH264Reader);
+		ret = h264_reader_destroy(mH264Reader);
+		if (ret < 0)
+			ULOG_ERRNO("h264_reader_destroy", -ret);
 		mH264Reader = NULL;
 	}
 
@@ -168,17 +182,14 @@ int RecordDemuxer::fetchVideoDimensions(
 	unsigned int spsSize = 0, ppsSize = 0;
 	int ret = mp4_demux_get_track_avc_decoder_config(mDemux,
 		mVideoTrackId, &sps, &spsSize, &pps, &ppsSize);
-	if (ret != 0) {
-		ULOGE("RecordDemuxer: failed to get "
-			"decoder configuration (%d)", ret);
+	if (ret < 0) {
+		ULOG_ERRNO("mp4_demux_get_track_avc_decoder_config", -ret);
 	} else {
 		int _ret = pdraw_videoDimensionsFromH264Sps(sps, spsSize,
 			&mWidth, &mHeight, &mCropLeft, &mCropRight,
 			&mCropTop, &mCropBottom, &mSarWidth, &mSarHeight);
-		if (_ret != 0)
-			ULOGW("RecordDemuxer: "
-				"pdraw_videoDimensionsFromH264Sps() "
-				"failed (%d)", _ret);
+		if (_ret < 0)
+			ULOG_ERRNO("pdraw_videoDimensionsFromH264Sps", -_ret);
 	}
 
 	return ret;
@@ -188,11 +199,6 @@ int RecordDemuxer::fetchVideoDimensions(
 int RecordDemuxer::fetchSessionMetadata(
 	void)
 {
-	if (mSession == NULL) {
-		ULOGE("RecordDemuxer: invalid session");
-		return -1;
-	}
-
 	SessionPeerMetadata *peerMeta = mSession->getPeerMetadata();
 	unsigned int count = 0, i;
 	char **keys = NULL, *key;
@@ -202,10 +208,9 @@ int RecordDemuxer::fetchSessionMetadata(
 
 	int ret = mp4_demux_get_metadata_strings(mDemux,
 		&count, &keys, &values);
-	if (ret != 0) {
-		ULOGE("RecordDemuxer: mp4_demux_get_metadata_strings() "
-			"failed (%d)", ret);
-		return -1;
+	if (ret < 0) {
+		ULOG_ERRNO("mp4_demux_get_metadata_strings", -ret);
+		return ret;
 	}
 
 	for (i = 0; i < count; i++) {
@@ -213,11 +218,9 @@ int RecordDemuxer::fetchSessionMetadata(
 		value = values[i];
 		if ((key) && (value)) {
 			ret = vmeta_session_recording_read(key, value, &meta);
-			if (ret != 0) {
-				ULOGE("RecordDemuxer: "
-					"vmeta_session_recording_read() "
-					"failed: %d(%s)\n",
-					ret, strerror(-ret));
+			if (ret < 0) {
+				ULOG_ERRNO("vmeta_session_recording_read",
+					-ret);
 				continue;
 			}
 		}
@@ -239,16 +242,16 @@ int RecordDemuxer::open(
 	int ret;
 
 	if (mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is already configured");
-		return -1;
+		ULOGE("demuxer is already configured");
+		return -EPROTO;
 	}
 
 	mFileName = fileName;
 
 	mDemux = mp4_demux_open(mFileName.c_str());
 	if (mDemux == NULL) {
-		ULOGE("RecordDemuxer: mp4_demux_open() failed");
-		return -1;
+		ULOG_ERRNO("mp4_demux_open", EIO);
+		return -EIO;
 	}
 
 	int i, tkCount = 0, found = 0;
@@ -256,17 +259,17 @@ int RecordDemuxer::open(
 	struct mp4_track_info tk;
 
 	ret = mp4_demux_get_media_info(mDemux, &info);
-	if (ret != 0) {
-		ULOGE("RecordDemuxer: mp4_demux_open() failed");
-		return -1;
+	if (ret < 0) {
+		ULOG_ERRNO("mp4_demux_open", -ret);
+		return ret;
 	}
 
 	mDuration = info.duration;
 	tkCount = info.track_count;
-	ULOGI("RecordDemuxer: track count: %d", tkCount);
+	ULOGI("track count: %d", tkCount);
 	unsigned int hrs = 0, min = 0, sec = 0;
 	pdraw_friendlyTimeFromUs(info.duration, &hrs, &min, &sec, NULL);
-	ULOGI("RecordDemuxer: duration: %02d:%02d:%02d", hrs, min, sec);
+	ULOGI("duration: %02d:%02d:%02d", hrs, min, sec);
 
 	for (i = 0; i < tkCount; i++) {
 		ret = mp4_demux_get_track_info(mDemux, i, &tk);
@@ -282,29 +285,26 @@ int RecordDemuxer::open(
 	}
 
 	if (!found) {
-		ULOGE("RecordDemuxer: failed to find a video track");
-		return -1;
+		ULOGE("failed to find a video track");
+		return -ENOENT;
 	}
 
-	ULOGI("RecordDemuxer: video track ID: %d", mVideoTrackId);
+	ULOGI("video track ID: %d", mVideoTrackId);
 
 	ret = fetchVideoDimensions();
-	if (ret != 0) {
-		ULOGE("RecordDemuxer: failed to fetch video dimensions");
-		return -1;
+	if (ret < 0) {
+		ULOG_ERRNO("fetchVideoDimensions", -ret);
+		return ret;
 	}
 
-	if (mSession) {
-		ret = fetchSessionMetadata();
-		if (ret != 0) {
-			ULOGE("RecordDemuxer: failed to fetch "
-				"session metadata");
-			return -1;
-		}
+	ret = fetchSessionMetadata();
+	if (ret < 0) {
+		ULOG_ERRNO("fetchSessionMetadata", -ret);
+		return ret;
 	}
 
 	mConfigured = true;
-	ULOGI("RecordDemuxer: demuxer is configured");
+	ULOGI("demuxer is configured");
 
 	return 0;
 }
@@ -314,8 +314,8 @@ int RecordDemuxer::close(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	mRunning = false;
@@ -329,8 +329,8 @@ int RecordDemuxer::getElementaryStreamCount(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
+		return 0;
 	}
 
 	/* TODO: handle multiple streams */
@@ -342,12 +342,12 @@ enum elementary_stream_type RecordDemuxer::getElementaryStreamType(
 	int esIndex)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return (enum elementary_stream_type)-1;
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
+		return ELEMENTARY_STREAM_TYPE_UNKNOWN;
 	}
 	if ((esIndex < 0) || (esIndex >= mVideoTrackCount)) {
-		ULOGE("RecordDemuxer: invalid ES index");
-		return (enum elementary_stream_type)-1;
+		ULOG_ERRNO("invalid ES index", ENOENT);
+		return ELEMENTARY_STREAM_TYPE_UNKNOWN;
 	}
 
 	/* TODO: handle multiple streams */
@@ -367,12 +367,12 @@ int RecordDemuxer::getElementaryStreamVideoDimensions(
 	unsigned int *sarHeight)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 	if ((esIndex < 0) || (esIndex >= mVideoTrackCount)) {
-		ULOGE("RecordDemuxer: invalid ES index");
-		return -1;
+		ULOGE("invalid ES index");
+		return -ENOENT;
 	}
 
 	/* TODO: handle multiple streams */
@@ -403,12 +403,12 @@ int RecordDemuxer::getElementaryStreamVideoFov(
 	float *vfov)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 	if ((esIndex < 0) || (esIndex >= mVideoTrackCount)) {
-		ULOGE("RecordDemuxer: invalid ES index");
-		return -1;
+		ULOGE("invalid ES index");
+		return -ENOENT;
 	}
 
 	/* TODO: handle multiple streams */
@@ -425,17 +425,15 @@ int RecordDemuxer::setElementaryStreamDecoder(
 	int esIndex,
 	Decoder *decoder)
 {
+	if (decoder == NULL)
+		return -EINVAL;
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
-	}
-	if (decoder == NULL) {
-		ULOGE("RecordDemuxer: invalid decoder");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 	if ((esIndex < 0) || (esIndex >= mVideoTrackCount)) {
-		ULOGE("RecordDemuxer: invalid ES index");
-		return -1;
+		ULOGE("invalid ES index");
+		return -ENOENT;
 	}
 
 	/* TODO: handle multiple streams */
@@ -448,9 +446,8 @@ int RecordDemuxer::setElementaryStreamDecoder(
 		mDecoderBitstreamFormat =
 			AVCDECODER_BITSTREAM_FORMAT_AVCC;
 	} else {
-		ULOGE("RecordDemuxer: unsupported "
-			"decoder input bitstream format");
-		return -1;
+		ULOGE("unsupported decoder input bitstream format");
+		return -ENOSYS;
 	}
 
 	return 0;
@@ -461,8 +458,8 @@ int RecordDemuxer::play(
 	float speed)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	if (speed == 0.) {
@@ -485,7 +482,7 @@ bool RecordDemuxer::isPaused(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
 		return false;
 	}
 
@@ -499,8 +496,8 @@ int RecordDemuxer::previous(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	if (!mPendingSeekExact) {
@@ -520,8 +517,8 @@ int RecordDemuxer::next(
 	void)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	mRunning = true;
@@ -536,8 +533,8 @@ int RecordDemuxer::seek(
 	bool exact)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	int64_t ts = (int64_t)mCurrentTime + delta;
@@ -554,8 +551,8 @@ int RecordDemuxer::seekTo(
 	bool exact)
 {
 	if (!mConfigured) {
-		ULOGE("RecordDemuxer: demuxer is not configured");
-		return -1;
+		ULOGE("demuxer is not configured");
+		return -EPROTO;
 	}
 
 	if (timestamp > mDuration)
@@ -594,7 +591,7 @@ void RecordDemuxer::h264UserDataSeiCb(
 
 	ret = vbuf_set_userdata_capacity(demuxer->mCurrentBuffer, len);
 	if (ret < (signed)len) {
-		ULOGE("RecordDemuxer: failed to realloc user data buffer");
+		ULOG_ERRNO("vbuf_set_userdata_capacity", -ret);
 		return;
 	}
 
@@ -614,45 +611,42 @@ int RecordDemuxer::openAvcDecoder(
 	int ret;
 
 	if (demuxer == NULL) {
-		ULOGE("RecordDemuxer: invalid demuxer");
-		return -1;
+		ULOGE("invalid demuxer");
+		return -EPROTO;
 	}
 
 	ret = mp4_demux_get_track_avc_decoder_config(
 		demuxer->mDemux, demuxer->mVideoTrackId,
 		&sps, &spsSize, &pps, &ppsSize);
 	if (ret < 0) {
-		ULOGE("RecordDemuxer: mp4_demux_get_track_avc_decoder_config() "
-			"failed (%d)", ret);
-		return -1;
+		ULOG_ERRNO("mp4_demux_get_track_avc_decoder_config", -ret);
+		return ret;
 	}
 	if ((sps == NULL) || (spsSize == 0)) {
-		ULOGE("RecordDemuxer: invalid SPS");
-		return -1;
+		ULOGE("invalid SPS");
+		return -EPROTO;
 	}
 	if ((pps == NULL) || (ppsSize == 0)) {
-		ULOGE("RecordDemuxer: invalid PPS");
-		return -1;
+		ULOGE("invalid PPS");
+		return -EPROTO;
 	}
 
 	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, sps, spsSize);
 	if (ret < 0) {
-		ULOGW("RecordDemuxer: h264_reader_parse_nalu() "
-			"failed (%d)", ret);
-		return -1;
+		ULOG_ERRNO("h264_reader_parse_nalu", -ret);
+		return ret;
 	}
 
 	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, pps, ppsSize);
 	if (ret < 0) {
-		ULOGW("RecordDemuxer: h264_reader_parse_nalu() "
-			"failed (%d)", ret);
-		return -1;
+		ULOG_ERRNO("h264_reader_parse_nalu", -ret);
+		return ret;
 	}
 
 	spsBuffer = (uint8_t *)malloc(spsSize + 4);
 	if (spsBuffer == NULL) {
-		ULOGE("RecordDemuxer: SPS buffer allocation failed");
-		return -1;
+		ULOG_ERRNO("malloc:SPS", ENOMEM);
+		return -ENOMEM;
 	}
 
 	start = (demuxer->mDecoderBitstreamFormat ==
@@ -663,9 +657,9 @@ int RecordDemuxer::openAvcDecoder(
 
 	ppsBuffer = (uint8_t *)malloc(ppsSize + 4);
 	if (ppsBuffer == NULL) {
-		ULOGE("RecordDemuxer: PPS buffer allocation failed");
+		ULOG_ERRNO("malloc:PPS", ENOMEM);
 		free(spsBuffer);
-		return -1;
+		return -ENOMEM;
 	}
 
 	start = (demuxer->mDecoderBitstreamFormat ==
@@ -677,11 +671,11 @@ int RecordDemuxer::openAvcDecoder(
 	ret = demuxer->mDecoder->open(demuxer->mDecoderBitstreamFormat,
 		spsBuffer, (unsigned int)spsSize + 4,
 		ppsBuffer, (unsigned int)ppsSize + 4);
-	if (ret != 0) {
-		ULOGE("RecordDemuxer: decoder configuration failed (%d)", ret);
+	if (ret < 0) {
+		ULOG_ERRNO("decoder->open", -ret);
 		free(spsBuffer);
 		free(ppsBuffer);
-		return -1;
+		return ret;
 	}
 
 	return 0;
@@ -707,7 +701,6 @@ void RecordDemuxer::timerCb(
 	uint32_t start = htonl(0x00000001);
 
 	if (demuxer == NULL) {
-		ULOGE("RecordDemuxer: invalid context pointer");
 		return;
 	}
 
@@ -727,15 +720,14 @@ void RecordDemuxer::timerCb(
 		/* Get the H.264 config and configure the decoder */
 		ret = openAvcDecoder(demuxer);
 		if (ret != 0) {
-			ULOGE("RecordDemuxer: failed to get "
-				"AVC decoder config (%d)", ret);
+			ULOG_ERRNO("openAvcDecoder", -ret);
 		} else {
 			demuxer->mFirstFrame = false;
 		}
 	}
 
 	if (!demuxer->mDecoder->isConfigured()) {
-		ULOGE("RecordDemuxer: decoder is not configured");
+		ULOGE("decoder is not configured");
 		retry = 1;
 		goto out;
 	}
@@ -743,9 +735,9 @@ void RecordDemuxer::timerCb(
 	if (demuxer->mCurrentBuffer == NULL) {
 		ret = demuxer->mDecoder->getInputBuffer(
 			&demuxer->mCurrentBuffer, false);
-		if ((ret != 0) || (demuxer->mCurrentBuffer == NULL)) {
-			ULOGW("RecordDemuxer: failed to get "
-				"an output buffer (%d)", ret);
+		if ((ret < 0) || (demuxer->mCurrentBuffer == NULL)) {
+			ULOGW("decoder->getInputBuffer err=%d(%s)",
+				ret, strerror(-ret));
 			retry = 1;
 			goto out;
 		}
@@ -758,9 +750,9 @@ void RecordDemuxer::timerCb(
 	if (demuxer->mPendingSeekTs >= 0) {
 		ret = mp4_demux_seek(demuxer->mDemux,
 			(uint64_t)demuxer->mPendingSeekTs, 1);
-		if (ret != 0) {
-			ULOGW("RecordDemuxer: mp4_demux_seek() "
-				"failed (%d)", ret);
+		if (ret < 0) {
+			ULOGW("mp4_demux_seek() err=%d(%s)",
+				ret, strerror(-ret));
 		} else {
 			demuxer->mLastFrameDuration = 0;
 			demuxer->mLastOutputError = 0;
@@ -769,9 +761,8 @@ void RecordDemuxer::timerCb(
 		ret = mp4_demux_seek_to_track_prev_sample(
 			demuxer->mDemux, demuxer->mVideoTrackId);
 		if (ret != 0) {
-			ULOGW("RecordDemuxer: "
-				"mp4_demux_seek_to_track_prev_sample() "
-				"failed (%d)", ret);
+			ULOGW("mp4_demux_seek_to_track_prev_sample err=%d(%s)",
+				ret, strerror(-ret));
 		} else {
 			demuxer->mLastFrameDuration = 0;
 			demuxer->mLastOutputError = 0;
@@ -784,7 +775,8 @@ void RecordDemuxer::timerCb(
 		demuxer->mMetadataBuffer, demuxer->mMetadataBufferSize,
 		&sample);
 	if (ret != 0) {
-		ULOGW("RecordDemuxer: failed to get sample (%d)", ret);
+		ULOGW("mp4_demux_get_track_next_sample err=%d(%s)",
+			ret, strerror(-ret));
 		if (ret == -ENOBUFS) {
 			/* Go to the next sample */
 			ret = mp4_demux_get_track_next_sample(
@@ -828,16 +820,17 @@ void RecordDemuxer::timerCb(
 	if ((sei != NULL) && (seiSize != 0)) {
 		ret = h264_reader_parse_nalu(demuxer->mH264Reader,
 			0, sei, seiSize);
-		if (ret < 0)
-			ULOGW("RecordDemuxer: h264_reader_parse_nalu() "
-				"failed (%d)", ret);
+		if (ret < 0) {
+			ULOGW("h264_reader_parse_nalu err=%d(%s)",
+				ret, strerror(-ret));
+		}
 	}
 
 	data = (struct avcdecoder_input_buffer *)
 		vbuf_metadata_add(demuxer->mCurrentBuffer,
 		demuxer->mDecoder->getMedia(), 1, sizeof(*data));
 	if (data == NULL) {
-		ULOGW("RecordDemuxer: vbuf_metadata_add() failed");
+		ULOG_ERRNO("vbuf_metadata_add", ENOMEM);
 		goto out;
 	}
 	data->isComplete = true; /* TODO? */
@@ -863,11 +856,11 @@ void RecordDemuxer::timerCb(
 	/* Queue the buffer for decoding */
 	ret = vbuf_write_lock(demuxer->mCurrentBuffer);
 	if (ret < 0)
-		ULOGW("RecordDemuxer: vbuf_write_lock() failed (%d)", ret);
+		ULOGW("vbuf_write_lock err=%d(%s)", ret, strerror(-ret));
 	ret = demuxer->mDecoder->queueInputBuffer(demuxer->mCurrentBuffer);
 	if (ret != 0) {
-		ULOGW("RecordDemuxer: failed to release "
-			"the output buffer (%d)", ret);
+		ULOGW("decoder->queueInputBuffer err=%d(%s)",
+			ret, strerror(-ret));
 	} else {
 		vbuf_unref(&demuxer->mCurrentBuffer);
 		demuxer->mCurrentBuffer = NULL;
@@ -936,9 +929,9 @@ out:
 				nextSampleDts = nextSyncSampleDts;
 				ret = mp4_demux_seek(demuxer->mDemux,
 					pendingSeekTs, 1);
-				if (ret != 0) {
-					ULOGW("RecordDemuxer: mp4_demux_seek() "
-						"failed (%d)", ret);
+				if (ret < 0) {
+					ULOGW("mp4_demux_seek err=%d(%s)",
+						ret, strerror(-ret));
 				}
 			}
 		} else {
@@ -974,18 +967,17 @@ out:
 				2 * demuxer->mAvgOutputInterval)) {
 				/* Only seek if the resulting wait time is less
 				 * than twice the average frame output rate */
-				ULOGD("RecordDemuxer: unable to keep "
-					"up with playback timings, "
-					"seek forward %.2f ms",
+				ULOGD("unable to keep up with playback "
+					"timings, seek forward %.2f ms",
 					(float)(nextSyncSampleDts -
 					sample.sample_dts) / 1000.);
 				duration = newDuration;
 				nextSampleDts = nextSyncSampleDts;
 				ret = mp4_demux_seek(demuxer->mDemux,
 					pendingSeekTs, 1);
-				if (ret != 0) {
-					ULOGW("RecordDemuxer: mp4_demux_seek() "
-						"failed (%d)", ret);
+				if (ret < 0) {
+					ULOGW("mp4_demux_seek err=%d(%s)",
+						ret, strerror(-ret));
 				}
 			}
 		}
@@ -996,7 +988,7 @@ out:
 			 * or speed>=PDRAW_PLAY_SPEED_MAX */
 			if (wait < 0) {
 				if (duration > 0) {
-					ULOGD("RecordDemuxer: unable to keep "
+					ULOGD("unable to keep "
 						"up with playback timings "
 						"(%.1f ms late, speed=%.2f)",
 						-(float)wait / 1000., speed);
@@ -1011,8 +1003,12 @@ out:
 		demuxer->mLastFrameDuration = duration;
 		demuxer->mLastOutputError = error;
 
-		ULOGD("RecordDemuxer: timerCb: error=%d duration=%d wait=%d%s",
-			(int)error, (int)duration, (int)wait, (silent) ? " (silent)" : "");
+#if 0
+		/* TODO: remove debug */
+		ULOGD("timerCb: error=%d duration=%d wait=%d%s",
+			(int)error, (int)duration, (int)wait,
+			(silent) ? " (silent)" : "");
+#endif
 	} else {
 		demuxer->mLastFrameOutputTime = curTime;
 		demuxer->mLastFrameDuration = 0;
@@ -1021,10 +1017,8 @@ out:
 
 	if (waitMs > 0) {
 		ret = pomp_timer_set(timer, waitMs);
-		if (ret < 0) {
-			ULOGE("RecordDemuxer: pomp_timer_set() failed (%d)",
-				ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("pomp_timer_set", -ret);
 	}
 }
 

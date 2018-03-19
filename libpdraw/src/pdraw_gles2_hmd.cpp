@@ -37,8 +37,9 @@
 
 #ifdef USE_GLES2
 
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_gles2hmd
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_gles2hmd);
 
 namespace Pdraw {
 
@@ -101,7 +102,7 @@ Gles2HmdEye::Gles2HmdEye(
 
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
-		ULOGE("Gles2HmdEye: failed to create vertex shader");
+		ULOGE("failed to create vertex shader");
 		goto err;
 	}
 
@@ -111,14 +112,13 @@ Gles2HmdEye::Gles2HmdEye(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-		ULOGE("Gles2HmdEye: vertex shader compilation failed '%s'",
-			infoLog);
+		ULOGE("vertex shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
 	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 	if ((fragmentShader == 0) || (fragmentShader == GL_INVALID_ENUM)) {
-		ULOGE("Gles2HmdEye: failed to create fragment shader");
+		ULOGE("failed to create fragment shader");
 		goto err;
 	}
 
@@ -128,8 +128,7 @@ Gles2HmdEye::Gles2HmdEye(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		ULOGE("Gles2HmdEye: fragment shader compilation failed '%s'",
-			infoLog);
+		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -142,7 +141,7 @@ Gles2HmdEye::Gles2HmdEye(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetProgramInfoLog(mProgram, 512, NULL, infoLog);
-		ULOGE("Gles2HmdEye: program link failed '%s'", infoLog);
+		ULOGE("program link failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -245,74 +244,62 @@ Gles2HmdEye::Gles2HmdEye(
 
 	mProgramTexture = glGetUniformLocation(mProgram, "Texture0");
 	if (mProgramTexture < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform 'Texture0' "
-			"location loading program");
+		ULOGE("failed to get uniform location 'Texture0'");
 
 	mProgramEyeToSourceUVScale = glGetUniformLocation(mProgram,
 		"EyeToSourceUVScale");
 	if (mProgramEyeToSourceUVScale < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceUVScale' "
-			"location loading program");
+		ULOGE("failed to get uniform location 'EyeToSourceUVScale'");
 
 	mProgramEyeToSourceUVOffset = glGetUniformLocation(mProgram,
 		"EyeToSourceUVOffset");
 	if (mProgramEyeToSourceUVOffset < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform "
-			"'EyeToSourceUVOffset' location loading program");
+		ULOGE("failed to get uniform location 'EyeToSourceUVOffset'");
 
 	mProgramEyeToSourceScale = glGetUniformLocation(mProgram,
 		"EyeToSourceScale");
 	if (mProgramEyeToSourceScale < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceScale' "
-			"location loading program");
+		ULOGE("failed to get uniform location 'EyeToSourceScale'");
 
 	mProgramEyeToSourceOffset = glGetUniformLocation(mProgram,
 		"EyeToSourceOffset");
 	if (mProgramEyeToSourceOffset < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform 'EyeToSourceOffset' "
-			"location loading program");
+		ULOGE("failed to get uniform location 'EyeToSourceOffset'");
 
 	mProgramChromaticAberrationCorrection = glGetUniformLocation(mProgram,
 		"ChromaticAberrationCorrection");
-	if (mProgramChromaticAberrationCorrection < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform "
-			"'ChromaticAberrationCorrection' location "
-			"loading program");
+	if (mProgramChromaticAberrationCorrection < 0) {
+		ULOGE("failed to get uniform location "
+			"'ChromaticAberrationCorrection'");
+	}
 
 	mProgramRotation = glGetUniformLocation(mProgram, "Rotation");
 	if (mProgramRotation < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform 'Rotation' "
-			"location loading program");
+		ULOGE("failed to get uniform location 'Rotation'");
 
 	mProgramLensLimits = glGetUniformLocation(mProgram, "LensLimits");
 	if (mProgramLensLimits < 0)
-		ULOGE("Gles2HmdEye: failed to get uniform 'LensLimits' "
-			"location loading program");
+		ULOGE("failed to get uniform location 'LensLimits'");
 
 	mProgramPosition = glGetAttribLocation(mProgram, "Position");
 	if (mProgramPosition < 0)
-		ULOGE("Gles2HmdEye: failed to get attribute 'Position' "
-			"location loading program");
+		ULOGE("failed to get attribute location 'Position'");
 
 	mProgramColor = glGetAttribLocation(mProgram, "Color");
 	if (mProgramColor < 0)
-		ULOGE("Gles2HmdEye: failed to get attribute 'Color' "
-			"location loading program");
+		ULOGE("failed to get attribute location 'Color'");
 
 	mProgramTexCoord0 = glGetAttribLocation(mProgram, "TexCoord0");
 	if (mProgramTexCoord0 < 0)
-		ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord0' "
-			"location loading program");
+		ULOGE("failed to get attribute location 'TexCoord0'");
 
 	mProgramTexCoord1 = glGetAttribLocation(mProgram, "TexCoord1");
 	if (mProgramTexCoord1 < 0)
-		ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord1' "
-			"location loading program");
+		ULOGE("failed to get attribute location 'TexCoord1'");
 
 	mProgramTexCoord2 = glGetAttribLocation(mProgram, "TexCoord2");
 	if (mProgramTexCoord2 < 0)
-		ULOGE("Gles2HmdEye: failed to get attribute 'TexCoord2' "
-			"location loading program");
+		ULOGE("failed to get attribute location 'TexCoord2'");
 
 	GLCHK();
 

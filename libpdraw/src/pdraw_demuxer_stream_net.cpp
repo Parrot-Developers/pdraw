@@ -29,7 +29,6 @@
 
 #include "pdraw_demuxer_stream_net.hpp"
 #include "pdraw_session.hpp"
-#include "pdraw_log.hpp"
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +38,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <futils/futils.h>
+#define ULOG_TAG pdraw_dmxstrmnet
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_dmxstrmnet);
 
 namespace Pdraw {
 
@@ -74,7 +76,7 @@ int StreamDemuxerNet::open(
 	int res;
 
 	if (mConfigured) {
-		PDRAW_LOGE("StreamDemuxerNet: demuxer is already configured");
+		ULOGE("demuxer is already configured");
 		return -EEXIST;
 	}
 
@@ -84,13 +86,12 @@ int StreamDemuxerNet::open(
 	if (url.substr(0, 7) == "rtsp://") {
 		res = openRtsp(url, ifaceAddr);
 		if (res < 0) {
-			PDRAW_LOG_ERRNO("StreamDemuxerNet: openRtsp",
-				-res);
+			ULOG_ERRNO("openRtsp", -res);
 			return res;
 		}
 	} else if ((url.substr(0, 7) == "http://") && (ext == ".sdp")) {
 		/* TODO */
-		PDRAW_LOGE("StreamDemuxerNet: unsupported URL");
+		ULOGE("unsupported URL");
 		return -ENOSYS;
 	} else if ((url.front() == '/') && (ext == ".sdp")) {
 		struct stat sb;
@@ -99,28 +100,25 @@ int StreamDemuxerNet::open(
 
 		f = fopen(url.c_str(), "r");
 		if (f == NULL) {
-			PDRAW_LOGE("StreamDemuxerNet: failed to open file '%s'",
-				url.c_str());
+			ULOGE("failed to open file '%s'", url.c_str());
 			return -EIO;
 		}
 
 		res = fstat(fileno(f), &sb);
 		if (res != 0) {
-			PDRAW_LOGE("StreamDemuxerNet: stat failed on file '%s'",
-				url.c_str());
+			ULOGE("stat failed on file '%s'", url.c_str());
 			return -EIO;
 		}
 
 		s = (char *)calloc(1, sb.st_size + 1);
 		if (s == NULL) {
-			PDRAW_LOGE("StreamDemuxerNet: allocation failed");
+			ULOGE("allocation failed");
 			return -ENOMEM;
 		}
 
 		res = fread(s, sb.st_size, 1, f);
 		if (res != 1) {
-			PDRAW_LOGE("StreamDemuxerNet: failed to read "
-				"from the input file");
+			ULOGE("failed to read from the input file");
 			return -EIO;
 		}
 
@@ -128,16 +126,16 @@ int StreamDemuxerNet::open(
 		std::string sdp(s);
 		res = openWithSdp(sdp, ifaceAddr);
 		if (res < 0) {
-			PDRAW_LOG_ERRNO("StreamDemuxerNet: openWithSdp", -res);
+			ULOG_ERRNO("openWithSdp", -res);
 			return -res;
 		}
 	} else {
-		PDRAW_LOGE("StreamDemuxerNet: unsupported URL");
+		ULOGE("unsupported URL");
 		return -ENOSYS;
 	}
 
 	mConfigured = true;
-	PDRAW_LOGI("StreamDemuxerNet: demuxer is configured");
+	ULOGI("demuxer is configured");
 
 	return 0;
 }
@@ -155,7 +153,7 @@ int StreamDemuxerNet::open(
 	int res;
 
 	if (mConfigured) {
-		PDRAW_LOGE("StreamDemuxerNet: demuxer is already configured");
+		ULOGE("demuxer is already configured");
 		return -EEXIST;
 	}
 
@@ -169,12 +167,12 @@ int StreamDemuxerNet::open(
 
 	res = openRtpAvp();
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerNet: openRtpAvp", -res);
+		ULOG_ERRNO("openRtpAvp", -res);
 		return res;
 	}
 
 	mConfigured = true;
-	PDRAW_LOGI("StreamDemuxerNet: demuxer is configured");
+	ULOGI("demuxer is configured");
 
 	return 0;
 }
@@ -187,18 +185,18 @@ int StreamDemuxerNet::openSdp(
 	int res;
 
 	if (mConfigured) {
-		PDRAW_LOGE("StreamDemuxerNet: demuxer is already configured");
+		ULOGE("demuxer is already configured");
 		return -EEXIST;
 	}
 
 	res = openWithSdp(sdp, ifaceAddr);
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerNet: openWithSdp", -res);
+		ULOG_ERRNO("openWithSdp", -res);
 		return res;
 	}
 
 	mConfigured = true;
-	PDRAW_LOGI("StreamDemuxerNet: demuxer is configured");
+	ULOGI("demuxer is configured");
 
 	return 0;
 }
@@ -219,7 +217,7 @@ int StreamDemuxerNet::openRtpAvp(
 		mRemoteAddr, mRemoteStreamPort,
 		mSession->getLoop(), dataCb, this);
 	if (mStreamSock == NULL) {
-		PDRAW_LOGE("StreamDemuxerNet: failed to create stream socket");
+		ULOGE("failed to create stream socket");
 		res = -EPROTO;
 		goto error;
 	}
@@ -227,7 +225,7 @@ int StreamDemuxerNet::openRtpAvp(
 		mRemoteAddr, mRemoteControlPort,
 		mSession->getLoop(), ctrlCb, this);
 	if (mControlSock == NULL) {
-		PDRAW_LOGE("StreamDemuxerNet: failed to create control socket");
+		ULOGE("failed to create control socket");
 		res = -EPROTO;
 		goto error;
 	}
@@ -235,7 +233,7 @@ int StreamDemuxerNet::openRtpAvp(
 	/* Create the stream receiver */
 	res = createReceiver();
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("StreamDemuxerMux: createReceiver", -res);
+		ULOG_ERRNO("createReceiver", -res);
 		goto error;
 	}
 
@@ -258,10 +256,14 @@ error:
 uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(
 	void)
 {
-	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(mConfigured,
-		-EPROTO, 0, "StreamDemuxerNet: demuxer is not configured");
-	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(mStreamSock != NULL,
-		-EPROTO, 0, "StreamDemuxerNet: invalid stream socket");
+	if (!mConfigured) {
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
+		return 0;
+	}
+	if (mStreamSock == NULL) {
+		ULOG_ERRNO("invalid stream socket", EPROTO);
+		return 0;
+	}
 
 	return mStreamSock->getLocalPort();
 }
@@ -270,10 +272,14 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(
 uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(
 	void)
 {
-	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(mConfigured,
-		-EPROTO, 0, "StreamDemuxerNet: demuxer is not configured");
-	PDRAW_LOG_ERR_AND_RETURN_VAL_IF_FAILED(mControlSock != NULL,
-		-EPROTO, 0, "StreamDemuxerNet: invalid control socket");
+	if (!mConfigured) {
+		ULOG_ERRNO("demuxer is not configured", EPROTO);
+		return 0;
+	}
+	if (mControlSock == NULL) {
+		ULOG_ERRNO("invalid control socket", EPROTO);
+		return 0;
+	}
 
 	return mControlSock->getLocalPort();
 }
@@ -290,10 +296,8 @@ void StreamDemuxerNet::dataCb(
 	struct pomp_buffer *buf = NULL;
 	struct timespec ts = { 0, 0 };
 
-	if (self == NULL) {
-		PDRAW_LOGE("StreamDemuxerNet: invalid callback params");
+	if (self == NULL)
 		return;
-	}
 
 	do {
 		/* Read data */
@@ -306,16 +310,14 @@ void StreamDemuxerNet::dataCb(
 				self->mStreamSock->getRxBuffer(), readlen);
 			res = time_get_monotonic(&ts);
 			if (res < 0) {
-				PDRAW_LOG_ERRNO("StreamDemuxerMux: "
-					"time_get_monotonic", -res);
+				ULOG_ERRNO("time_get_monotonic", -res);
 			}
 			res = vstrm_receiver_recv_data(
 				self->mReceiver, buf, &ts);
 			pomp_buffer_unref(buf);
 			buf = NULL;
 			if (res < 0) {
-				PDRAW_LOG_ERRNO("StreamDemuxerMux: "
-					"vstrm_receiver_recv_ctrl", -res);
+				ULOG_ERRNO("vstrm_receiver_recv_ctrl", -res);
 			}
 		} else if (readlen == 0) {
 			/* TODO: EOF */
@@ -335,10 +337,8 @@ void StreamDemuxerNet::ctrlCb(
 	struct pomp_buffer *buf = NULL;
 	struct timespec ts = { 0, 0 };
 
-	if (self == NULL) {
-		PDRAW_LOGE("StreamDemuxerNet: invalid callback params");
+	if (self == NULL)
 		return;
-	}
 
 	do {
 		/* Read data */
@@ -351,16 +351,14 @@ void StreamDemuxerNet::ctrlCb(
 				self->mControlSock->getRxBuffer(), readlen);
 			res = time_get_monotonic(&ts);
 			if (res < 0) {
-				PDRAW_LOG_ERRNO("StreamDemuxerMux: "
-					"time_get_monotonic", -res);
+				ULOG_ERRNO("time_get_monotonic", -res);
 			}
 			res = vstrm_receiver_recv_ctrl(
 				self->mReceiver, buf, &ts);
 			pomp_buffer_unref(buf);
 			buf = NULL;
 			if (res < 0) {
-				PDRAW_LOG_ERRNO("StreamDemuxerMux: "
-					"vstrm_receiver_recv_ctrl", -res);
+				ULOG_ERRNO("vstrm_receiver_recv_ctrl", -res);
 			}
 		} else if (readlen == 0) {
 			/* TODO: EOF */
@@ -378,7 +376,7 @@ int StreamDemuxerNet::sendCtrl(
 	ssize_t writelen = 0;
 
 	if (buf == NULL) {
-		PDRAW_LOGE("StreamDemuxerNet: invalid buffer");
+		ULOGE("invalid buffer");
 		return -EINVAL;
 	}
 

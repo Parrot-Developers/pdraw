@@ -36,8 +36,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_rndvidgl
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_rndvidgl);
 
 namespace Pdraw {
 
@@ -68,8 +69,8 @@ Gles2Renderer::Gles2Renderer(
 	mFboRenderBuffer = 0;
 
 	ret = pthread_mutex_init(&mMutex, NULL);
-	if (ret != 0)
-		ULOGE("Gles2Renderer: mutex creation failed (%d)", ret);
+	if (ret < 0)
+		ULOG_ERRNO("pthread_mutex_init", -ret);
 }
 
 
@@ -78,10 +79,8 @@ Gles2Renderer::~Gles2Renderer(
 {
 	if (mDecoder != NULL) {
 		int ret = removeAvcDecoder(mDecoder);
-		if (ret != 0) {
-			ULOGE("Gles2Renderer: removeAvcDecoder() "
-				"failed (%d)", ret);
-		}
+		if (ret < 0)
+			ULOG_ERRNO("removeAvcDecoder", -ret);
 	}
 
 	close();
@@ -122,7 +121,7 @@ int Gles2Renderer::open(
 	mGles2Video = new Gles2Video(mSession, (VideoMedia*)mMedia,
 		mGles2VideoFirstTexUnit);
 	if (mGles2Video == NULL) {
-		ULOGE("Gles2Renderer: failed to create Gles2Video context");
+		ULOG_ERRNO("failed to create Gles2Video", ENOMEM);
 		goto err;
 	}
 
@@ -130,7 +129,7 @@ int Gles2Renderer::open(
 		mGles2Hud = new Gles2Hud(mSession, (VideoMedia*)mMedia,
 			mGles2HudFirstTexUnit);
 		if (mGles2Hud == NULL) {
-			ULOGE("Gles2Renderer: failed to create Gles2Hud context");
+			ULOG_ERRNO("failed to create Gles2Hud", ENOMEM);
 			goto err;
 		}
 	}
@@ -143,14 +142,14 @@ int Gles2Renderer::open(
 	if (mHmdDistorsionCorrection) {
 		GLCHK(glGenFramebuffers(1, &mFbo));
 		if (mFbo <= 0) {
-			ULOGE("Gles2Renderer: failed to create framebuffer");
+			ULOGE("failed to create framebuffer");
 			goto err;
 		}
 		GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mFbo));
 
 		GLCHK(glGenTextures(1, &mFboTexture));
 		if (mFboTexture <= 0) {
-			ULOGE("Gles2Renderer: failed to create texture");
+			ULOGE("failed to create texture");
 			goto err;
 		}
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mGles2HmdFirstTexUnit));
@@ -170,7 +169,7 @@ int Gles2Renderer::open(
 
 		GLCHK(glGenRenderbuffers(1, &mFboRenderBuffer));
 		if (mFboRenderBuffer <= 0) {
-			ULOGE("Gles2Renderer: failed to create render buffer");
+			ULOGE("failed to create render buffer");
 			goto err;
 		}
 		GLCHK(glBindRenderbuffer(GL_RENDERBUFFER, mFboRenderBuffer));
@@ -185,7 +184,7 @@ int Gles2Renderer::open(
 
 		GLenum gle = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 		if (gle != GL_FRAMEBUFFER_COMPLETE) {
-			ULOGE("Gles2Renderer: invalid framebuffer status");
+			ULOGE("invalid framebuffer status");
 			goto err;
 		}
 
@@ -214,8 +213,7 @@ int Gles2Renderer::open(
 				mWindowWidth, mWindowHeight);
 		}
 		if (mGles2Hmd == NULL) {
-			ULOGE("Gles2Renderer: failed to create "
-				"Gles2Hmd context");
+			ULOGE("failed to create Gles2Hmd context");
 			goto err;
 		}
 	}
@@ -268,19 +266,17 @@ int Gles2Renderer::close(
 int Gles2Renderer::addAvcDecoder(
 	AvcDecoder *decoder)
 {
-	if (decoder == NULL) {
-		ULOGE("Gles2Renderer: invalid decoder pointer");
-		return -1;
-	}
+	if (decoder == NULL)
+		return -EINVAL;
 	if (mDecoder != NULL) {
-		ULOGE("Gles2Renderer: multiple decoders are not supported");
-		return -1;
+		ULOGE("multiple decoders are not supported");
+		return -ENOSYS;
 	}
 
 	mDecoderOutputBufferQueue = decoder->addOutputQueue();
 	if (mDecoderOutputBufferQueue == NULL) {
-		ULOGE("Gles2Renderer: failed to add output queue to decoder");
-		return -1;
+		ULOGE("failed to add output queue to decoder");
+		return -ENOMEM;
 	}
 
 	mDecoder = decoder;
@@ -299,27 +295,23 @@ int Gles2Renderer::removeAvcDecoder(
 {
 	int ret;
 
-	if (decoder == NULL) {
-		ULOGE("Gles2Renderer: invalid decoder pointer");
-		return -1;
-	}
+	if (decoder == NULL)
+		return -EINVAL;
 	if (decoder != mDecoder) {
-		ULOGE("Gles2Renderer: invalid decoder");
-		return -1;
+		ULOGE("invalid decoder");
+		return -EPROTO;
 	}
 
 	if (mCurrentBuffer != NULL) {
 		ret = vbuf_unref(&mCurrentBuffer);
-		if (ret != 0)
-			ULOGE("Gles2Renderer: failed to release "
-				"buffer (%d)", ret);
+		if (ret < 0)
+			ULOG_ERRNO("vbuf_unref", -ret);
 	}
 
 	if (mDecoderOutputBufferQueue != NULL) {
 		ret = decoder->removeOutputQueue(mDecoderOutputBufferQueue);
-		if (ret != 0)
-			ULOGE("Gles2Renderer: failed to remove "
-				"output queue from decoder");
+		if (ret < 0)
+			ULOG_ERRNO("decoder->removeOutputQueue", -ret);
 	}
 
 	mDecoder = NULL;
@@ -338,7 +330,7 @@ int Gles2Renderer::loadVideoFrame(
 	ret = mGles2Video->loadFrame(data, frame->plane_offset, frame->stride,
 		frame->width, frame->height, colorConversion);
 	if (ret < 0)
-		ULOGE("Gles2Renderer: failed to load video frame");
+		ULOG_ERRNO("gles2Video->loadFrame", -ret);
 	return 0;
 }
 
@@ -376,11 +368,8 @@ int Gles2Renderer::render(
 	while ((dequeueRet == 0) && (buffer != NULL)) {
 		if (mCurrentBuffer != NULL) {
 			int releaseRet = vbuf_unref(&mCurrentBuffer);
-			if (releaseRet != 0) {
-				ULOGE("Gles2Renderer: failed "
-					"to release buffer (%d)",
-					releaseRet);
-			}
+			if (releaseRet < 0)
+				ULOG_ERRNO("vbuf_unref", -releaseRet);
 		}
 		mCurrentBuffer = buffer;
 		load = true;
@@ -388,8 +377,7 @@ int Gles2Renderer::render(
 			0, &buffer);
 	}
 	if ((dequeueRet < 0) && (dequeueRet != -EAGAIN)) {
-		ULOGE("Gles2Renderer: failed to get buffer "
-			"from queue (%d)", dequeueRet);
+		ULOG_ERRNO("vbuf_queue_pop", -dequeueRet);
 	}
 
 	if (mCurrentBuffer == NULL)
@@ -402,8 +390,8 @@ int Gles2Renderer::render(
 		mDecoder->getMedia(), NULL, NULL);
 
 	if ((cdata == NULL) || (data == NULL)) {
-		ULOGE("Gles2Renderer: invalid buffer data");
-		return -1;
+		ULOGE("invalid buffer data");
+		return -EPROTO;
 	}
 
 	if (mHmdDistorsionCorrection) {
@@ -448,10 +436,8 @@ int Gles2Renderer::render(
 				renderWidth, renderHeight,
 				colorConversion, &data->metadata, mHeadtracking,
 				(mHmdDistorsionCorrection) ? mFbo : 0);
-			if (ret < 0) {
-				ULOGE("Gles2Renderer: failed to "
-					"render video frame");
-			}
+			if (ret < 0)
+				ULOG_ERRNO("gles2Video->renderFrame", -ret);
 		}
 	}
 
@@ -461,8 +447,8 @@ int Gles2Renderer::render(
 			(mHmdDistorsionCorrection) ? renderWidth / 2 :
 			renderWidth, renderHeight, &data->metadata,
 			mHmdDistorsionCorrection, mHeadtracking);
-		if (ret != 0)
-			ULOGE("Gles2Renderer: failed to render the HUD");
+		if (ret < 0)
+			ULOG_ERRNO("gles2Hud->renderHud", -ret);
 	}
 
 	if (mHmdDistorsionCorrection) {
@@ -473,9 +459,8 @@ int Gles2Renderer::render(
 		if (mGles2Hmd) {
 			ret = mGles2Hmd->renderHmd(mFboTexture,
 				renderWidth / 2, renderHeight);
-			if (ret != 0)
-				ULOGE("Gles2Renderer: failed to render "
-					"HMD distorsion correction");
+			if (ret < 0)
+				ULOG_ERRNO("gles2Hmd->renderHmd", -ret);
 		}
 	}
 
@@ -501,7 +486,7 @@ int Gles2Renderer::render(
 	}
 
 
-	ULOGI("Gles2Renderer: %02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d "
+	ULOGI("%02d:%02d:%02d.%03d / %02d:%02d:%02d.%03d "
 		"frame (decoding: %.2fms, rendering: %.2fms, "
 		"est. latency: %.2fms) render@%.1ffps",
 		cHrs, cMin, cSec, cMsec, dHrs, dMin, dSec, dMsec,

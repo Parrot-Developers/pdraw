@@ -32,8 +32,6 @@
 
 #ifdef USE_GLES2
 
-#include "pdraw_log.hpp"
-
 #if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
 	#include <GLES2/gl2.h>
 #elif defined(__APPLE__)
@@ -61,7 +59,7 @@
 		GLenum err = GL_NO_ERROR; \
 		X; \
 		while ((err = glGetError())) { \
-			PDRAW_LOGE("GL error 0x%x in " #X " file %s line %d", \
+			ULOGE("GL error 0x%x in " #X " file %s line %d", \
 				err, __FILE__,__LINE__); \
 			assert(err == GL_NO_ERROR); \
 		} \

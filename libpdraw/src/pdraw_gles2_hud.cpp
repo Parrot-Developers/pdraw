@@ -31,9 +31,10 @@
 
 #ifdef USE_GLES2
 
-#define ULOG_TAG libpdraw
-#include <ulog.h>
 #include <stdio.h>
+#define ULOG_TAG pdraw_gles2hud
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_gles2hud);
 
 #include "pdraw_session.hpp"
 #include "pdraw_settings.hpp"
@@ -194,7 +195,7 @@ Gles2Hud::Gles2Hud(
 
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Hud: failed to create vertex shader");
+		ULOGE("failed to create vertex shader");
 		goto err;
 	}
 
@@ -204,14 +205,13 @@ Gles2Hud::Gles2Hud(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-		ULOGE("Gles2Hud: vertex shader compilation failed '%s'",
-			infoLog);
+		ULOGE("vertex shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
 	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 	if ((fragmentShader == 0) || (fragmentShader == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Hud: failed to create fragment shader");
+		ULOGE("failed to create fragment shader");
 		goto err;
 	}
 
@@ -221,8 +221,7 @@ Gles2Hud::Gles2Hud(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		ULOGE("Gles2Hud: fragment shader compilation failed '%s'",
-			infoLog);
+		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -235,7 +234,7 @@ Gles2Hud::Gles2Hud(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetProgramInfoLog(mProgram[0], 512, NULL, infoLog);
-		ULOGE("Gles2Hud: program link failed '%s'", infoLog);
+		ULOGE("program link failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -251,7 +250,7 @@ Gles2Hud::Gles2Hud(
 
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Hud: failed to create vertex shader");
+		ULOGE("failed to create vertex shader");
 		goto err;
 	}
 
@@ -263,14 +262,13 @@ Gles2Hud::Gles2Hud(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-		ULOGE("Gles2Hud: vertex shader compilation failed '%s'",
-			infoLog);
+		ULOGE("vertex shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
 	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 	if ((fragmentShader == 0) || (fragmentShader == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Hud: failed to create fragment shader");
+		ULOGE("failed to create fragment shader");
 		goto err;
 	}
 
@@ -280,8 +278,7 @@ Gles2Hud::Gles2Hud(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		ULOGE("Gles2Hud: fragment shader compilation failed '%s'",
-			infoLog);
+		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -294,7 +291,7 @@ Gles2Hud::Gles2Hud(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetProgramInfoLog(mProgram[1], 512, NULL, infoLog);
-		ULOGE("Gles2Hud: program link failed '%s'", infoLog);
+		ULOGE("program link failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -316,7 +313,7 @@ Gles2Hud::Gles2Hud(
 	ret = loadTextureFromBuffer(hudLogo,
 		hudLogoWidth, hudLogoHeight, mLogoTexUnit);
 	if (ret < 0) {
-		ULOGE("Gles2Hud: loadTextureFromBuffer() failed (%d)", ret);
+		ULOG_ERRNO("loadTextureFromBuffer", -ret);
 		goto err;
 	}
 	mLogoTexture = (GLuint)ret;
@@ -325,7 +322,7 @@ Gles2Hud::Gles2Hud(
 	ret = loadTextureFromBuffer(hudIcons,
 		hudIconsWidth, hudIconsHeight, mIconsTexUnit);
 	if (ret < 0) {
-		ULOGE("Gles2Hud: loadTextureFromBuffer() failed (%d)", ret);
+		ULOG_ERRNO("loadTextureFromBuffer", -ret);
 		goto err;
 	}
 	mIconsTexture = (GLuint)ret;
@@ -334,14 +331,14 @@ Gles2Hud::Gles2Hud(
 	ret = loadTextureFromBuffer(font_36::image,
 		font_36::imageW, font_36::imageH, mTextTexUnit);
 	if (ret < 0) {
-		ULOGE("Gles2Hud: loadTextureFromBuffer() failed (%d)", ret);
+		ULOG_ERRNO("loadTextureFromBuffer", -ret);
 		goto err;
 	}
 	mTextTexture = (GLuint)ret;
 
 	ret = initCockpit();
 	if (ret < 0) {
-		ULOGE("Gles2Hud: initCockpit() failed (%d)", ret);
+		ULOG_ERRNO("initCockpit", -ret);
 		goto err;
 	}
 
@@ -422,7 +419,7 @@ int Gles2Hud::renderHud(
 {
 	if ((videoWidth == 0) || (videoHeight == 0) ||
 		(windowWidth == 0) || (windowHeight == 0) || (metadata == NULL))
-		return -1;
+		return -EINVAL;
 
 	if (hmdDistorsionCorrection) {
 		mHudCentralZoneSize = GLES2_HUD_HMD_CENTRAL_ZONE_SIZE;
@@ -1785,8 +1782,8 @@ int Gles2Hud::initCockpit(
 	mCockpitSphereVertices = (float *)malloc(
 		rings * 2 * sectors * 3 * sizeof(float));
 	if (mCockpitSphereVertices == NULL) {
-		ULOGE("Gles2Hud: sphere vertices allocation failed");
-		return -1;
+		ULOGE("sphere vertices allocation failed");
+		return -ENOMEM;
 	}
 	mCockpitSphereVerticesCount = (rings - 1) * sectors * 2;
 	float *v = mCockpitSphereVertices;

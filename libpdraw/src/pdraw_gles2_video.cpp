@@ -31,9 +31,10 @@
 
 #ifdef USE_GLES2
 
-#define ULOG_TAG libpdraw
-#include <ulog.h>
 #include <math.h>
+#define ULOG_TAG pdraw_gles2vid
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_gles2vid);
 #ifdef BCM_VIDEOCORE
 #  include <GLES2/gl2ext.h>
 #  include <EGL/egl.h>
@@ -166,7 +167,7 @@ Gles2Video::Gles2Video(
 
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Video: failed to create vertex shader");
+		ULOGE("failed to create vertex shader");
 		goto err;
 	}
 
@@ -176,15 +177,14 @@ Gles2Video::Gles2Video(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-		ULOGE("Gles2Video: vertex shader compilation failed '%s'",
-			infoLog);
+		ULOGE("vertex shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
 	fragmentShaderNoconv = glCreateShader(GL_FRAGMENT_SHADER);
 	if ((fragmentShaderNoconv == 0) ||
 		(fragmentShaderNoconv == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Video: failed to create fragment shader");
+		ULOGE("failed to create fragment shader");
 		goto err;
 	}
 
@@ -195,15 +195,14 @@ Gles2Video::Gles2Video(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(fragmentShaderNoconv, 512, NULL, infoLog);
-		ULOGE("Gles2Video: fragment shader compilation failed '%s'",
-			infoLog);
+		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
 	fragmentShaderYuvsp = glCreateShader(GL_FRAGMENT_SHADER);
 	if ((fragmentShaderYuvsp == 0) ||
 		(fragmentShaderYuvsp == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Video: failed to create fragment shader");
+		ULOGE("failed to create fragment shader");
 		goto err;
 	}
 
@@ -214,15 +213,14 @@ Gles2Video::Gles2Video(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(fragmentShaderYuvsp, 512, NULL, infoLog);
-		ULOGE("Gles2Video: fragment shader compilation failed '%s'",
-			infoLog);
+		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
 	fragmentShaderYuvp = glCreateShader(GL_FRAGMENT_SHADER);
 	if ((fragmentShaderYuvp == 0) ||
 		(fragmentShaderYuvp == GL_INVALID_ENUM)) {
-		ULOGE("Gles2Video: failed to create fragment shader");
+		ULOGE("failed to create fragment shader");
 		goto err;
 	}
 
@@ -233,8 +231,7 @@ Gles2Video::Gles2Video(
 	if (!success) {
 		GLchar infoLog[512];
 		glGetShaderInfoLog(fragmentShaderYuvp, 512, NULL, infoLog);
-		ULOGE("Gles2Video: fragment shader compilation failed '%s'",
-			infoLog);
+		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -257,7 +254,7 @@ Gles2Video::Gles2Video(
 		glGetProgramInfoLog(
 			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
 			512, NULL, infoLog);
-		ULOGE("Gles2Video: program link failed '%s'", infoLog);
+		ULOGE("program link failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -280,7 +277,7 @@ Gles2Video::Gles2Video(
 		glGetProgramInfoLog(
 			mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420PLANAR_TO_RGB],
 			512, NULL, infoLog);
-		ULOGE("Gles2Video: program link failed '%s'", infoLog);
+		ULOGE("program link failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -303,7 +300,7 @@ Gles2Video::Gles2Video(
 		glGetProgramInfoLog(
 			mProgram[GLES2_VIDEO_COLOR_CONVERSION_YUV420SEMIPLANAR_TO_RGB],
 			512, NULL, infoLog);
-		ULOGE("Gles2Video: program link failed '%s'", infoLog);
+		ULOGE("program link failed '%s'", infoLog);
 		goto err;
 	}
 
@@ -414,14 +411,14 @@ Gles2Video::Gles2Video(
 
 	GLCHK(glGenFramebuffers(1, &mPaddingFbo));
 	if (mPaddingFbo <= 0) {
-		ULOGE("Gles2Video: failed to create framebuffer");
+		ULOGE("failed to create framebuffer");
 		goto err;
 	}
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo));
 
 	GLCHK(glGenTextures(1, &mPaddingFboTexture));
 	if (mPaddingFboTexture <= 0) {
-		ULOGE("Gles2Video: failed to create texture");
+		ULOGE("failed to create texture");
 		goto err;
 	}
 	GLCHK(glActiveTexture(GL_TEXTURE0 +
@@ -445,7 +442,7 @@ Gles2Video::Gles2Video(
 
 	gle = glCheckFramebufferStatus(GL_FRAMEBUFFER);
 	if (gle != GL_FRAMEBUFFER_COMPLETE) {
-		ULOGE("Gles2Video: invalid framebuffer status");
+		ULOGE("invalid framebuffer status");
 		goto err;
 	}
 
@@ -550,8 +547,8 @@ int Gles2Video::loadFrame(
 	unsigned int i;
 
 	if ((frameWidth == 0) || (frameHeight == 0) || (frameStride[0] == 0)) {
-		ULOGE("Gles2Video: invalid dimensions");
-		return -1;
+		ULOGE("invalid dimensions");
+		return -EINVAL;
 	}
 
 	glUseProgram(mProgram[colorConversion]);
@@ -572,8 +569,8 @@ int Gles2Video::loadFrame(
 			EGL_IMAGE_BRCM_MULTIMEDIA,
 			(EGLClientBuffer)frameData, NULL);
 		if (mEglImage == EGL_NO_IMAGE_KHR) {
-			ULOGE("Gles2Video: failed to create EGLImage");
-			return -1;
+			ULOGE("failed to create EGLImage");
+			return -EPROTO;
 		}
 		GLCHK(glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES,
 			mEglImage));
@@ -639,8 +636,8 @@ int Gles2Video::renderFrame(
 		(sarWidth == 0) || (sarHeight == 0) ||
 		(renderWidth == 0) || (renderHeight == 0) ||
 		(frameStride[0] == 0)) {
-		ULOGE("Gles2Video: invalid dimensions");
-		return -1;
+		ULOGE("invalid dimensions");
+		return -EINVAL;
 	}
 
 	GLCHK(glUseProgram(mProgram[colorConversion]));

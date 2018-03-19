@@ -29,9 +29,11 @@
 
 #include "pdraw_session.hpp"
 #include "pdraw_utils.hpp"
-#include "pdraw_log.hpp"
 #include <pdraw/pdraw.h>
 #include <errno.h>
+#define ULOG_TAG pdraw_wrapper
+#include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_wrapper);
 #include <string>
 
 
@@ -154,11 +156,14 @@ int pdraw_new(
 	int ret = 0;
 	struct pdraw *pdraw;
 
-	PDRAW_RETURN_ERR_IF_FAILED(cbs != NULL, -EINVAL);
-	PDRAW_RETURN_ERR_IF_FAILED(ret_obj != NULL, -EINVAL);
+	if (cbs == NULL)
+		return -EINVAL;
+	if (ret_obj == NULL)
+		return -EINVAL;
 
 	pdraw = (struct pdraw *)calloc(1, sizeof(*pdraw));
-	PDRAW_RETURN_ERR_IF_FAILED(pdraw != NULL, -ENOMEM);
+	if (pdraw == NULL)
+		return -ENOMEM;
 
 	pdraw->listener = new PdrawListener(pdraw, cbs, userdata);
 	if (pdraw->listener == NULL) {
@@ -517,7 +522,10 @@ enum pdraw_session_type pdraw_get_session_type(
 uint16_t pdraw_get_single_stream_local_stream_port(
 	struct pdraw *pdraw)
 {
-	PDRAW_RETURN_VAL_IF_FAILED(pdraw != NULL, -EINVAL, 0);
+	if (pdraw == NULL) {
+		ULOG_ERRNO("pdraw", EINVAL);
+		return 0;
+	}
 
 	return pdraw->pdraw->getSingleStreamLocalStreamPort();
 }
@@ -526,7 +534,10 @@ uint16_t pdraw_get_single_stream_local_stream_port(
 uint16_t pdraw_get_single_stream_local_control_port(
 	struct pdraw *pdraw)
 {
-	PDRAW_RETURN_VAL_IF_FAILED(pdraw != NULL, -EINVAL, 0);
+	if (pdraw == NULL) {
+		ULOG_ERRNO("pdraw", EINVAL);
+		return 0;
+	}
 
 	return pdraw->pdraw->getSingleStreamLocalControlPort();
 }

@@ -31,8 +31,9 @@
 #include "pdraw_avcdecoder.hpp"
 #include <math.h>
 #include <string.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_mediavideo
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_mediavideo);
 #include <vector>
 
 namespace Pdraw {
@@ -72,20 +73,20 @@ VideoMedia::VideoMedia(
 
 	res = pthread_mutexattr_init(&attr);
 	if (res < 0) {
-		ULOG_ERRNO("VideoMedia: pthread_mutexattr_init", -res);
+		ULOG_ERRNO("pthread_mutexattr_init", -res);
 		goto error;
 	}
 	attr_created = true;
 
 	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	if (res < 0) {
-		ULOG_ERRNO("VideoMedia: pthread_mutexattr_settype", -res);
+		ULOG_ERRNO("pthread_mutexattr_settype", -res);
 		goto error;
 	}
 
 	res = pthread_mutex_init(&mMutex, &attr);
 	if (res < 0) {
-		ULOG_ERRNO("VideoMedia: pthread_mutex_init", -res);
+		ULOG_ERRNO("pthread_mutex_init", -res);
 		goto error;
 	}
 	mutex_created = true;
@@ -249,25 +250,24 @@ int VideoMedia::enableDecoder(
 
 	if (mDecoder != NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: decoder is already enabled");
-		return -1;
+		ULOGE("decoder is already enabled");
+		return -EPROTO;
 	}
 
 	mDecoder = new AvcDecoder(this);
 	if (mDecoder == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: failed to create AVC decoder");
-		return -1;
+		ULOGE("failed to create AVC decoder");
+		return -ENOMEM;
 	}
 
 	if ((mDemuxEsIndex != -1) && (mDemux != NULL)) {
 		int ret = mDemux->setElementaryStreamDecoder(
 			mDemuxEsIndex, mDecoder);
-		if (ret != 0) {
+		if (ret < 0) {
 			pthread_mutex_unlock(&mMutex);
-			ULOGE("VideoMedia: setElementaryStreamDecoder() "
-				"failed (%d)", ret);
-			return -1;
+			ULOG_ERRNO("demuxer->setElementaryStreamDecoder", -ret);
+			return ret;
 		}
 	}
 
@@ -283,15 +283,15 @@ int VideoMedia::disableDecoder(
 
 	if (mDecoder == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: decoder is not enabled");
-		return -1;
+		ULOGE("decoder is not enabled");
+		return -EPROTO;
 	}
 
 	int ret = ((AvcDecoder*)mDecoder)->close();
-	if (ret != 0) {
+	if (ret < 0) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: failed to close AVC decoder (%d)", ret);
-		return -1;
+		ULOG_ERRNO("decoder->close", -ret);
+		return ret;
 	}
 
 	delete mDecoder;
@@ -327,7 +327,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 
 	if (mDecoder == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: decoder is not enabled");
+		ULOG_ERRNO("decoder is not enabled", EPROTO);
 		return NULL;
 	}
 
@@ -335,7 +335,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 		this, (AvcDecoder*)mDecoder, frameByFrame);
 	if (p == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: video frame filter allocation failed");
+		ULOG_ERRNO("video frame filter creation failed", ENOMEM);
 		return NULL;
 	}
 
@@ -354,12 +354,12 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 
 	if (mDecoder == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: decoder is not enabled");
+		ULOG_ERRNO("decoder is not enabled", EPROTO);
 		return NULL;
 	}
 	if (cb == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: invalid callback function");
+		ULOG_ERRNO("invalid callback function", EINVAL);
 		return NULL;
 	}
 
@@ -367,7 +367,7 @@ VideoFrameFilter *VideoMedia::addVideoFrameFilter(
 		this, (AvcDecoder*)mDecoder, cb, userPtr, frameByFrame);
 	if (p == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: video frame filter allocation failed");
+		ULOG_ERRNO("video frame filter creation failed", ENOMEM);
 		return NULL;
 	}
 
@@ -384,8 +384,8 @@ int VideoMedia::removeVideoFrameFilter(
 
 	if (filter == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: invalid video frame filter pointer");
-		return -1;
+		ULOGE("invalid video frame filter pointer");
+		return -EINVAL;
 	}
 
 	bool found = false;
@@ -402,7 +402,7 @@ int VideoMedia::removeVideoFrameFilter(
 	}
 
 	pthread_mutex_unlock(&mMutex);
-	return (found) ? 0 : -1;
+	return (found) ? 0 : -ENOENT;
 }
 
 
@@ -413,7 +413,7 @@ bool VideoMedia::isVideoFrameFilterValid(
 
 	if (filter == NULL) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("VideoMedia: invalid video frame filter pointer");
+		ULOG_ERRNO("invalid video frame filter pointer", EINVAL);
 		return false;
 	}
 

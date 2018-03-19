@@ -31,8 +31,9 @@
 #include <math.h>
 #include <string.h>
 #include <h264/h264.h>
-#define ULOG_TAG libpdraw
+#define ULOG_TAG pdraw_utils
 #include <ulog.h>
+ULOG_DECLARE_TAG(pdraw_utils);
 
 
 #define UTILS_H264_EXTENDED_SAR 255
@@ -206,18 +207,16 @@ int pdraw_videoDimensionsFromH264Sps(
 {
 	struct h264_sps sps;
 	int ret = h264_parse_sps(pSps, spsSize, &sps);
-	if (ret != 0) {
-		ULOGE("Utils: h264_parse_sps() failed: %d(%s)",
-			ret, strerror(-ret));
-		return -1;
+	if (ret < 0) {
+		ULOG_ERRNO("h264_parse_sps", -ret);
+		return ret;
 	}
 
 	struct h264_sps_derived sps_derived;
 	ret = h264_get_sps_derived(&sps, &sps_derived);
-	if (ret != 0) {
-		ULOGE("Utils: h264_get_sps_derived() failed: %d(%s)",
-			ret, strerror(-ret));
-		return -1;
+	if (ret < 0) {
+		ULOG_ERRNO("h264_get_sps_derived", -ret);
+		return ret;
 	}
 
 	unsigned int _width = sps_derived.PicWidthInSamplesLuma;
