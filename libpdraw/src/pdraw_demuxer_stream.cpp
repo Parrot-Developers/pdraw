@@ -968,7 +968,7 @@ int StreamDemuxer::openDecoder(
 	start = (demuxer->mDecoderBitstreamFormat ==
 		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
 		htonl(0x00000001) : htonl(info->h264.spslen);
-	*((uint32_t *)sps_buf) = start;
+	memcpy(sps_buf, &start, sizeof(uint32_t));
 	memcpy(sps_buf + 4, info->h264.sps, info->h264.spslen);
 
 	pps_buf = (uint8_t *)malloc(info->h264.ppslen + 4);
@@ -981,7 +981,7 @@ int StreamDemuxer::openDecoder(
 	start = (demuxer->mDecoderBitstreamFormat ==
 		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
 		htonl(0x00000001) : htonl(info->h264.ppslen);
-	*((uint32_t *)pps_buf) = start;
+	memcpy(pps_buf, &start, sizeof(uint32_t));
 	memcpy(pps_buf + 4, info->h264.pps, info->h264.ppslen);
 
 	ret = demuxer->mDecoder->open(
@@ -1099,7 +1099,7 @@ void StreamDemuxer::h264UserDataSeiCb(
 		return;
 	}
 
-	uint8_t *dstBuf = vbuf_get_userdata_ptr(demuxer->mCurrentBuffer);
+	uint8_t *dstBuf = vbuf_get_userdata(demuxer->mCurrentBuffer);
 	memcpy(dstBuf, buf, len);
 	vbuf_set_userdata_size(demuxer->mCurrentBuffer, len);
 }
@@ -1171,6 +1171,7 @@ void StreamDemuxer::recvFrameCb(
 {
 	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
 	struct vbuf_buffer *buffer = NULL;
+	struct avcdecoder_input_buffer *data = NULL;
 	uint32_t flags = 0, start, i;
 	size_t frame_size = 0;
 	uint8_t *buf;
@@ -1202,7 +1203,7 @@ void StreamDemuxer::recvFrameCb(
 		return;
 	}
 
-	buf = vbuf_get_ptr(buffer);
+	buf = vbuf_get_data(buffer);
 	res = vbuf_get_capacity(buffer);
 	if ((buf == NULL) || (res <= 0)) {
 		ULOGE("StreamDemuxer: invalid input buffer");
@@ -1218,7 +1219,7 @@ void StreamDemuxer::recvFrameCb(
 				AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
 				htonl(0x00000001) :
 				htonl(demuxer->mCodecInfo.h264.spslen);
-			*((uint32_t *)buf) = start;
+			memcpy(buf, &start, sizeof(uint32_t));
 			memcpy(buf + 4, demuxer->mCodecInfo.h264.sps,
 				demuxer->mCodecInfo.h264.spslen);
 			buf += (demuxer->mCodecInfo.h264.spslen + 4);
@@ -1230,7 +1231,7 @@ void StreamDemuxer::recvFrameCb(
 				AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
 				htonl(0x00000001) :
 				htonl(demuxer->mCodecInfo.h264.ppslen);
-			*((uint32_t *)buf) = start;
+			memcpy(buf, &start, sizeof(uint32_t));
 			memcpy(buf + 4, demuxer->mCodecInfo.h264.pps,
 				demuxer->mCodecInfo.h264.ppslen);
 			buf += (demuxer->mCodecInfo.h264.ppslen + 4);
@@ -1276,8 +1277,13 @@ void StreamDemuxer::recvFrameCb(
 	}
 	out_size += frame_size;
 
-	struct avcdecoder_input_buffer *data =
-		(struct avcdecoder_input_buffer *)vbuf_get_metadata_ptr(buffer);
+	data = (struct avcdecoder_input_buffer *)
+		vbuf_metadata_add(buffer,
+		demuxer->mDecoder->getMedia(), 1, sizeof(*data));
+	if (data == NULL) {
+		ULOGW("StreamDemuxer: vbuf_metadata_add() failed");
+		return;
+	}
 	struct timespec t1;
 
 	vbuf_set_size(buffer, out_size);
@@ -1328,6 +1334,9 @@ void StreamDemuxer::recvFrameCb(
 	}
 
 	/* release buffer */
+	ret = vbuf_write_lock(buffer);
+	if (ret < 0)
+		ULOGW("StreamDemuxer: vbuf_write_lock() failed (%d)", ret);
 	ret = demuxer->mDecoder->queueInputBuffer(buffer);
 	if (ret != 0) {
 		ULOGW("StreamDemuxer: failed to release the input buffer (%d)",

@@ -20,5 +20,14 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_MODULE := avahi
 LOCAL_DESCRIPTION := Avahi service discovery suite
-LOCAL_EXPORT_LDLIBS +=	-lavahi-client -lavahi-common
+LOCAL_EXPORT_LDLIBS += -lavahi-client -lavahi-common
+include $(BUILD_PREBUILT)
+
+
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+LOCAL_MODULE := mmal
+LOCAL_DESCRIPTION := Broadcom VideoCore Multi-Media Abstraction Layer
+LOCAL_EXPORT_LDLIBS += -Wl,--no-as-needed -lmmal -lmmal_core -lmmal_components \
+	-lmmal_util -lmmal_vc_client -lvcos -lvcsm -lcontainers -Wl,--as-needed
 include $(BUILD_PREBUILT)

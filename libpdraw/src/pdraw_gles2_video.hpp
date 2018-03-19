@@ -34,6 +34,11 @@
 
 #include "pdraw_gles2_common.hpp"
 #include "pdraw_metadata_videoframe.hpp"
+#ifdef BCM_VIDEOCORE
+#  include <EGL/egl.h>
+#  include <EGL/eglext.h>
+#endif /* BCM_VIDEOCORE */
+
 
 namespace Pdraw {
 
@@ -79,15 +84,16 @@ public:
 		unsigned int videoHeight);
 
 	int loadFrame(
-		uint8_t *framePlane[3],
-		unsigned int frameStride[3],
+		const uint8_t *frameData,
+		size_t framePlaneOffset[3],
+		size_t frameStride[3],
 		unsigned int frameWidth,
 		unsigned int frameHeight,
-		enum gles2_video_color_conversion colorConversion);
+		enum gles2_video_color_conversion colorConversion,
+		void *eglDisplay);
 
 	int renderFrame(
-		uint8_t *framePlane[3],
-		unsigned int frameStride[3],
+		size_t frameStride[3],
 		unsigned int frameWidth,
 		unsigned int frameHeight,
 		unsigned int sarWidth,
@@ -118,6 +124,9 @@ private:
 	GLuint mPaddingFboTexture;
 	unsigned int mPaddingWidth;
 	unsigned int mPaddingHeight;
+#ifdef BCM_VIDEOCORE
+	EGLImageKHR mEglImage;
+#endif /* BCM_VIDEOCORE */
 };
 
 } /* namespace Pdraw */

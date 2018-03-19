@@ -32,6 +32,7 @@
 
 #include <inttypes.h>
 #include <video-buffers/vbuf.h>
+#include <video-decode/vdec.h>
 #include "pdraw_decoder.hpp"
 #include "pdraw_metadata_videoframe.hpp"
 
@@ -46,6 +47,9 @@ namespace Pdraw {
 #define AVCDECODER_COLOR_FORMAT_UNKNOWN			(0)
 #define AVCDECODER_COLOR_FORMAT_YUV420PLANAR		(1 << 0)
 #define AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR	(1 << 1)
+#define AVCDECODER_COLOR_FORMAT_MMAL_OPAQUE		(1 << 2)
+
+#define AVCDECODER_INPUT_BUFFER_COUNT			(10)
 
 
 struct avcdecoder_input_buffer {
@@ -63,12 +67,16 @@ struct avcdecoder_input_buffer {
 
 
 struct avcdecoder_output_buffer {
-	uint8_t *plane[3];
-	unsigned int stride[3];
+	size_t plane_offset[3];
+	size_t stride[3];
 	unsigned int width;
 	unsigned int height;
 	unsigned int sarWidth;
 	unsigned int sarHeight;
+	unsigned int cropLeft;
+	unsigned int cropTop;
+	unsigned int cropWidth;
+	unsigned int cropHeight;
 	uint32_t colorFormat;
 	bool isComplete;
 	bool hasErrors;
@@ -89,41 +97,77 @@ class VideoMedia;
 
 class AvcDecoder : public Decoder {
 public:
-	virtual uint32_t getInputBitstreamFormatCaps(
-		void) = 0;
+	AvcDecoder(
+		VideoMedia *media);
 
-	virtual int open(
+	~AvcDecoder(
+		void);
+
+	uint32_t getInputBitstreamFormatCaps(
+		void);
+
+	int open(
 		uint32_t inputBitstreamFormat,
 		const uint8_t *pSps,
 		unsigned int spsSize,
 		const uint8_t *pPps,
-		unsigned int ppsSize) = 0;
+		unsigned int ppsSize);
 
-	virtual int close(
-		void) = 0;
+	bool isConfigured(
+		void) {
+		return mConfigured;
+	}
 
-	virtual int getInputBuffer(
+	int flush(
+		void);
+
+	int close(
+		void);
+
+	int getInputBuffer(
 		struct vbuf_buffer **buffer,
-		bool blocking) = 0;
+		bool blocking);
 
-	virtual int queueInputBuffer(
-		struct vbuf_buffer *buffer) = 0;
+	int queueInputBuffer(
+		struct vbuf_buffer *buffer);
 
-	virtual struct vbuf_queue *addOutputQueue(
-		void) = 0;
+	struct vbuf_queue *addOutputQueue(
+		void);
 
-	virtual int removeOutputQueue(
-		struct vbuf_queue *queue) = 0;
+	int removeOutputQueue(
+		struct vbuf_queue *queue);
 
-	virtual VideoMedia *getVideoMedia(
-		void) = 0;
+	Media *getMedia(
+		void) {
+		return mMedia;
+	}
 
-	static AvcDecoder *create(
-		VideoMedia *media);
+	VideoMedia *getVideoMedia(
+		void) {
+		return (VideoMedia *)mMedia;
+	}
 
-protected:
-	virtual bool isOutputQueueValid(
-		struct vbuf_queue *queue) = 0;
+private:
+	bool isOutputQueueValid(
+		struct vbuf_queue *queue);
+
+	static void frameOutputCb(
+		struct vbuf_buffer *out_buf,
+		void *userdata);
+
+	static void flushCb(
+		void *userdata);
+
+	static void stopCb(
+		void *userdata);
+
+	struct vbuf_pool *mInputBufferPool;
+	bool mInputBufferPoolAllocated;
+	struct vbuf_queue *mInputBufferQueue;
+	std::vector<struct vbuf_queue*> mOutputBufferQueues;
+	struct vdec_decoder *mVdec;
+	unsigned int mFrameIndex;
+	enum vdec_input_format mInputFormat;
 };
 
 } /* namespace Pdraw */

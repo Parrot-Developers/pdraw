@@ -63,33 +63,13 @@ public:
 		bool headtracking,
 		void *uiHandler);
 
-	int setVideoDimensions(
-		unsigned int videoWidth,
-		unsigned int videoHeight);
-
-	void* getVideoEglImage(
-		int index);
-
-	int swapDecoderEglImage(
-		void);
-
 	int render(
 		uint64_t lastRenderTime);
 
 private:
-	int swapRendererEglImage(
-		void);
-
-	int mVideoWidth;
-	int mVideoHeight;
 	EGLDisplay mDisplay;
 	EGLSurface mSurface;
 	EGLContext mContext;
-	void *mEglImage[3];
-	int mEglImageIdxReady;
-	int mEglImageIdxDecoderLocked;
-	int mEglImageIdxRendererLocked;
-	pthread_mutex_t mEglImageMutex;
 };
 
 } /* namespace Pdraw */

@@ -253,7 +253,7 @@ int VideoMedia::enableDecoder(
 		return -1;
 	}
 
-	mDecoder = AvcDecoder::create(this);
+	mDecoder = new AvcDecoder(this);
 	if (mDecoder == NULL) {
 		pthread_mutex_unlock(&mMutex);
 		ULOGE("VideoMedia: failed to create AVC decoder");

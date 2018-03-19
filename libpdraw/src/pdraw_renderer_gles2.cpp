@@ -379,6 +379,7 @@ int Gles2Renderer::render_nolock(
 {
 	int ret = 0;
 	struct vbuf_buffer *buffer = NULL;
+	const uint8_t *cdata;
 	int dequeueRet = 0;
 	bool load = false;
 
@@ -406,11 +407,13 @@ int Gles2Renderer::render_nolock(
 	if (mCurrentBuffer == NULL)
 		return 0;
 
+	cdata = vbuf_get_cdata(mCurrentBuffer);
 	struct avcdecoder_output_buffer *data =
 		(struct avcdecoder_output_buffer *)
-		vbuf_get_metadata_ptr(mCurrentBuffer);
+		vbuf_metadata_get(mCurrentBuffer,
+		mDecoder->getMedia(), NULL, NULL);
 
-	if (data == NULL) {
+	if ((cdata == NULL) || (data == NULL)) {
 		ULOGE("Gles2Renderer: invalid buffer data");
 		return -1;
 	}
@@ -439,15 +442,16 @@ int Gles2Renderer::render_nolock(
 		}
 
 		if (load) {
-			ret = mGles2Video->loadFrame(data->plane, data->stride,
-				data->width, data->height, colorConversion);
+			ret = mGles2Video->loadFrame(cdata, data->plane_offset,
+				data->stride, data->width, data->height,
+				colorConversion, NULL);
 			if (ret != 0) {
 				ULOGE("Gles2Renderer: failed to "
 					"load video frame");
 			}
 		}
 
-		ret = mGles2Video->renderFrame(data->plane, data->stride,
+		ret = mGles2Video->renderFrame(data->stride,
 			data->width, data->height,
 			data->sarWidth, data->sarHeight,
 			(mHmdDistorsionCorrection) ? mRenderWidth / 2 :

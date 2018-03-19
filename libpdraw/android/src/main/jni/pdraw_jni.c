@@ -458,7 +458,7 @@ static void frame_reception_callback(void *filterCtx, const struct pdraw_video_f
         goto out;
     }
 
-    pixels = (*env)->NewDirectByteBuffer(env, frame->plane[0], (frame->stride[0] * frame->height * 3) / 2);
+    pixels = (*env)->NewDirectByteBuffer(env, (void *)frame->plane[0], (frame->stride[0] * frame->height * 3) / 2);
     if (pixels == NULL) {
         LOGE("could not allocate buffer for planes");
         goto out;

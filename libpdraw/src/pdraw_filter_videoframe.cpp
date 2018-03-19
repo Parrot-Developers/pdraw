@@ -235,6 +235,7 @@ void* VideoFrameFilter::runThread(
 	int ret;
 	struct vbuf_buffer *buffer;
 	struct avcdecoder_output_buffer *data;
+	const uint8_t *cdata;
 	struct pdraw_video_frame frame;
 	unsigned int idx;
 
@@ -255,8 +256,10 @@ void* VideoFrameFilter::runThread(
 			continue;
 		}
 
+		cdata = vbuf_get_cdata(buffer);
 		data = (struct avcdecoder_output_buffer *)
-			vbuf_get_metadata_ptr(buffer);
+			vbuf_metadata_get(buffer,
+			filter->mDecoder->getMedia(), NULL, NULL);
 		memset(&frame, 0, sizeof(frame));
 		switch(data->colorFormat) {
 		default:
@@ -270,9 +273,9 @@ void* VideoFrameFilter::runThread(
 			frame.colorFormat = PDRAW_COLOR_FORMAT_YUV420SEMIPLANAR;
 			break;
 		}
-		frame.plane[0] = data->plane[0];
-		frame.plane[1] = data->plane[1];
-		frame.plane[2] = data->plane[2];
+		frame.plane[0] = cdata + data->plane_offset[0];
+		frame.plane[1] = cdata + data->plane_offset[1];
+		frame.plane[2] = cdata + data->plane_offset[2];
 		frame.stride[0] = data->stride[0];
 		frame.stride[1] = data->stride[1];
 		frame.stride[2] = data->stride[2];
@@ -289,7 +292,7 @@ void* VideoFrameFilter::runThread(
 		frame.hasMetadata = (data->hasMetadata) ? 1 : 0;
 		memcpy(&frame.metadata, &data->metadata,
 			sizeof(frame.metadata));
-		frame.userData = vbuf_get_userdata_ptr(buffer);
+		frame.userData = vbuf_get_cuserdata(buffer);
 		frame.userDataSize = vbuf_get_userdata_size(buffer);
 
 		if (filter->mCb) {
@@ -344,17 +347,17 @@ void* VideoFrameFilter::runThread(
 		case PDRAW_COLOR_FORMAT_UNKNOWN:
 			break;
 		case PDRAW_COLOR_FORMAT_YUV420PLANAR: {
-			uint8_t *pSrcY = data->plane[0];
-			uint8_t *pSrcU = data->plane[1];
-			uint8_t *pSrcV = data->plane[2];
-			uint8_t *pDstY = frame.plane[0] =
-				filter->mBuffer[idx ^ 1];
-			uint8_t *pDstU = frame.plane[1] =
-				filter->mBuffer[idx ^ 1] +
+			const uint8_t *pSrcY = cdata + data->plane_offset[0];
+			const uint8_t *pSrcU = cdata + data->plane_offset[1];
+			const uint8_t *pSrcV = cdata + data->plane_offset[2];
+			frame.plane[0] = filter->mBuffer[idx ^ 1];
+			uint8_t *pDstY = (uint8_t *)frame.plane[0];
+			frame.plane[1] = filter->mBuffer[idx ^ 1] +
 				filter->mWidth * filter->mHeight;
-			uint8_t *pDstV = frame.plane[2] =
-				filter->mBuffer[idx ^ 1] +
+			uint8_t *pDstU = (uint8_t *)frame.plane[1];
+			frame.plane[2] = filter->mBuffer[idx ^ 1] +
 				filter->mWidth * filter->mHeight * 5 / 4;
+			uint8_t *pDstV = (uint8_t *)frame.plane[2];
 			frame.stride[0] = filter->mWidth;
 			frame.stride[1] = filter->mWidth / 2;
 			frame.stride[2] = filter->mWidth / 2;
@@ -375,13 +378,13 @@ void* VideoFrameFilter::runThread(
 			break;
 		}
 		case PDRAW_COLOR_FORMAT_YUV420SEMIPLANAR: {
-			uint8_t *pSrcY = data->plane[0];
-			uint8_t *pSrcUV = data->plane[1];
-			uint8_t *pDstY = frame.plane[0] =
-				filter->mBuffer[idx ^ 1];
-			uint8_t *pDstUV = frame.plane[1] =
-				filter->mBuffer[idx ^ 1] +
+			const uint8_t *pSrcY = cdata + data->plane_offset[0];
+			const uint8_t *pSrcUV = cdata + data->plane_offset[1];
+			frame.plane[0] = filter->mBuffer[idx ^ 1];
+			uint8_t *pDstY = (uint8_t *)frame.plane[0];
+			frame.plane[1] = filter->mBuffer[idx ^ 1] +
 				filter->mWidth * filter->mHeight;
+			uint8_t *pDstUV = (uint8_t *)frame.plane[1];
 			frame.stride[0] = filter->mWidth;
 			frame.stride[1] = filter->mWidth;
 			unsigned int y;

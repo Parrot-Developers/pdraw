@@ -115,7 +115,7 @@ struct pdraw_media_info {
 
 struct pdraw_video_frame {
 	enum pdraw_color_format colorFormat;
-	uint8_t *plane[3];
+	const uint8_t *plane[3];
 	unsigned int stride[3];
 	unsigned int width;
 	unsigned int height;
@@ -129,7 +129,7 @@ struct pdraw_video_frame {
 	uint64_t auNtpTimestampLocal;
 	int hasMetadata;
 	struct vmeta_frame_v2 metadata;
-	uint8_t *userData;
+	const uint8_t *userData;
 	unsigned int userDataSize;
 };
 

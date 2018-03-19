@@ -131,12 +131,8 @@ private:
 	int fetchSessionMetadata(
 		void);
 
-	static int getAvcDecoderConfig(
-		RecordDemuxer *demuxer,
-		uint8_t **pSps,
-		size_t *spsSize,
-		uint8_t **pPps,
-		size_t *ppsSize);
+	static int openAvcDecoder(
+		RecordDemuxer *demuxer);
 
 	static void h264UserDataSeiCb(
 		struct h264_ctx *ctx,

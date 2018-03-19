@@ -598,22 +598,18 @@ void RecordDemuxer::h264UserDataSeiCb(
 		return;
 	}
 
-	uint8_t *dstBuf = vbuf_get_userdata_ptr(demuxer->mCurrentBuffer);
+	uint8_t *dstBuf = vbuf_get_userdata(demuxer->mCurrentBuffer);
 	memcpy(dstBuf, buf, len);
 	vbuf_set_userdata_size(demuxer->mCurrentBuffer, len);
 }
 
 
-int RecordDemuxer::getAvcDecoderConfig(
-	RecordDemuxer *demuxer,
-	uint8_t **pSps,
-	size_t *spsSize,
-	uint8_t **pPps,
-	size_t *ppsSize)
+int RecordDemuxer::openAvcDecoder(
+	RecordDemuxer *demuxer)
 {
 	uint8_t *sps = NULL, *pps = NULL;
 	uint8_t *spsBuffer = NULL, *ppsBuffer = NULL;
-	unsigned int spsSz = 0, ppsSz = 0;
+	unsigned int spsSize = 0, ppsSize = 0;
 	uint32_t start;
 	int ret;
 
@@ -621,44 +617,39 @@ int RecordDemuxer::getAvcDecoderConfig(
 		ULOGE("RecordDemuxer: invalid demuxer");
 		return -1;
 	}
-	if ((pSps == NULL) || (spsSize == NULL) ||
-		(pPps == NULL) | (ppsSize == NULL)) {
-		ULOGE("RecordDemuxer: invalid parameters");
-		return -1;
-	}
 
 	ret = mp4_demux_get_track_avc_decoder_config(
 		demuxer->mDemux, demuxer->mVideoTrackId,
-		&sps, &spsSz, &pps, &ppsSz);
+		&sps, &spsSize, &pps, &ppsSize);
 	if (ret < 0) {
 		ULOGE("RecordDemuxer: mp4_demux_get_track_avc_decoder_config() "
 			"failed (%d)", ret);
 		return -1;
 	}
-	if ((sps == NULL) || (spsSz == 0)) {
+	if ((sps == NULL) || (spsSize == 0)) {
 		ULOGE("RecordDemuxer: invalid SPS");
 		return -1;
 	}
-	if ((pps == NULL) || (ppsSz == 0)) {
+	if ((pps == NULL) || (ppsSize == 0)) {
 		ULOGE("RecordDemuxer: invalid PPS");
 		return -1;
 	}
 
-	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, sps, spsSz);
+	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, sps, spsSize);
 	if (ret < 0) {
 		ULOGW("RecordDemuxer: h264_reader_parse_nalu() "
 			"failed (%d)", ret);
 		return -1;
 	}
 
-	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, pps, ppsSz);
+	ret = h264_reader_parse_nalu(demuxer->mH264Reader, 0, pps, ppsSize);
 	if (ret < 0) {
 		ULOGW("RecordDemuxer: h264_reader_parse_nalu() "
 			"failed (%d)", ret);
 		return -1;
 	}
 
-	spsBuffer = (uint8_t *)malloc(spsSz + 4);
+	spsBuffer = (uint8_t *)malloc(spsSize + 4);
 	if (spsBuffer == NULL) {
 		ULOGE("RecordDemuxer: SPS buffer allocation failed");
 		return -1;
@@ -666,11 +657,11 @@ int RecordDemuxer::getAvcDecoderConfig(
 
 	start = (demuxer->mDecoderBitstreamFormat ==
 		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
-		htonl(0x00000001) : htonl(spsSz);
-	*((uint32_t*)spsBuffer) = start;
-	memcpy(spsBuffer + 4, sps, spsSz);
+		htonl(0x00000001) : htonl(spsSize);
+	memcpy(spsBuffer, &start, sizeof(uint32_t));
+	memcpy(spsBuffer + 4, sps, spsSize);
 
-	ppsBuffer = (uint8_t *)malloc(ppsSz + 4);
+	ppsBuffer = (uint8_t *)malloc(ppsSize + 4);
 	if (ppsBuffer == NULL) {
 		ULOGE("RecordDemuxer: PPS buffer allocation failed");
 		free(spsBuffer);
@@ -679,24 +670,19 @@ int RecordDemuxer::getAvcDecoderConfig(
 
 	start = (demuxer->mDecoderBitstreamFormat ==
 		AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM) ?
-		htonl(0x00000001) : htonl(ppsSz);
-	*((uint32_t*)ppsBuffer) = start;
-	memcpy(ppsBuffer + 4, pps, ppsSz);
+		htonl(0x00000001) : htonl(ppsSize);
+	memcpy(ppsBuffer, &start, sizeof(uint32_t));
+	memcpy(ppsBuffer + 4, pps, ppsSize);
 
 	ret = demuxer->mDecoder->open(demuxer->mDecoderBitstreamFormat,
-		spsBuffer, (unsigned int)spsSz + 4,
-		ppsBuffer, (unsigned int)ppsSz + 4);
+		spsBuffer, (unsigned int)spsSize + 4,
+		ppsBuffer, (unsigned int)ppsSize + 4);
 	if (ret != 0) {
 		ULOGE("RecordDemuxer: decoder configuration failed (%d)", ret);
 		free(spsBuffer);
 		free(ppsBuffer);
 		return -1;
 	}
-
-	*pSps = spsBuffer;
-	*spsSize = spsSz;
-	*pPps = ppsBuffer;
-	*ppsSize = ppsSz;
 
 	return 0;
 }
@@ -709,17 +695,16 @@ void RecordDemuxer::timerCb(
 	RecordDemuxer *demuxer = (RecordDemuxer *)userdata;
 	bool silent = false;
 	float speed = 1.0;
-	int64_t seekTs = -1;
 	struct mp4_track_sample sample;
 	struct avcdecoder_input_buffer *data = NULL;
-	uint8_t *buf = NULL, *_buf, *sps = NULL, *pps = NULL, *sei = NULL;
-	size_t bufSize = 0, outSize = 0, offset = 0, naluSize;
-	size_t spsSize = 0, ppsSize = 0, seiSize = 0;
+	uint8_t *buf = NULL, *_buf, *sei = NULL;
+	size_t bufSize = 0, outSize = 0, offset = 0, naluSize = 0, seiSize = 0;
 	struct timespec t1;
 	uint64_t curTime;
 	int64_t error, duration, wait = 0;
 	uint32_t waitMs = 0;
 	int ret, retry = 0;
+	uint32_t start = htonl(0x00000001);
 
 	if (demuxer == NULL) {
 		ULOGE("RecordDemuxer: invalid context pointer");
@@ -727,7 +712,6 @@ void RecordDemuxer::timerCb(
 	}
 
 	speed = demuxer->mSpeed;
-	seekTs = demuxer->mPendingSeekTs;
 
 	if ((demuxer->mDecoder == NULL) || (!demuxer->mRunning)) {
 		demuxer->mLastFrameDuration = 0;
@@ -741,11 +725,12 @@ void RecordDemuxer::timerCb(
 
 	if (demuxer->mFirstFrame) {
 		/* Get the H.264 config and configure the decoder */
-		ret = getAvcDecoderConfig(demuxer,
-			&sps, &spsSize, &pps, &ppsSize);
+		ret = openAvcDecoder(demuxer);
 		if (ret != 0) {
 			ULOGE("RecordDemuxer: failed to get "
 				"AVC decoder config (%d)", ret);
+		} else {
+			demuxer->mFirstFrame = false;
 		}
 	}
 
@@ -766,25 +751,8 @@ void RecordDemuxer::timerCb(
 		}
 	}
 
-	buf = vbuf_get_ptr(demuxer->mCurrentBuffer);
+	buf = vbuf_get_data(demuxer->mCurrentBuffer);
 	bufSize = vbuf_get_capacity(demuxer->mCurrentBuffer);
-
-	if ((demuxer->mFirstFrame) && (sps != NULL) && (pps != NULL)) {
-		/* Insert the SPS and PPS */
-		if (spsSize + 4 <= bufSize) {
-			memcpy(buf, sps, spsSize + 4);
-			buf += (spsSize + 4);
-			bufSize -= (spsSize + 4);
-			outSize += (spsSize + 4);
-		}
-		if (ppsSize + 4 <= bufSize) {
-			memcpy(buf, pps, ppsSize + 4);
-			buf += (ppsSize + 4);
-			bufSize -= (ppsSize + 4);
-			outSize += (ppsSize + 4);
-		}
-		demuxer->mFirstFrame = false;
-	}
 
 	/* Seeking */
 	if (demuxer->mPendingSeekTs >= 0) {
@@ -847,7 +815,7 @@ void RecordDemuxer::timerCb(
 		naluSize = ntohl(*((uint32_t*)_buf));
 		if (demuxer->mDecoderBitstreamFormat ==
 			AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM)
-			*((uint32_t*)_buf) = htonl(0x00000001);
+			memcpy(_buf, &start, sizeof(uint32_t));
 		if (*(_buf + 4) == 0x06) {
 			sei = _buf + 4;
 			seiSize = naluSize;
@@ -866,8 +834,12 @@ void RecordDemuxer::timerCb(
 	}
 
 	data = (struct avcdecoder_input_buffer *)
-		vbuf_get_metadata_ptr(demuxer->mCurrentBuffer);
-	memset(data, 0, sizeof(*data));
+		vbuf_metadata_add(demuxer->mCurrentBuffer,
+		demuxer->mDecoder->getMedia(), 1, sizeof(*data));
+	if (data == NULL) {
+		ULOGW("RecordDemuxer: vbuf_metadata_add() failed");
+		goto out;
+	}
 	data->isComplete = true; /* TODO? */
 	data->hasErrors = false; /* TODO? */
 	data->isRef = true; /* TODO? */
@@ -889,6 +861,9 @@ void RecordDemuxer::timerCb(
 	demuxer->mCurrentTime = sample.sample_dts;
 
 	/* Queue the buffer for decoding */
+	ret = vbuf_write_lock(demuxer->mCurrentBuffer);
+	if (ret < 0)
+		ULOGW("RecordDemuxer: vbuf_write_lock() failed (%d)", ret);
 	ret = demuxer->mDecoder->queueInputBuffer(demuxer->mCurrentBuffer);
 	if (ret != 0) {
 		ULOGW("RecordDemuxer: failed to release "
@@ -1051,9 +1026,6 @@ out:
 				ret);
 		}
 	}
-
-	free(sps);
-	free(pps);
 }
 
 } /* namespace Pdraw */
