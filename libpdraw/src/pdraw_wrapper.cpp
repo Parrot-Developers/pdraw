@@ -191,10 +191,10 @@ int pdraw_destroy(
 {
 	if (pdraw == NULL)
 		return -EINVAL;
-	if (pdraw->listener != NULL)
-		delete pdraw->listener;
 	if (pdraw->pdraw != NULL)
 		delete pdraw->pdraw;
+	if (pdraw->listener != NULL)
+		delete pdraw->listener;
 	free(pdraw);
 	return 0;
 }
