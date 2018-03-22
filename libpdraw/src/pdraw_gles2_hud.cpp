@@ -511,43 +511,33 @@ int Gles2Hud::renderHud(
 	pdraw_quat2euler(&metadata->base.droneQuat, &droneAttitude);
 	vmeta_euler frameOrientation;
 	pdraw_quat2euler(&metadata->base.frameQuat, &frameOrientation);
-	enum pdraw_session_type sessionType = PDRAW_SESSION_TYPE_UNKNOWN;
-	enum pdraw_drone_model droneModel = PDRAW_DRONE_MODEL_UNKNOWN;
-	const char *friendlyName = NULL;
-	int controllerBattery = 256;
-	struct vmeta_euler controllerOrientation;
-	bool isControllerOrientationValid = false;
+	SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
+	SessionPeerMetadata *peerMeta = mSession->getPeerMetadata();
+	enum pdraw_session_type sessionType = mSession->getSessionType();
+	uint64_t currentTime = mSession->getCurrentTime();
+	uint64_t duration = mSession->getDuration();
+	peerMeta->lock();
+	enum pdraw_drone_model droneModel = peerMeta->getDroneModel();
+	char *friendlyName = strdup(peerMeta->getFriendlyName().c_str());
 	struct vmeta_location takeoffLocation, selfLocation;
 	takeoffLocation.valid = 0;
 	selfLocation.valid = 0;
-	uint64_t recordingDuration = 0;
-	uint64_t currentTime = 0;
-	uint64_t duration = 0;
-	if (mSession) {
-		SessionSelfMetadata *selfMeta = mSession->getSelfMetadata();
-		SessionPeerMetadata *peerMeta = mSession->getPeerMetadata();
-		sessionType = mSession->getSessionType();
-		currentTime = mSession->getCurrentTime();
-		duration = mSession->getDuration();
-		peerMeta->lock();
-		droneModel = peerMeta->getDroneModel();
-		friendlyName = peerMeta->getFriendlyName().c_str();
-		peerMeta->getTakeoffLocation(&takeoffLocation);
-		recordingDuration = peerMeta->getRecordingDuration();
-		peerMeta->unlock();
-		selfMeta->lock();
-		controllerBattery = selfMeta->getControllerBatteryLevel();
-		selfMeta->getLocation(&selfLocation);
-		isControllerOrientationValid =
-			selfMeta->getControllerOrientation(
-				&controllerOrientation);
-		selfMeta->unlock();
+	peerMeta->getTakeoffLocation(&takeoffLocation);
+	uint64_t recordingDuration = peerMeta->getRecordingDuration();
+	peerMeta->unlock();
+	selfMeta->lock();
+	int controllerBattery = selfMeta->getControllerBatteryLevel();
+	selfMeta->getLocation(&selfLocation);
+	struct vmeta_euler controllerOrientation;
+	bool isControllerOrientationValid =
+		selfMeta->getControllerOrientation(
+			&controllerOrientation);
+	selfMeta->unlock();
 #ifdef DEBUG_RADAR /* used to test the radar on records */
-		isControllerOrientationValid = true;
+	isControllerOrientationValid = true;
 #endif
-		controllerRadarAngle =
-			mSession->getSettings()->getControllerRadarAngle();
-	}
+	controllerRadarAngle =
+		mSession->getSettings()->getControllerRadarAngle();
 	float groundDistance = 0.;
 	if (droneModel == PDRAW_DRONE_MODEL_DISCO) {
 		if ((metadata->base.location.valid) &&
@@ -591,7 +581,7 @@ int Gles2Hud::renderHud(
 	GLCHK(glEnableVertexAttribArray(mPositionHandle));
 	GLCHK(glEnableVertexAttribArray(mColorHandle));
 
-	if ((headtracking) && (mSession)) {
+	if (headtracking) {
 		Eigen::Quaternionf headQuat =
 			mSession->getSelfMetadata()->getDebiasedHeadOrientation();
 		Eigen::Matrix3f headRotNed = headQuat.toRotationMatrix();
@@ -1157,6 +1147,7 @@ int Gles2Hud::renderHud(
 	GLCHK(glDisableVertexAttribArray(mTexTexcoordHandle));
 	GLCHK(glDisableVertexAttribArray(mTexColorHandle));
 
+	free(friendlyName);
 	return 0;
 }
 
