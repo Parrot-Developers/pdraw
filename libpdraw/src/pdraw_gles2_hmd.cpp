@@ -1,7 +1,8 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * OpenGL ES 2.0 HMD distorsion correction
+ * OpenGL ES 2.0 HMD distortion correction
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,20 +12,20 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 /**
@@ -35,51 +36,46 @@
 
 #include "pdraw_gles2_hmd.hpp"
 
-#ifdef USE_GLES2
-
 #define ULOG_TAG pdraw_gles2hmd
 #include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_gles2hmd);
 
+#ifdef USE_GLES2
+
 namespace Pdraw {
 
 
-#define GLES2_HMD_INCH_TO_MILLIMETER     (25.4f)
-#define GLES2_HMD_OFFSET                 (34.66f)
+#	define GLES2_HMD_INCH_TO_MILLIMETER (25.4f)
+#	define GLES2_HMD_OFFSET_COCKPITGLASSES (34.66f)
+#	define GLES2_HMD_OFFSET_COCKPITGLASSES_2 (41.0f)
+#	define GLES2_HMD_IPD_COCKPITGLASSES (63.0f)
+#	define GLES2_HMD_IPD_COCKPITGLASSES_2 (67.0f)
 
 
-extern const float pdraw_gles2HmdCockpitglassesColors[14884];
-extern const uint32_t pdraw_gles2HmdCockpitglassesIndices[21600];
-extern const float pdraw_gles2HmdCockpitglassesPositions[7442];
-extern const float pdraw_gles2HmdCockpitglassesTexCoordsRed[7442];
-extern const float pdraw_gles2HmdCockpitglassesTexCoordsGreen[7442];
-extern const float pdraw_gles2HmdCockpitglassesTexCoordsBlue[7442];
-
-extern const float pdraw_gles2HmdCockpitglasses2Colors[14884];
-extern const uint32_t pdraw_gles2HmdCockpitglasses2Indices[21600];
-extern const float pdraw_gles2HmdCockpitglasses2Positions[7442];
-extern const float pdraw_gles2HmdCockpitglasses2TexCoordsRed[7442];
-extern const float pdraw_gles2HmdCockpitglasses2TexCoordsGreen[7442];
-extern const float pdraw_gles2HmdCockpitglasses2TexCoordsBlue[7442];
+extern const float pdraw_gles2HmdColors[14884];
+extern const uint32_t pdraw_gles2HmdIndices[21600];
+extern const float pdraw_gles2HmdTexCoords[7442];
+extern const float pdraw_gles2HmdTexCoordsCockpitglassesRed[7442];
+extern const float pdraw_gles2HmdTexCoordsCockpitglassesBlue[7442];
+extern const float pdraw_gles2HmdPositionsCockpitglasses[7442];
+extern const float pdraw_gles2HmdPositionsCockpitglasses2[7442];
 
 extern const GLchar *pdraw_gles2HmdVertexShader;
 extern const GLchar *pdraw_gles2HmdFragmentShader;
 
 
-Gles2HmdEye::Gles2HmdEye(
-	unsigned int firstTexUnit,
-	enum pdraw_hmd_model hmdModel,
-	float scale,
-	float panH,
-	float panV,
-	float metricsWidth,
-	float metricsHeight,
-	float eyeOffsetX,
-	float eyeOffsetY)
+Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit,
+			 enum pdraw_hmd_model hmdModel,
+			 float scale,
+			 float panH,
+			 float panV,
+			 float metricsWidth,
+			 float metricsHeight,
+			 float eyeOffsetX,
+			 float eyeOffsetY)
 {
-	mFirstTexUnit = firstTexUnit;
-	mHmdModel = hmdModel;
 	mRotation = 0;
+	mHmdModel = hmdModel;
 	mScale = scale;
 	mPanH = panH;
 	mPanV = panV;
@@ -87,6 +83,7 @@ Gles2HmdEye::Gles2HmdEye(
 	mMetricsHeight = metricsHeight;
 	mEyeOffsetX = eyeOffsetX;
 	mEyeOffsetY = eyeOffsetY;
+	mFirstTexUnit = firstTexUnit;
 	mProgram = 0;
 	mIndicesBufferHandle = 0;
 	mPositionBufferHandle = 0;
@@ -94,11 +91,28 @@ Gles2HmdEye::Gles2HmdEye(
 	mTexCoord0BufferHandle = 0;
 	mTexCoord1BufferHandle = 0;
 	mTexCoord2BufferHandle = 0;
+	mProgramTexture = 0;
+	mProgramEyeToSourceUVScale = 0;
+	mProgramEyeToSourceUVOffset = 0;
+	mProgramEyeToSourceScale = 0;
+	mProgramEyeToSourceOffset = 0;
+	mProgramChromaticAberrationCorrection = 0;
+	mProgramRotation = 0;
+	mProgramLensLimits = 0;
+	mProgramPosition = 0;
+	mProgramColor = 0;
+	mProgramTexCoord0 = 0;
+	mProgramTexCoord1 = 0;
+	mProgramTexCoord2 = 0;
 
 	GLint vertexShader = 0, fragmentShader = 0;
 	GLint success = 0;
 
 	GLCHK();
+
+	GLuint buffer[6];
+	memset(buffer, 0, sizeof(buffer));
+	GLCHK(glGenBuffers(6, buffer));
 
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
@@ -152,93 +166,99 @@ Gles2HmdEye::Gles2HmdEye(
 
 	GLCHK();
 
-	GLuint buffer[6];
-	GLCHK(glGenBuffers(6, buffer));
-
 	switch (mHmdModel) {
 	default:
 	case PDRAW_HMD_MODEL_COCKPITGLASSES:
 		mIndicesBufferHandle = buffer[0];
 		GLCHK(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,
-			mIndicesBufferHandle));
+				   mIndicesBufferHandle));
 		GLCHK(glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglassesIndices),
-			pdraw_gles2HmdCockpitglassesIndices, GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdIndices),
+				   pdraw_gles2HmdIndices,
+				   GL_STATIC_DRAW));
 
 		mPositionBufferHandle = buffer[1];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle));
-		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglassesPositions),
-			pdraw_gles2HmdCockpitglassesPositions, GL_STATIC_DRAW));
+		GLCHK(glBufferData(
+			GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdPositionsCockpitglasses),
+			pdraw_gles2HmdPositionsCockpitglasses,
+			GL_STATIC_DRAW));
 
 		mColorBufferHandle = buffer[2];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle));
 		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglassesColors),
-			pdraw_gles2HmdCockpitglassesColors, GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdColors),
+				   pdraw_gles2HmdColors,
+				   GL_STATIC_DRAW));
 
 		mTexCoord0BufferHandle = buffer[3];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle));
-		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglassesTexCoordsRed),
-			pdraw_gles2HmdCockpitglassesTexCoordsRed,
+		GLCHK(glBufferData(
+			GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdTexCoordsCockpitglassesRed),
+			pdraw_gles2HmdTexCoordsCockpitglassesRed,
 			GL_STATIC_DRAW));
 
 		mTexCoord1BufferHandle = buffer[4];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle));
 		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglassesTexCoordsGreen),
-			pdraw_gles2HmdCockpitglassesTexCoordsGreen,
-			GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdTexCoords),
+				   pdraw_gles2HmdTexCoords,
+				   GL_STATIC_DRAW));
 
 		mTexCoord2BufferHandle = buffer[5];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle));
-		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglassesTexCoordsBlue),
-			pdraw_gles2HmdCockpitglassesTexCoordsBlue,
+		GLCHK(glBufferData(
+			GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdTexCoordsCockpitglassesBlue),
+			pdraw_gles2HmdTexCoordsCockpitglassesBlue,
 			GL_STATIC_DRAW));
 		break;
 	case PDRAW_HMD_MODEL_COCKPITGLASSES_2:
 		mIndicesBufferHandle = buffer[0];
 		GLCHK(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,
-			mIndicesBufferHandle));
+				   mIndicesBufferHandle));
 		GLCHK(glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglasses2Indices),
-			pdraw_gles2HmdCockpitglasses2Indices, GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdIndices),
+				   pdraw_gles2HmdIndices,
+				   GL_STATIC_DRAW));
 
 		mPositionBufferHandle = buffer[1];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle));
-		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglasses2Positions),
-			pdraw_gles2HmdCockpitglasses2Positions,
+		GLCHK(glBufferData(
+			GL_ARRAY_BUFFER,
+			sizeof(pdraw_gles2HmdPositionsCockpitglasses2),
+			pdraw_gles2HmdPositionsCockpitglasses2,
 			GL_STATIC_DRAW));
 
 		mColorBufferHandle = buffer[2];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle));
 		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglasses2Colors),
-			pdraw_gles2HmdCockpitglasses2Colors, GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdColors),
+				   pdraw_gles2HmdColors,
+				   GL_STATIC_DRAW));
 
 		mTexCoord0BufferHandle = buffer[3];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle));
 		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsRed),
-			pdraw_gles2HmdCockpitglasses2TexCoordsRed,
-			GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdTexCoords),
+				   pdraw_gles2HmdTexCoords,
+				   GL_STATIC_DRAW));
 
 		mTexCoord1BufferHandle = buffer[4];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle));
 		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsGreen),
-			pdraw_gles2HmdCockpitglasses2TexCoordsGreen,
-			GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdTexCoords),
+				   pdraw_gles2HmdTexCoords,
+				   GL_STATIC_DRAW));
 
 		mTexCoord2BufferHandle = buffer[5];
 		GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle));
 		GLCHK(glBufferData(GL_ARRAY_BUFFER,
-			sizeof(pdraw_gles2HmdCockpitglasses2TexCoordsBlue),
-			pdraw_gles2HmdCockpitglasses2TexCoordsBlue,
-			GL_STATIC_DRAW));
+				   sizeof(pdraw_gles2HmdTexCoords),
+				   pdraw_gles2HmdTexCoords,
+				   GL_STATIC_DRAW));
 		break;
 	}
 
@@ -246,31 +266,31 @@ Gles2HmdEye::Gles2HmdEye(
 	if (mProgramTexture < 0)
 		ULOGE("failed to get uniform location 'Texture0'");
 
-	mProgramEyeToSourceUVScale = glGetUniformLocation(mProgram,
-		"EyeToSourceUVScale");
+	mProgramEyeToSourceUVScale =
+		glGetUniformLocation(mProgram, "EyeToSourceUVScale");
 	if (mProgramEyeToSourceUVScale < 0)
 		ULOGE("failed to get uniform location 'EyeToSourceUVScale'");
 
-	mProgramEyeToSourceUVOffset = glGetUniformLocation(mProgram,
-		"EyeToSourceUVOffset");
+	mProgramEyeToSourceUVOffset =
+		glGetUniformLocation(mProgram, "EyeToSourceUVOffset");
 	if (mProgramEyeToSourceUVOffset < 0)
 		ULOGE("failed to get uniform location 'EyeToSourceUVOffset'");
 
-	mProgramEyeToSourceScale = glGetUniformLocation(mProgram,
-		"EyeToSourceScale");
+	mProgramEyeToSourceScale =
+		glGetUniformLocation(mProgram, "EyeToSourceScale");
 	if (mProgramEyeToSourceScale < 0)
 		ULOGE("failed to get uniform location 'EyeToSourceScale'");
 
-	mProgramEyeToSourceOffset = glGetUniformLocation(mProgram,
-		"EyeToSourceOffset");
+	mProgramEyeToSourceOffset =
+		glGetUniformLocation(mProgram, "EyeToSourceOffset");
 	if (mProgramEyeToSourceOffset < 0)
 		ULOGE("failed to get uniform location 'EyeToSourceOffset'");
 
-	mProgramChromaticAberrationCorrection = glGetUniformLocation(mProgram,
-		"ChromaticAberrationCorrection");
+	mProgramChromaticAberrationCorrection =
+		glGetUniformLocation(mProgram, "ChromaticAberrationCorrection");
 	if (mProgramChromaticAberrationCorrection < 0) {
 		ULOGE("failed to get uniform location "
-			"'ChromaticAberrationCorrection'");
+		      "'ChromaticAberrationCorrection'");
 	}
 
 	mProgramRotation = glGetUniformLocation(mProgram, "Rotation");
@@ -306,8 +326,8 @@ Gles2HmdEye::Gles2HmdEye(
 	return;
 
 err:
-	if ((buffer[0]) || (buffer[1]) || (buffer[2]) ||
-		(buffer[3]) || (buffer[4]) || (buffer[5]))
+	if ((buffer[0]) || (buffer[1]) || (buffer[2]) || (buffer[3]) ||
+	    (buffer[4]) || (buffer[5]))
 		GLCHK(glDeleteBuffers(6, buffer));
 	if (vertexShader > 0)
 		GLCHK(glDeleteShader(vertexShader));
@@ -325,8 +345,7 @@ err:
 }
 
 
-Gles2HmdEye::~Gles2HmdEye(
-	void)
+Gles2HmdEye::~Gles2HmdEye(void)
 {
 	int count = 0;
 	GLuint buffer[6];
@@ -349,10 +368,9 @@ Gles2HmdEye::~Gles2HmdEye(
 }
 
 
-int Gles2HmdEye::renderEye(
-	GLuint texture,
-	unsigned int textureWidth,
-	unsigned int textureHeight)
+int Gles2HmdEye::renderEye(GLuint texture,
+			   unsigned int textureWidth,
+			   unsigned int textureHeight)
 {
 	GLCHK(glUseProgram(mProgram));
 
@@ -365,8 +383,8 @@ int Gles2HmdEye::renderEye(
 
 	GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mPositionBufferHandle));
 	GLCHK(glEnableVertexAttribArray(mProgramPosition));
-	GLCHK(glVertexAttribPointer(mProgramPosition,
-		2, GL_FLOAT, false, 0, 0));
+	GLCHK(glVertexAttribPointer(
+		mProgramPosition, 2, GL_FLOAT, false, 0, 0));
 
 	GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mColorBufferHandle));
 	GLCHK(glEnableVertexAttribArray(mProgramColor));
@@ -374,18 +392,18 @@ int Gles2HmdEye::renderEye(
 
 	GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord0BufferHandle));
 	GLCHK(glEnableVertexAttribArray(mProgramTexCoord0));
-	GLCHK(glVertexAttribPointer(mProgramTexCoord0,
-		2, GL_FLOAT, false, 0, 0));
+	GLCHK(glVertexAttribPointer(
+		mProgramTexCoord0, 2, GL_FLOAT, false, 0, 0));
 
 	GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord1BufferHandle));
 	GLCHK(glEnableVertexAttribArray(mProgramTexCoord1));
-	GLCHK(glVertexAttribPointer(mProgramTexCoord1,
-		2, GL_FLOAT, false, 0, 0));
+	GLCHK(glVertexAttribPointer(
+		mProgramTexCoord1, 2, GL_FLOAT, false, 0, 0));
 
 	GLCHK(glBindBuffer(GL_ARRAY_BUFFER, mTexCoord2BufferHandle));
 	GLCHK(glEnableVertexAttribArray(mProgramTexCoord2));
-	GLCHK(glVertexAttribPointer(mProgramTexCoord2,
-		2, GL_FLOAT, false, 0, 0));
+	GLCHK(glVertexAttribPointer(
+		mProgramTexCoord2, 2, GL_FLOAT, false, 0, 0));
 
 	float ratio;
 	if ((mRotation == 90) || (mRotation == 270))
@@ -394,11 +412,11 @@ int Gles2HmdEye::renderEye(
 		ratio = (float)textureWidth / (float)textureHeight;
 
 	if (ratio > 1.) {
-		GLCHK(glUniform2f(mProgramEyeToSourceUVScale,
-			mScale, mScale * ratio));
+		GLCHK(glUniform2f(
+			mProgramEyeToSourceUVScale, mScale, mScale * ratio));
 	} else {
-		GLCHK(glUniform2f(mProgramEyeToSourceUVScale,
-			mScale / ratio, mScale));
+		GLCHK(glUniform2f(
+			mProgramEyeToSourceUVScale, mScale / ratio, mScale));
 	}
 
 	GLCHK(glUniform2f(mProgramEyeToSourceUVOffset, mPanH, mPanV));
@@ -406,14 +424,16 @@ int Gles2HmdEye::renderEye(
 	GLCHK(glUniform1i(mProgramRotation, mRotation));
 	GLCHK(glUniform1i(mProgramLensLimits, 0));
 	GLCHK(glUniform2f(mProgramEyeToSourceScale,
-		2.f / mMetricsWidth, -2.f / mMetricsHeight));
+			  2.f / mMetricsWidth,
+			  -2.f / mMetricsHeight));
 	GLCHK(glUniform2f(mProgramEyeToSourceOffset,
-		2.f * mEyeOffsetX / mMetricsWidth,
-		2.f * mEyeOffsetY / mMetricsHeight - 1.f));
+			  2.f * mEyeOffsetX / mMetricsWidth,
+			  2.f * mEyeOffsetY / mMetricsHeight - 1.f));
 
 	GLCHK(glDrawElements(GL_TRIANGLES,
-		sizeof(pdraw_gles2HmdCockpitglassesIndices) / sizeof(float),
-		GL_UNSIGNED_INT, 0));
+			     sizeof(pdraw_gles2HmdIndices) / sizeof(float),
+			     GL_UNSIGNED_INT,
+			     0));
 
 	GLCHK(glDisableVertexAttribArray(mProgramPosition));
 	GLCHK(glDisableVertexAttribArray(mProgramColor));
@@ -428,65 +448,100 @@ int Gles2HmdEye::renderEye(
 }
 
 
-Gles2Hmd::Gles2Hmd(
-	unsigned int firstTexUnit,
-	unsigned int width,
-	unsigned int height,
-	enum pdraw_hmd_model hmdModel,
-	float xdpi,
-	float ydpi,
-	float deviceMargin,
-	float ipd,
-	float scale,
-	float panH,
-	float panV)
+Gles2Hmd::Gles2Hmd(Session *session,
+		   unsigned int firstTexUnit,
+		   unsigned int width,
+		   unsigned int height,
+		   float ipdOffset,
+		   float xOffset,
+		   float yOffset)
 {
-	mHmdModel = hmdModel;
-	mDeviceMargin = deviceMargin;
-	mIpd = ipd;
-	mScale = scale;
-	mPanH = panH;
-	mPanV = panV;
+	Settings *settings;
 
-	mMetricsWidth = (float)width / xdpi * GLES2_HMD_INCH_TO_MILLIMETER;
-	mMetricsHeight = (float)height / ydpi * GLES2_HMD_INCH_TO_MILLIMETER;
+	mSession = session;
+	mHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
+	mIpdOffset = ipdOffset;
+	mXOffset = xOffset;
+	mYOffset = yOffset;
+	mXdpi = SETTINGS_DISPLAY_XDPI;
+	mYdpi = SETTINGS_DISPLAY_YDPI;
+	mDeviceMarginTop = 0.f;
+	mDeviceMarginBottom = 0.f;
+	mDeviceMarginLeft = 0.f;
+	mDeviceMarginRight = 0.f;
 
-	mLeftEye = new Gles2HmdEye(firstTexUnit, mHmdModel,
-		mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
-		-mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
-	mRightEye = new Gles2HmdEye(firstTexUnit, mHmdModel,
-		mScale, mPanH, mPanV, mMetricsWidth, mMetricsHeight,
-		mIpd / 2.f, GLES2_HMD_OFFSET - mDeviceMargin);
+	settings = mSession->getSettings();
+	settings->lock();
+	settings->getDisplayScreenSettings(&mXdpi,
+					   &mYdpi,
+					   &mDeviceMarginTop,
+					   &mDeviceMarginBottom,
+					   &mDeviceMarginLeft,
+					   &mDeviceMarginRight);
+	mHmdModel = settings->getHmdModelSetting();
+	settings->unlock();
+
+	switch (mHmdModel) {
+	default:
+	case PDRAW_HMD_MODEL_COCKPITGLASSES:
+		mHmdOffset = GLES2_HMD_OFFSET_COCKPITGLASSES;
+		mHmdIpd = GLES2_HMD_IPD_COCKPITGLASSES;
+		break;
+	case PDRAW_HMD_MODEL_COCKPITGLASSES_2:
+		mHmdOffset = GLES2_HMD_OFFSET_COCKPITGLASSES_2;
+		mHmdIpd = GLES2_HMD_IPD_COCKPITGLASSES_2;
+		break;
+	}
+
+	mMetricsWidth = (float)width / mXdpi * GLES2_HMD_INCH_TO_MILLIMETER;
+	mMetricsHeight = (float)height / mYdpi * GLES2_HMD_INCH_TO_MILLIMETER;
+
+	mLeftEye = new Gles2HmdEye(firstTexUnit,
+				   mHmdModel,
+				   1.f,
+				   0.f,
+				   0.f,
+				   mMetricsWidth,
+				   mMetricsHeight,
+				   -(mHmdIpd + mIpdOffset) / 2.f + mXOffset,
+				   mHmdOffset - mDeviceMarginBottom - mYOffset);
+	mRightEye =
+		new Gles2HmdEye(firstTexUnit,
+				mHmdModel,
+				1.f,
+				0.f,
+				0.f,
+				mMetricsWidth,
+				mMetricsHeight,
+				(mHmdIpd + mIpdOffset) / 2.f + mXOffset,
+				mHmdOffset - mDeviceMarginBottom - mYOffset);
 }
 
 
-Gles2Hmd::~Gles2Hmd(
-	void)
+Gles2Hmd::~Gles2Hmd(void)
 {
 	if (mLeftEye)
-		delete(mLeftEye);
+		delete (mLeftEye);
 	if (mRightEye)
-		delete(mRightEye);
+		delete (mRightEye);
 }
 
 
-int Gles2Hmd::renderHmd(
-	GLuint texture,
-	unsigned int textureWidth,
-	unsigned int textureHeight)
+int Gles2Hmd::renderHmd(GLuint texture,
+			unsigned int textureWidth,
+			unsigned int textureHeight)
 {
 	int ret = 0;
 
 	if (mLeftEye != NULL) {
-		ret = mLeftEye->renderEye(texture,
-			textureWidth, textureHeight);
+		ret = mLeftEye->renderEye(texture, textureWidth, textureHeight);
 		if (ret != 0)
 			return ret;
 	}
 
 	if (mRightEye != NULL) {
-		ret = mRightEye->renderEye(texture,
-			textureWidth, textureHeight);
+		ret = mRightEye->renderEye(
+			texture, textureWidth, textureHeight);
 		if (ret != 0)
 			return ret;
 	}

@@ -2,6 +2,7 @@
  * Parrot Drones Awesome Video Viewer Library
  * Recording demuxer
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,155 +12,115 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef _PDRAW_DEMUXER_RECORD_HPP_
 #define _PDRAW_DEMUXER_RECORD_HPP_
 
 #include "pdraw_demuxer.hpp"
-#include "pdraw_avcdecoder.hpp"
-#include <libmp4.h>
-#include <h264/h264.h>
-#include <libpomp.h>
+
 #include <string>
+
+#include <h264/h264.h>
+#include <libmp4.h>
+#include <libpomp.h>
 
 namespace Pdraw {
 
-
 class RecordDemuxer : public Demuxer {
 public:
-	RecordDemuxer(
-		Session *session);
+	RecordDemuxer(Session *session,
+		      Element::Listener *elementListener,
+		      Source::Listener *sourceListener,
+		      Demuxer::Listener *demuxerListener);
 
-	~RecordDemuxer(
-		void);
+	~RecordDemuxer(void);
 
-	enum demuxer_type getType(
-		void) {
-		return DEMUXER_TYPE_RECORD;
-	}
+	int setup(const std::string &fileName);
 
-	int open(
-		const std::string &fileName);
+	int start(void);
 
-	bool isConfigured(
-		void) {
-		return mConfigured;
-	}
+	int stop(void);
 
-	int close(
-		void);
+	int play(float speed = 1.0f);
 
-	int getElementaryStreamCount(
-		void);
+	bool isPaused(void);
 
-	enum elementary_stream_type getElementaryStreamType(
-		int esIndex);
+	int previous(void);
 
-	int getElementaryStreamVideoDimensions(
-		int esIndex,
-		unsigned int *width,
-		unsigned int *height,
-		unsigned int *cropLeft,
-		unsigned int *cropRight,
-		unsigned int *cropTop,
-		unsigned int *cropBottom,
-		unsigned int *sarWidth,
-		unsigned int *sarHeight);
+	int next(void);
 
-	int getElementaryStreamVideoFov(
-		int esIndex,
-		float *hfov,
-		float *vfov);
+	int seek(int64_t delta, bool exact = false);
 
-	int setElementaryStreamDecoder(
-		int esIndex, Decoder *decoder);
+	int seekTo(uint64_t timestamp, bool exact = false);
 
-	int play(
-		float speed = 1.0f);
-
-	bool isPaused(
-		void);
-
-	int previous(
-		void);
-
-	int next(
-		void);
-
-	int seek(
-		int64_t delta,
-		bool exact = false);
-
-	int seekTo(
-		uint64_t timestamp,
-		bool exact = false);
-
-	uint64_t getDuration(
-		void) {
+	uint64_t getDuration(void)
+	{
 		return mDuration;
 	}
 
-	uint64_t getCurrentTime(
-		void) {
+	uint64_t getCurrentTime(void)
+	{
 		return mCurrentTime;
 	}
 
-	Session *getSession(
-		void) {
-		return mSession;
-	}
-
 private:
-	int fetchVideoDimensions(
-		void);
+	int fetchSessionMetadata(void);
 
-	int fetchSessionMetadata(
-		void);
+	int addVideoTrack(struct mp4_track_info *tkinfo);
 
-	static int openAvcDecoder(
-		RecordDemuxer *demuxer);
+	int flush(void);
 
-	static void h264UserDataSeiCb(
-		struct h264_ctx *ctx,
-		const uint8_t *buf,
-		size_t len,
-		const struct h264_sei_user_data_unregistered *sei,
-		void *userdata);
+	void completeTeardown(void);
 
-	static void timerCb(
-		struct pomp_timer *timer,
-		void *userdata);
+	void onChannelFlushed(Channel *channel);
+
+	void onChannelUnlink(Channel *channel);
+
+	static int openAvcDecoder(RecordDemuxer *demuxer);
+
+	static void
+	h264UserDataSeiCb(struct h264_ctx *ctx,
+			  const uint8_t *buf,
+			  size_t len,
+			  const struct h264_sei_user_data_unregistered *sei,
+			  void *userdata);
+
+	static void h264PicTimingSeiCb(struct h264_ctx *ctx,
+				       const uint8_t *buf,
+				       size_t len,
+				       const struct h264_sei_pic_timing *sei,
+				       void *userdata);
+
+	static void timerCb(struct pomp_timer *timer, void *userdata);
 
 	std::string mFileName;
-	AvcDecoder *mDecoder;
-	struct avcdecoder_input_source mDecoderSource;
-	uint32_t mDecoderBitstreamFormat;
+	bool mFirstFrame;
 	bool mRunning;
 	bool mFrameByFrame;
 	struct mp4_demux *mDemux;
 	struct pomp_timer *mTimer;
 	struct h264_reader *mH264Reader;
+	uint32_t mTimescale;
 	uint64_t mDuration;
 	uint64_t mCurrentTime;
-	int mVideoTrackCount;
+	VideoMedia *mVideoMedia;
 	unsigned int mVideoTrackId;
 	char *mMetadataMimeType;
-	bool mFirstFrame;
 	size_t mMetadataBufferSize;
 	uint8_t *mMetadataBuffer;
 	int64_t mAvgOutputInterval;
@@ -169,18 +130,16 @@ private:
 	int64_t mPendingSeekTs;
 	bool mPendingSeekExact;
 	bool mPendingSeekToPrevSample;
+	bool mPendingSeekToNextSample;
 	struct vbuf_buffer *mCurrentBuffer;
-	unsigned int mWidth;
-	unsigned int mHeight;
-	unsigned int mCropLeft;
-	unsigned int mCropRight;
-	unsigned int mCropTop;
-	unsigned int mCropBottom;
-	unsigned int mSarWidth;
-	unsigned int mSarHeight;
+	uint64_t mCurrentBufferCaptureTs;
+	uint64_t mDecodingTs;
+	uint64_t mDecodingTsInc;
+	float mSpeed;
 	float mHfov;
 	float mVfov;
-	float mSpeed;
+	int mSeekResponse;
+	static const struct h264_ctx_cbs mH264Cbs;
 };
 
 } /* namespace Pdraw */

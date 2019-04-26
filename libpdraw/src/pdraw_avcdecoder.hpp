@@ -2,6 +2,7 @@
  * Parrot Drones Awesome Video Viewer Library
  * H.264/AVC decoder interface
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,175 +12,110 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef _PDRAW_AVCDECODER_HPP_
 #define _PDRAW_AVCDECODER_HPP_
 
+#include "pdraw_element.hpp"
+#include "pdraw_sink.hpp"
+#include "pdraw_source.hpp"
+
 #include <inttypes.h>
+
 #include <video-buffers/vbuf.h>
 #include <video-decode/vdec.h>
-#include "pdraw_decoder.hpp"
-#include "pdraw_metadata_videoframe.hpp"
 
 namespace Pdraw {
 
-
-#define AVCDECODER_BITSTREAM_FORMAT_UNKNOWN		(0)
-#define AVCDECODER_BITSTREAM_FORMAT_RAW_NALU		(1 << 0)
-#define AVCDECODER_BITSTREAM_FORMAT_BYTE_STREAM		(1 << 1)
-#define AVCDECODER_BITSTREAM_FORMAT_AVCC		(1 << 2)
-
-#define AVCDECODER_COLOR_FORMAT_UNKNOWN			(0)
-#define AVCDECODER_COLOR_FORMAT_YUV420PLANAR		(1 << 0)
-#define AVCDECODER_COLOR_FORMAT_YUV420SEMIPLANAR	(1 << 1)
-#define AVCDECODER_COLOR_FORMAT_MMAL_OPAQUE		(1 << 2)
-
-#define AVCDECODER_INPUT_BUFFER_COUNT			(10)
-
-
-struct avcdecoder_input_source {
-	struct vbuf_queue *queue;
-	struct vbuf_pool *pool;
-	int (*queue_buffer)(
-		struct vbuf_queue *queue,
-		struct vbuf_buffer *buffer,
-		void *userdata);
-	void *userdata;
-};
-
-
-struct avcdecoder_input_buffer {
-	bool isComplete;
-	bool hasErrors;
-	bool isRef;
-	bool isSilent;
-	uint64_t auNtpTimestamp;
-	uint64_t auNtpTimestampRaw;
-	uint64_t auNtpTimestampLocal;
-	bool hasMetadata;
-	struct vmeta_frame_v2 metadata;
-	uint64_t demuxOutputTimestamp;
-};
-
-
-struct avcdecoder_output_buffer {
-	size_t plane_offset[3];
-	size_t stride[3];
-	unsigned int width;
-	unsigned int height;
-	unsigned int sarWidth;
-	unsigned int sarHeight;
-	unsigned int cropLeft;
-	unsigned int cropTop;
-	unsigned int cropWidth;
-	unsigned int cropHeight;
-	uint32_t colorFormat;
-	bool isComplete;
-	bool hasErrors;
-	bool isRef;
-	bool isSilent;
-	uint64_t auNtpTimestamp;
-	uint64_t auNtpTimestampRaw;
-	uint64_t auNtpTimestampLocal;
-	bool hasMetadata;
-	struct vmeta_frame_v2 metadata;
-	uint64_t demuxOutputTimestamp;
-	uint64_t decoderOutputTimestamp;
-};
-
-
-class VideoMedia;
-
-
-class AvcDecoder : public Decoder {
+class AvcDecoder : public Element, public Sink, public Source {
 public:
-	AvcDecoder(
-		VideoMedia *media);
+	AvcDecoder(Session *session,
+		   Element::Listener *elementListener,
+		   Source::Listener *sourceListener);
 
-	~AvcDecoder(
-		void);
+	~AvcDecoder(void);
 
-	uint32_t getInputBitstreamFormatCaps(
-		void);
+	int start(void);
 
-	int open(
-		uint32_t inputBitstreamFormat,
-		const uint8_t *pSps,
-		unsigned int spsSize,
-		const uint8_t *pPps,
-		unsigned int ppsSize);
+	int stop(void);
 
-	bool isConfigured(
-		void) {
-		return mConfigured;
-	}
+	void completeFlush(void);
 
-	int flush(
-		void);
+	void completeStop(void);
 
-	int close(
-		void);
-
-	int getInputSource(
-		Media *media,
-		struct avcdecoder_input_source *src);
-
-	int addOutputSink(
-		Media *media,
-		struct vbuf_queue *queue);
-
-	int removeOutputSink(
-		Media *media,
-		struct vbuf_queue *queue);
-
-	Media *getMedia(
-		void) {
-		return mMedia;
-	}
-
-	VideoMedia *getVideoMedia(
-		void) {
-		return (VideoMedia *)mMedia;
-	}
+	void resync(void);
 
 private:
-	static int queueBufferCb(
-		struct vbuf_queue *queue,
-		struct vbuf_buffer *buffer,
-		void *userdata);
+	int flush(void);
 
-	static void frameOutputCb(
-		struct vbuf_buffer *out_buf,
-		void *userdata);
+	void completeResync(void);
 
-	static void flushCb(
-		void *userdata);
+	int tryStop(void);
 
-	static void stopCb(
-		void *userdata);
+	void sendDownstreamEvent(Channel::DownstreamEvent event);
 
+	void onChannelQueue(Channel *channel, vbuf_buffer *buf);
+
+	void onChannelFlush(Channel *channel);
+
+	void onChannelFlushed(Channel *channel);
+
+	void onChannelTeardown(Channel *channel);
+
+	void onChannelUnlink(Channel *channel);
+
+	void onChannelSos(Channel *channel);
+
+	void onChannelEos(Channel *channel);
+
+	void onChannelReconfigure(Channel *channel);
+
+	void onChannelTimeout(Channel *channel);
+
+	void onChannelPhotoTrigger(Channel *channel);
+
+	static void frameOutputCb(struct vdec_decoder *dec,
+				  int status,
+				  struct vbuf_buffer *out_buf,
+				  void *userdata);
+
+	static void flushCb(struct vdec_decoder *dec, void *userdata);
+
+	static void stopCb(struct vdec_decoder *dec, void *userdata);
+
+	VideoMedia *mInputMedia;
+	VideoMedia *mOutputMedia;
 	struct vbuf_pool *mInputBufferPool;
-	bool mInputBufferPoolAllocated;
 	struct vbuf_queue *mInputBufferQueue;
-	std::vector<struct vbuf_queue*> mOutputBufferQueues;
 	struct vdec_decoder *mVdec;
 	unsigned int mFrameIndex;
-	enum vdec_input_format mInputFormat;
+	VideoMedia::H264BitstreamFormat mInputFormat;
+	enum vdec_input_format mVdecInputFormat;
+	static const struct vdec_cbs mDecoderCbs;
+	bool mIsFlushed;
+	bool mIsSync;
+	bool mInputChannelFlushPending;
+	bool mResyncPending;
+	bool mVdecFlushPending;
+	bool mVdecStopPending;
+	int mCompleteStopPendingCount;
+
+	uint64_t mLastTimestamp;
 };
 
 } /* namespace Pdraw */

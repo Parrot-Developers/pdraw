@@ -1,7 +1,8 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Streaming demuxer, net implementation
+ * Streaming demuxer - net implementation
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,32 +12,33 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "pdraw_demuxer_stream_net.hpp"
 #include "pdraw_session.hpp"
+
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include <errno.h>
-#include <time.h>
 #include <sys/time.h>
-#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
+
 #include <futils/futils.h>
 #define ULOG_TAG pdraw_dmxstrmnet
 #include <ulog.h>
@@ -45,190 +47,90 @@ ULOG_DECLARE_TAG(pdraw_dmxstrmnet);
 namespace Pdraw {
 
 
-StreamDemuxerNet::StreamDemuxerNet(
-	Session *session) :
-	StreamDemuxer(session)
+StreamDemuxerNet::StreamDemuxerNet(Session *session,
+				   Element::Listener *elementListener,
+				   Source::Listener *sourceListener,
+				   Demuxer::Listener *demuxerListener) :
+		StreamDemuxer(session,
+			      elementListener,
+			      sourceListener,
+			      demuxerListener)
 {
+	Element::mName = "StreamDemuxerNet";
+	Source::mName = "StreamDemuxerNet";
 	mStreamSock = NULL;
 	mControlSock = NULL;
+
+	setState(CREATED);
 }
 
 
-StreamDemuxerNet::~StreamDemuxerNet(
-	void)
+StreamDemuxerNet::~StreamDemuxerNet(void)
 {
-	if (mStreamSock != NULL) {
-		delete mStreamSock;
-		mStreamSock = NULL;
-	}
+	if (mState != STOPPED && mState != CREATED)
+		ULOGW("demuxer is still running");
 
-	if (mControlSock != NULL) {
-		delete mControlSock;
-		mControlSock = NULL;
-	}
+	stopRtpAvp();
 }
 
 
-int StreamDemuxerNet::open(
-	const std::string &url,
-	const std::string &ifaceAddr)
+int StreamDemuxerNet::setup(const std::string &url)
 {
-	int res;
-
-	if (mConfigured) {
-		ULOGE("demuxer is already configured");
-		return -EEXIST;
+	if (mState != CREATED) {
+		ULOGE("invalid state");
+		return -EPROTO;
 	}
 
-	std::string ext = url.substr(url.length() - 4, 4);
-	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-	if (url.substr(0, 7) == "rtsp://") {
-		res = openRtsp(url, ifaceAddr);
-		if (res < 0) {
-			ULOG_ERRNO("openRtsp", -res);
-			return res;
-		}
-	} else if ((url.substr(0, 7) == "http://") && (ext == ".sdp")) {
-		/* TODO */
-		ULOGE("unsupported URL");
-		return -ENOSYS;
-	} else if ((url.front() == '/') && (ext == ".sdp")) {
-		struct stat sb;
-		FILE *f = NULL;
-		char *s = NULL;
-
-		f = fopen(url.c_str(), "r");
-		if (f == NULL) {
-			ULOGE("failed to open file '%s'", url.c_str());
-			return -EIO;
-		}
-
-		res = fstat(fileno(f), &sb);
-		if (res != 0) {
-			ULOGE("stat failed on file '%s'", url.c_str());
-			return -EIO;
-		}
-
-		s = (char *)calloc(1, sb.st_size + 1);
-		if (s == NULL) {
-			ULOGE("allocation failed");
-			return -ENOMEM;
-		}
-
-		res = fread(s, sb.st_size, 1, f);
-		if (res != 1) {
-			ULOGE("failed to read from the input file");
-			return -EIO;
-		}
-
-		s[sb.st_size] = '\0';
-		std::string sdp(s);
-		res = openWithSdp(sdp, ifaceAddr);
-		if (res < 0) {
-			ULOG_ERRNO("openWithSdp", -res);
-			return -res;
-		}
-	} else {
-		ULOGE("unsupported URL");
-		return -ENOSYS;
-	}
-
-	mConfigured = true;
-	ULOGI("demuxer is configured");
+	mUrl = url;
 
 	return 0;
 }
 
 
-int StreamDemuxerNet::open(
-	const std::string &localAddr,
-	uint16_t localStreamPort,
-	uint16_t localControlPort,
-	const std::string &remoteAddr,
-	uint16_t remoteStreamPort,
-	uint16_t remoteControlPort,
-	const std::string &ifaceAddr)
+int StreamDemuxerNet::setup(const std::string &localAddr,
+			    uint16_t localStreamPort,
+			    uint16_t localControlPort,
+			    const std::string &remoteAddr,
+			    uint16_t remoteStreamPort,
+			    uint16_t remoteControlPort)
 {
-	int res;
-
-	if (mConfigured) {
-		ULOGE("demuxer is already configured");
-		return -EEXIST;
+	if (mState != CREATED) {
+		ULOGE("invalid state");
+		return -EPROTO;
 	}
 
-	mLocalAddr = localAddr;
+	mLocalAddr = (localAddr.length() > 0) ? localAddr : "0.0.0.0";
 	mLocalStreamPort = localStreamPort;
 	mLocalControlPort = localControlPort;
-	mRemoteAddr = remoteAddr;
+	mRemoteAddr = (remoteAddr.length() > 0) ? remoteAddr : "0.0.0.0";
 	mRemoteStreamPort = remoteStreamPort;
 	mRemoteControlPort = remoteControlPort;
-	mIfaceAddr = ifaceAddr;
-
-	res = openRtpAvp();
-	if (res < 0) {
-		ULOG_ERRNO("openRtpAvp", -res);
-		return res;
-	}
-
-	mConfigured = true;
-	ULOGI("demuxer is configured");
 
 	return 0;
 }
 
 
-int StreamDemuxerNet::openSdp(
-	const std::string &sdp,
-	const std::string &ifaceAddr)
+int StreamDemuxerNet::startRtpAvp(void)
 {
 	int res;
 
-	if (mConfigured) {
-		ULOGE("demuxer is already configured");
-		return -EEXIST;
-	}
-
-	res = openWithSdp(sdp, ifaceAddr);
-	if (res < 0) {
-		ULOG_ERRNO("openWithSdp", -res);
-		return res;
-	}
-
-	mConfigured = true;
-	ULOGI("demuxer is configured");
-
-	return 0;
-}
-
-
-int StreamDemuxerNet::openRtpAvp(
-	void)
-{
-	int res;
-
-	if (mLocalStreamPort == 0)
-		mLocalStreamPort = DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
-	if (mLocalControlPort == 0)
-		mLocalControlPort = DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
-
-	/* Create the sockets */
-	mStreamSock = new InetSocket(mSession, mLocalAddr, mLocalStreamPort,
-		mRemoteAddr, mRemoteStreamPort,
-		mSession->getLoop(), dataCb, this);
-	if (mStreamSock == NULL) {
-		ULOGE("failed to create stream socket");
+	/* Create sockets only if not created during prepareSetup */
+	if (mStreamSock == NULL && mControlSock == NULL) {
+		res = createSockets();
+		if (res != 0) {
+			ULOG_ERRNO("createSockets", -res);
+			goto error;
+		}
+	} else if ((mStreamSock != NULL && mControlSock == NULL) ||
+		   (mStreamSock == NULL && mControlSock != NULL)) {
+		ULOGE("Bad state, only one socket created !");
 		res = -EPROTO;
 		goto error;
 	}
-	mControlSock = new InetSocket(mSession, mLocalAddr, mLocalControlPort,
-		mRemoteAddr, mRemoteControlPort,
-		mSession->getLoop(), ctrlCb, this);
-	if (mControlSock == NULL) {
-		ULOGE("failed to create control socket");
-		res = -EPROTO;
-		goto error;
-	}
+
+	ULOGD("startRtpAvp localStreamPort=%d localControlPort=%d",
+	      mLocalStreamPort,
+	      mLocalControlPort);
 
 	/* Create the stream receiver */
 	res = createReceiver();
@@ -240,7 +142,73 @@ int StreamDemuxerNet::openRtpAvp(
 	return 0;
 
 error:
+	stopRtpAvp();
+	return res;
+}
+
+
+int StreamDemuxerNet::stopRtpAvp(void)
+{
+	ULOGD("stopRtpAvp");
 	destroyReceiver();
+	if (mStreamSock != NULL) {
+		delete mStreamSock;
+		mStreamSock = NULL;
+	}
+	if (mControlSock != NULL) {
+		delete mControlSock;
+		mControlSock = NULL;
+	}
+	return 0;
+}
+
+
+int StreamDemuxerNet::createSockets(void)
+{
+	int res = 0;
+	if (mLocalStreamPort == 0)
+		mLocalStreamPort = DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
+	if (mLocalControlPort == 0)
+		mLocalControlPort = DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
+
+	/* Create the sockets */
+	mStreamSock = new InetSocket(mSession,
+				     mLocalAddr,
+				     mLocalStreamPort,
+				     mRemoteAddr,
+				     mRemoteStreamPort,
+				     mSession->getLoop(),
+				     dataCb,
+				     this);
+	if (mStreamSock == NULL) {
+		ULOGE("failed to create stream socket");
+		res = -EPROTO;
+		goto error;
+	}
+	res = mStreamSock->setClass(IPTOS_PREC_FLASHOVERRIDE);
+	if (res != 0)
+		ULOGW("failed to set IP_TOS for stream socket");
+
+	mControlSock = new InetSocket(mSession,
+				      mLocalAddr,
+				      mLocalControlPort,
+				      mRemoteAddr,
+				      mRemoteControlPort,
+				      mSession->getLoop(),
+				      ctrlCb,
+				      this);
+	if (mControlSock == NULL) {
+		ULOGE("failed to create control socket");
+		res = -EPROTO;
+		goto error;
+	}
+	res = mControlSock->setClass(IPTOS_PREC_FLASHOVERRIDE);
+	if (res != 0)
+		ULOGW("failed to set IP_TOS for control socket");
+
+	return 0;
+
+error:
 	if (mStreamSock != NULL) {
 		delete mStreamSock;
 		mStreamSock = NULL;
@@ -253,11 +221,10 @@ error:
 }
 
 
-uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(
-	void)
+uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(void)
 {
-	if (!mConfigured) {
-		ULOG_ERRNO("demuxer is not configured", EPROTO);
+	if (mState != STARTED) {
+		ULOG_ERRNO("demuxer is not started", EPROTO);
 		return 0;
 	}
 	if (mStreamSock == NULL) {
@@ -269,11 +236,10 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(
 }
 
 
-uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(
-	void)
+uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(void)
 {
-	if (!mConfigured) {
-		ULOG_ERRNO("demuxer is not configured", EPROTO);
+	if (mState != STARTED) {
+		ULOG_ERRNO("demuxer is not started", EPROTO);
 		return 0;
 	}
 	if (mControlSock == NULL) {
@@ -285,16 +251,13 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(
 }
 
 
-void StreamDemuxerNet::dataCb(
-	int fd,
-	uint32_t events,
-	void *userdata)
+void StreamDemuxerNet::dataCb(int fd, uint32_t events, void *userdata)
 {
 	StreamDemuxerNet *self = (StreamDemuxerNet *)userdata;
 	int res = 0;
 	ssize_t readlen = 0;
 	struct pomp_buffer *buf = NULL;
-	struct timespec ts = { 0, 0 };
+	struct timespec ts = {0, 0};
 
 	if (self == NULL)
 		return;
@@ -302,6 +265,10 @@ void StreamDemuxerNet::dataCb(
 	do {
 		/* Read data */
 		readlen = self->mStreamSock->read();
+
+		/* Discard any data received before starting a vstrm_receiver */
+		if (!self->mReceiver)
+			continue;
 
 		/* Something read? */
 		if (readlen > 0) {
@@ -326,16 +293,13 @@ void StreamDemuxerNet::dataCb(
 }
 
 
-void StreamDemuxerNet::ctrlCb(
-	int fd,
-	uint32_t events,
-	void *userdata)
+void StreamDemuxerNet::ctrlCb(int fd, uint32_t events, void *userdata)
 {
 	StreamDemuxerNet *self = (StreamDemuxerNet *)userdata;
 	int res = 0;
 	ssize_t readlen = 0;
 	struct pomp_buffer *buf = NULL;
-	struct timespec ts = { 0, 0 };
+	struct timespec ts = {0, 0};
 
 	if (self == NULL)
 		return;
@@ -343,6 +307,10 @@ void StreamDemuxerNet::ctrlCb(
 	do {
 		/* Read data */
 		readlen = self->mControlSock->read();
+
+		/* Discard any data received before starting a vstrm_receiver */
+		if (!self->mReceiver)
+			continue;
 
 		/* Something read? */
 		if (readlen > 0) {
@@ -367,9 +335,8 @@ void StreamDemuxerNet::ctrlCb(
 }
 
 
-int StreamDemuxerNet::sendCtrl(
-	struct vstrm_receiver *stream,
-	struct pomp_buffer *buf)
+int StreamDemuxerNet::sendCtrl(struct vstrm_receiver *stream,
+			       struct pomp_buffer *buf)
 {
 	const void *cdata = NULL;
 	size_t len = 0;
@@ -386,5 +353,27 @@ int StreamDemuxerNet::sendCtrl(
 	return (writelen >= 0) ? 0 : (int)writelen;
 }
 
+
+int StreamDemuxerNet::prepareSetup(uint16_t *streamPort,
+				   uint16_t *controlPort,
+				   enum rtsp_lower_transport *lowerTransport)
+{
+	int res;
+
+	if (streamPort == NULL || controlPort == NULL || lowerTransport == NULL)
+		return -EINVAL;
+
+	res = createSockets();
+	if (res != 0) {
+		ULOG_ERRNO("createSockets", -res);
+		return res;
+	}
+
+	*streamPort = mStreamSock->getLocalPort();
+	*controlPort = mControlSock->getLocalPort();
+	*lowerTransport = RTSP_LOWER_TRANSPORT_UDP;
+
+	return 0;
+}
 
 } /* namespace Pdraw */

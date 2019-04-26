@@ -2,6 +2,7 @@
  * Parrot Drones Awesome Video Viewer Library
  * INET Socket implementation
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,45 +12,47 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "pdraw_socket_inet.hpp"
 #include "pdraw_session.hpp"
+
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#include <string>
+
 #include <futils/futils.h>
 #define ULOG_TAG pdraw_sockinet
 #include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_sockinet);
-#include <string>
 
 namespace Pdraw {
 
 
-InetSocket::InetSocket(
-	Session *session,
-	const std::string& localAddress,
-	uint16_t localPort,
-	const std::string& remoteAddress,
-	uint16_t remotePort,
-	struct pomp_loop *loop,
-	pomp_fd_event_cb_t fdCb,
-	void *userdata)
+InetSocket::InetSocket(Session *session,
+		       const std::string &localAddress,
+		       uint16_t localPort,
+		       const std::string &remoteAddress,
+		       uint16_t remotePort,
+		       struct pomp_loop *loop,
+		       pomp_fd_event_cb_t fdCb,
+		       void *userdata)
 {
 	int res = 0;
 	struct sockaddr_in addr;
@@ -97,7 +100,8 @@ InetSocket::InetSocket(
 	}
 	mLocalAddress.sin_port = htons(localPort);
 	mRemoteAddress.sin_family = AF_INET;
-	inet_pton(AF_INET, remoteAddress.c_str(), &mRemoteAddress.sin_addr);
+	res = inet_pton(
+		AF_INET, remoteAddress.c_str(), &mRemoteAddress.sin_addr);
 	if (res <= 0) {
 		ULOG_ERRNO("inet_pton", -res);
 		goto error;
@@ -106,8 +110,9 @@ InetSocket::InetSocket(
 
 	/* Bind to rx address */
 retry_bind:
-	if (bind(mFd, (const struct sockaddr *)&mLocalAddress,
-		sizeof(mLocalAddress)) < 0) {
+	if (bind(mFd,
+		 (const struct sockaddr *)&mLocalAddress,
+		 sizeof(mLocalAddress)) < 0) {
 		res = -errno;
 		if ((res == -EADDRINUSE) && (mLocalAddress.sin_port != 0)) {
 			mLocalAddress.sin_port = 0;
@@ -131,23 +136,31 @@ retry_bind:
 	const char *res1;
 	local_addr[0] = '\0';
 	remote_addr[0] = '\0';
-	res1 = inet_ntop(AF_INET, &mLocalAddress.sin_addr,
-		local_addr, sizeof(local_addr));
+	res1 = inet_ntop(AF_INET,
+			 &mLocalAddress.sin_addr,
+			 local_addr,
+			 sizeof(local_addr));
 	if (res1 == NULL)
 		ULOG_ERRNO("inet_ntop", -errno);
-	res1 = inet_ntop(AF_INET, &mRemoteAddress.sin_addr,
-		remote_addr, sizeof(remote_addr));
+	res1 = inet_ntop(AF_INET,
+			 &mRemoteAddress.sin_addr,
+			 remote_addr,
+			 sizeof(remote_addr));
 	if (res1 == NULL)
 		ULOG_ERRNO("inet_ntop", -errno);
-	ULOGD("fd=%d local %s:%d remote %s:%d", mFd,
-		local_addr, ntohs(mLocalAddress.sin_port),
-		remote_addr, ntohs(mRemoteAddress.sin_port));
+	ULOGD("fd=%d local %s:%d remote %s:%d",
+	      mFd,
+	      local_addr,
+	      ntohs(mLocalAddress.sin_port),
+	      remote_addr,
+	      ntohs(mRemoteAddress.sin_port));
 
 	/* Create buffer */
 	mRxBufferSize = 65536;
 	mRxBuffer = malloc(mRxBufferSize);
 	if (mRxBuffer == NULL) {
 		res = -ENOMEM;
+		ULOG_ERRNO("malloc", -res);
 		goto error;
 	}
 
@@ -177,8 +190,7 @@ error:
 }
 
 
-InetSocket::~InetSocket(
-	void)
+InetSocket::~InetSocket(void)
 {
 	int res = 0;
 
@@ -196,15 +208,13 @@ InetSocket::~InetSocket(
 }
 
 
-int InetSocket::setRxBufferSize(
-	size_t size)
+int InetSocket::setRxBufferSize(size_t size)
 {
 	int res = 0;
 	int _size = size;
 	void *rxbuf = NULL;
 
-	if (setsockopt(mFd, SOL_SOCKET,
-		SO_RCVBUF, &_size, sizeof(_size)) < 0) {
+	if (setsockopt(mFd, SOL_SOCKET, SO_RCVBUF, &_size, sizeof(_size)) < 0) {
 		res = -errno;
 		ULOG_ERRNO("setsockopt:SO_RCVBUF", -res);
 		return res;
@@ -221,14 +231,12 @@ int InetSocket::setRxBufferSize(
 }
 
 
-int InetSocket::setTxBufferSize(
-	size_t size)
+int InetSocket::setTxBufferSize(size_t size)
 {
 	int res = 0;
 	int _size = size;
 
-	if (setsockopt(mFd, SOL_SOCKET,
-		SO_SNDBUF, &_size, sizeof(_size)) < 0) {
+	if (setsockopt(mFd, SOL_SOCKET, SO_SNDBUF, &_size, sizeof(_size)) < 0) {
 		res = -errno;
 		ULOG_ERRNO("setsockopt:SO_RCVBUF", -res);
 	}
@@ -237,14 +245,12 @@ int InetSocket::setTxBufferSize(
 }
 
 
-int InetSocket::setClass(
-	int cls)
+int InetSocket::setClass(int cls)
 {
 	int res = 0;
 	int _cls = cls;
 
-	if (setsockopt(mFd, IPPROTO_IP,
-		IP_TOS, &_cls, sizeof(_cls)) < 0) {
+	if (setsockopt(mFd, IPPROTO_IP, IP_TOS, &_cls, sizeof(_cls)) < 0) {
 		res = -errno;
 		ULOG_ERRNO("setsockopt:IP_TOS", -res);
 	}
@@ -253,8 +259,7 @@ int InetSocket::setClass(
 }
 
 
-ssize_t InetSocket::read(
-	void)
+ssize_t InetSocket::read(void)
 {
 	ssize_t readlen = 0;
 	struct sockaddr_in srcaddr;
@@ -263,8 +268,12 @@ ssize_t InetSocket::read(
 
 	/* Read data, ignoring interrupts */
 	do {
-		readlen = recvfrom(mFd, mRxBuffer, mRxBufferSize,
-			0, (struct sockaddr *)&srcaddr, &addrlen);
+		readlen = recvfrom(mFd,
+				   mRxBuffer,
+				   mRxBufferSize,
+				   0,
+				   (struct sockaddr *)&srcaddr,
+				   &addrlen);
 	} while ((readlen < 0) && (errno == EINTR));
 
 	if (readlen < 0) {
@@ -282,40 +291,50 @@ ssize_t InetSocket::read(
 		const char *res1;
 		local_addr[0] = '\0';
 		remote_addr[0] = '\0';
-		res1 = inet_ntop(AF_INET, &mLocalAddress.sin_addr,
-			local_addr, sizeof(local_addr));
+		res1 = inet_ntop(AF_INET,
+				 &mLocalAddress.sin_addr,
+				 local_addr,
+				 sizeof(local_addr));
 		if (res1 == NULL)
 			ULOG_ERRNO("inet_ntop", -errno);
-		res1 = inet_ntop(AF_INET, &mRemoteAddress.sin_addr,
-			remote_addr, sizeof(remote_addr));
+		res1 = inet_ntop(AF_INET,
+				 &mRemoteAddress.sin_addr,
+				 remote_addr,
+				 sizeof(remote_addr));
 		if (res1 == NULL)
 			ULOG_ERRNO("inet_ntop", -errno);
-		ULOGD("fd=%d local %s:%d remote %s:%d", mFd,
-			local_addr, ntohs(mLocalAddress.sin_port),
-			remote_addr, ntohs(mRemoteAddress.sin_port));
+		ULOGD("fd=%d local %s:%d remote %s:%d",
+		      mFd,
+		      local_addr,
+		      ntohs(mLocalAddress.sin_port),
+		      remote_addr,
+		      ntohs(mRemoteAddress.sin_port));
 	}
 
 	return readlen;
 }
 
 
-ssize_t InetSocket::write(
-	const void *buf,
-	size_t len)
+ssize_t InetSocket::write(const void *buf, size_t len)
 {
 	ssize_t writelen = 0;
 
 	/* Write ignoring interrupts */
 	do {
-		writelen = sendto(mFd, buf, len, 0,
-			(struct sockaddr *)&mRemoteAddress,
-			sizeof(mRemoteAddress));
+		writelen = sendto(mFd,
+				  buf,
+				  len,
+				  0,
+				  (struct sockaddr *)&mRemoteAddress,
+				  sizeof(mRemoteAddress));
 	} while ((writelen < 0) && (errno == EINTR));
 
 	if (writelen >= 0) {
 		if ((size_t)writelen != len) {
-			ULOGW("partial write on fd=%d (%u/%u)", mFd,
-				(unsigned int)writelen, (unsigned int)len);
+			ULOGW("partial write on fd=%d (%u/%u)",
+			      mFd,
+			      (unsigned int)writelen,
+			      (unsigned int)len);
 		}
 	} else {
 		writelen = -errno;

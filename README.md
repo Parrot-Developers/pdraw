@@ -1,109 +1,182 @@
 # PDrAW - Parrot Drones Awesome Video Viewer
 
-PDrAW is a viewer for videos produced by Parrot Drones
-(Bebop, Bebop2, Disco, etc.).  
-It supports both streamed (RTP) and recorded (MP4) videos.
+PDrAW (pronounced like the name Pedro) is a viewer for videos produced by
+Parrot drones (Anafi). It supports both streamed (RTP/RTSP) and recorded
+(MP4) videos.
+
+PDrAW was originally written by Aurélien Barre as a personal project and is
+now officially maintained by Parrot Drones SAS. It is used in Parrot's
+_GroundSDK_ as its video pipeline implementation for Android and iOS, and thus
+also in Parrot's _FreeFlight6_ application.
 
 ## Supported platforms
 
 * Linux PC
-* MacOS X
-* Android (4.2 minimum)
-* iOS (8.0 minimum)
-* RaspberryPi
+* macOS
+* Android (4.2 minimum) (note: no sample code, see _GroundSDK_)
+* iOS (8.0 minimum) (note: no sample code, see _GroundSDK_)
 
 ## Features
 
 * Demuxing
-    * Record demuxer
-        * MP4 file format (ISO/IEC 14496-12, ISO Base Media File Format /
-        ISO/IEC 14496-14, MP4 File Format)
-    * Stream demuxer
-        * RTP/AVP/UDP streams (RFC 3550, RFC 3551)
-        * Unicast or multicast
-        * RTSP protocol (RFC 2326)
-        * Opening directly from a SDP (RFC 4566) document
-    * Playback control
-        * Play/pause
-        * Seeking (except for live streams)
-        * Playback speed control (except for live streams)
-        * Negative speeds for playing backward (except for live streams)
-        * Frame-by-frame forward and backward (except for live streams)
-    * Support of Parrot session and frame metadata
+  * Record demuxer
+    * Playback of local replays
+    * MP4 file format (ISO/IEC 14496-12, ISO Base Media File Format /
+    ISO/IEC 14496-14, MP4 File Format)
+    * Multi-track support on the video with user selection
+  * Stream demuxer
+    * Live video and streamed replays playback
+    * RTP/AVP/UDP streams (RFC 3550, RFC 3551)
+    * RTP/AVP/MUX streams with SkyController remotes (using Parrot _libmux_)
+    * Unicast only
+    * RTSP 1.0 protocol (RFC 2326)
+    * Multi-track support on the video in RTSP with user selection
+  * Playback control
+    * Play/pause
+    * Seeking (except for live streams)
+    * Playback speed control (except for live streams)
+    * Negative speeds for playing backward (except for live streams)
+    * Frame-by-frame forward and backward on local replays (MP4 records)
+  * Support of Parrot session and frame metadata (see _libvideo_metadata_)
 * Decoding
-    * H.264 video decoding (ITU-T H.264 / ISO/IEC 14496-10), baseline, main
-    and high profiles
-    * Frame output API for application-side processing on the video
+  * H.264 video decoding (ITU-T H.264 / ISO/IEC 14496-10), baseline, main
+  and high profiles
+  * Frame output API for application-side processing on the video (either
+  H.264 frames before decoding or YUV frames after decoding)
 * Rendering
-    * OpenGL ES 2.0 video rendering
-    * HMD distorsion correction
-        * Support for Parrot Cockpitglasses 1 & 2
-        * Device settings for screen density and mechanical margin
-        * User settings for video scale, placement and IPD
-    * HUD: real-time flight instruments
-    * Headtracking
-        * Uses Google VR SDK (Android only)
-        * Fake headtracking on Linux/MacOS app using the mouse
+  * OpenGL ES 2.0 video rendering
+  * Imaging features:
+    * Overexposure zebras
+    * RGB and luminance histograms computation
+  * User rendering callback functions
+    * Custom texture loading with provided video metadata
+    * Video overlay with provided video metadata
+  * HMD distortion correction
+    * Support for Parrot Cockpitglasses 1 & 2
+    * Device settings for screen pixel density and mechanical margins
+    * User settings for video scale, placement and IPD
 
 ## Software architecture and APIs
 
-PDrAW is mainly *libpdraw*, with platform-specific applications built on top.  
+### Main library: _libpdraw_
 
-### Available applications
+PDrAW is mainly _libpdraw_.
 
-Available applications built on top of *libpdraw*:
-
-* *pdraw_linux*: PC-Linux application using SDL2 for windowed display
-* *pdraw_macos*: MacOS X application using SDL2 for windowed display
-* *pdraw_raspi*: RaspberryPi application using EGL/dispmanx for display
-* *pdraw_android*: Android application
-* *pdraw_ios*: iOS application
-
-### Available APIs
+#### Available APIs
 
 Available APIs for *libpdraw* are:
 
 * C
 * C++
-* Java for Android (through JNI)
-* Python (using SWIG)
 
-### Software dependencies
+#### Dependencies
 
-TBD
+The library depends on the following Alchemy modules:
 
-## Building PDrAW
+* eigen
+* libfutils
+* libh264
+* libmp4
+* libpomp
+* librtsp
+* libsdp
+* libulog
+* libvideo-buffers
+* libvideo-buffers-generic
+* libvideo-decode
+* libvideo-metadata
+* libvideo-streaming
+* json (optional)
+* libmux (optional)
+* glfw3 (only on Linux and macOS)
+* opengl (only on Linux)
 
-### Building on Ubuntu 16.04+
+#### Threading model
 
-Required packages:
+The library is designed to run on a _libpomp_ event loop (_pomp_loop_, see
+_libpomp_ documentation), except for rendering functions. All API functions
+must be called from the _pomp_loop_ thread and all callback functions are
+called from the _pomp_loop_ thread, except for rendering function which must
+be called on the rendering (OpenGL) thread and rendering callback functions
+which are called also on the rendering thread.
 
-    $ sudo apt-get install build-essential yasm cmake libtool libc6 libc6-dev
-    unzip wget freeglut3-dev libglfw3-dev libsdl2-dev libjson-c-dev
-    libcurl4-gnutls-dev libavahi-client-dev
+### Helper libraries
 
-Get the sources:
+#### libpdraw-backend
 
-    $ repo init -u https://github.com/Akaaba/pdraw_manifest.git
-    $ repo sync
+_libpdraw-backend_ is a wrapper for _libpdraw_'s API that allows calling
+functions from any thread, with the exception of rendering functions which
+must still be called from the rendering thread.
 
-Compiling for a Linux PC:
+Available APIs for _libpdraw-backend_ are:
 
-    $ ./build.sh -p pdraw-linux -t build -j
+* C
+* C++
 
-To use hardware H.264 decoding (NVDec) with NVidia GPUs, the following packages
-are also required:
+The library depends on the following Alchemy modules:
 
-    $ sudo apt-get install libnuma1 libnuma-dev nvidia-cuda-toolkit
+* libfutils
+* libpdraw
+* libpomp
+* libulog
 
-An updated version of CUDA Toolkit may be necessary:
-https://developer.nvidia.com/cuda-downloads
+#### libpdraw-vsink
 
-Enable *cuvid* in the build configuration
+_libpdraw-vsink_ is a helper library to easily create a _libpdraw_ instance
+on a stream or record without rendering and get YUV frames, for example to
+process them with OpenCV in an application.
 
-    $ ./build.sh -p pdraw-linux -t xconfig
-        -> search for "cuvid" and enable
-    $ ./build.sh -p pdraw-linux -t build -j
+The API is available in C. The functions can be called from any thread but
+are not thread-safe: they should always be called from the same thread,
+or it is the caller's responsibility to synchronize calls if multiple threads
+are used.
 
-Note: FFmpeg with *cuvid* uses non-free software; PDrAW cannot be distributed
-with *cuvid* enabled.
+The library depends on the following Alchemy modules:
+
+* libfutils
+* libpdraw
+* libpomp
+* libulog
+* libvideo-buffers
+* libvideo-buffers-generic
+* libvideo-metadata
+
+#### libpdraw-gles2hud
+
+_libpdraw-gles2hud_ is a helper library to draw an OpenGL ES 2.0 example HUD
+(Head-Up Display) on top of the rendered video using _libpdraw_'s rendering
+overlay callback function.
+
+The API is available in C. All functions must be called from the rendering
+thread.
+
+The library depends on the following Alchemy modules:
+
+* eigen
+* libpdraw
+* libulog
+* libvideo-metadata
+* glfw3 (only on Linux and macOS)
+* opengl (only on Linux)
+
+### Applications
+
+Applications are built on top of _libpdraw_ or _libpdraw-backend_.
+
+#### pdraw-desktop
+
+_pdraw-desktop_ is Linux PC and macOS application written in C using SDL2 for
+windowed display and the UI.
+
+The application depends on the following Alchemy modules:
+
+* eigen
+* libpdraw
+* libpdraw-backend
+* libpdraw-gles2hud
+* libpomp
+* libulog
+* libvideo-metadata
+* sdl2
+* glfw3
+* opengl (only on Linux)

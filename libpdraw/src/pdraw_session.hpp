@@ -2,6 +2,7 @@
  * Parrot Drones Awesome Video Viewer Library
  * Session
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,35 +12,41 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef _PDRAW_SESSION_HPP_
 #define _PDRAW_SESSION_HPP_
 
+#include "pdraw_avcdecoder.hpp"
+#include "pdraw_demuxer.hpp"
+#include "pdraw_media.hpp"
+#include "pdraw_metadata_session.hpp"
+#include "pdraw_renderer.hpp"
+#include "pdraw_settings.hpp"
+#include "pdraw_sink_video.hpp"
+
 #include <inttypes.h>
-#include <libpomp.h>
-#include <futils/futils.h>
+
+#include <queue>
 #include <string>
 #include <vector>
-#include "pdraw_settings.hpp"
-#include "pdraw_metadata_session.hpp"
-#include "pdraw_media.hpp"
-#include "pdraw_demuxer.hpp"
-#include "pdraw_renderer.hpp"
+
+#include <futils/futils.h>
+#include <libpomp.h>
 #include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
@@ -48,341 +55,167 @@ namespace Pdraw {
 class Settings;
 
 
-class Session : public IPdraw {
+class Session : public IPdraw,
+		public Element::Listener,
+		public Source::Listener,
+		public Demuxer::Listener {
 public:
-	Session(
-		struct pomp_loop *loop,
-		IPdraw::Listener *listener);
+	enum State {
+		INVALID = 0,
+		CREATED,
+		OPENING,
+		OPENED,
+		CLOSING,
+		CLOSED,
+	};
 
-	~Session(
-		void);
+
+	Session(struct pomp_loop *loop, IPdraw::Listener *listener);
+
+	~Session(void);
 
 
 	/*
 	 * API methods
 	 */
 
-	IPdraw::State getState(
-		void);
+	int open(const std::string &url);
 
-	int open(
-		const std::string &url);
+	int open(const std::string &localAddr,
+		 uint16_t localStreamPort,
+		 uint16_t localControlPort,
+		 const std::string &remoteAddr,
+		 uint16_t remoteStreamPort,
+		 uint16_t remoteControlPort);
 
-	int open(
-		const std::string &url,
-		const std::string &ifaceAddr);
+	int open(const std::string &url, struct mux_ctx *mux);
 
-	int open(
-		const std::string &localAddr,
-		uint16_t localStreamPort,
-		uint16_t localControlPort,
-		const std::string &remoteAddr,
-		uint16_t remoteStreamPort,
-		uint16_t remoteControlPort,
-		const std::string &ifaceAddr);
+	int close(void);
 
-	int open(
-		const std::string &url,
-		struct mux_ctx *mux);
+	uint16_t getSingleStreamLocalStreamPort(void);
 
-	int open(
-		struct mux_ctx *mux);
+	uint16_t getSingleStreamLocalControlPort(void);
 
-	int openSdp(
-		const std::string &sdp,
-		const std::string &ifaceAddr);
+	bool isReadyToPlay(void);
 
-	int openSdp(
-		const std::string &sdp,
-		struct mux_ctx *mux);
+	bool isPaused(void);
 
-	int close(
-		void);
+	int play(float speed = 1.0f);
 
-	int play(
-		float speed = 1.0f);
+	int pause(void);
 
-	int pause(
-		void);
+	int previousFrame(void);
 
-	bool isPaused(
-		void);
+	int nextFrame(void);
 
-	int previousFrame(
-		void);
+	int seek(int64_t delta, bool exact = false);
 
-	int nextFrame(
-		void);
+	int seekForward(uint64_t delta, bool exact = false);
 
-	int seek(
-		int64_t delta,
-		bool exact = false);
+	int seekBack(uint64_t delta, bool exact = false);
 
-	int seekForward(
-		uint64_t delta,
-		bool exact = false);
+	int seekTo(uint64_t timestamp, bool exact = false);
 
-	int seekBack(
-		uint64_t delta,
-		bool exact = false);
+	uint64_t getDuration(void);
 
-	int seekTo(
-		uint64_t timestamp,
-		bool exact = false);
-
-	uint64_t getDuration(
-		void);
-
-	uint64_t getCurrentTime(
-		void);
+	uint64_t getCurrentTime(void);
 
 	/* Called on the rendering thread */
-	int startVideoRenderer(
-		unsigned int windowWidth,
-		unsigned int windowHeight,
-		int renderX,
-		int renderY,
-		unsigned int renderWidth,
-		unsigned int renderHeight,
-		bool enableHud,
-		bool enableHmdDistorsionCorrection,
-		bool enableHeadtracking,
-		struct egl_display *eglDisplay = NULL);
+	int startVideoRenderer(const struct pdraw_rect *renderPos,
+			       const struct pdraw_video_renderer_params *params,
+			       VideoRendererListener *listener,
+			       struct pdraw_video_renderer **retObj,
+			       struct egl_display *eglDisplay = NULL);
 
 	/* Called on the rendering thread */
-	int stopVideoRenderer(
-		void);
+	int stopVideoRenderer(struct pdraw_video_renderer *renderer);
 
 	/* Called on the rendering thread */
-	int renderVideo(
-		int renderX,
-		int renderY,
-		unsigned int renderWidth,
-		unsigned int renderHeight,
-		uint64_t timestamp);
+	int resizeVideoRenderer(struct pdraw_video_renderer *renderer,
+				const struct pdraw_rect *renderPos);
 
-	enum pdraw_session_type getSessionType(
-		void);
 
-	uint16_t getSingleStreamLocalStreamPort(
-		void);
+	/* Called on the rendering thread */
+	int setVideoRendererParams(
+		struct pdraw_video_renderer *renderer,
+		const struct pdraw_video_renderer_params *params);
 
-	uint16_t getSingleStreamLocalControlPort(
-		void);
 
-	std::string getSelfFriendlyName(
-		void);
+	/* Called on the rendering thread */
+	int getVideoRendererParams(struct pdraw_video_renderer *renderer,
+				   struct pdraw_video_renderer_params *params);
 
-	void setSelfFriendlyName(
-		const std::string &friendlyName);
+	/* Called on the rendering thread */
+	int renderVideo(struct pdraw_video_renderer *renderer,
+			struct pdraw_rect *contentPos,
+			const float *viewMat = NULL,
+			const float *projMat = NULL);
 
-	std::string getSelfSerialNumber(
-		void);
+	int startVideoSink(unsigned int mediaId,
+			   const struct pdraw_video_sink_params *params,
+			   VideoSinkListener *listener,
+			   struct pdraw_video_sink **retObj);
 
-	void setSelfSerialNumber(
-		const std::string &serialNumber);
+	int stopVideoSink(struct pdraw_video_sink *sink);
 
-	std::string getSelfSoftwareVersion(
-		void);
+	int resyncVideoSink(struct pdraw_video_sink *sink);
 
-	void setSelfSoftwareVersion(
-		const std::string &softwareVersion);
+	struct vbuf_queue *getVideoSinkQueue(struct pdraw_video_sink *sink);
 
-	bool isSelfPilot(
-		void);
+	int videoSinkQueueFlushed(struct pdraw_video_sink *sink);
 
-	void setSelfPilot(
-		bool isPilot);
+	enum pdraw_session_type getSessionType(void);
 
-	void getSelfLocation(
-		struct vmeta_location *loc);
+	void getSelfFriendlyName(std::string *friendlyName);
 
-	void setSelfLocation(
-		const struct vmeta_location *loc);
+	void setSelfFriendlyName(const std::string &friendlyName);
 
-	int getControllerBatteryLevel(
-		void);
+	void getSelfSerialNumber(std::string *serialNumber);
 
-	void setControllerBatteryLevel(
-		int batteryLevel);
+	void setSelfSerialNumber(const std::string &serialNumber);
 
-	void getSelfControllerOrientation(
-		struct vmeta_quaternion *quat);
+	void getSelfSoftwareVersion(std::string *softwareVersion);
 
-	void getSelfControllerOrientation(
-		struct vmeta_euler *euler);
+	void setSelfSoftwareVersion(const std::string &softwareVersion);
 
-	void setSelfControllerOrientation(
-		const struct vmeta_quaternion *quat);
+	bool isSelfPilot(void);
 
-	void setSelfControllerOrientation(
-		const struct vmeta_euler *euler);
+	void setSelfPilot(bool isPilot);
 
-	void getSelfHeadOrientation(
-		struct vmeta_quaternion *quat);
+	void getPeerSessionMetadata(struct vmeta_session *session);
 
-	void getSelfHeadOrientation(
-		struct vmeta_euler *euler);
+	enum pdraw_drone_model getPeerDroneModel(void);
 
-	void setSelfHeadOrientation(
-		const struct vmeta_quaternion *quat);
+	enum pdraw_pipeline_mode getPipelineModeSetting(void);
 
-	void setSelfHeadOrientation(
-		const struct vmeta_euler *euler);
+	void setPipelineModeSetting(enum pdraw_pipeline_mode mode);
 
-	void getSelfHeadRefOrientation(
-		struct vmeta_quaternion *quat);
+	void getDisplayScreenSettings(float *xdpi,
+				      float *ydpi,
+				      float *deviceMarginTop,
+				      float *deviceMarginBottom,
+				      float *deviceMarginLeft,
+				      float *deviceMarginRight);
 
-	void getSelfHeadRefOrientation(
-		struct vmeta_euler *euler);
+	void setDisplayScreenSettings(float xdpi,
+				      float ydpi,
+				      float deviceMarginTop,
+				      float deviceMarginBottom,
+				      float deviceMarginLeft,
+				      float deviceMarginRight);
 
-	void setSelfHeadRefOrientation(
-		const struct vmeta_quaternion *quat);
+	enum pdraw_hmd_model getHmdModelSetting(void);
 
-	void setSelfHeadRefOrientation(
-		const struct vmeta_euler *euler);
+	void setHmdModelSetting(enum pdraw_hmd_model hmdModel);
 
-	void resetSelfHeadRefOrientation(
-		void);
-
-	std::string getPeerFriendlyName(
-		void);
-
-	std::string getPeerMaker(
-		void);
-
-	std::string getPeerModel(
-		void);
-
-	std::string getPeerModelId(
-		void);
-
-	enum pdraw_drone_model getPeerDroneModel(
-		void);
-
-	std::string getPeerSerialNumber(
-		void);
-
-	std::string getPeerSoftwareVersion(
-		void);
-
-	std::string getPeerBuildId(
-		void);
-
-	std::string getPeerTitle(
-		void);
-
-	std::string getPeerComment(
-		void);
-
-	std::string getPeerCopyright(
-		void);
-
-	std::string getPeerRunDate(
-		void);
-
-	std::string getPeerRunUuid(
-		void);
-
-	std::string getPeerMediaDate(
-		void);
-
-	void getPeerTakeoffLocation(
-		struct vmeta_location *loc);
-
-	void setPeerTakeoffLocation(
-		const struct vmeta_location *loc);
-
-	void getPeerHomeLocation(
-		struct vmeta_location *loc);
-
-	void setPeerHomeLocation(
-		const struct vmeta_location *loc);
-
-	uint64_t getPeerRecordingDuration(
-		void);
-
-	void setPeerRecordingDuration(
-		uint64_t duration);
-
-	void getCameraOrientationForHeadtracking(
-		float *pan,
-		float *tilt);
-
-	int getMediaCount(
-		void);
-
-	int getMediaInfo(
-		unsigned int index,
-		struct pdraw_media_info *info);
-
-	void *addVideoFrameFilterCallback(
-		unsigned int mediaId,
-		pdraw_video_frame_filter_callback_t cb,
-		void *userPtr);
-
-	int removeVideoFrameFilterCallback(
-		unsigned int mediaId,
-		void *filterCtx);
-
-	void *addVideoFrameProducer(
-		unsigned int mediaId,
-		bool frameByFrame = false);
-
-	int removeVideoFrameProducer(
-		void *producerCtx);
-
-	/**
-	 * get last frame
-	 *
-	 * timeout: time in microseconds to wait for a frame
-	 *  0: don't wait
-	 * -1: wait forever
-	 * >0: wait time
-	 */
-	int getProducerLastFrame(
-		void *producerCtx,
-		struct pdraw_video_frame *frame,
-		int timeout = 0);
-
-	float getControllerRadarAngleSetting(
-		void);
-
-	void setControllerRadarAngleSetting(
-		float angle);
-
-	void getDisplayScreenSettings(
-		float *xdpi,
-		float *ydpi,
-		float *deviceMargin);
-
-	void setDisplayScreenSettings(
-		float xdpi,
-		float ydpi,
-		float deviceMargin);
-
-	void getHmdDistorsionCorrectionSettings(
-		enum pdraw_hmd_model *hmdModel,
-		float *ipd,
-		float *scale,
-		float *panH,
-		float *panV);
-
-	void setHmdDistorsionCorrectionSettings(
-		enum pdraw_hmd_model hmdModel,
-		float ipd,
-		float scale,
-		float panH,
-		float panV);
-
-	void *getJniEnv(
-		void) {
-		return mJniEnv;
+	void *getAndroidJvm(void)
+	{
+		return mAndroidJvm;
 	}
 
-	void setJniEnv(
-		void *jniEnv) {
-		mJniEnv = jniEnv;
+	void setAndroidJvm(void *jvm)
+	{
+		mAndroidJvm = jvm;
 	}
 
 
@@ -390,136 +223,155 @@ public:
 	 * Internal methods
 	 */
 
-	Demuxer *getDemuxer(
-		void) {
+	Demuxer *getDemuxer(void)
+	{
 		return mDemuxer;
 	}
 
-	Renderer *getRenderer(
-		void) {
-		return mRenderer;
-	}
-
-	Settings *getSettings(
-		void) {
+	Settings *getSettings(void)
+	{
 		return &mSettings;
 	}
 
-	SessionSelfMetadata *getSelfMetadata(
-		void) {
+	SessionSelfMetadata *getSelfMetadata(void)
+	{
 		return &mSelfMetadata;
 	}
 
-	SessionPeerMetadata *getPeerMetadata(
-		void) {
+	SessionPeerMetadata *getPeerMetadata(void)
+	{
 		return &mPeerMetadata;
 	}
 
-	struct pomp_loop *getLoop() {
+	int getSessionInfo(struct pdraw_session_info *sessionInfo);
+
+	struct pomp_loop *getLoop()
+	{
 		return mLoop;
 	}
 
-	void socketCreated(
-		int fd);
+	int asyncElementDelete(Element *element);
+
+	int asyncAvcDecoderCompleteFlush(AvcDecoder *decoder);
+
+	int asyncAvcDecoderCompleteStop(AvcDecoder *decoder);
+
+	int asyncAvcDecoderResync(AvcDecoder *decoder);
+
+	int asyncRendererCompleteStop(Renderer *renderer);
+
+	/* Called on the loop thread */
+	void socketCreated(int fd);
+
+	int flushVideoSink(VideoSink *sink);
 
 private:
-	int internalOpen(
-		const std::string &url,
-		const std::string &ifaceAddr);
+	/* Called on the loop thread */
+	void inloopElementDelete(Element *element);
 
-	int internalOpen(
-		const std::string &localAddr,
-		uint16_t localStreamPort,
-		uint16_t localControlPort,
-		const std::string &remoteAddr,
-		uint16_t remoteStreamPort,
-		uint16_t remoteControlPort,
-		const std::string &ifaceAddr);
+	/* Called on the loop thread */
+	void inloopAvcDecoderCompleteFlush(AvcDecoder *decoder);
 
-	int internalOpen(
-		const std::string &url,
-		struct mux_ctx *mux);
+	/* Called on the loop thread */
+	void inloopAvcDecoderCompleteStop(AvcDecoder *decoder);
 
-	int internalOpenSdp(
-		const std::string &sdp,
-		const std::string &ifaceAddr);
+	/* Called on the loop thread */
+	void inloopAvcDecoderResync(AvcDecoder *decoder);
 
-	int internalOpenSdp(
-		const std::string &sdp,
-		struct mux_ctx *mux);
+	/* Called on the loop thread */
+	void inloopRendererCompleteStop(Renderer *renderer);
 
-	int internalClose(
-		void);
+	int addDecoderForMedia(Source *source, Media *media);
 
-	int internalPlay(
-		float speed = 1.0f);
+	void fillMediaInfo(VideoMedia *media, struct pdraw_media_info *info);
 
-	int internalPreviousFrame(
-		void);
+	int
+	addMediaToRenderer(Source *source, Media *media, Renderer *renderer);
 
-	int internalNextFrame(
-		void);
+	int addMediaToAllRenderers(Source *source, Media *media);
 
-	int internalSeek(
-		int64_t delta,
-		bool exact = false);
+	int addAllMediaToRenderer(Renderer *renderer);
 
-	int internalSeekTo(
-		uint64_t timestamp,
-		bool exact = false);
+	void setState(enum State state);
 
-	Media *addMedia(
-		enum elementary_stream_type esType);
+	static void mboxCb(int fd, uint32_t revents, void *userdata);
 
-	Media *addMedia(
-		enum elementary_stream_type esType,
-		Demuxer *demuxer,
-		int demuxEsIndex);
+	static void *runLoopThread(void *ptr);
 
-	int removeMedia(
-		Media *media);
+	void onElementStateChanged(Element *element, Element::State state);
 
-	int removeMedia(
-		unsigned int index);
+	void asyncElementStateChange(Element *element, Element::State state);
 
-	Media *getMedia(
-		unsigned int index);
+	void onOutputMediaAdded(Source *source, Media *media);
 
-	Media *getMediaById(
-		unsigned int id);
+	void onOutputMediaRemoved(Source *source, Media *media);
 
-	void setState(
-		enum State state);
+	void onReadyToPlay(Demuxer *demuxer, bool ready);
 
-	int addMediaFromDemuxer(
-		void);
+	void onEndOfRange(Demuxer *demuxer, uint64_t timestamp);
 
-	static void mboxCb(
-		int fd,
-		uint32_t revents,
-		void *userdata);
+	int selectDemuxerMedia(Demuxer *demuxer,
+			       const struct pdraw_demuxer_media *medias,
+			       size_t count);
 
-	static void* runLoopThread(
-		void *ptr);
+	void
+	playResp(Demuxer *demuxer, int status, uint64_t timestamp, float speed);
 
-	Listener *mListener;
-	State mState;
-	bool mInternalLoop;
+	void pauseResp(Demuxer *demuxer, int status, uint64_t timestamp);
+
+	void
+	seekResp(Demuxer *demuxer, int status, uint64_t timestamp, float speed);
+
+	void updateReadyToPlay();
+
+	void onUnrecoverableError(Demuxer *demuxer);
+
+	static const char *stateStr(enum State val);
+
+	IPdraw::Listener *mListener;
+	enum State mState;
 	struct pomp_loop *mLoop;
-	pthread_t mLoopThread;
-	bool mLoopThreadLaunched;
-	bool mThreadShouldStop;
 	struct mbox *mMbox;
 	pthread_mutex_t mMutex;
 	enum pdraw_session_type mSessionType;
 	Settings mSettings;
 	SessionSelfMetadata mSelfMetadata;
 	SessionPeerMetadata mPeerMetadata;
-	std::vector<Media *> mMedias;
+	std::vector<Element *> mElements;
 	Demuxer *mDemuxer;
-	Renderer *mRenderer;
 	unsigned int mMediaIdCounter;
-	void *mJniEnv;
+	void *mAndroidJvm;
+	bool mDemuxerReady;
+	bool mReadyToPlay;
+	bool mUrecoverableErrorOccured;
+
+	/* Listener calls from idle functions */
+	static void callOpenResponse(void *userdata);
+	static void callCloseResponse(void *userdata);
+	static void callOnUnrecoverableError(void *userdata);
+	/* callSelectMediaTrack omitted. Function has to be synchronous */
+	static void callOnMediaAdded(void *userdata);
+	static void callOnMediaRemoved(void *userdata);
+	static void callReadyToPlay(void *userdata);
+	static void callEndOfRange(void *userdata);
+	static void callPlayResponse(void *userdata);
+	static void callPauseResponse(void *userdata);
+	static void callSeekResponse(void *userdata);
+	/* callOnSocketCreated omitted. Function has to be synchronous */
+	std::queue<int> mOpenRespStatusArgs;
+	std::queue<int> mCloseRespStatusArgs;
+	std::queue<struct pdraw_media_info> mMediaAddedInfoArgs;
+	std::queue<struct pdraw_media_info> mMediaRemovedInfoArgs;
+	std::queue<bool> mReadyToPlayReadyArgs;
+	std::queue<uint64_t> mEndOfRangeTimestampArgs;
+	std::queue<int> mPlayRespStatusArgs;
+	std::queue<uint64_t> mPlayRespTimestampArgs;
+	std::queue<float> mPlayRespSpeedArgs;
+	std::queue<int> mPauseRespStatusArgs;
+	std::queue<uint64_t> mPauseRespTimestampArgs;
+	std::queue<int> mSeekRespStatusArgs;
+	std::queue<uint64_t> mSeekRespTimestampArgs;
+	std::queue<float> mSeekRespSpeedArgs;
 };
 
 } /* namespace Pdraw */

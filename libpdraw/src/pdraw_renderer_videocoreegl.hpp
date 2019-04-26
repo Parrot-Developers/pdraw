@@ -2,6 +2,7 @@
  * Parrot Drones Awesome Video Viewer Library
  * Broadcom VideoCore 4 EGL renderer
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,20 +12,20 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #ifndef _PDRAW_RENDERER_VIDEOCOREEGL_HPP_
@@ -32,40 +33,45 @@
 
 #ifdef USE_VIDEOCOREEGL
 
-#include <EGL/egl.h>
-#include "pdraw_renderer_gles2.hpp"
-#include "pdraw_gles2_video.hpp"
-#include "pdraw_gles2_hud.hpp"
-#include "pdraw_gles2_hmd.hpp"
+#	include "pdraw_gles2_hmd.hpp"
+#	include "pdraw_gles2_video.hpp"
+#	include "pdraw_renderer_gles2.hpp"
+
+#	include <EGL/egl.h>
 
 namespace Pdraw {
 
 
 class VideoCoreEglRenderer : public Gles2Renderer {
 public:
-	VideoCoreEglRenderer(
-		Session *session);
+	VideoCoreEglRenderer(Session *session,
+			     Element::Listener *listener,
+			     IPdraw::VideoRendererListener *rndListener);
 
-	~VideoCoreEglRenderer(
-		void);
+	~VideoCoreEglRenderer(void);
 
-	int open(
-		unsigned int windowWidth,
-		unsigned int windowHeight,
-		int renderX,
-		int renderY,
-		unsigned int renderWidth,
-		unsigned int renderHeight,
-		bool hud,
-		bool hmdDistorsionCorrection,
-		bool headtracking,
-		struct egl_display *eglDisplay);
+	int setup(const struct pdraw_rect *renderPos,
+		  const struct pdraw_video_renderer_params *params,
+		  struct egl_display *eglDisplay);
 
 private:
-	int loadVideoFrame(
-		const uint8_t *data,
-		struct avcdecoder_output_buffer *frame,
-		enum gles2_video_color_conversion colorConversion);
+	int loadVideoFrame(const uint8_t *data, VideoMedia::Frame *frame);
+
+	int
+	loadExternalVideoFrame(const uint8_t *data,
+			       VideoMedia::Frame *frame,
+			       const struct pdraw_session_info *session_info,
+			       const struct vmeta_session *session_meta);
+
+	int renderVideoFrame(VideoMedia::Frame *frame,
+			     const struct pdraw_rect *renderPos,
+			     struct pdraw_rect *contentPos,
+			     Eigen::Matrix4f &viewProjMat);
+
+	int renderExternalVideoFrame(VideoMedia::Frame *frame,
+				     const struct pdraw_rect *renderPos,
+				     struct pdraw_rect *contentPos,
+				     Eigen::Matrix4f &viewProjMat);
 
 	EGLDisplay mDisplay;
 };

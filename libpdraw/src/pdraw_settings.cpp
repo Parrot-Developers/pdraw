@@ -2,6 +2,7 @@
  * Parrot Drones Awesome Video Viewer Library
  * User settings
  *
+ * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
  *
  * Redistribution and use in source and binary forms, with or without
@@ -11,23 +12,24 @@
  *   * Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of the copyright holder nor the
- *     names of its contributors may be used to endorse or promote products
- *     derived from this software without specific prior written permission.
+ *   * Neither the name of the copyright holders nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
  * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
  * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
  * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
 #include "pdraw_settings.hpp"
+
 #define ULOG_TAG pdraw_settings
 #include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_settings);
@@ -35,158 +37,139 @@ ULOG_DECLARE_TAG(pdraw_settings);
 namespace Pdraw {
 
 
-Settings::Settings(
-	void)
+Settings::Settings(void)
 {
 	int res;
 	pthread_mutexattr_t attr;
-	bool mutex_created = false, attr_created = false;
+	bool attr_created = false;
 
-	mControllerRadarAngle = SETTINGS_HUD_CONTROLLER_RADAR_ANGLE;
+	mPipelineMode = PDRAW_PIPELINE_MODE_DECODE_ALL;
 	mDisplayXdpi = SETTINGS_DISPLAY_XDPI;
 	mDisplayYdpi = SETTINGS_DISPLAY_YDPI;
-	mDisplayDeviceMargin = SETTINGS_DISPLAY_DEVICE_MARGIN;
+	mDisplayDeviceMarginTop = SETTINGS_DISPLAY_DEVICE_MARGIN;
+	mDisplayDeviceMarginBottom = SETTINGS_DISPLAY_DEVICE_MARGIN;
+	mDisplayDeviceMarginLeft = SETTINGS_DISPLAY_DEVICE_MARGIN;
+	mDisplayDeviceMarginRight = SETTINGS_DISPLAY_DEVICE_MARGIN;
 	mHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
-	mHmdIpd = SETTINGS_HMD_IPD;
-	mHmdScale = SETTINGS_HMD_SCALE;
-	mHmdPanH = SETTINGS_HMD_PAN_H;
-	mHmdPanV = SETTINGS_HMD_PAN_V;
 
 	res = pthread_mutexattr_init(&attr);
-	if (res < 0) {
-		ULOG_ERRNO("pthread_mutexattr_init", -res);
+	if (res != 0) {
+		ULOG_ERRNO("pthread_mutexattr_init", res);
 		goto error;
 	}
 	attr_created = true;
 
 	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (res < 0) {
-		ULOG_ERRNO("pthread_mutexattr_settype", -res);
+	if (res != 0) {
+		ULOG_ERRNO("pthread_mutexattr_settype", res);
 		goto error;
 	}
 
 	res = pthread_mutex_init(&mMutex, &attr);
-	if (res < 0) {
-		ULOG_ERRNO("pthread_mutex_init", -res);
+	if (res != 0) {
+		ULOG_ERRNO("pthread_mutex_init", res);
 		goto error;
 	}
-	mutex_created = true;
 
 	pthread_mutexattr_destroy(&attr);
 	return;
 
 error:
-	if (mutex_created)
-		pthread_mutex_destroy(&mMutex);
 	if (attr_created)
 		pthread_mutexattr_destroy(&attr);
 }
 
 
-Settings::~Settings(
-	void)
+Settings::~Settings(void)
 {
 	pthread_mutex_destroy(&mMutex);
 }
 
 
-void Settings::lock(
-	void)
+void Settings::lock(void)
 {
 	pthread_mutex_lock(&mMutex);
 }
 
 
-void Settings::unlock(
-	void)
+void Settings::unlock(void)
 {
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-float Settings::getControllerRadarAngle(
-	void)
+enum pdraw_pipeline_mode Settings::getPipelineMode(void)
 {
 	pthread_mutex_lock(&mMutex);
-	float ret = mControllerRadarAngle;
+	enum pdraw_pipeline_mode ret = mPipelineMode;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-void Settings::setControllerRadarAngle(
-	float angle)
+void Settings::setPipelineMode(enum pdraw_pipeline_mode mode)
 {
 	pthread_mutex_lock(&mMutex);
-	mControllerRadarAngle = angle;
+	mPipelineMode = mode;
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-void Settings::getDisplayScreenSettings(
-	float *xdpi,
-	float *ydpi,
-	float *deviceMargin)
+void Settings::getDisplayScreenSettings(float *xdpi,
+					float *ydpi,
+					float *deviceMarginTop,
+					float *deviceMarginBottom,
+					float *deviceMarginLeft,
+					float *deviceMarginRight)
 {
 	pthread_mutex_lock(&mMutex);
 	if (xdpi)
 		*xdpi = mDisplayXdpi;
 	if (ydpi)
 		*ydpi = mDisplayYdpi;
-	if (deviceMargin)
-		*deviceMargin = mDisplayDeviceMargin;
+	if (deviceMarginTop)
+		*deviceMarginTop = mDisplayDeviceMarginTop;
+	if (deviceMarginTop)
+		*deviceMarginBottom = mDisplayDeviceMarginBottom;
+	if (deviceMarginTop)
+		*deviceMarginLeft = mDisplayDeviceMarginLeft;
+	if (deviceMarginTop)
+		*deviceMarginRight = mDisplayDeviceMarginRight;
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-void Settings::setDisplayScreenSettings(
-	float xdpi,
-	float ydpi,
-	float deviceMargin)
+void Settings::setDisplayScreenSettings(float xdpi,
+					float ydpi,
+					float deviceMarginTop,
+					float deviceMarginBottom,
+					float deviceMarginLeft,
+					float deviceMarginRight)
 {
 	pthread_mutex_lock(&mMutex);
 	mDisplayXdpi = xdpi;
 	mDisplayYdpi = ydpi;
-	mDisplayDeviceMargin = deviceMargin;
+	mDisplayDeviceMarginTop = deviceMarginTop;
+	mDisplayDeviceMarginBottom = deviceMarginBottom;
+	mDisplayDeviceMarginLeft = deviceMarginLeft;
+	mDisplayDeviceMarginRight = deviceMarginRight;
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-void Settings::getHmdDistorsionCorrectionSettings(
-	enum pdraw_hmd_model *hmdModel,
-	float *ipd,
-	float *scale,
-	float *panH,
-	float *panV)
+enum pdraw_hmd_model Settings::getHmdModelSetting(void)
 {
 	pthread_mutex_lock(&mMutex);
-	if (hmdModel)
-		*hmdModel = mHmdModel;
-	if (ipd)
-		*ipd = mHmdIpd;
-	if (scale)
-		*scale = mHmdScale;
-	if (panH)
-		*panH = mHmdPanH;
-	if (panV)
-		*panV = mHmdPanV;
+	enum pdraw_hmd_model ret = mHmdModel;
 	pthread_mutex_unlock(&mMutex);
+	return ret;
 }
 
 
-void Settings::setHmdDistorsionCorrectionSettings(
-	enum pdraw_hmd_model hmdModel,
-	float ipd,
-	float scale,
-	float panH,
-	float panV)
+void Settings::setHmdModelSetting(enum pdraw_hmd_model hmdModel)
 {
 	pthread_mutex_lock(&mMutex);
 	mHmdModel = hmdModel;
-	mHmdIpd = ipd;
-	mHmdScale = scale;
-	mHmdPanH = panH;
-	mHmdPanV = panV;
 	pthread_mutex_unlock(&mMutex);
 }
 
