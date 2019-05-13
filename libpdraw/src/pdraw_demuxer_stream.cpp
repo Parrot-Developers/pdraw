@@ -31,7 +31,6 @@
 #include "pdraw_demuxer_stream.hpp"
 #include "pdraw_session.hpp"
 
-#include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -86,6 +85,7 @@ const struct vstrm_receiver_cbs StreamDemuxer::mReceiverCbs = {
 
 
 const struct h264_ctx_cbs StreamDemuxer::mH264Cbs = {
+	.au_end = NULL,
 	.nalu_begin = NULL,
 	.nalu_end = NULL,
 	.slice = NULL,
@@ -1935,39 +1935,18 @@ void StreamDemuxer::h264PicTimingSeiCb(struct h264_ctx *ctx,
 				       void *userdata)
 {
 	StreamDemuxer *demuxer = (StreamDemuxer *)userdata;
-	const struct h264_sps *sps;
-	uint64_t clock_timestamp;
 
 	if (demuxer == NULL)
 		return;
 	if (ctx == NULL)
 		return;
-	if ((buf == NULL) || (len == 0))
+	if (sei == NULL)
 		return;
 	if (demuxer->mCurrentBuffer == NULL)
 		return;
 
-	sps = h264_ctx_get_sps(ctx);
-
-	clock_timestamp =
-		(((uint64_t)sei->clk_ts[0].hours_value * 60 +
-		  sei->clk_ts[0].minutes_value) *
-			 60 +
-		 sei->clk_ts[0].seconds_value) *
-			sps->vui.time_scale +
-		((uint64_t)sei->clk_ts[0].n_frames *
-		 ((uint64_t)sps->vui.num_units_in_tick *
-		  (1 + (uint64_t)sei->clk_ts[0].nuit_field_based_flag)));
-
-	if (sei->clk_ts[0].time_offset < 0 &&
-	    ((uint64_t)-sei->clk_ts[0].time_offset > clock_timestamp))
-		clock_timestamp = 0;
-	else
-		clock_timestamp += sei->clk_ts[0].time_offset;
-
 	demuxer->mCurrentBufferCaptureTs =
-		(clock_timestamp * 1000000 + sps->vui.time_scale / 2) /
-		sps->vui.time_scale;
+		h264_ctx_sei_pic_timing_to_us(ctx, sei);
 }
 
 

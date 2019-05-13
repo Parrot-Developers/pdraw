@@ -193,6 +193,7 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 		return res;
 	}
 
+#ifndef _WIN32
 	res = SDL_GL_SetSwapInterval(1);
 	if (res < 0) {
 		ULOGE("SDL_GL_SetSwapInterval() failed: %d(%s)",
@@ -201,6 +202,7 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 		res = -EPROTO;
 		return res;
 	}
+#endif /* _WIN32 */
 
 	self->user_event = SDL_RegisterEvents(1);
 	if (self->user_event == (uint32_t)-1) {

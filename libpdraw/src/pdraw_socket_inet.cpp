@@ -42,6 +42,83 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_sockinet);
 
+#ifdef _WIN32
+
+static inline int win32_socket(int domain, int type, int protocol)
+{
+	SOCKET s;
+	s = socket(AF_INET, SOCK_DGRAM, 0);
+	if (s == INVALID_SOCKET)
+		return -1;
+	if (s > (SOCKET)0x7FFFFFFF) {
+		/* Winsock2's socket() returns the unsigned type SOCKET,
+		 * which is a 32-bit type for WIN32 and a 64-bit type for WIN64;
+		 * as we cast the result to an int, return an error if the
+		 * returned value does not fit into 31 bits. */
+		ULOGE("%s: avoiding truncated socket handle", __func__);
+		closesocket(s);
+		return -1;
+	}
+	return (int)s;
+}
+
+static inline ssize_t win32_recvfrom(int fd,
+				     void *buf,
+				     size_t len,
+				     int flags,
+				     struct sockaddr *addr,
+				     socklen_t *addrlen)
+{
+	return (ssize_t)recvfrom(
+		(SOCKET)fd, (char *)buf, (int)len, flags, addr, addrlen);
+}
+
+static inline ssize_t win32_sendto(int fd,
+				   const void *buf,
+				   size_t len,
+				   int flags,
+				   const struct sockaddr *addr,
+				   socklen_t addrlen)
+{
+	return (ssize_t)sendto(
+		(SOCKET)fd, (const char *)buf, (int)len, flags, addr, addrlen);
+}
+
+static inline int win32_setsockopt(int sockfd,
+				   int level,
+				   int optname,
+				   const void *optval,
+				   socklen_t optlen)
+{
+	return setsockopt(
+		(SOCKET)sockfd, level, optname, (const char *)optval, optlen);
+}
+
+#	undef errno
+#	undef socket
+#	undef recvfrom
+#	undef sendto
+#	undef setsockopt
+
+#	define errno ((int)WSAGetLastError())
+
+#	define socket(_domain, _type, _protocol)                              \
+		win32_socket((_domain), (_type), (_protocol))
+
+#	define recvfrom(_fd, _buf, _len, _flags, _addr, _addrlen)             \
+		win32_recvfrom(                                                \
+			(_fd), (_buf), (_len), (_flags), (_addr), (_addrlen))
+
+#	define sendto(_fd, _buf, _len, _flags, _addr, _addrlen)               \
+		win32_sendto(                                                  \
+			(_fd), (_buf), (_len), (_flags), (_addr), (_addrlen))
+
+#	define setsockopt(_sockfd, _level, _optname, _optval, _optlen)        \
+		win32_setsockopt(                                              \
+			(_sockfd), (_level), (_optname), (_optval), (_optlen))
+
+#endif /* _WIN32 */
+
 namespace Pdraw {
 
 
@@ -79,6 +156,7 @@ InetSocket::InetSocket(Session *session,
 	if (session)
 		session->socketCreated(mFd);
 
+#ifndef _WIN32
 	/* Setup flags */
 	res = fd_set_close_on_exec(mFd);
 	if (res < 0) {
@@ -90,6 +168,7 @@ InetSocket::InetSocket(Session *session,
 		ULOG_ERRNO("fd_add_flags", -res);
 		goto error;
 	}
+#endif /* !_WIN32 */
 
 	/* Setup rx and tx addresses */
 	mLocalAddress.sin_family = AF_INET;
@@ -280,8 +359,12 @@ ssize_t InetSocket::read(void)
 
 	if (readlen < 0) {
 		readlen = -errno;
-		if (errno != EAGAIN)
-			ULOG_ERRNO("recvfrom", errno);
+#ifdef _WIN32
+		if (readlen == -WSAEWOULDBLOCK)
+			readlen = -EAGAIN;
+#endif /* _WIN32 */
+		if (readlen != -EAGAIN)
+			ULOG_ERRNO("recvfrom", (int)-readlen);
 	}
 
 	if ((readlen >= 0) && (mRemoteAddress.sin_port == 0)) {
@@ -340,8 +423,12 @@ ssize_t InetSocket::write(const void *buf, size_t len)
 		}
 	} else {
 		writelen = -errno;
-		if (errno != EAGAIN)
-			ULOG_ERRNO("sendto", errno);
+#ifdef _WIN32
+		if (writelen == -WSAEWOULDBLOCK)
+			writelen = -EAGAIN;
+#endif /* _WIN32 */
+		if (writelen != -EAGAIN)
+			ULOG_ERRNO("sendto", (int)-writelen);
 	}
 
 	return writelen;

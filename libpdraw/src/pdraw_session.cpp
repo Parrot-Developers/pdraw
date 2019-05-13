@@ -373,11 +373,11 @@ int Session::open(const std::string &url)
 	ext = url.substr(url.length() - 4, 4);
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-	if ((url.front() == '/') && (ext == ".mp4")) {
+	if (url.substr(0, 7) == "rtsp://") {
 		pthread_mutex_lock(&mMutex);
-		mSessionType = PDRAW_SESSION_TYPE_REPLAY;
+		mSessionType = PDRAW_SESSION_TYPE_LIVE; /* TODO: live/replay */
 		pthread_mutex_unlock(&mMutex);
-		mDemuxer = new RecordDemuxer(this, this, this, this);
+		mDemuxer = new StreamDemuxerNet(this, this, this, this);
 		if (mDemuxer == NULL) {
 			ULOGE("failed to alloc demuxer");
 			ret = -ENOMEM;
@@ -386,7 +386,7 @@ int Session::open(const std::string &url)
 		pthread_mutex_lock(&mMutex);
 		mElements.push_back(mDemuxer);
 		pthread_mutex_unlock(&mMutex);
-		ret = ((RecordDemuxer *)mDemuxer)->setup(url);
+		ret = ((StreamDemuxerNet *)mDemuxer)->setup(url);
 		if (ret < 0) {
 			ULOG_ERRNO("demuxer->setup", -ret);
 			pthread_mutex_lock(&mMutex);
@@ -414,11 +414,11 @@ int Session::open(const std::string &url)
 			mDemuxerReady = false;
 			goto error_restore;
 		}
-	} else if (url.substr(0, 7) == "rtsp://") {
+	} else if (ext == ".mp4") {
 		pthread_mutex_lock(&mMutex);
-		mSessionType = PDRAW_SESSION_TYPE_LIVE; /* TODO: live/replay */
+		mSessionType = PDRAW_SESSION_TYPE_REPLAY;
 		pthread_mutex_unlock(&mMutex);
-		mDemuxer = new StreamDemuxerNet(this, this, this, this);
+		mDemuxer = new RecordDemuxer(this, this, this, this);
 		if (mDemuxer == NULL) {
 			ULOGE("failed to alloc demuxer");
 			ret = -ENOMEM;
@@ -427,7 +427,7 @@ int Session::open(const std::string &url)
 		pthread_mutex_lock(&mMutex);
 		mElements.push_back(mDemuxer);
 		pthread_mutex_unlock(&mMutex);
-		ret = ((StreamDemuxerNet *)mDemuxer)->setup(url);
+		ret = ((RecordDemuxer *)mDemuxer)->setup(url);
 		if (ret < 0) {
 			ULOG_ERRNO("demuxer->setup", -ret);
 			pthread_mutex_lock(&mMutex);
@@ -628,6 +628,8 @@ error_restore:
 int Session::close(void)
 {
 	int ret;
+	bool stopped = true;
+	std::vector<Element *>::iterator e;
 
 	if (mState == CLOSING) {
 		/* Return without calling the closeResponse() function */
@@ -653,40 +655,33 @@ int Session::close(void)
 
 	setState(CLOSING);
 
-	if (mDemuxer == NULL) {
-		ULOGI("%s: no demuxer is running", __func__);
-
-		bool stopped = true;
-		pthread_mutex_lock(&mMutex);
-		std::vector<Element *>::iterator e = mElements.begin();
-		while (e != mElements.end()) {
-			if ((*e)->getState() != Element::State::STOPPED) {
-				stopped = false;
-				break;
-			}
-			e++;
+	pthread_mutex_lock(&mMutex);
+	e = mElements.begin();
+	while (e != mElements.end()) {
+		if ((*e)->getState() != Element::State::STOPPED) {
+			stopped = false;
+			break;
 		}
-		pthread_mutex_unlock(&mMutex);
+		e++;
+	}
+	pthread_mutex_unlock(&mMutex);
 
-		if (stopped) {
-			/* Call the closeResponse() function with OK status */
-			ULOGI("%s: all elements are stopped, closing",
-			      __func__);
-			setState(CLOSED);
-			ret = 0;
-			goto already_closed;
-		}
-
-		/* Waiting for the asynchronous stop of all elements;
-		 * closeResponse() will be called when it's done */
-		return 0;
+	if (stopped) {
+		/* Call the closeResponse() function with OK status */
+		ULOGI("%s: all elements are stopped, closing", __func__);
+		setState(CLOSED);
+		ret = 0;
+		goto already_closed;
 	}
 
-	ret = mDemuxer->stop();
-	if (ret < 0) {
-		ULOG_ERRNO("demuxer->stop", -ret);
-		return ret;
+	if (mDemuxer != NULL) {
+		ret = mDemuxer->stop();
+		if (ret < 0) {
+			ULOG_ERRNO("demuxer->stop", -ret);
+			return ret;
+		}
 	}
+
 	/* Waiting for the asynchronous stop; closeResponse()
 	 * will be called when it's done */
 	return 0;

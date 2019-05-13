@@ -31,7 +31,6 @@
 #include "pdraw_avcdecoder.hpp"
 #include "pdraw_session.hpp"
 
-#include <arpa/inet.h>
 #include <time.h>
 #include <unistd.h>
 

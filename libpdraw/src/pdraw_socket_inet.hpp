@@ -31,11 +31,18 @@
 #ifndef _PDRAW_SOCKET_INET_HPP_
 #define _PDRAW_SOCKET_INET_HPP_
 
-#include <arpa/inet.h>
+#ifdef _WIN32
+#	include <winsock2.h>
+#	include <ws2tcpip.h>
+#	undef OPAQUE
+#else /* !_WIN32 */
+#	include <arpa/inet.h>
+#	include <netinet/in.h>
+#	include <netinet/ip.h>
+#	include <sys/socket.h>
+#endif /* !_WIN32 */
+
 #include <inttypes.h>
-#include <netinet/in.h>
-#include <netinet/ip.h>
-#include <sys/socket.h>
 
 #include <string>
 

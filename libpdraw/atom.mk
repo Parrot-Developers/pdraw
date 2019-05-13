@@ -14,7 +14,7 @@ LOCAL_EXPORT_CUSTOM_VARIABLES := LIBPDRAW_HEADERS=$\
 	$(LOCAL_PATH)/include/pdraw/pdraw.h:$\
 	$(LOCAL_PATH)/include/pdraw/pdraw_defs.h;
 LOCAL_EXPORT_CXXFLAGS := -std=c++11
-LOCAL_CFLAGS := -DPDRAW_API_EXPORTS -fvisibility=hidden
+LOCAL_CFLAGS := -DPDRAW_API_EXPORTS -fvisibility=hidden -D_USE_MATH_DEFINES
 
 LOCAL_SRC_FILES := \
 	src/pdraw_avcdecoder.cpp \
@@ -84,6 +84,9 @@ else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-iphoneos")
   LOCAL_CFLAGS += -DUSE_GLES2
   LOCAL_LDLIBS += \
 	-framework OpenGLES
+else ifeq ("$(TARGET_OS)","windows")
+  LOCAL_CFLAGS += -DUSE_GLES2 -D_WIN32_WINNT=0x0600
+  LOCAL_LDLIBS += -lws2_32 -lepoxy
 endif
 
 include $(BUILD_LIBRARY)

@@ -85,6 +85,8 @@ private:
 
 	int flush(void);
 
+	void completeFlush(void);
+
 	void completeTeardown(void);
 
 	void onChannelFlushed(Channel *channel);
@@ -140,6 +142,7 @@ private:
 	float mVfov;
 	int mSeekResponse;
 	static const struct h264_ctx_cbs mH264Cbs;
+	int mChannelsFlushing;
 };
 
 } /* namespace Pdraw */

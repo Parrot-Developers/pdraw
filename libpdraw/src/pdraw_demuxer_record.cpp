@@ -31,7 +31,6 @@
 #include "pdraw_demuxer_record.hpp"
 #include "pdraw_session.hpp"
 
-#include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
@@ -49,6 +48,7 @@ namespace Pdraw {
 
 
 const struct h264_ctx_cbs RecordDemuxer::mH264Cbs = {
+	.au_end = NULL,
 	.nalu_begin = NULL,
 	.nalu_end = NULL,
 	.slice = NULL,
@@ -111,6 +111,7 @@ RecordDemuxer::RecordDemuxer(Session *session,
 	mVfov = 0.;
 	mFrameByFrame = true;
 	mSeekResponse = 0;
+	mChannelsFlushing = 0;
 
 	mMetadataBufferSize = 1024;
 	mMetadataBuffer = (uint8_t *)malloc(mMetadataBufferSize);
@@ -591,9 +592,13 @@ int RecordDemuxer::flush(void)
 		ret = channel->flush();
 		if (ret < 0)
 			ULOG_ERRNO("channel->flush", -ret);
+		mChannelsFlushing++;
 	}
 
 	Source::unlock();
+
+	if (mChannelsFlushing == 0)
+		completeFlush();
 
 	return 0;
 }
@@ -619,6 +624,20 @@ void RecordDemuxer::onChannelFlushed(Channel *channel)
 
 	if (mState == STOPPING)
 		channel->teardown();
+
+	if (--mChannelsFlushing <= 0) {
+		mChannelsFlushing = 0;
+		completeFlush();
+	}
+}
+
+
+void RecordDemuxer::completeFlush(void)
+{
+	if (mRunning) {
+		/* restart timer */
+		pomp_timer_set(mTimer, 1);
+	}
 }
 
 
@@ -844,39 +863,18 @@ void RecordDemuxer::h264PicTimingSeiCb(struct h264_ctx *ctx,
 				       void *userdata)
 {
 	RecordDemuxer *demuxer = (RecordDemuxer *)userdata;
-	const struct h264_sps *sps;
-	uint64_t clock_timestamp;
 
 	if (demuxer == NULL)
 		return;
 	if (ctx == NULL)
 		return;
-	if ((buf == NULL) || (len == 0))
+	if (sei == NULL)
 		return;
 	if (demuxer->mCurrentBuffer == NULL)
 		return;
 
-	sps = h264_ctx_get_sps(ctx);
-
-	clock_timestamp =
-		(((uint64_t)sei->clk_ts[0].hours_value * 60 +
-		  sei->clk_ts[0].minutes_value) *
-			 60 +
-		 sei->clk_ts[0].seconds_value) *
-			sps->vui.time_scale +
-		((uint64_t)sei->clk_ts[0].n_frames *
-		 ((uint64_t)sps->vui.num_units_in_tick *
-		  (1 + (uint64_t)sei->clk_ts[0].nuit_field_based_flag)));
-
-	if (sei->clk_ts[0].time_offset < 0 &&
-	    ((uint64_t)-sei->clk_ts[0].time_offset > clock_timestamp))
-		clock_timestamp = 0;
-	else
-		clock_timestamp += sei->clk_ts[0].time_offset;
-
 	demuxer->mCurrentBufferCaptureTs =
-		(clock_timestamp * 1000000 + sps->vui.time_scale / 2) /
-		sps->vui.time_scale;
+		h264_ctx_sei_pic_timing_to_us(ctx, sei);
 }
 
 
@@ -893,7 +891,7 @@ void RecordDemuxer::timerCb(struct pomp_timer *timer, void *userdata)
 	uint64_t curTime = 0;
 	int64_t error, duration, wait = 0;
 	uint32_t waitMs = 0;
-	int ret, retry = 0;
+	int ret, retry = 0, waitFlush = 0;
 	uint32_t start = htonl(0x00000001);
 	unsigned int outputChannelCount = 0, i;
 	Channel *channel;
@@ -967,9 +965,8 @@ void RecordDemuxer::timerCb(struct pomp_timer *timer, void *userdata)
 					   &demuxer->mCurrentBuffer,
 					   &byteStreamRequired);
 	if ((ret < 0) || (demuxer->mCurrentBuffer == NULL)) {
-		/* TODO: flush the output and resync */
 		ULOGW("failed to get an input buffer (%d)", ret);
-		retry = 1;
+		waitFlush = 1;
 		goto out;
 	}
 	buf = vbuf_get_data(demuxer->mCurrentBuffer);
@@ -1161,7 +1158,29 @@ void RecordDemuxer::timerCb(struct pomp_timer *timer, void *userdata)
 out:
 #define PREV_SAMPLE_TIME_BEFORE mp4_demux_get_track_prev_sample_time_before
 #define NEXT_SAMPLE_TIME_AFTER mp4_demux_get_track_next_sample_time_after
-	if (retry) {
+	if (waitFlush) {
+		uint64_t nextSampleTime;
+		/* Flush */
+		demuxer->flush();
+		/* Seek to next sync sample */
+		ret = mp4_demux_get_track_next_sample_time(
+			demuxer->mDemux,
+			demuxer->mVideoTrackId,
+			&nextSampleTime);
+		if (ret != 0) {
+			ULOG_ERRNO("mp4_demux_get_track_next_sample_time",
+				   -ret);
+			demuxer->Source::unlock();
+			return;
+		}
+		ret = mp4_demux_seek(demuxer->mDemux,
+				     nextSampleTime,
+				     MP4_SEEK_METHOD_NEXT_SYNC);
+		if (ret != 0)
+			ULOG_ERRNO("mp4_demux_seek", -ret);
+		/* Stop the timer */
+		waitMs = 0;
+	} else if (retry) {
 		waitMs = 5;
 	} else if (demuxer->mRunning) {
 		/* Schedule the next sample */

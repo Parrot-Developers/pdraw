@@ -46,10 +46,21 @@
 #define ULOG_TAG pdraw_desktop
 #include <ulog.h>
 
+#ifdef _WIN32
+#	include <winsock2.h>
+#	undef near
+#	undef far
+#endif /* !_WIN32 */
+
 #ifndef __APPLE__
 #	define GLFW_INCLUDE_ES2
 #endif
-#include <GLFW/glfw3.h>
+#ifdef _WIN32
+#	include <epoxy/gl.h>
+#else
+#	include <GLFW/glfw3.h>
+#endif
+
 #include <SDL.h>
 #include <pdraw/pdraw_backend.h>
 #include <pdraw/pdraw_gles2hud.h>

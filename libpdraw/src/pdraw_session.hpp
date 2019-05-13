@@ -41,6 +41,17 @@
 
 #include <inttypes.h>
 
+#ifdef _WIN32
+#	include <winsock2.h>
+#	undef OPAQUE
+#	undef near
+#	undef far
+#	define IPTOS_PREC_INTERNETCONTROL 0xc0
+#	define IPTOS_PREC_FLASHOVERRIDE 0x80
+#else /* !_WIN32 */
+#	include <arpa/inet.h>
+#endif /* !_WIN32 */
+
 #include <queue>
 #include <string>
 #include <vector>
@@ -48,6 +59,10 @@
 #include <futils/futils.h>
 #include <libpomp.h>
 #include <pdraw/pdraw.hpp>
+
+#ifdef _WIN32
+#	define PIPE_BUF 4096
+#endif /* _WIN32 */
 
 namespace Pdraw {
 

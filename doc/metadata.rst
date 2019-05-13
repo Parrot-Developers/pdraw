@@ -543,6 +543,17 @@ take-off position may be unknown.
 |             | "X-com-parrot-takeoff-loc";     |                      |          |          |      |    |          |          |
 |             | ISO 6709 Annex H string         |                      |          |          |      |    |          |          |
 +-------------+---------------------------------+----------------------+----------+----------+------+----+----------+----------+
+| Video       | Record: 'meta' with key         | "Standard",          | \-       | \-       | \-   | \- | >= 1.6.0 | >= 1.6.0 |
+| mode        | "com.parrot.video.mode"         | "Hyperlapse" or      |          |          |      |    |          |          |
++             +---------------------------------+ "SlowMotion"         +----------+----------+------+----+----------+----------+
+|             | Stream: private SDES item       |                      | \-       | \-       | \-   | \- | >= 1.6.0 | >= 1.6.0 |
+|             | ('PRIV', id=8) with prefix      |                      |          |          |      |    | (replay) | (replay) |
+|             | "video_mode"                    |                      |          |          |      |    |          |          |
++             +---------------------------------+                      +----------+----------+------+----+----------+----------+
+|             | Stream: SDP session or          |                      | \-       | \-       | \-   | \- | >= 1.6.0 | >= 1.6.0 |
+|             | media-level attribute           |                      |          |          |      |    | (replay) | (replay) |
+|             | "X-com-parrot-video-mode"       |                      |          |          |      |    |          |          |
++-------------+---------------------------------+----------------------+----------+----------+------+----+----------+----------+
 | Picture     | Record: 'meta' with key         | "78.00,49.00" or     | >= 4.1.0 | >= 1.4.0 | y    | y  | \-       | \-       |
 | HFOV /      | "com.parrot.picture.fov" or     | "78.00" and "49.00"  |          |          |      |    |          |          |
 | VFOV        | "com.parrot.picture.hfov"       | (deprecated)         |          |          |      |    |          |          |

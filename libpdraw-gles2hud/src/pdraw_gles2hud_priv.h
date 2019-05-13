@@ -55,6 +55,8 @@
 #		include <OpenGL/OpenGL.h>
 #		include <OpenGL/glext.h>
 #	endif
+#elif defined(_WIN32)
+#	include <epoxy/gl.h>
 #else
 #	define GLFW_INCLUDE_ES2
 #	include <GLFW/glfw3.h>

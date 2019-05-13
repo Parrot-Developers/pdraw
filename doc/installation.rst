@@ -34,7 +34,7 @@ installed in ``/``.
     # Install homebrew + Xcode first
     # Note: check the macOS version in the package name!
     $ installer -pkg /Library/Developer/CommandLineTools/Packages/macOS_SDK_headers_for_macOS_10.14.pkg -target /
-    $ brew install repo gpg python3 glfw sdl2
+    $ brew install repo gpg python3 glfw sdl2 pkg-config
 
 Clone the GroundSDK workspace
 -----------------------------

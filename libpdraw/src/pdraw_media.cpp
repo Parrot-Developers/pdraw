@@ -42,29 +42,6 @@ pthread_mutex_t Media::mMutex = PTHREAD_MUTEX_INITIALIZER;
 unsigned int Media::mIdCounter = 0;
 
 
-#define UTILS_H264_EXTENDED_SAR 255
-
-static const unsigned int pdraw_h264Sar[17][2] = {
-	{1, 1},
-	{1, 1},
-	{12, 11},
-	{10, 11},
-	{16, 11},
-	{40, 33},
-	{24, 11},
-	{20, 11},
-	{32, 11},
-	{80, 33},
-	{18, 11},
-	{15, 11},
-	{64, 33},
-	{160, 99},
-	{4, 3},
-	{3, 2},
-	{2, 1},
-};
-
-
 Media::Media(Session *session, Type t)
 {
 	mSession = session;
@@ -146,7 +123,7 @@ int VideoMedia::setSpsPps(const uint8_t *sps,
 			  size_t ppsSize)
 {
 	int ret;
-	struct h264_sps *_sps = NULL;
+	struct h264_info h264Info;
 
 	if (format != H264)
 		return -EPROTO;
@@ -160,7 +137,7 @@ int VideoMedia::setSpsPps(const uint8_t *sps,
 	mSps = (uint8_t *)malloc(spsSize);
 	if (mSps == NULL) {
 		ret = -ENOMEM;
-		goto exit;
+		goto error;
 	}
 	mSpsSize = spsSize;
 	memcpy(mSps, sps, mSpsSize);
@@ -170,75 +147,36 @@ int VideoMedia::setSpsPps(const uint8_t *sps,
 	mPps = (uint8_t *)malloc(ppsSize);
 	if (mPps == NULL) {
 		ret = -ENOMEM;
-		goto exit;
+		goto error;
 	}
 	mPpsSize = ppsSize;
 	memcpy(mPps, pps, mPpsSize);
 
-	_sps = (h264_sps *)calloc(1, sizeof(*_sps));
-	if (_sps == NULL) {
-		ULOG_ERRNO("calloc", ENOMEM);
-		ret = -ENOMEM;
-		goto exit;
-	}
-
-	ret = h264_parse_sps(sps, spsSize, _sps);
+	ret = h264_get_info(sps, spsSize, pps, ppsSize, &h264Info);
 	if (ret < 0) {
-		ULOG_ERRNO("h264_parse_sps", -ret);
-		goto exit;
+		ULOG_ERRNO("h264_get_info", -ret);
+		goto error;
 	}
 
-	struct h264_sps_derived sps_derived;
-	ret = h264_get_sps_derived(_sps, &sps_derived);
-	if (ret < 0) {
-		ULOG_ERRNO("h264_get_sps_derived", -ret);
-		goto exit;
-	}
+	width = h264Info.width;
+	height = h264Info.height;
+	cropLeft = h264Info.crop_left;
+	cropWidth = h264Info.crop_width;
+	cropTop = h264Info.crop_top;
+	cropHeight = h264Info.crop_height;
+	sarWidth = h264Info.sar_width;
+	sarHeight = h264Info.sar_height;
+	fullRange = h264Info.full_range;
 
-	width = sps_derived.PicWidthInSamplesLuma;
-	height = sps_derived.FrameHeightInMbs * 16;
-	cropLeft = 0;
-	cropWidth = width;
-	cropTop = 0;
-	cropHeight = height;
-	if (_sps->frame_cropping_flag) {
-		cropLeft = _sps->frame_crop_left_offset * sps_derived.CropUnitX;
-		cropWidth = width - _sps->frame_crop_right_offset *
-					    sps_derived.CropUnitX;
-		cropTop = _sps->frame_crop_top_offset * sps_derived.CropUnitY;
-		cropHeight = height - _sps->frame_crop_bottom_offset *
-					      sps_derived.CropUnitY;
-	}
+	return 0;
 
-	if (_sps->vui_parameters_present_flag)
-		fullRange = _sps->vui.video_full_range_flag;
-
-	sarWidth = 1;
-	sarHeight = 1;
-	if (_sps->vui.aspect_ratio_info_present_flag) {
-		if (_sps->vui.aspect_ratio_idc == UTILS_H264_EXTENDED_SAR) {
-			sarWidth = _sps->vui.sar_width;
-			sarHeight = _sps->vui.sar_height;
-		} else if (_sps->vui.aspect_ratio_idc <= 16) {
-			sarWidth = pdraw_h264Sar[_sps->vui.aspect_ratio_idc][0];
-			sarHeight =
-				pdraw_h264Sar[_sps->vui.aspect_ratio_idc][1];
-		}
-	}
-
-	ret = 0;
-
-exit:
-	free(_sps);
-	if (ret < 0) {
-		free(mSps);
-		free(mPps);
-		mSps = NULL;
-		mPps = NULL;
-		mSpsSize = 0;
-		mPpsSize = 0;
-	}
-
+error:
+	free(mSps);
+	free(mPps);
+	mSps = NULL;
+	mPps = NULL;
+	mSpsSize = 0;
+	mPpsSize = 0;
 	return ret;
 }
 

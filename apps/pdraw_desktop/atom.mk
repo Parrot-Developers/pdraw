@@ -6,6 +6,7 @@ include $(CLEAR_VARS)
 LOCAL_MODULE := pdraw
 LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer desktop application
 LOCAL_CATEGORY_PATH := multimedia
+LOCAL_CFLAGS := -D_USE_MATH_DEFINES
 LOCAL_SRC_FILES := \
 	pdraw_desktop.c \
 	pdraw_desktop_ext_tex.c \
@@ -30,6 +31,8 @@ else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-native")
 	-framework OpenGL
   LOCAL_LIBRARIES += \
 	glfw3
+else ifeq ("$(TARGET_OS)","windows")
+  LOCAL_LDLIBS += -lws2_32 -lepoxy
 endif
 
 include $(BUILD_EXECUTABLE)

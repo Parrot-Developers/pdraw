@@ -536,7 +536,7 @@ static void usage(char *prog_name)
 	       "  -F | --fullscreen                "
 	       "Start in full-screen mode\n\n"
 	       "  -H | --hud <type>                "
-	       "Enable the HUD (type: 1=piloting, 2=imaging)\n\n"
+	       "Enable the HUD (type: 0=piloting, 1=imaging)\n\n"
 	       "       --hmd <model>               "
 	       "HMD distortion correction with model id\n"
 	       "                                   "
@@ -583,6 +583,12 @@ int main(int argc, char **argv)
 	struct pdraw_desktop *self = NULL;
 
 	welcome();
+
+#ifdef _WIN32
+	/* Initialize winsock API */
+	WSADATA wsadata;
+	WSAStartup(MAKEWORD(2, 0), &wsadata);
+#endif /* _WIN32 */
 
 	self = calloc(1, sizeof(*self));
 	if (self == NULL) {
@@ -777,6 +783,11 @@ out:
 		free(self->remote_addr);
 		free(self);
 	}
+
+#ifdef _WIN32
+	/* Cleanup winsock API */
+	WSACleanup();
+#endif /* _WIN32 */
 
 	printf("\nHasta la vista, PDrAW!\n\n");
 	exit(status);

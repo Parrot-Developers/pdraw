@@ -204,7 +204,6 @@ int Source::addOutputPort(Media *media)
 	pthread_mutex_lock(&mMutex);
 
 	OutputPort port;
-	memset(&port, 0, sizeof(port));
 	port.media = media;
 	mOutputPorts.push_back(port);
 

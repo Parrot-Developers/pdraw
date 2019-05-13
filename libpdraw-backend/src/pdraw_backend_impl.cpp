@@ -38,6 +38,10 @@ ULOG_DECLARE_TAG(pdraw_backend);
 
 #include "pdraw_backend_impl.hpp"
 
+#ifdef _WIN32
+#	define PIPE_BUF 4096
+#endif /* _WIN32 */
+
 namespace PdrawBackend {
 
 

@@ -79,6 +79,8 @@ protected:
 		Media *media;
 		std::vector<Channel *> channels;
 		struct vbuf_pool *pool;
+
+		inline OutputPort() : media(NULL), pool(NULL) {}
 	};
 
 	Source(Listener *listener);
