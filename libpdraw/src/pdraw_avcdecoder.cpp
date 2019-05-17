@@ -106,7 +106,8 @@ AvcDecoder::AvcDecoder(Session *session,
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.implem = VDEC_DECODER_IMPLEM_AUTO;
 	cfg.encoding = VDEC_ENCODING_H264;
-	cfg.low_delay = 0; /* TODO */
+	cfg.low_delay =
+		(mSession->getSessionType() == PDRAW_SESSION_TYPE_LIVE) ? 1 : 0;
 #ifdef BCM_VIDEOCORE
 	cfg.preferred_output_format = VDEC_OUTPUT_FORMAT_MMAL_OPAQUE;
 #endif /* BCM_VIDEOCORE */

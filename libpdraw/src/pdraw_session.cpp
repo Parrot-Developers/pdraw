@@ -221,6 +221,14 @@ int pdrawVideoFrameToJson(const struct pdraw_video_frame *frame,
 }
 
 
+int pdrawPackYuvFrame(const struct pdraw_video_frame *in_frame,
+		      struct pdraw_video_frame *out_frame,
+		      struct vbuf_buffer *out_buf)
+{
+	return pdraw_packYUVFrame(in_frame, out_frame, out_buf);
+}
+
+
 Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener)
 {
 	int res;

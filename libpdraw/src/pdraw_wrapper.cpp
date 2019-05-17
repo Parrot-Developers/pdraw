@@ -1188,3 +1188,11 @@ int pdraw_video_frame_to_json(const struct pdraw_video_frame *frame,
 {
 	return pdraw_frameMetadataToJson(frame, jobj);
 }
+
+
+int pdraw_pack_yuv_frame(const struct pdraw_video_frame *in_frame,
+			 struct pdraw_video_frame *out_frame,
+			 struct vbuf_buffer *out_buf)
+{
+	return pdraw_packYUVFrame(in_frame, out_frame, out_buf);
+}

@@ -451,3 +451,122 @@ int pdraw_frameMetadataToJson(const struct pdraw_video_frame *,
 }
 
 #endif /* BUILD_JSON */
+
+
+int pdraw_packYUVFrame(const struct pdraw_video_frame *in_frame,
+		       struct pdraw_video_frame *out_frame,
+		       struct vbuf_buffer *out_buf)
+{
+	int res;
+	size_t capacity;
+	uint8_t *data;
+	unsigned int i;
+
+	ULOG_ERRNO_RETURN_ERR_IF(in_frame == NULL, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(out_frame == NULL, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(out_buf == NULL, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(
+		in_frame->format != PDRAW_VIDEO_MEDIA_FORMAT_YUV, EINVAL);
+
+	if ((in_frame->yuv.format != PDRAW_YUV_FORMAT_I420) &&
+	    (in_frame->yuv.format != PDRAW_YUV_FORMAT_NV12)) {
+		res = -ENOSYS;
+		ULOGE("unsupported YUV format (%d)", in_frame->yuv.format);
+		goto out;
+	}
+
+	if ((in_frame->yuv.width == 0) || (in_frame->yuv.height == 0) ||
+	    (in_frame->yuv.crop_width == 0) ||
+	    (in_frame->yuv.crop_height == 0)) {
+		res = -ENOSYS;
+		ULOGE("unsupported dimensions (%dx%d, crop %dx%d)",
+		      in_frame->yuv.width,
+		      in_frame->yuv.height,
+		      in_frame->yuv.crop_width,
+		      in_frame->yuv.crop_height);
+		goto out;
+	}
+
+	capacity = in_frame->yuv.crop_width * in_frame->yuv.crop_height * 3 / 2;
+
+	res = vbuf_set_capacity(out_buf, capacity);
+	if (res < 0) {
+		ULOG_ERRNO("vbuf_set_capacity", -res);
+		goto out;
+	}
+
+	data = vbuf_get_data(out_buf);
+	if (data == NULL) {
+		res = -EIO;
+		ULOG_ERRNO("vbuf_get_data", -res);
+		goto out;
+	}
+
+	*out_frame = *in_frame;
+	out_frame->yuv.width = in_frame->yuv.crop_width;
+	out_frame->yuv.height = in_frame->yuv.crop_height;
+	out_frame->yuv.crop_left = 0;
+	out_frame->yuv.crop_top = 0;
+	out_frame->yuv.crop_width = in_frame->yuv.crop_width;
+	out_frame->yuv.crop_height = in_frame->yuv.crop_height;
+	switch (in_frame->yuv.format) {
+	case PDRAW_YUV_FORMAT_I420:
+		out_frame->yuv.plane[0] = data;
+		out_frame->yuv.plane[1] =
+			data + out_frame->yuv.width * out_frame->yuv.height;
+		out_frame->yuv.plane[2] = data + out_frame->yuv.width *
+							 out_frame->yuv.height *
+							 5 / 4;
+		out_frame->yuv.stride[0] = out_frame->yuv.width;
+		out_frame->yuv.stride[1] = out_frame->yuv.width / 2;
+		out_frame->yuv.stride[2] = out_frame->yuv.width / 2;
+		for (i = 0; i < out_frame->yuv.height; i++) {
+			memcpy((uint8_t *)out_frame->yuv.plane[0] +
+				       i * out_frame->yuv.width,
+			       in_frame->yuv.plane[0] +
+				       i * in_frame->yuv.stride[0],
+			       out_frame->yuv.width);
+		}
+		for (i = 0; i < out_frame->yuv.height / 2; i++) {
+			memcpy((uint8_t *)out_frame->yuv.plane[1] +
+				       i * out_frame->yuv.width / 2,
+			       in_frame->yuv.plane[1] +
+				       i * in_frame->yuv.stride[1],
+			       out_frame->yuv.width / 2);
+			memcpy((uint8_t *)out_frame->yuv.plane[2] +
+				       i * out_frame->yuv.width / 2,
+			       in_frame->yuv.plane[2] +
+				       i * in_frame->yuv.stride[2],
+			       out_frame->yuv.width / 2);
+		}
+		break;
+	case PDRAW_YUV_FORMAT_NV12:
+		out_frame->yuv.plane[0] = data;
+		out_frame->yuv.plane[1] =
+			data + out_frame->yuv.width * out_frame->yuv.height;
+		out_frame->yuv.plane[2] = NULL;
+		out_frame->yuv.stride[0] = out_frame->yuv.width;
+		out_frame->yuv.stride[1] = out_frame->yuv.width;
+		out_frame->yuv.stride[2] = 0;
+		for (i = 0; i < out_frame->yuv.height; i++) {
+			memcpy((uint8_t *)out_frame->yuv.plane[0] +
+				       i * out_frame->yuv.width,
+			       in_frame->yuv.plane[0] +
+				       i * in_frame->yuv.stride[0],
+			       out_frame->yuv.width);
+		}
+		for (i = 0; i < out_frame->yuv.height / 2; i++) {
+			memcpy((uint8_t *)out_frame->yuv.plane[1] +
+				       i * out_frame->yuv.width,
+			       in_frame->yuv.plane[1] +
+				       i * in_frame->yuv.stride[1],
+			       out_frame->yuv.width);
+		}
+		break;
+	default:
+		break;
+	}
+
+out:
+	return res;
+}

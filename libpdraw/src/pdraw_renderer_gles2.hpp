@@ -137,7 +137,7 @@ protected:
 
 	static void timerCb(struct pomp_timer *timer, void *userdata);
 
-	static void queueFdEventCb(int fd, uint32_t revents, void *userdata);
+	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
 	int removeQueueFdFromPomp(struct vbuf_queue *queue);
 

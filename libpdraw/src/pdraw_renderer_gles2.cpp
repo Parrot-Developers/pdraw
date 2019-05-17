@@ -356,62 +356,15 @@ void Gles2Renderer::completeStop(void)
 
 
 /* Called on the loop thread */
-void Gles2Renderer::queueFdEventCb(int fd, uint32_t revents, void *userdata)
+void Gles2Renderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 {
 	Gles2Renderer *renderer = (Gles2Renderer *)userdata;
-	struct pomp_evt *evt = NULL;
-	int res = 0, evt_fd;
+	int res = 0;
 
 	if (renderer == NULL) {
 		ULOGE("invalid renderer pointer");
 		return;
 	}
-
-	renderer->Sink::lock();
-
-	Media *media = renderer->findInputMedia(renderer->mLastAddedMedia);
-	if (media == NULL) {
-		renderer->Sink::unlock();
-		ULOGE("failed to find media");
-		return;
-	}
-	InputPort *port = renderer->getInputPort(media);
-	if (port == NULL) {
-		renderer->Sink::unlock();
-		ULOGE("failed to get input port");
-		return;
-	}
-	struct vbuf_queue *queue = port->channel->getQueue();
-	if (queue == NULL) {
-		renderer->Sink::unlock();
-		ULOGE("failed to get input queue");
-		return;
-	}
-	evt = vbuf_queue_get_evt(queue);
-	if (evt == NULL) {
-		renderer->Sink::unlock();
-		ULOGE("bad queue evt");
-		return;
-	}
-	evt_fd = pomp_evt_get_fd(evt);
-	if (evt_fd < 0) {
-		renderer->Sink::unlock();
-		ULOG_ERRNO("pomp_evt_get_fd", -evt_fd);
-		return;
-	}
-	if (evt_fd != fd) {
-		renderer->Sink::unlock();
-		ULOGE("unexpected evt fd (%d vs. %d)", evt_fd, fd);
-		return;
-	}
-	res = pomp_evt_clear(evt);
-	if (res < 0) {
-		renderer->Sink::unlock();
-		ULOG_ERRNO("pomp_evt_clear failed", -res);
-		return;
-	}
-
-	renderer->Sink::unlock();
 
 	pthread_mutex_lock(&renderer->mListenerMutex);
 	if (renderer->mRendererListener) {
@@ -594,7 +547,6 @@ int Gles2Renderer::addInputMedia(Media *media)
 {
 	struct pomp_loop *loop = NULL;
 	struct pomp_evt *evt = NULL;
-	int evt_fd = -1;
 	int res = 0;
 
 	VideoMedia *videoMedia = dynamic_cast<VideoMedia *>(media);
@@ -642,14 +594,6 @@ int Gles2Renderer::addInputMedia(Media *media)
 		goto error;
 	}
 
-	evt_fd = pomp_evt_get_fd(evt);
-	if (evt_fd < 0) {
-		Sink::unlock();
-		ULOG_ERRNO("pomp_evt_get_fd", -evt_fd);
-		res = -ENODEV;
-		goto error;
-	}
-
 	loop = mSession->getLoop();
 	if (loop == NULL) {
 		Sink::unlock();
@@ -658,11 +602,10 @@ int Gles2Renderer::addInputMedia(Media *media)
 		goto error;
 	}
 
-	res = pomp_loop_add(
-		loop, evt_fd, POMP_FD_EVENT_IN, &queueFdEventCb, this);
+	res = pomp_evt_attach_to_loop(evt, loop, &queueEventCb, this);
 	if (res < 0) {
 		Sink::unlock();
-		ULOG_ERRNO("pomp_loop_add", -res);
+		ULOG_ERRNO("pomp_evt_attach_to_loop", -res);
 		goto error;
 	}
 
@@ -685,7 +628,6 @@ int Gles2Renderer::removeQueueFdFromPomp(struct vbuf_queue *queue)
 	int ret;
 	struct pomp_loop *loop = NULL;
 	struct pomp_evt *evt = NULL;
-	int evt_fd = -1;
 
 	loop = mSession->getLoop();
 	if (loop == NULL) {
@@ -699,15 +641,9 @@ int Gles2Renderer::removeQueueFdFromPomp(struct vbuf_queue *queue)
 		return -ENODEV;
 	}
 
-	evt_fd = pomp_evt_get_fd(evt);
-	if (evt_fd < 0) {
-		ULOG_ERRNO("pomp_evt_get_fd", -evt_fd);
-		return -ENODEV;
-	}
-
-	ret = pomp_loop_remove(loop, evt_fd);
+	ret = pomp_evt_detach_from_loop(evt, loop);
 	if (ret < 0) {
-		ULOG_ERRNO("pomp_loop_remove", -ret);
+		ULOG_ERRNO("pomp_evt_detach_from_loop", -ret);
 		return ret;
 	}
 

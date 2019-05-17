@@ -101,6 +101,11 @@ int pdraw_frameMetadataToJsonStr(const struct pdraw_video_frame *mdata,
 				 unsigned int len);
 
 
+int pdraw_packYUVFrame(const struct pdraw_video_frame *in_frame,
+		       struct pdraw_video_frame *out_frame,
+		       struct vbuf_buffer *out_buf);
+
+
 static inline char *xstrdup(const char *s)
 {
 	return s == NULL ? NULL : strdup(s);

@@ -95,6 +95,7 @@ InetSocket::InetSocket(Session *session,
 	mLocalAddress.sin_family = AF_INET;
 	res = inet_pton(AF_INET, localAddress.c_str(), &mLocalAddress.sin_addr);
 	if (res <= 0) {
+		res = -errno;
 		ULOG_ERRNO("inet_pton", -res);
 		goto error;
 	}
@@ -103,6 +104,7 @@ InetSocket::InetSocket(Session *session,
 	res = inet_pton(
 		AF_INET, remoteAddress.c_str(), &mRemoteAddress.sin_addr);
 	if (res <= 0) {
+		res = -errno;
 		ULOG_ERRNO("inet_pton", -res);
 		goto error;
 	}

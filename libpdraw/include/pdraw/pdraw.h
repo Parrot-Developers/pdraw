@@ -1389,6 +1389,22 @@ pdraw_video_frame_to_json_str(const struct pdraw_video_frame *frame,
 			      unsigned int len);
 
 
+/**
+ * Pack an YUV video frame structure that points to non-contiguous planes into
+ * a contiguous buffer.
+ * This function changes the the output buffer capacity if necessary, copies
+ * the input video frame into the output buffer and fills the output video
+ * frame structure that will point the the output buffer.
+ * @param in_frame: pointer to a non-contiguous video frame structure
+ * @param out_frame: pointer to an output video frame structure
+ * @param out_buf: pointer to an output buffer
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_pack_yuv_frame(const struct pdraw_video_frame *in_frame,
+				   struct pdraw_video_frame *out_frame,
+				   struct vbuf_buffer *out_buf);
+
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

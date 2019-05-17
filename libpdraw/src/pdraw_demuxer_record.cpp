@@ -95,6 +95,7 @@ RecordDemuxer::RecordDemuxer(Session *session,
 	mLastFrameOutputTime = 0;
 	mLastFrameDuration = 0;
 	mLastOutputError = 0;
+	mTimescale = 0;
 	mDuration = 0;
 	mCurrentTime = 0;
 	mPendingSeekTs = -1;
