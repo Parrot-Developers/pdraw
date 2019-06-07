@@ -6,4 +6,5 @@ PDrAW Documentation
    overview
    installation
    userguide
-   metadata
+   video-metadata
+   photo-metadata

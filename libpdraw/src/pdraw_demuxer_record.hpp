@@ -34,8 +34,10 @@
 #include "pdraw_demuxer.hpp"
 
 #include <string>
+#include <vector>
 
 #include <h264/h264.h>
+#include <h265/h265.h>
 #include <libmp4.h>
 #include <libpomp.h>
 
@@ -45,18 +47,20 @@ class RecordDemuxer : public Demuxer {
 public:
 	RecordDemuxer(Session *session,
 		      Element::Listener *elementListener,
-		      Source::Listener *sourceListener,
-		      Demuxer::Listener *demuxerListener);
+		      CodedSource::Listener *sourceListener,
+		      IPdraw::IDemuxer *demuxer,
+		      IPdraw::IDemuxer::Listener *demuxerListener,
+		      const std::string &fileName);
 
 	~RecordDemuxer(void);
-
-	int setup(const std::string &fileName);
 
 	int start(void);
 
 	int stop(void);
 
 	int play(float speed = 1.0f);
+
+	bool isReadyToPlay(void);
 
 	bool isPaused(void);
 
@@ -79,9 +83,107 @@ public:
 	}
 
 private:
-	int fetchSessionMetadata(void);
+	class VideoMedia : public Loggable {
+	public:
+		VideoMedia(RecordDemuxer *demuxer);
 
-	int addVideoTrack(struct mp4_track_info *tkinfo);
+		~VideoMedia(void);
+
+		int setup(struct mp4_track_info *tkinfo);
+
+		void play(void);
+
+		void previous(void);
+
+		void next(void);
+
+		void seek(int64_t delta, bool exact);
+
+		void seekTo(uint64_t timestamp, bool exact);
+
+		void stop(void);
+
+	private:
+		void sendDownstreamEvent(CodedChannel::DownstreamEvent event);
+
+		static void h264UserDataSeiCb(
+			struct h264_ctx *ctx,
+			const uint8_t *buf,
+			size_t len,
+			const struct h264_sei_user_data_unregistered *sei,
+			void *userdata);
+
+		static void
+		h264PicTimingSeiCb(struct h264_ctx *ctx,
+				   const uint8_t *buf,
+				   size_t len,
+				   const struct h264_sei_pic_timing *sei,
+				   void *userdata);
+
+		static void h265UserDataSeiCb(
+			struct h265_ctx *ctx,
+			const uint8_t *buf,
+			size_t len,
+			const struct h265_sei_user_data_unregistered *sei,
+			void *userdata);
+
+		static void
+		h265TimeCodeSeiCb(struct h265_ctx *ctx,
+				  const uint8_t *buf,
+				  size_t len,
+				  const struct h265_sei_time_code *sei,
+				  void *userdata);
+
+		static void h265MdcvSeiCb(
+			struct h265_ctx *ctx,
+			const uint8_t *buf,
+			size_t len,
+			const struct h265_sei_mastering_display_colour_volume
+				*sei,
+			void *userdata);
+
+		static void
+		h265CllSeiCb(struct h265_ctx *ctx,
+			     const uint8_t *buf,
+			     size_t len,
+			     const struct h265_sei_content_light_level *sei,
+			     void *userdata);
+
+		static void timerCb(struct pomp_timer *timer, void *userdata);
+
+		RecordDemuxer *mDemuxer;
+		bool mFirstFrame;
+		struct pomp_timer *mTimer;
+		struct h264_reader *mH264Reader;
+		struct h265_reader *mH265Reader;
+		CodedVideoMedia **mVideoMedias;
+		unsigned int mNbVideoMedias;
+		unsigned int mVideoTrackId;
+		char *mMetadataMimeType;
+		size_t mMetadataBufferSize;
+		uint8_t *mMetadataBuffer;
+		uint32_t mTimescale;
+		int64_t mAvgOutputInterval;
+		uint64_t mLastFrameOutputTime;
+		int64_t mLastFrameDuration;
+		int64_t mLastOutputError;
+		int64_t mPendingSeekTs;
+		bool mPendingSeekExact;
+		bool mPendingSeekToPrevSample;
+		bool mPendingSeekToNextSample;
+		int mSeekResponse;
+		struct mbuf_coded_video_frame *mCurrentFrame;
+		struct mbuf_mem *mCurrentMem;
+		uint64_t mCurrentFrameCaptureTs;
+		uint64_t mDecodingTs;
+		uint64_t mDecodingTsInc;
+		unsigned int mFrameIndex;
+		static const struct h264_ctx_cbs mH264ReaderCbs;
+		static const struct h265_ctx_cbs mH265ReaderCbs;
+	};
+
+	int fetchSessionMetadata(unsigned int trackId,
+				 struct vmeta_session *meta);
 
 	int flush(void);
 
@@ -89,59 +191,18 @@ private:
 
 	void completeTeardown(void);
 
-	void onChannelFlushed(Channel *channel);
+	void onChannelFlushed(CodedChannel *channel);
 
-	void onChannelUnlink(Channel *channel);
-
-	static int openAvcDecoder(RecordDemuxer *demuxer);
-
-	static void
-	h264UserDataSeiCb(struct h264_ctx *ctx,
-			  const uint8_t *buf,
-			  size_t len,
-			  const struct h264_sei_user_data_unregistered *sei,
-			  void *userdata);
-
-	static void h264PicTimingSeiCb(struct h264_ctx *ctx,
-				       const uint8_t *buf,
-				       size_t len,
-				       const struct h264_sei_pic_timing *sei,
-				       void *userdata);
-
-	static void timerCb(struct pomp_timer *timer, void *userdata);
+	void onChannelUnlink(CodedChannel *channel);
 
 	std::string mFileName;
-	bool mFirstFrame;
 	bool mRunning;
 	bool mFrameByFrame;
 	struct mp4_demux *mDemux;
-	struct pomp_timer *mTimer;
-	struct h264_reader *mH264Reader;
-	uint32_t mTimescale;
+	std::vector<RecordDemuxer::VideoMedia *> mVideoMedias;
 	uint64_t mDuration;
 	uint64_t mCurrentTime;
-	VideoMedia *mVideoMedia;
-	unsigned int mVideoTrackId;
-	char *mMetadataMimeType;
-	size_t mMetadataBufferSize;
-	uint8_t *mMetadataBuffer;
-	int64_t mAvgOutputInterval;
-	uint64_t mLastFrameOutputTime;
-	int64_t mLastFrameDuration;
-	int64_t mLastOutputError;
-	int64_t mPendingSeekTs;
-	bool mPendingSeekExact;
-	bool mPendingSeekToPrevSample;
-	bool mPendingSeekToNextSample;
-	struct vbuf_buffer *mCurrentBuffer;
-	uint64_t mCurrentBufferCaptureTs;
-	uint64_t mDecodingTs;
-	uint64_t mDecodingTsInc;
 	float mSpeed;
-	float mHfov;
-	float mVfov;
-	int mSeekResponse;
-	static const struct h264_ctx_cbs mH264Cbs;
 	int mChannelsFlushing;
 };
 

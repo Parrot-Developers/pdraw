@@ -45,6 +45,7 @@ struct pdraw_backend_app {
 	pthread_cond_t cond;
 	int cond_created;
 	struct pdraw_backend *pdraw;
+	struct pdraw_demuxer *demuxer;
 	int open_resp;
 	int open_resp_status;
 	int ready_to_play_changed;
@@ -53,38 +54,21 @@ struct pdraw_backend_app {
 	int play_resp_status;
 	int close_resp;
 	int close_resp_status;
+	int stop_resp;
+	int stop_resp_status;
 };
 
 
 static void
-open_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
+stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 	pthread_mutex_lock(&self->mutex);
-	self->open_resp = 1;
-	self->open_resp_status = status;
+	self->stop_resp = 1;
+	self->stop_resp_status = status;
 	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
-}
-
-
-static void
-close_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
-{
-	struct pdraw_backend_app *self = userdata;
-	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
-	pthread_mutex_lock(&self->mutex);
-	self->close_resp = 1;
-	self->close_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
-	pthread_cond_signal(&self->cond);
-}
-
-
-static void unrecoverable_error_cb(struct pdraw_backend *pdraw, void *userdata)
-{
-	ULOGI("%s", __func__);
 }
 
 
@@ -105,7 +89,62 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 
 
 static void
-ready_to_play_cb(struct pdraw_backend *pdraw, int ready, void *userdata)
+socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
+{
+	ULOGI("%s fd=%d", __func__, fd);
+}
+
+
+static struct pdraw_backend_cbs be_cbs = {
+	.stop_resp = &stop_resp_cb,
+	.media_added = &media_added_cb,
+	.media_removed = &media_removed_cb,
+	.socket_created = &socket_created_cb,
+};
+
+
+static void open_resp_cb(struct pdraw_backend *pdraw,
+			 struct pdraw_demuxer *demuxer,
+			 int status,
+			 void *userdata)
+{
+	struct pdraw_backend_app *self = userdata;
+	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
+	pthread_mutex_lock(&self->mutex);
+	self->open_resp = 1;
+	self->open_resp_status = status;
+	pthread_mutex_unlock(&self->mutex);
+	pthread_cond_signal(&self->cond);
+}
+
+
+static void close_resp_cb(struct pdraw_backend *pdraw,
+			  struct pdraw_demuxer *demuxer,
+			  int status,
+			  void *userdata)
+{
+	struct pdraw_backend_app *self = userdata;
+	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
+	pthread_mutex_lock(&self->mutex);
+	self->close_resp = 1;
+	self->close_resp_status = status;
+	pthread_mutex_unlock(&self->mutex);
+	pthread_cond_signal(&self->cond);
+}
+
+
+static void unrecoverable_error_cb(struct pdraw_backend *pdraw,
+				   struct pdraw_demuxer *demuxer,
+				   void *userdata)
+{
+	ULOGI("%s", __func__);
+}
+
+
+static void ready_to_play_cb(struct pdraw_backend *pdraw,
+			     struct pdraw_demuxer *demuxer,
+			     int ready,
+			     void *userdata)
 {
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s ready=%d", __func__, ready);
@@ -117,14 +156,17 @@ ready_to_play_cb(struct pdraw_backend *pdraw, int ready, void *userdata)
 }
 
 
-static void
-end_of_range_cb(struct pdraw_backend *pdraw, uint64_t timestamp, void *userdata)
+static void end_of_range_cb(struct pdraw_backend *pdraw,
+			    struct pdraw_demuxer *demuxer,
+			    uint64_t timestamp,
+			    void *userdata)
 {
 	ULOGI("%s timestamp=%" PRIu64, __func__, timestamp);
 }
 
 
 static void play_resp_cb(struct pdraw_backend *pdraw,
+			 struct pdraw_demuxer *demuxer,
 			 int status,
 			 uint64_t timestamp,
 			 float speed,
@@ -146,6 +188,7 @@ static void play_resp_cb(struct pdraw_backend *pdraw,
 
 
 static void pause_resp_cb(struct pdraw_backend *pdraw,
+			  struct pdraw_demuxer *demuxer,
 			  int status,
 			  uint64_t timestamp,
 			  void *userdata)
@@ -159,6 +202,7 @@ static void pause_resp_cb(struct pdraw_backend *pdraw,
 
 
 static void seek_resp_cb(struct pdraw_backend *pdraw,
+			 struct pdraw_demuxer *demuxer,
 			 int status,
 			 uint64_t timestamp,
 			 float speed,
@@ -173,25 +217,15 @@ static void seek_resp_cb(struct pdraw_backend *pdraw,
 }
 
 
-static void
-socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
-{
-	ULOGI("%s fd=%d", __func__, fd);
-}
-
-
-static struct pdraw_backend_cbs be_cbs = {
+static struct pdraw_backend_demuxer_cbs demuxer_cbs = {
 	.open_resp = &open_resp_cb,
 	.close_resp = &close_resp_cb,
 	.unrecoverable_error = &unrecoverable_error_cb,
-	.media_added = &media_added_cb,
-	.media_removed = &media_removed_cb,
 	.ready_to_play = &ready_to_play_cb,
 	.end_of_range = &end_of_range_cb,
 	.play_resp = &play_resp_cb,
 	.pause_resp = &pause_resp_cb,
 	.seek_resp = &seek_resp_cb,
-	.socket_created = &socket_created_cb,
 };
 
 
@@ -255,9 +289,10 @@ int main(int argc, char **argv)
 	ULOGI("created");
 
 	/* Open URL or file */
-	res = pdraw_be_open_url(self->pdraw, argv[1]);
+	res = pdraw_be_demuxer_new_from_url(
+		self->pdraw, argv[1], &demuxer_cbs, self, &self->demuxer);
 	if (res < 0) {
-		ULOG_ERRNO("pdraw_be_open_url", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_new_from_url", -res);
 		status = EXIT_FAILURE;
 		goto out;
 	}
@@ -273,7 +308,7 @@ int main(int argc, char **argv)
 		status = EXIT_FAILURE;
 		goto out;
 	}
-	ULOGI("opened");
+	ULOGI("demuxer opened");
 
 	/* Wait for 'ready to play' event and then play */
 	pthread_mutex_lock(&self->mutex);
@@ -283,9 +318,9 @@ int main(int argc, char **argv)
 	self->ready_to_play_changed = 0;
 	pthread_mutex_unlock(&self->mutex);
 	if (res) {
-		res = pdraw_be_play(self->pdraw);
+		res = pdraw_be_demuxer_play(self->pdraw, self->demuxer);
 		if (res < 0) {
-			ULOG_ERRNO("pdraw_be_play", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_play", -res);
 			status = EXIT_FAILURE;
 			goto out;
 		}
@@ -307,10 +342,10 @@ int main(int argc, char **argv)
 	/* Play for 10s */
 	sleep(10);
 
-	/* Close */
-	res = pdraw_be_close(self->pdraw);
+	/* Close the demuxer */
+	res = pdraw_be_demuxer_close(self->pdraw, self->demuxer);
 	if (res < 0) {
-		ULOG_ERRNO("pdraw_be_close", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_close", -res);
 		status = EXIT_FAILURE;
 		goto out;
 	}
@@ -326,11 +361,44 @@ int main(int argc, char **argv)
 		status = EXIT_FAILURE;
 		goto out;
 	}
-	ULOGI("closed");
+	ULOGI("demuxer closed");
+	res = pdraw_be_demuxer_destroy(self->pdraw, self->demuxer);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_demuxer_destroy", -res);
+	self->demuxer = NULL;
+
+	/* Stop PDrAW */
+	res = pdraw_be_stop(self->pdraw);
+	if (res < 0) {
+		ULOG_ERRNO("pdraw_be_stop", -res);
+		status = EXIT_FAILURE;
+		goto out;
+	}
+	pthread_mutex_lock(&self->mutex);
+	while (!self->stop_resp)
+		pthread_cond_wait(&self->cond, &self->mutex);
+	res = self->stop_resp_status;
+	self->stop_resp_status = 0;
+	self->stop_resp = 0;
+	pthread_mutex_unlock(&self->mutex);
+	if (res < 0) {
+		ULOG_ERRNO("stop_resp", -res);
+		status = EXIT_FAILURE;
+		goto out;
+	}
+	ULOGI("stopped");
 
 out:
 	if (self != NULL) {
 		if (self->pdraw != NULL) {
+			if (self->demuxer != NULL) {
+				res = pdraw_be_demuxer_destroy(self->pdraw,
+							       self->demuxer);
+				if (res < 0) {
+					ULOG_ERRNO("pdraw_be_demuxer_destroy",
+						   -res);
+				}
+			}
 			res = pdraw_be_destroy(self->pdraw);
 			if (res < 0)
 				ULOG_ERRNO("pdraw_be_destroy", -res);

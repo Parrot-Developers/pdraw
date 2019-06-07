@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * H.264/AVC decoder interface
+ * Video decoder element
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,27 +28,25 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_AVCDECODER_HPP_
-#define _PDRAW_AVCDECODER_HPP_
+#ifndef _PDRAW_DECODER_VIDEO_HPP_
+#define _PDRAW_DECODER_VIDEO_HPP_
 
 #include "pdraw_element.hpp"
-#include "pdraw_sink.hpp"
-#include "pdraw_source.hpp"
 
 #include <inttypes.h>
 
-#include <video-buffers/vbuf.h>
+#include <media-buffers/mbuf_coded_video_frame.h>
 #include <video-decode/vdec.h>
 
 namespace Pdraw {
 
-class AvcDecoder : public Element, public Sink, public Source {
+class VideoDecoder : public CodedToRawFilterElement {
 public:
-	AvcDecoder(Session *session,
-		   Element::Listener *elementListener,
-		   Source::Listener *sourceListener);
+	VideoDecoder(Session *session,
+		     Element::Listener *elementListener,
+		     RawSource::Listener *sourceListener);
 
-	~AvcDecoder(void);
+	~VideoDecoder(void);
 
 	int start(void);
 
@@ -61,63 +59,49 @@ public:
 	void resync(void);
 
 private:
+	int createOutputMedia(struct vdef_raw_frame *frameInfo,
+			      RawVideoMedia::Frame &frame);
+
 	int flush(void);
 
 	void completeResync(void);
 
 	int tryStop(void);
 
-	void sendDownstreamEvent(Channel::DownstreamEvent event);
+	void onChannelQueue(CodedChannel *channel,
+			    struct mbuf_coded_video_frame *buf);
 
-	void onChannelQueue(Channel *channel, vbuf_buffer *buf);
+	void onChannelFlush(CodedChannel *channel);
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlushed(RawChannel *channel);
 
-	void onChannelFlushed(Channel *channel);
+	void onChannelTeardown(CodedChannel *channel);
 
-	void onChannelTeardown(Channel *channel);
-
-	void onChannelUnlink(Channel *channel);
-
-	void onChannelSos(Channel *channel);
-
-	void onChannelEos(Channel *channel);
-
-	void onChannelReconfigure(Channel *channel);
-
-	void onChannelTimeout(Channel *channel);
-
-	void onChannelPhotoTrigger(Channel *channel);
+	void onChannelUnlink(RawChannel *channel);
 
 	static void frameOutputCb(struct vdec_decoder *dec,
 				  int status,
-				  struct vbuf_buffer *out_buf,
+				  struct mbuf_raw_video_frame *out_frame,
 				  void *userdata);
 
 	static void flushCb(struct vdec_decoder *dec, void *userdata);
 
 	static void stopCb(struct vdec_decoder *dec, void *userdata);
 
-	VideoMedia *mInputMedia;
-	VideoMedia *mOutputMedia;
-	struct vbuf_pool *mInputBufferPool;
-	struct vbuf_queue *mInputBufferQueue;
+	CodedVideoMedia *mInputMedia;
+	RawVideoMedia *mOutputMedia;
+	struct mbuf_pool *mInputBufferPool;
+	struct mbuf_coded_video_frame_queue *mInputBufferQueue;
 	struct vdec_decoder *mVdec;
-	unsigned int mFrameIndex;
-	VideoMedia::H264BitstreamFormat mInputFormat;
-	enum vdec_input_format mVdecInputFormat;
-	static const struct vdec_cbs mDecoderCbs;
 	bool mIsFlushed;
-	bool mIsSync;
 	bool mInputChannelFlushPending;
 	bool mResyncPending;
 	bool mVdecFlushPending;
 	bool mVdecStopPending;
 	int mCompleteStopPendingCount;
-
-	uint64_t mLastTimestamp;
+	static const struct vdec_cbs mDecoderCbs;
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_AVCDECODER_HPP_ */
+#endif /* !_PDRAW_DECODER_VIDEO_HPP_ */

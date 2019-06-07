@@ -200,8 +200,7 @@ pdraw_gles2hud_set_config(struct pdraw_gles2hud *self,
  * @param type: HUD type to render
  * @param content_pos: content position (video rectangle)
  * @param view_proj_mat: view * projection matrix
- * @param session_info: PDrAW session metadata
- * @param session_meta: peer session metadata
+ * @param media_info: media information
  * @param frame_meta: frame metadata
  * @param frame_extra: frame extra metadata
  * @param ctrl_meta: controller metadata
@@ -214,9 +213,8 @@ pdraw_gles2hud_render(struct pdraw_gles2hud *self,
 		      const struct pdraw_rect *render_pos,
 		      const struct pdraw_rect *content_pos,
 		      const float view_proj_mat[16],
-		      const struct pdraw_session_info *session_info,
-		      const struct vmeta_session *session_meta,
-		      const struct vmeta_frame *frame_meta,
+		      const struct pdraw_media_info *media_info,
+		      struct vmeta_frame *frame_meta,
 		      const struct pdraw_video_frame_extra *frame_extra,
 		      const struct pdraw_gles2hud_controller_meta *ctrl_meta,
 		      const struct pdraw_gles2hud_drone_meta *drone_meta);

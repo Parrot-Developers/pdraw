@@ -28,6 +28,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define ULOG_TAG pdraw_rndvidvcgl
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 #include "pdraw_renderer_videocoreegl.hpp"
 #include "pdraw_session.hpp"
 
@@ -37,24 +41,31 @@
 #	include <time.h>
 #	include <unistd.h>
 
-#	define ULOG_TAG pdraw_rndvidvcgl
-#	include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_rndvidvcgl);
-
 namespace Pdraw {
 
 
 VideoCoreEglRenderer::VideoCoreEglRenderer(
 	Session *session,
 	Element::Listener *listener,
-	IPdraw::VideoRendererListener *rndListener) :
-		Gles2Renderer(session, listener, rndListener)
+	IPdraw::IVideoRenderer *renderer,
+	IPdraw::IVideoRenderer::Listener *rndListener,
+	unsigned int mediaId,
+	const struct pdraw_rect *renderPos,
+	const struct pdraw_video_renderer_params *params,
+	struct egl_display *eglDisplay) :
+		Gles2Renderer(session,
+			      listener,
+			      renderer,
+			      rndListener,
+			      mediaId,
+			      nullptr,
+			      nullptr,
+			      nullptr)
 {
-	Element::mName = "VideoCoreEglRenderer";
-	Sink::mName = "VideoCoreEglRenderer";
+	Element::setClassName(__func__);
 	mDisplay = EGL_NO_DISPLAY;
-	setVideoMediaFormatCaps(VideoMedia::Format::OPAQUE);
-	setVideoMediaSubFormatCaps(VideoMedia::OpaqueFormat::MMAL);
+	setRawVideoMediaFormatCaps(VDEF_BCM_MMAL_OPAQUE);
+	setup(renderPos, params, eglDisplay);
 }
 
 
@@ -66,8 +77,8 @@ int VideoCoreEglRenderer::setup(
 	const struct pdraw_video_renderer_params *params,
 	struct egl_display *eglDisplay)
 {
-	if (eglDisplay == NULL) {
-		ULOGE("invalid EGL display");
+	if (eglDisplay == nullptr) {
+		PDRAW_LOGE("invalid EGL display");
 		return -EINVAL;
 	}
 	mDisplay = (EGLDisplay)eglDisplay;
@@ -81,38 +92,27 @@ int VideoCoreEglRenderer::setup(
 
 
 int VideoCoreEglRenderer::loadVideoFrame(const uint8_t *data,
-					 VideoMedia::Frame *frame)
+					 RawVideoMedia::Frame *frame)
 {
 	int ret;
 
-	if (frame->format != VideoMedia::Format::OPAQUE) {
-		ULOGE("unsupported frame format");
-		return -ENOSYS;
-	}
-	if (frame->opaqueFrame.format != VideoMedia::OpaqueFormat::MMAL) {
-		ULOGE("unsupported frame sub-format");
-		return -ENOSYS;
-	}
-
 	mColorConversion = GLES2_VIDEO_COLOR_CONVERSION_NONE;
 
-	if ((frame->opaqueFrame.width == 0) ||
-	    (frame->opaqueFrame.sarWidth == 0) ||
-	    (frame->opaqueFrame.height == 0) ||
-	    (frame->opaqueFrame.sarHeight == 0)) {
-		ULOGE("invalid frame dimensions");
+	if (vdef_dim_is_null(&frame->frame.info.resolution) ||
+	    vdef_dim_is_null(&frame->frame.info.sar)) {
+		PDRAW_LOGE("invalid frame dimensions");
 		return -EINVAL;
 	}
 
 	ret = mGles2Video->loadFrame(data,
-				     NULL,
-				     NULL,
-				     frame->opaqueFrame.width,
-				     frame->opaqueFrame.height,
+				     nullptr,
+				     nullptr,
+				     frame->frame.info.resolution.width,
+				     frame->frame.info.resolution.height,
 				     mColorConversion,
 				     (struct egl_display *)mDisplay);
 	if (ret < 0)
-		ULOG_ERRNO("gles2Video->loadFrame", -ret);
+		PDRAW_LOG_ERRNO("gles2Video->loadFrame", -ret);
 
 	return 0;
 }
@@ -120,15 +120,14 @@ int VideoCoreEglRenderer::loadVideoFrame(const uint8_t *data,
 
 int VideoCoreEglRenderer::loadExternalVideoFrame(
 	const uint8_t *data,
-	VideoMedia::Frame *frame,
-	const struct pdraw_session_info *session_info,
-	const struct vmeta_session *session_meta)
+	RawVideoMedia::Frame *frame,
+	const struct pdraw_media_info *media_info)
 {
 	return -ENOSYS;
 }
 
 
-int VideoCoreEglRenderer::renderVideoFrame(VideoMedia::Frame *frame,
+int VideoCoreEglRenderer::renderVideoFrame(RawVideoMedia::Frame *frame,
 					   const struct pdraw_rect *renderPos,
 					   struct pdraw_rect *contentPos,
 					   Eigen::Matrix4f &viewProjMat)
@@ -137,14 +136,14 @@ int VideoCoreEglRenderer::renderVideoFrame(VideoMedia::Frame *frame,
 		frame->opaqueFrame.fullRange ? GLES2_VIDEO_YUV_FULL_RANGE
 					     : GLES2_VIDEO_YUV_LIMITED_RANGE;
 
-	return mGles2Video->renderFrame(&frame->opaqueFrame.stride,
-					frame->opaqueFrame.height,
-					frame->opaqueFrame.cropLeft,
-					frame->opaqueFrame.cropTop,
-					frame->opaqueFrame.cropWidth,
-					frame->opaqueFrame.cropHeight,
-					frame->opaqueFrame.sarWidth,
-					frame->opaqueFrame.sarHeight,
+	return mGles2Video->renderFrame(&frame->frame.plane_stride,
+					frame->frame.info.resolution.height,
+					0,
+					0,
+					frame->frame.info.resolution.width,
+					frame->frame.info.resolution.height,
+					frame->frame.info.sar.width,
+					frame->frame.info.sar.height,
 					renderPos,
 					contentPos,
 					viewProjMat,
@@ -156,7 +155,7 @@ int VideoCoreEglRenderer::renderVideoFrame(VideoMedia::Frame *frame,
 
 
 int VideoCoreEglRenderer::renderExternalVideoFrame(
-	VideoMedia::Frame *frame,
+	RawVideoMedia::Frame *frame,
 	const struct pdraw_rect *renderPos,
 	struct pdraw_rect *contentPos,
 	Eigen::Matrix4f &viewProjMat)

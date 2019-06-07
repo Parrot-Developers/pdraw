@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Pipeline source to sink channel
+ * Pipeline source to sink channel for coded video
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,25 +28,29 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_CHANNEL_HPP_
-#define _PDRAW_CHANNEL_HPP_
+#ifndef _PDRAW_CHANNEL_CODED_VIDEO_HPP_
+#define _PDRAW_CHANNEL_CODED_VIDEO_HPP_
 
 #include <inttypes.h>
 
 #include <libpomp.h>
-#include <video-buffers/vbuf.h>
+#include <media-buffers/mbuf_coded_video_frame.h>
+#include <video-defs/vdefs.h>
 
 namespace Pdraw {
 
-class Channel {
+class CodedChannel {
 public:
-	friend class Source;
-	friend class Sink;
-	friend class AvcDecoder;
+	friend class CodedSource;
+	friend class CodedSink;
+	friend class VideoDecoder;
+	friend class VideoEncoder;
 	friend class RecordDemuxer;
 	friend class StreamDemuxer;
-	friend class Gles2Renderer;
-	friend class VideoSink;
+	friend class Muxer;
+	friend class RecordMuxer;
+	friend class RtmpStreamMuxer;
+	friend class ExternalCodedVideoSink;
 
 	enum DownstreamEvent {
 		/* flush required */
@@ -86,11 +90,11 @@ public:
 	public:
 		virtual ~SinkListener(void) {}
 
-		virtual void onChannelQueue(Channel *channel,
-					    vbuf_buffer *buf) = 0;
+		virtual void onChannelQueue(CodedChannel *channel,
+					    mbuf_coded_video_frame *frame) = 0;
 
 		virtual void
-		onChannelDownstreamEvent(Channel *channel,
+		onChannelDownstreamEvent(CodedChannel *channel,
 					 struct pomp_msg *event) = 0;
 	};
 
@@ -98,7 +102,7 @@ public:
 	public:
 		virtual ~SourceListener(void) {}
 
-		virtual void onChannelUpstreamEvent(Channel *channel,
+		virtual void onChannelUpstreamEvent(CodedChannel *channel,
 						    struct pomp_msg *event) = 0;
 	};
 
@@ -106,11 +110,11 @@ public:
 
 	static const char *getUpstreamEventStr(UpstreamEvent val);
 
-	Channel(SinkListener *sinkListener);
+	CodedChannel(SinkListener *sinkListener);
 
-	~Channel(void) {}
+	~CodedChannel(void) {}
 
-	int queue(vbuf_buffer *buf);
+	int queue(mbuf_coded_video_frame *frame);
 
 	int flush(void);
 
@@ -144,19 +148,22 @@ public:
 		return mKey;
 	}
 
-	uint32_t getMediaTypeCaps(void)
+	int getCodedVideoMediaFormatCaps(const struct vdef_coded_format **caps)
 	{
-		return mMediaTypeCaps;
+		if (!caps)
+			return -EINVAL;
+		*caps = mCodedVideoMediaFormatCaps;
+		return mCodedVideoMediaFormatCapsCount;
 	}
 
-	uint32_t getVideoMediaFormatCaps(void)
+	bool onlySupportsByteStream()
 	{
-		return mVideoMediaFormatCaps;
-	}
-
-	uint32_t getVideoMediaSubFormatCaps(void)
-	{
-		return mVideoMediaSubFormatCaps;
+		for (int i = 0; i < mCodedVideoMediaFormatCapsCount; i++) {
+			if (mCodedVideoMediaFormatCaps[i].data_format !=
+			    VDEF_CODED_DATA_FORMAT_BYTE_STREAM)
+				return false;
+		}
+		return true;
 	}
 
 protected:
@@ -165,37 +172,29 @@ protected:
 		mKey = key;
 	}
 
-	void setMediaTypeCaps(uint32_t caps)
+	void setCodedVideoMediaFormatCaps(const struct vdef_coded_format *caps,
+					  int count)
 	{
-		mMediaTypeCaps = caps;
+		mCodedVideoMediaFormatCaps = caps;
+		mCodedVideoMediaFormatCapsCount = count;
 	}
 
-	void setVideoMediaFormatCaps(uint32_t caps)
-	{
-		mVideoMediaFormatCaps = caps;
-	}
-
-	void setVideoMediaSubFormatCaps(uint32_t caps)
-	{
-		mVideoMediaSubFormatCaps = caps;
-	}
-
-	struct vbuf_queue *getQueue(void)
+	struct mbuf_coded_video_frame_queue *getQueue(void)
 	{
 		return mQueue;
 	}
 
-	void setQueue(struct vbuf_queue *queue)
+	void setQueue(struct mbuf_coded_video_frame_queue *queue)
 	{
 		mQueue = queue;
 	}
 
-	struct vbuf_pool *getPool(void)
+	struct mbuf_pool *getPool(void)
 	{
 		return mPool;
 	}
 
-	void setPool(struct vbuf_pool *pool)
+	void setPool(struct mbuf_pool *pool)
 	{
 		mPool = pool;
 	}
@@ -204,14 +203,13 @@ private:
 	SinkListener *mSinkListener;
 	SourceListener *mSourceListener;
 	void *mKey;
-	uint32_t mMediaTypeCaps;
-	uint32_t mVideoMediaFormatCaps;
-	uint32_t mVideoMediaSubFormatCaps;
-	struct vbuf_queue *mQueue;
-	struct vbuf_pool *mPool;
+	const struct vdef_coded_format *mCodedVideoMediaFormatCaps;
+	int mCodedVideoMediaFormatCapsCount;
+	struct mbuf_coded_video_frame_queue *mQueue;
+	struct mbuf_pool *mPool;
 	bool mFlushPending;
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_CHANNEL_HPP_ */
+#endif /* !_PDRAW_CHANNEL_CODED_VIDEO_HPP_ */

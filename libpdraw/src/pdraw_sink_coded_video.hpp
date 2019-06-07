@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Pipeline sink element
+ * Pipeline sink element for coded video
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,108 +28,94 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SINK_HPP_
-#define _PDRAW_SINK_HPP_
+#ifndef _PDRAW_SINK_CODED_VIDEO_HPP_
+#define _PDRAW_SINK_CODED_VIDEO_HPP_
 
-#include "pdraw_channel.hpp"
+#include "pdraw_channel_coded_video.hpp"
 #include "pdraw_media.hpp"
 
-#include <string>
 #include <vector>
 
 namespace Pdraw {
 
-class Sink : public Channel::SinkListener {
+class CodedSink : public CodedChannel::SinkListener {
 public:
-	virtual ~Sink(void);
+	virtual ~CodedSink(void);
 
 	void lock(void);
 
 	void unlock(void);
 
-	uint32_t getMediaTypeCaps(void)
-	{
-		return mMediaTypeCaps;
-	}
+	virtual std::string &getName(void) = 0;
 
-	uint32_t getVideoMediaFormatCaps(void)
+	int getCodedVideoMediaFormatCaps(const struct vdef_coded_format **caps)
 	{
-		return mVideoMediaFormatCaps;
-	}
-
-	uint32_t getVideoMediaSubFormatCaps(void)
-	{
-		return mVideoMediaSubFormatCaps;
+		if (!caps)
+			return -EINVAL;
+		*caps = mCodedVideoMediaFormatCaps;
+		return mCodedVideoMediaFormatCapsCount;
 	}
 
 	unsigned int getInputMediaCount(void);
 
-	Media *getInputMedia(unsigned int index);
+	CodedVideoMedia *getInputMedia(unsigned int index);
 
-	Media *findInputMedia(Media *media);
+	CodedVideoMedia *findInputMedia(CodedVideoMedia *media);
 
-	virtual int addInputMedia(Media *media);
+	virtual int addInputMedia(CodedVideoMedia *media);
 
-	virtual int removeInputMedia(Media *media);
+	virtual int removeInputMedia(CodedVideoMedia *media);
 
-	Channel *getInputChannel(Media *media);
+	CodedChannel *getInputChannel(CodedVideoMedia *media);
 
 protected:
 	struct InputPort {
-		Media *media;
-		Channel *channel;
+		CodedVideoMedia *media;
+		CodedChannel *channel;
 	};
 
-	Sink(uint32_t mediaTypeCaps,
-	     uint32_t videoMediaFormatCaps,
-	     uint32_t videoMediaSubFormatCaps);
+	CodedSink(unsigned int maxInputMedias,
+		  const struct vdef_coded_format *codedVideoMediaFormatCaps,
+		  int codedVideoMediaFormatCapsCount);
 
-	void setMediaTypeCaps(uint32_t caps)
+	void setCodedVideoMediaFormatCaps(const struct vdef_coded_format *caps,
+					  int count)
 	{
-		mMediaTypeCaps = caps;
+		mCodedVideoMediaFormatCaps = caps;
+		mCodedVideoMediaFormatCapsCount = count;
 	}
 
-	void setVideoMediaFormatCaps(uint32_t caps)
-	{
-		mVideoMediaFormatCaps = caps;
-	}
-
-	void setVideoMediaSubFormatCaps(uint32_t caps)
-	{
-		mVideoMediaSubFormatCaps = caps;
-	}
-
-	InputPort *getInputPort(Media *media);
+	InputPort *getInputPort(CodedVideoMedia *media);
 
 	virtual int removeInputMedias(void);
 
-	virtual void onChannelQueue(Channel *channel, vbuf_buffer *buf);
+	virtual void onChannelQueue(CodedChannel *channel,
+				    struct mbuf_coded_video_frame *frame);
 
-	virtual void onChannelDownstreamEvent(Channel *channel,
+	virtual void onChannelDownstreamEvent(CodedChannel *channel,
 					      struct pomp_msg *event);
 
-	virtual void onChannelFlush(Channel *channel);
+	virtual void onChannelFlush(CodedChannel *channel);
 
-	virtual void onChannelTeardown(Channel *channel);
+	virtual void onChannelTeardown(CodedChannel *channel);
 
-	virtual void onChannelSos(Channel *channel);
+	virtual void onChannelSos(CodedChannel *channel);
 
-	virtual void onChannelEos(Channel *channel);
+	virtual void onChannelEos(CodedChannel *channel);
 
-	virtual void onChannelReconfigure(Channel *channel);
+	virtual void onChannelReconfigure(CodedChannel *channel);
 
-	virtual void onChannelTimeout(Channel *channel);
+	virtual void onChannelTimeout(CodedChannel *channel);
 
-	virtual void onChannelPhotoTrigger(Channel *channel);
+	virtual void onChannelPhotoTrigger(CodedChannel *channel);
 
 	pthread_mutex_t mMutex;
-	std::string mName;
+	unsigned int mMaxInputMedias;
 	std::vector<InputPort> mInputPorts;
-	uint32_t mMediaTypeCaps;
-	uint32_t mVideoMediaFormatCaps;
-	uint32_t mVideoMediaSubFormatCaps;
+	const struct vdef_coded_format *mCodedVideoMediaFormatCaps;
+	int mCodedVideoMediaFormatCapsCount;
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_SINK_HPP_ */
+#endif /* !_PDRAW_SINK_CODED_VIDEO_HPP_ */

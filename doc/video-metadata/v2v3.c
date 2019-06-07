@@ -66,6 +66,12 @@ enum automation_anim
     AUTOMATION_ANIMATION_POSITION_TWISTUP, /* Postion twist up animation in progress */
 };
 
+enum thermal_calib_state {
+	THERMAL_CALIB_STATE_DONE = 0,
+	THERMAL_CALIB_STATE_REQUESTED,
+	THERMAL_CALIB_STATE_IN_PROGRESS,
+};
+
 struct metadata_v2_base
 {
     uint16_t id;                   /* Identifier = 0x5032 */
@@ -191,4 +197,26 @@ struct metadata_automation_ext
                                         *  - bit 2: angle locked (0 = unlocked, 1 = locked)
                                         *  - bit 3-7: reserved for future use */
     uint16_t reserved;                 /* Reserved for future use */
+};
+
+struct metadata_thermal_ext
+{
+    uint16_t ext_id;               /* Extension structure id = 0x4534 */
+    uint16_t ext_length;           /* Extension structure size in 32 bits words excluding the
+                                    * ext_id and ext_size fields */
+    int16_t  min_x;                /* Minimum temperature spot x-coordinate (relative to frame width), Q11.5 */
+    int16_t  min_y;                /* Minimum temperature spot y-coordinate (relative to frame height), Q11.5 */
+    int16_t  min_temp;             /* Minimum temperature spot temperature value (K) Q11.5 */
+    int16_t  max_x;                /* Maximum temperature spot x-coordinate (relative to frame width), Q11.5 */
+    int16_t  max_y;                /* Maximum temperature spot y-coordinate (relative to frame height), Q11.5 */
+    int16_t  max_temp;             /* Maximum temperature spot temperature value (K) Q11.5 */
+    int16_t  probe_x;              /* Probe temperature x-coordinate (relative to frame width), Q11.5 */
+    int16_t  probe_y;              /* Probe temperature y-coordinate (relative to frame height), Q11.5 */
+    int16_t  probe_temp;           /* Probe temperature temperature value (K) Q11.5 */
+    uint8_t  calib_state;          /* Calibration state */
+    uint8_t  flags;                /* Validity flags
+                                    *  - bit 0: minimum temperature spot (0 = invalid, 1 = valid)
+                                    *  - bit 1: maximum temperature spot (0 = invalid, 1 = valid)
+                                    *  - bit 2: probe temperature (0 = invalid, 1 = valid)
+                                    *  - bit 3-7: reserved for future use */
 };

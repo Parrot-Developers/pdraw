@@ -28,24 +28,23 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_sink.hpp"
+#define ULOG_TAG pdraw_sink_coded_video
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#include "pdraw_sink_coded_video.hpp"
 
 #include <errno.h>
-
-#define ULOG_TAG pdraw_sink
-#include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_sink);
 
 namespace Pdraw {
 
 
-Sink::Sink(uint32_t mediaTypeCaps,
-	   uint32_t videoMediaFormatCaps,
-	   uint32_t videoMediaSubFormatCaps) :
-		mName(""),
-		mMediaTypeCaps(mediaTypeCaps),
-		mVideoMediaFormatCaps(videoMediaFormatCaps),
-		mVideoMediaSubFormatCaps(videoMediaSubFormatCaps)
+CodedSink::CodedSink(unsigned int maxInputMedias,
+		     const struct vdef_coded_format *codedVideoMediaFormatCaps,
+		     int codedVideoMediaFormatCapsCount) :
+		mMaxInputMedias(maxInputMedias),
+		mCodedVideoMediaFormatCaps(codedVideoMediaFormatCaps),
+		mCodedVideoMediaFormatCapsCount(codedVideoMediaFormatCapsCount)
 {
 	int res;
 	pthread_mutexattr_t attr;
@@ -79,7 +78,7 @@ error:
 }
 
 
-Sink::~Sink(void)
+CodedSink::~CodedSink(void)
 {
 	int ret = removeInputMedias();
 	if (ret < 0)
@@ -95,19 +94,19 @@ Sink::~Sink(void)
 }
 
 
-void Sink::lock(void)
+void CodedSink::lock(void)
 {
 	pthread_mutex_lock(&mMutex);
 }
 
 
-void Sink::unlock(void)
+void CodedSink::unlock(void)
 {
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-unsigned int Sink::getInputMediaCount(void)
+unsigned int CodedSink::getInputMediaCount(void)
 {
 	pthread_mutex_lock(&mMutex);
 	unsigned int ret = mInputPorts.size();
@@ -116,20 +115,21 @@ unsigned int Sink::getInputMediaCount(void)
 }
 
 
-Media *Sink::getInputMedia(unsigned int index)
+CodedVideoMedia *CodedSink::getInputMedia(unsigned int index)
 {
 	pthread_mutex_lock(&mMutex);
-	Media *ret = (index < mInputPorts.size()) ? mInputPorts.at(index).media
-						  : NULL;
+	CodedVideoMedia *ret = (index < mInputPorts.size())
+				       ? mInputPorts.at(index).media
+				       : nullptr;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-Media *Sink::findInputMedia(Media *media)
+CodedVideoMedia *CodedSink::findInputMedia(CodedVideoMedia *media)
 {
 	pthread_mutex_lock(&mMutex);
-	Media *ret = NULL;
+	CodedVideoMedia *ret = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -145,15 +145,15 @@ Media *Sink::findInputMedia(Media *media)
 }
 
 
-Sink::InputPort *Sink::getInputPort(Media *media)
+CodedSink::InputPort *CodedSink::getInputPort(CodedVideoMedia *media)
 {
-	if (media == NULL) {
+	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
-		return NULL;
+		return nullptr;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	InputPort *ret = NULL;
+	InputPort *ret = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -170,74 +170,56 @@ Sink::InputPort *Sink::getInputPort(Media *media)
 }
 
 
-int Sink::addInputMedia(Media *media)
+int CodedSink::addInputMedia(CodedVideoMedia *media)
 {
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
-	if (getInputPort(media) != NULL) {
+	if (getInputPort(media) != nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		return -EEXIST;
 	}
-	if ((mMediaTypeCaps & media->type) == 0) {
+	if (mInputPorts.size() >= mMaxInputMedias) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("media type %s not supported",
-		      Media::getMediaTypeStr(media->type));
-		return -ENOSYS;
+		return -ENOBUFS;
 	}
-	if (media->type == Media::Type::VIDEO) {
-		VideoMedia *videoMedia = dynamic_cast<VideoMedia *>(media);
-		if (videoMedia == NULL) {
-			pthread_mutex_unlock(&mMutex);
-			ULOGE("invalid video media");
-			return -EPROTO;
-		}
-		if ((mVideoMediaFormatCaps & videoMedia->format) == 0) {
-			pthread_mutex_unlock(&mMutex);
-			ULOGE("video media format %s not supported",
-			      VideoMedia::getVideoFormatStr(
-				      videoMedia->format));
-			return -ENOSYS;
-		}
-		if ((videoMedia->subFormat !=
-		     VideoMedia::SubFormat::SUBFORMAT_UNKNOWN) &&
-		    ((mVideoMediaSubFormatCaps & videoMedia->subFormat) == 0)) {
-			pthread_mutex_unlock(&mMutex);
-			ULOGE("video media sub-format %s not supported",
-			      VideoMedia::getVideoSubFormatStr(
-				      videoMedia->subFormat));
-			return -ENOSYS;
-		}
+	if (!vdef_coded_format_intersect(&media->format,
+					 mCodedVideoMediaFormatCaps,
+					 mCodedVideoMediaFormatCapsCount)) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: coded video media"
+		      " format " VDEF_CODED_FORMAT_TO_STR_FMT " not supported",
+		      getName().c_str(),
+		      VDEF_CODED_FORMAT_TO_STR_ARG(&media->format));
+		return -ENOSYS;
 	}
 
 	InputPort port;
 	memset(&port, 0, sizeof(port));
 	port.media = media;
-	port.channel = new Channel(this);
-	if (port.channel == NULL) {
+	port.channel = new CodedChannel(this);
+	if (port.channel == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOGE("failed to create channel");
 		return -ENOMEM;
 	}
-	port.channel->setMediaTypeCaps(mMediaTypeCaps);
-	port.channel->setVideoMediaFormatCaps(mVideoMediaFormatCaps);
-	port.channel->setVideoMediaSubFormatCaps(mVideoMediaSubFormatCaps);
+	port.channel->setCodedVideoMediaFormatCaps(
+		mCodedVideoMediaFormatCaps, mCodedVideoMediaFormatCapsCount);
 
 	mInputPorts.push_back(port);
 	pthread_mutex_unlock(&mMutex);
 
-	ULOGI("'%s': link media id=%d type=%s",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type));
+	ULOGI("%s: link media name=%s",
+	      getName().c_str(),
+	      media->getName().c_str());
 	return 0;
 }
 
 
-int Sink::removeInputMedia(Media *media)
+int CodedSink::removeInputMedia(CodedVideoMedia *media)
 {
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
@@ -250,15 +232,14 @@ int Sink::removeInputMedia(Media *media)
 			continue;
 		}
 		found = true;
-		ULOGI("'%s': unlink media id=%d type=%s",
-		      mName.c_str(),
-		      media->id,
-		      Media::getMediaTypeStr(media->type));
+		ULOGI("%s: unlink media name=%s",
+		      getName().c_str(),
+		      media->getName().c_str());
 		int ret = p->channel->unlink();
 		if (ret < 0)
 			ULOG_ERRNO("channel->unlink", -ret);
 		delete p->channel;
-		p->channel = NULL;
+		p->channel = nullptr;
 		mInputPorts.erase(p);
 		break;
 	}
@@ -271,21 +252,20 @@ int Sink::removeInputMedia(Media *media)
 }
 
 
-int Sink::removeInputMedias(void)
+int CodedSink::removeInputMedias(void)
 {
 	pthread_mutex_lock(&mMutex);
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		ULOGI("'%s': unlink media id=%d type=%s",
-		      mName.c_str(),
-		      p->media->id,
-		      Media::getMediaTypeStr(p->media->type));
+		ULOGI("%s: unlink media name=%s",
+		      getName().c_str(),
+		      p->media->getName().c_str());
 		int ret = p->channel->unlink();
 		if (ret < 0)
 			ULOG_ERRNO("channel->unlink", -ret);
 		delete p->channel;
-		p->channel = NULL;
+		p->channel = nullptr;
 		p++;
 	}
 
@@ -296,66 +276,67 @@ int Sink::removeInputMedias(void)
 }
 
 
-Channel *Sink::getInputChannel(Media *media)
+CodedChannel *CodedSink::getInputChannel(CodedVideoMedia *media)
 {
-	if (media == NULL) {
+	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
-		return NULL;
+		return nullptr;
 	}
 
 	pthread_mutex_lock(&mMutex);
 	InputPort *port = getInputPort(media);
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
-		return NULL;
+		return nullptr;
 	}
 
-	Channel *ret = port->channel;
+	CodedChannel *ret = port->channel;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-void Sink::onChannelQueue(Channel *channel, vbuf_buffer *buf)
+void CodedSink::onChannelQueue(CodedChannel *channel,
+			       struct mbuf_coded_video_frame *frame)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
-	if (buf == NULL) {
-		ULOG_ERRNO("buf", EINVAL);
+	if (frame == nullptr) {
+		ULOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	struct vbuf_queue *queue = channel->getQueue();
-	if (queue == NULL) {
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue();
+	if (queue == nullptr) {
 		ULOGE("invalid queue");
 		return;
 	}
 
-	int ret = vbuf_queue_push(queue, buf);
+	int ret = mbuf_coded_video_frame_queue_push(queue, frame);
 	if (ret < 0) {
-		ULOG_ERRNO("vbuf_queue_push", -ret);
+		ULOG_ERRNO("mbuf_coded_video_frame_queue_push", -ret);
 		return;
 	}
 }
 
 
-void Sink::onChannelFlush(Channel *channel)
+void CodedSink::onChannelFlush(CodedChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
-	struct vbuf_queue *queue = channel->getQueue();
-	if (queue == NULL) {
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue();
+	if (queue == nullptr) {
 		ULOGE("invalid queue");
 		return;
 	}
 
-	int ret = vbuf_queue_flush(queue);
+	int ret = mbuf_coded_video_frame_queue_flush(queue);
 	if (ret < 0) {
-		ULOG_ERRNO("vbuf_queue_flush", -ret);
+		ULOG_ERRNO("mbuf_coded_video_frame_queue_flush", -ret);
 		return;
 	}
 
@@ -365,15 +346,15 @@ void Sink::onChannelFlush(Channel *channel)
 }
 
 
-void Sink::onChannelTeardown(Channel *channel)
+void CodedSink::onChannelTeardown(CodedChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	Media *media = NULL;
+	CodedVideoMedia *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -385,7 +366,7 @@ void Sink::onChannelTeardown(Channel *channel)
 		break;
 	}
 
-	if (media == NULL) {
+	if (media == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
@@ -402,15 +383,15 @@ void Sink::onChannelTeardown(Channel *channel)
 }
 
 
-void Sink::onChannelSos(Channel *channel)
+void CodedSink::onChannelSos(CodedChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	Media *media = NULL;
+	CodedVideoMedia *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -422,16 +403,15 @@ void Sink::onChannelSos(Channel *channel)
 		break;
 	}
 
-	if (media == NULL) {
+	if (media == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
 
-	ULOGD("'%s': channel SOS media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGD("%s: channel SOS media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 
 	/* Nothing to do here, the function should be
@@ -441,15 +421,15 @@ void Sink::onChannelSos(Channel *channel)
 }
 
 
-void Sink::onChannelEos(Channel *channel)
+void CodedSink::onChannelEos(CodedChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	Media *media = NULL;
+	CodedVideoMedia *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -461,16 +441,15 @@ void Sink::onChannelEos(Channel *channel)
 		break;
 	}
 
-	if (media == NULL) {
+	if (media == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
 
-	ULOGD("'%s': channel EOS media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGD("%s: channel EOS media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 
 	/* Nothing to do here, the function should be
@@ -480,15 +459,15 @@ void Sink::onChannelEos(Channel *channel)
 }
 
 
-void Sink::onChannelReconfigure(Channel *channel)
+void CodedSink::onChannelReconfigure(CodedChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	Media *media = NULL;
+	CodedVideoMedia *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -500,16 +479,15 @@ void Sink::onChannelReconfigure(Channel *channel)
 		break;
 	}
 
-	if (media == NULL) {
+	if (media == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
 
-	ULOGD("'%s': channel reconfigure media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGD("%s: channel reconfigure media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 
 	/* Nothing to do here, the function should be
@@ -519,15 +497,15 @@ void Sink::onChannelReconfigure(Channel *channel)
 }
 
 
-void Sink::onChannelTimeout(Channel *channel)
+void CodedSink::onChannelTimeout(CodedChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	Media *media = NULL;
+	CodedVideoMedia *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -539,16 +517,15 @@ void Sink::onChannelTimeout(Channel *channel)
 		break;
 	}
 
-	if (media == NULL) {
+	if (media == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
 
-	ULOGD("'%s': channel timeout media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGD("%s: channel timeout media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 
 	/* Nothing to do here, the function should be
@@ -558,15 +535,15 @@ void Sink::onChannelTimeout(Channel *channel)
 }
 
 
-void Sink::onChannelPhotoTrigger(Channel *channel)
+void CodedSink::onChannelPhotoTrigger(CodedChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	Media *media = NULL;
+	CodedVideoMedia *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -578,17 +555,16 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 		break;
 	}
 
-	if (media == NULL) {
+	if (media == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
 
-	ULOGD("'%s': channel photo_trigger "
-	      "media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGD("%s: channel photo_trigger "
+	      "media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 
 	/* Nothing to do here, the function should be
@@ -598,33 +574,34 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 }
 
 
-void Sink::onChannelDownstreamEvent(Channel *channel, struct pomp_msg *event)
+void CodedSink::onChannelDownstreamEvent(CodedChannel *channel,
+					 struct pomp_msg *event)
 {
-	ULOGD("'%s': channel downstream event %s",
-	      mName.c_str(),
-	      Channel::getDownstreamEventStr(
-		      (Channel::DownstreamEvent)pomp_msg_get_id(event)));
+	ULOGD("%s: channel downstream event %s",
+	      getName().c_str(),
+	      CodedChannel::getDownstreamEventStr(
+		      (CodedChannel::DownstreamEvent)pomp_msg_get_id(event)));
 
 	switch (pomp_msg_get_id(event)) {
-	case Channel::DownstreamEvent::FLUSH:
+	case CodedChannel::DownstreamEvent::FLUSH:
 		onChannelFlush(channel);
 		break;
-	case Channel::DownstreamEvent::TEARDOWN:
+	case CodedChannel::DownstreamEvent::TEARDOWN:
 		onChannelTeardown(channel);
 		break;
-	case Channel::DownstreamEvent::SOS:
+	case CodedChannel::DownstreamEvent::SOS:
 		onChannelSos(channel);
 		break;
-	case Channel::DownstreamEvent::EOS:
+	case CodedChannel::DownstreamEvent::EOS:
 		onChannelEos(channel);
 		break;
-	case Channel::DownstreamEvent::RECONFIGURE:
+	case CodedChannel::DownstreamEvent::RECONFIGURE:
 		onChannelReconfigure(channel);
 		break;
-	case Channel::DownstreamEvent::TIMEOUT:
+	case CodedChannel::DownstreamEvent::TIMEOUT:
 		onChannelTimeout(channel);
 		break;
-	case Channel::DownstreamEvent::PHOTO_TRIGGER:
+	case CodedChannel::DownstreamEvent::PHOTO_TRIGGER:
 		onChannelPhotoTrigger(channel);
 		break;
 	default:

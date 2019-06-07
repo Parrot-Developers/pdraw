@@ -26,13 +26,19 @@ LOCAL_LIBRARIES := \
 	libulog \
 	libvideo-metadata
 
-ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
+ifeq ($(TARGET_CPU),$(filter %$(TARGET_CPU),s905d3 s905x3))
+  LOCAL_LDLIBS += -lGLESv2
+  LOCAL_LIBRARIES += \
+	am-gpu
+else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
+  LOCAL_CFLAGS += -DUSE_GLFW3
   LOCAL_LIBRARIES += \
 	glfw3 \
 	opengl
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
   LOCAL_LDLIBS += -lGLESv2
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-native")
+  LOCAL_CFLAGS += -DUSE_GLFW3
   LOCAL_LDLIBS += \
 	-framework OpenGL
   LOCAL_LIBRARIES += \

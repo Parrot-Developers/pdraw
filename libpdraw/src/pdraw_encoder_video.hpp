@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Application video sink
+ * Video encoder element
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,70 +28,76 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SINK_VIDEO_HPP_
-#define _PDRAW_SINK_VIDEO_HPP_
+#ifndef _PDRAW_ENCODER_VIDEO_HPP_
+#define _PDRAW_ENCODER_VIDEO_HPP_
 
 #include "pdraw_element.hpp"
-#include "pdraw_sink.hpp"
 
 #include <inttypes.h>
 
-#include <pdraw/pdraw.hpp>
-#include <video-buffers/vbuf.h>
+#include <media-buffers/mbuf_coded_video_frame.h>
+#include <media-buffers/mbuf_raw_video_frame.h>
+#include <video-encode/venc.h>
 
 namespace Pdraw {
 
-
-class VideoSink : public Element, public Sink {
+class VideoEncoder : public RawToCodedFilterElement {
 public:
-	VideoSink(Session *session,
-		  unsigned int requiredFormat,
-		  Element::Listener *elementListener);
+	VideoEncoder(Session *session,
+		     Element::Listener *elementListener,
+		     CodedSource::Listener *sourceListener);
 
-	~VideoSink(void);
-
-	int setup(IPdraw::VideoSinkListener *listener,
-		  const struct pdraw_video_sink_params *params);
+	~VideoEncoder(void);
 
 	int start(void);
 
 	int stop(void);
 
-	int resync(void);
+	void completeFlush(void);
 
-
-	int flushDone(void);
-
-	struct vbuf_queue *getQueue(void)
-	{
-		return mInputBufferQueue;
-	}
-
-	IPdraw::VideoSinkListener *getVideoSinkListener(void)
-	{
-		return mVideoSinkListener;
-	}
+	void completeStop(void);
 
 private:
+	int createOutputMedia(struct vdef_coded_frame *frame_info,
+			      CodedVideoMedia::Frame &frame);
+
 	int flush(void);
 
-	int channelTeardown(Channel *channel);
+	int tryStop(void);
 
-	void onChannelQueue(Channel *channel, vbuf_buffer *buf);
+	void onChannelQueue(RawChannel *channel,
+			    struct mbuf_raw_video_frame *frame);
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlush(RawChannel *channel);
 
-	void onChannelTeardown(Channel *channel);
+	void onChannelFlushed(CodedChannel *channel);
 
-	IPdraw::VideoSinkListener *mVideoSinkListener;
-	struct pdraw_video_sink_params mParams;
-	VideoMedia *mInputMedia;
-	struct vbuf_queue *mInputBufferQueue;
+	void onChannelTeardown(RawChannel *channel);
+
+	void onChannelUnlink(CodedChannel *channel);
+
+	static void frameOutputCb(struct venc_encoder *enc,
+				  int status,
+				  struct mbuf_coded_video_frame *out_frame,
+				  void *userdata);
+
+	static void flushCb(struct venc_encoder *enc, void *userdata);
+
+	static void stopCb(struct venc_encoder *enc, void *userdata);
+
+	RawVideoMedia *mInputMedia;
+	CodedVideoMedia *mOutputMedia;
+	struct mbuf_pool *mInputBufferPool;
+	struct mbuf_raw_video_frame_queue *mInputBufferQueue;
+	struct venc_encoder *mVenc;
 	bool mIsFlushed;
 	bool mInputChannelFlushPending;
-	bool mTearingDown;
+	bool mVencFlushPending;
+	bool mVencStopPending;
+	int mCompleteStopPendingCount;
+	static const struct venc_cbs mEncoderCbs;
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_SINK_VIDEO_HPP_ */
+#endif /* !_PDRAW_ENCODER_VIDEO_HPP_ */

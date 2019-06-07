@@ -62,8 +62,10 @@
 #endif
 
 #include <SDL.h>
+#include <futils/futils.h>
 #include <pdraw/pdraw_backend.h>
 #include <pdraw/pdraw_gles2hud.h>
+#include <video-defs/vdefs.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,17 +75,19 @@ extern "C" {
 #define APP_NAME "PDrAW"
 #define RTSP_LIVE_URI "live"
 #define DEFAULT_ZEBRAS_THRES (0.95f)
+#define MAX_RENDERERS 9
 
 
 enum pdraw_desktop_event {
 	PDRAW_DESKTOP_EVENT_OPEN = 0,
 	PDRAW_DESKTOP_EVENT_OPEN_RESP,
-	PDRAW_DESKTOP_EVENT_CLOSE_RESP,
 	PDRAW_DESKTOP_EVENT_UNRECOVERABLE_ERROR,
 	PDRAW_DESKTOP_EVENT_READY_TO_PLAY,
 	PDRAW_DESKTOP_EVENT_PLAY_RESP,
 	PDRAW_DESKTOP_EVENT_PAUSE_RESP,
 	PDRAW_DESKTOP_EVENT_SEEK_RESP,
+	PDRAW_DESKTOP_EVENT_STOP_RESP,
+	PDRAW_DESKTOP_EVENT_ADD_RENDERER,
 };
 
 
@@ -103,6 +107,7 @@ struct pdraw_desktop {
 	unsigned int window_width;
 	unsigned int window_height;
 	int fullscreen;
+	int always_on_top;
 
 	int enable_hud;
 	enum pdraw_gles2hud_type hud_type;
@@ -114,8 +119,14 @@ struct pdraw_desktop {
 
 	int stopped;
 	struct pdraw_backend *pdraw;
-	struct pdraw_video_renderer *renderer;
-	struct pdraw_gles2hud *gles2hud;
+	struct pdraw_demuxer *demuxer;
+	char *demuxer_media_list;
+	unsigned int demuxer_media_count;
+	unsigned int renderer_media_id[MAX_RENDERERS];
+	struct pdraw_video_renderer *renderer[MAX_RENDERERS];
+	struct pdraw_gles2hud *gles2hud[MAX_RENDERERS];
+	struct pdraw_rect render_pos[MAX_RENDERERS];
+	unsigned int renderer_count;
 	float speed;
 	int speed_sign;
 
@@ -135,9 +146,7 @@ struct pdraw_desktop {
 };
 
 
-void pdraw_desktop_resize(struct pdraw_desktop *self,
-			  unsigned int width,
-			  unsigned int height);
+extern const struct pdraw_backend_video_renderer_cbs render_cbs;
 
 
 void pdraw_desktop_open(struct pdraw_desktop *self);
@@ -176,6 +185,9 @@ void pdraw_desktop_goto_beginning(struct pdraw_desktop *self);
 void pdraw_desktop_goto_end(struct pdraw_desktop *self);
 
 
+void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self);
+
+
 int pdraw_desktop_ui_init(struct pdraw_desktop *self);
 
 
@@ -191,10 +203,19 @@ void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
 				      void *data2);
 
 
+void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
+				unsigned int media_id);
+
+
+void pdraw_desktop_ui_resize(struct pdraw_desktop *self);
+
+
 int pdraw_desktop_ui_loop(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_view_create_matrices(struct pdraw_desktop *self,
+					unsigned int width,
+					unsigned int height,
 					float *view_mat,
 					float *proj_mat,
 					float near,
@@ -210,9 +231,8 @@ int pdraw_desktop_ext_tex_cleanup(struct pdraw_desktop *self);
 int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
 			       struct pdraw_backend *pdraw,
 			       struct pdraw_video_renderer *renderer,
-			       const struct pdraw_session_info *session_info,
-			       const struct vmeta_session *session_meta,
-			       const struct pdraw_video_frame *frame,
+			       const struct pdraw_media_info *media_info,
+			       struct mbuf_raw_video_frame *frame,
 			       const void *frame_userdata,
 			       size_t frame_userdata_len);
 

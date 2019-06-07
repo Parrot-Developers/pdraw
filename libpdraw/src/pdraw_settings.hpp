@@ -37,6 +37,8 @@
 
 #include <pdraw/pdraw_defs.h>
 
+#include <string>
+
 namespace Pdraw {
 
 
@@ -54,6 +56,18 @@ public:
 	void lock(void);
 
 	void unlock(void);
+
+	void getFriendlyName(std::string *friendlyName);
+
+	void setFriendlyName(const std::string &friendlyName);
+
+	void getSerialNumber(std::string *serialNumber);
+
+	void setSerialNumber(const std::string &serialNumber);
+
+	void getSoftwareVersion(std::string *softwareVersion);
+
+	void setSoftwareVersion(const std::string &softwareVersion);
 
 	enum pdraw_pipeline_mode getPipelineMode(void);
 
@@ -79,6 +93,9 @@ public:
 
 private:
 	pthread_mutex_t mMutex;
+	std::string mFriendlyName;
+	std::string mSerialNumber;
+	std::string mSoftwareVersion;
 	enum pdraw_pipeline_mode mPipelineMode;
 	float mDisplayXdpi;
 	float mDisplayYdpi;

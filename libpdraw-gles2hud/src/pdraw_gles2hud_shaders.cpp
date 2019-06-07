@@ -39,7 +39,8 @@ static const GLchar *hud_vertex_shader =
 	"}\n";
 
 static const GLchar *hud_fragment_shader =
-#if defined(GL_ES_VERSION_2_0) && (defined(ANDROID) || defined(__APPLE__))
+#if defined(GL_ES_VERSION_2_0) &&                                              \
+	(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision mediump float;\n"
 #endif
 	"uniform vec4 vColor;\n"
@@ -60,7 +61,8 @@ static const GLchar *hud_tex_vertex_shader =
 	"}\n";
 
 static const GLchar *hud_tex_fragment_shader =
-#if defined(GL_ES_VERSION_2_0) && (defined(ANDROID) || defined(__APPLE__))
+#if defined(GL_ES_VERSION_2_0) &&                                              \
+	(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision mediump float;\n"
 #endif
 	"uniform vec4 vColor;\n"
@@ -82,7 +84,7 @@ static int pdraw_gles2hud_load_texture_from_buffer(struct pdraw_gles2hud *self,
 {
 	GLuint tex;
 
-	if (buffer == NULL)
+	if (buffer == nullptr)
 		return -EINVAL;
 	if ((width <= 0) || (height <= 0))
 		return -EINVAL;
@@ -128,12 +130,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 		goto error;
 	}
 
-	glShaderSource(vertex_shader, 1, &hud_vertex_shader, NULL);
+	glShaderSource(vertex_shader, 1, &hud_vertex_shader, nullptr);
 	glCompileShader(vertex_shader);
 	glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar info_log[512];
-		glGetShaderInfoLog(vertex_shader, 512, NULL, info_log);
+		glGetShaderInfoLog(vertex_shader, 512, nullptr, info_log);
 		ULOGE("vertex shader compilation failed '%s'", info_log);
 		goto error;
 	}
@@ -144,12 +146,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 		goto error;
 	}
 
-	glShaderSource(fragment_shader, 1, &hud_fragment_shader, NULL);
+	glShaderSource(fragment_shader, 1, &hud_fragment_shader, nullptr);
 	glCompileShader(fragment_shader);
 	glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar info_log[512];
-		glGetShaderInfoLog(fragment_shader, 512, NULL, info_log);
+		glGetShaderInfoLog(fragment_shader, 512, nullptr, info_log);
 		ULOGE("fragment shader compilation failed '%s'", info_log);
 		goto error;
 	}
@@ -161,7 +163,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glGetProgramiv(self->program, GL_LINK_STATUS, &success);
 	if (!success) {
 		GLchar info_log[512];
-		glGetProgramInfoLog(self->program, 512, NULL, info_log);
+		glGetProgramInfoLog(self->program, 512, nullptr, info_log);
 		ULOGE("program link failed '%s'", info_log);
 		goto error;
 	}
@@ -185,12 +187,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 
 	GLCHK();
 
-	glShaderSource(vertex_shader, 1, &hud_tex_vertex_shader, NULL);
+	glShaderSource(vertex_shader, 1, &hud_tex_vertex_shader, nullptr);
 	glCompileShader(vertex_shader);
 	glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar info_log[512];
-		glGetShaderInfoLog(vertex_shader, 512, NULL, info_log);
+		glGetShaderInfoLog(vertex_shader, 512, nullptr, info_log);
 		ULOGE("vertex shader compilation failed '%s'", info_log);
 		goto error;
 	}
@@ -201,12 +203,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 		goto error;
 	}
 
-	glShaderSource(fragment_shader, 1, &hud_tex_fragment_shader, NULL);
+	glShaderSource(fragment_shader, 1, &hud_tex_fragment_shader, nullptr);
 	glCompileShader(fragment_shader);
 	glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar info_log[512];
-		glGetShaderInfoLog(fragment_shader, 512, NULL, info_log);
+		glGetShaderInfoLog(fragment_shader, 512, nullptr, info_log);
 		ULOGE("fragment shader compilation failed '%s'", info_log);
 		goto error;
 	}
@@ -218,7 +220,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glGetProgramiv(self->tex_program, GL_LINK_STATUS, &success);
 	if (!success) {
 		GLchar info_log[512];
-		glGetProgramInfoLog(self->tex_program, 512, NULL, info_log);
+		glGetProgramInfoLog(self->tex_program, 512, nullptr, info_log);
 		ULOGE("program link failed '%s'", info_log);
 		goto error;
 	}

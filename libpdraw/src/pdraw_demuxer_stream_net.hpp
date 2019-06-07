@@ -32,7 +32,9 @@
 #define _PDRAW_DEMUXER_STREAM_NET_HPP_
 
 #include "pdraw_demuxer_stream.hpp"
-#include "pdraw_socket_inet.hpp"
+
+#include <transport-packet/tpkt.h>
+#include <transport-socket/tskt.h>
 
 #include <string>
 
@@ -42,43 +44,86 @@ class StreamDemuxerNet : public StreamDemuxer {
 public:
 	StreamDemuxerNet(Session *session,
 			 Element::Listener *elementListener,
-			 Source::Listener *sourceListener,
-			 Demuxer::Listener *demuxerListener);
+			 CodedSource::Listener *sourceListener,
+			 IPdraw::IDemuxer *demuxer,
+			 IPdraw::IDemuxer::Listener *demuxerListener,
+			 const std::string &url);
+
+	StreamDemuxerNet(Session *session,
+			 Element::Listener *elementListener,
+			 CodedSource::Listener *sourceListener,
+			 IPdraw::IDemuxer *demuxer,
+			 IPdraw::IDemuxer::Listener *demuxerListener,
+			 const std::string &localAddr,
+			 uint16_t localStreamPort,
+			 uint16_t localControlPort,
+			 const std::string &remoteAddr,
+			 uint16_t remoteStreamPort,
+			 uint16_t remoteControlPort);
 
 	~StreamDemuxerNet(void);
-
-	int setup(const std::string &url);
-
-	int setup(const std::string &localAddr,
-		  uint16_t localStreamPort,
-		  uint16_t localControlPort,
-		  const std::string &remoteAddr,
-		  uint16_t remoteStreamPort,
-		  uint16_t remoteControlPort);
 
 	uint16_t getSingleStreamLocalStreamPort(void);
 
 	uint16_t getSingleStreamLocalControlPort(void);
 
+protected:
+	VideoMedia *createVideoMedia(void);
+
 private:
-	int startRtpAvp(void);
+	class VideoMediaNet : StreamDemuxer::VideoMedia {
+	public:
+		VideoMediaNet(StreamDemuxerNet *demuxer);
 
-	int stopRtpAvp(void);
+		~VideoMediaNet(void);
 
-	int createSockets(void);
+		int startRtpAvp(void);
 
-	static void dataCb(int fd, uint32_t events, void *userdata);
+		int stopRtpAvp(void);
 
-	static void ctrlCb(int fd, uint32_t events, void *userdata);
+		int sendCtrl(struct vstrm_receiver *stream,
+			     struct tpkt_packet *pkt);
 
-	int sendCtrl(struct vstrm_receiver *stream, struct pomp_buffer *buf);
+		int prepareSetup(void);
 
-	int prepareSetup(uint16_t *streamPort,
-			 uint16_t *controlPort,
-			 enum rtsp_lower_transport *lowerTransport);
+		enum rtsp_lower_transport getLowerTransport(void);
 
-	InetSocket *mStreamSock;
-	InetSocket *mControlSock;
+		uint16_t getLocalStreamPort(void);
+
+		uint16_t getLocalControlPort(void);
+
+		uint16_t getRemoteStreamPort(void);
+
+		uint16_t getRemoteControlPort(void);
+
+		void setLocalStreamPort(uint16_t port);
+
+		void setLocalControlPort(uint16_t port);
+
+		void setRemoteStreamPort(uint16_t port);
+
+		void setRemoteControlPort(uint16_t port);
+
+	private:
+		int createSockets(void);
+
+		struct tpkt_packet *newRxPkt(void);
+
+		static void dataCb(int fd, uint32_t events, void *userdata);
+
+		static void ctrlCb(int fd, uint32_t events, void *userdata);
+
+		StreamDemuxerNet *mDemuxerNet;
+		struct tskt_socket *mStreamSock;
+		struct tskt_socket *mControlSock;
+		struct tpkt_packet *mRxPkt;
+		size_t mRxBufLen;
+	};
+
+	uint16_t mSingleLocalStreamPort;
+	uint16_t mSingleLocalControlPort;
+	uint16_t mSingleRemoteStreamPort;
+	uint16_t mSingleRemoteControlPort;
 };
 
 } /* namespace Pdraw */

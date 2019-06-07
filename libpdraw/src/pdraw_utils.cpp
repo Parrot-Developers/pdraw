@@ -28,6 +28,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define ULOG_TAG pdraw_utils
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 #include "pdraw_utils.hpp"
 
 #include <math.h>
@@ -36,10 +40,10 @@
 #ifdef BUILD_JSON
 #	include <json-c/json.h>
 #endif
-#define ULOG_TAG pdraw_utils
-#include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_utils);
 
+extern "C" {
+const char *PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME = "pdraw.video.frame";
+}
 
 /* Approximation without the Simphson integration;
  * see http://dev.theomader.com/gaussian-kernel-calculator/ */
@@ -50,7 +54,7 @@ void pdraw_gaussianDistribution(float *samples,
 	unsigned int i;
 	float a, x, g, start, step, sum;
 
-	if (samples == NULL)
+	if (samples == nullptr)
 		return;
 
 	if (sampleCount == 0)
@@ -113,28 +117,6 @@ void pdraw_friendlyTimeFromUs(uint64_t time,
 }
 
 
-const char *pdraw_droneModelStr(enum pdraw_drone_model val)
-{
-	switch (val) {
-	default:
-	case PDRAW_DRONE_MODEL_UNKNOWN:
-		return "UNKNOWN";
-	case PDRAW_DRONE_MODEL_BEBOP:
-		return "BEBOP";
-	case PDRAW_DRONE_MODEL_BEBOP2:
-		return "BEBOP2";
-	case PDRAW_DRONE_MODEL_DISCO:
-		return "DISCO";
-	case PDRAW_DRONE_MODEL_BLUEGRASS:
-		return "BLUEGRASS";
-	case PDRAW_DRONE_MODEL_ANAFI:
-		return "ANAFI";
-	case PDRAW_DRONE_MODEL_ANAFI_THERMAL:
-		return "ANAFI_THERMAL";
-	}
-}
-
-
 const char *pdraw_hmdModelStr(enum pdraw_hmd_model val)
 {
 	switch (val) {
@@ -159,15 +141,15 @@ const char *pdraw_pipelineModeStr(enum pdraw_pipeline_mode val)
 }
 
 
-const char *pdraw_sessionTypeStr(enum pdraw_session_type val)
+const char *pdraw_playbackTypeStr(enum pdraw_playback_type val)
 {
 	switch (val) {
 	default:
-	case PDRAW_SESSION_TYPE_UNKNOWN:
+	case PDRAW_PLAYBACK_TYPE_UNKNOWN:
 		return "UNKNOWN";
-	case PDRAW_SESSION_TYPE_LIVE:
+	case PDRAW_PLAYBACK_TYPE_LIVE:
 		return "LIVE";
-	case PDRAW_SESSION_TYPE_REPLAY:
+	case PDRAW_PLAYBACK_TYPE_REPLAY:
 		return "REPLAY";
 	}
 }
@@ -181,50 +163,6 @@ const char *pdraw_mediaTypeStr(enum pdraw_media_type val)
 		return "UNKNOWN";
 	case PDRAW_MEDIA_TYPE_VIDEO:
 		return "VIDEO";
-	}
-}
-
-
-const char *pdraw_videoMediaFormatStr(enum pdraw_video_media_format val)
-{
-	switch (val) {
-	default:
-	case PDRAW_VIDEO_MEDIA_FORMAT_UNKNOWN:
-		return "UNKNOWN";
-	case PDRAW_VIDEO_MEDIA_FORMAT_YUV:
-		return "YUV";
-	case PDRAW_VIDEO_MEDIA_FORMAT_H264:
-		return "H264";
-	case PDRAW_VIDEO_MEDIA_FORMAT_OPAQUE:
-		return "OPAQUE";
-	}
-}
-
-
-const char *pdraw_yuvFormatStr(enum pdraw_yuv_format val)
-{
-	switch (val) {
-	default:
-	case PDRAW_YUV_FORMAT_UNKNOWN:
-		return "UNKNOWN";
-	case PDRAW_YUV_FORMAT_I420:
-		return "I420";
-	case PDRAW_YUV_FORMAT_NV12:
-		return "NV12";
-	}
-}
-
-
-const char *pdraw_h264FormatStr(enum pdraw_h264_format val)
-{
-	switch (val) {
-	default:
-	case PDRAW_H264_FORMAT_UNKNOWN:
-		return "UNKNOWN";
-	case PDRAW_H264_FORMAT_BYTE_STREAM:
-		return "BYTE_STREAM";
-	case PDRAW_H264_FORMAT_AVCC:
-		return "AVCC";
 	}
 }
 
@@ -294,53 +232,161 @@ const char *pdraw_videoRendererTransitionFlagStr(
 
 
 #ifdef BUILD_JSON
-static void jsonFillInYuvInfo(struct json_object *jobj,
-			      const struct pdraw_video_yuv_frame *yuv)
+static void jsonFillRawVideoInfo(struct json_object *jobj,
+				 const struct vdef_raw_frame *frame)
 {
+	int ret;
+	struct json_object *jobj_frame = json_object_new_object();
+	if (jobj_frame == nullptr) {
+		ULOG_ERRNO("json_object_new_object", ENOMEM);
+		return;
+	}
+	struct json_object *jobj_info = json_object_new_object();
+	if (jobj_info == nullptr) {
+		ULOG_ERRNO("json_object_new_object", ENOMEM);
+		json_object_put(jobj_frame);
+		return;
+	}
+
+	json_object_object_add(jobj_frame,
+			       "timestamp",
+			       json_object_new_int64(frame->info.timestamp));
+	json_object_object_add(jobj_frame,
+			       "timescale",
+			       json_object_new_int(frame->info.timescale));
 	json_object_object_add(
-		jobj, "format", json_object_new_int(yuv->format));
-	json_object_object_add(jobj, "width", json_object_new_int(yuv->width));
+		jobj_frame, "index", json_object_new_int(frame->info.index));
+	char *fmt = nullptr;
+	ret = asprintf(&fmt,
+		       VDEF_RAW_FORMAT_TO_STR_FMT,
+		       VDEF_RAW_FORMAT_TO_STR_ARG(&frame->format));
+	if (fmt != nullptr) {
+		json_object_object_add(
+			jobj_frame, "format", json_object_new_string(fmt));
+		free(fmt);
+	}
+
+	json_object_object_add(jobj_info,
+			       "full_range",
+			       json_object_new_boolean(frame->info.full_range));
 	json_object_object_add(
-		jobj, "height", json_object_new_int(yuv->height));
+		jobj_info,
+		"color_primaries",
+		json_object_new_string(vdef_color_primaries_to_str(
+			frame->info.color_primaries)));
 	json_object_object_add(
-		jobj, "sar_width", json_object_new_int(yuv->sar_width));
+		jobj_info,
+		"transfer_function",
+		json_object_new_string(vdef_transfer_function_to_str(
+			frame->info.transfer_function)));
+	json_object_object_add(jobj_info,
+			       "matrix_coefs",
+			       json_object_new_string(vdef_matrix_coefs_to_str(
+				       frame->info.matrix_coefs)));
 	json_object_object_add(
-		jobj, "sar_height", json_object_new_int(yuv->sar_height));
+		jobj_info,
+		"width",
+		json_object_new_int(frame->info.resolution.width));
 	json_object_object_add(
-		jobj, "crop_left", json_object_new_int(yuv->crop_left));
-	json_object_object_add(
-		jobj, "crop_top", json_object_new_int(yuv->crop_top));
-	json_object_object_add(
-		jobj, "crop_width", json_object_new_int(yuv->crop_width));
-	json_object_object_add(
-		jobj, "crop_height", json_object_new_int(yuv->crop_height));
+		jobj_info,
+		"height",
+		json_object_new_int(frame->info.resolution.height));
+	json_object_object_add(jobj_info,
+			       "sar_width",
+			       json_object_new_int(frame->info.sar.width));
+	json_object_object_add(jobj_info,
+			       "sar_height",
+			       json_object_new_int(frame->info.sar.height));
+
+	json_object_object_add(jobj_frame, "info", jobj_info);
+	json_object_object_add(jobj, "frame", jobj_frame);
 }
 
 
-static void jsonFillInH264Info(struct json_object *jobj,
-			       const struct pdraw_video_h264_frame *h264)
+static void jsonFillCodedVideoInfo(struct json_object *jobj,
+				   const struct vdef_coded_frame *frame)
 {
+	int ret;
+	struct json_object *jobj_frame = json_object_new_object();
+	if (jobj_frame == nullptr) {
+		ULOG_ERRNO("json_object_new_object", ENOMEM);
+		return;
+	}
+	struct json_object *jobj_info = json_object_new_object();
+	if (jobj_info == nullptr) {
+		ULOG_ERRNO("json_object_new_object", ENOMEM);
+		json_object_put(jobj_frame);
+		return;
+	}
+
+	json_object_object_add(jobj_frame,
+			       "timestamp",
+			       json_object_new_int64(frame->info.timestamp));
+	json_object_object_add(jobj_frame,
+			       "timescale",
+			       json_object_new_int(frame->info.timescale));
 	json_object_object_add(
-		jobj, "format", json_object_new_int(h264->format));
+		jobj_frame, "index", json_object_new_int(frame->info.index));
+	char *fmt = nullptr;
+	ret = asprintf(&fmt,
+		       VDEF_CODED_FORMAT_TO_STR_FMT,
+		       VDEF_CODED_FORMAT_TO_STR_ARG(&frame->format));
+	if (fmt != nullptr) {
+		json_object_object_add(
+			jobj_frame, "format", json_object_new_string(fmt));
+		free(fmt);
+	}
+
+	json_object_object_add(jobj_info,
+			       "full_range",
+			       json_object_new_boolean(frame->info.full_range));
 	json_object_object_add(
-		jobj, "is_complete", json_object_new_int(h264->is_complete));
+		jobj_info,
+		"color_primaries",
+		json_object_new_string(vdef_color_primaries_to_str(
+			frame->info.color_primaries)));
 	json_object_object_add(
-		jobj, "is_sync", json_object_new_int(h264->is_sync));
+		jobj_info,
+		"transfer_function",
+		json_object_new_string(vdef_transfer_function_to_str(
+			frame->info.transfer_function)));
+	json_object_object_add(jobj_info,
+			       "matrix_coefs",
+			       json_object_new_string(vdef_matrix_coefs_to_str(
+				       frame->info.matrix_coefs)));
 	json_object_object_add(
-		jobj, "is_ref", json_object_new_int(h264->is_ref));
+		jobj_info,
+		"width",
+		json_object_new_int(frame->info.resolution.width));
+	json_object_object_add(
+		jobj_info,
+		"height",
+		json_object_new_int(frame->info.resolution.height));
+	json_object_object_add(jobj_info,
+			       "sar_width",
+			       json_object_new_int(frame->info.sar.width));
+	json_object_object_add(jobj_info,
+			       "sar_height",
+			       json_object_new_int(frame->info.sar.height));
+
+	json_object_object_add(jobj_frame, "info", jobj_info);
+	json_object_object_add(jobj, "frame", jobj_frame);
 }
 
 
-int pdraw_frameMetadataToJsonStr(const struct pdraw_video_frame *md,
+int pdraw_frameMetadataToJsonStr(const struct pdraw_video_frame *frame,
+				 struct vmeta_frame *metadata,
 				 char *output,
 				 unsigned int len)
 {
-	if (!md || !output)
+	if (!frame || !output)
 		return -EINVAL;
 
 	const char *jstr;
 	struct json_object *jobj = json_object_new_object();
-	int ret = pdraw_frameMetadataToJson(md, jobj);
+	if (jobj == nullptr)
+		return -ENOMEM;
+	int ret = pdraw_frameMetadataToJson(frame, metadata, jobj);
 	if (ret < 0)
 		goto out;
 
@@ -357,75 +403,101 @@ out:
 }
 
 
-int pdraw_frameMetadataToJson(const struct pdraw_video_frame *md,
+int pdraw_frameMetadataToJson(const struct pdraw_video_frame *frame,
+			      struct vmeta_frame *metadata,
 			      struct json_object *jobj)
 {
-	if (!md || !jobj)
+	if (!frame || !jobj)
 		return -EINVAL;
 
 	int ret = 0;
-	struct json_object *jobj_yuv = NULL;
-	struct json_object *jobj_h264 = NULL;
-	struct json_object *jobj_vmeta = NULL;
+	struct json_object *jobj_sub = nullptr;
 
-	switch (md->format) {
-	case PDRAW_VIDEO_MEDIA_FORMAT_YUV:
+	json_object_object_add(
+		jobj,
+		"format",
+		json_object_new_string(vdef_frame_type_to_str(frame->format)));
+	switch (frame->format) {
+	case VDEF_FRAME_TYPE_RAW:
+		jobj_sub = json_object_new_object();
+		if (jobj_sub == nullptr)
+			return -ENOMEM;
+		jsonFillRawVideoInfo(jobj_sub, &frame->raw);
+		json_object_object_add(jobj, "raw", jobj_sub);
 		json_object_object_add(
-			jobj, "format", json_object_new_string("yuv"));
-		jobj_yuv = json_object_new_object();
-		jsonFillInYuvInfo(jobj_yuv, &md->yuv);
-		json_object_object_add(jobj, "yuv", jobj_yuv);
+			jobj,
+			"has_errors",
+			json_object_new_int(!!(frame->raw.info.flags &
+					       VDEF_FRAME_FLAG_VISUAL_ERROR)));
+		json_object_object_add(
+			jobj,
+			"is_silent",
+			json_object_new_int(!!(frame->raw.info.flags &
+					       VDEF_FRAME_FLAG_SILENT)));
 		break;
 
-	case PDRAW_VIDEO_MEDIA_FORMAT_H264:
+	case VDEF_FRAME_TYPE_CODED:
+		jobj_sub = json_object_new_object();
+		if (jobj_sub == nullptr)
+			return -ENOMEM;
+		jsonFillCodedVideoInfo(jobj_sub, &frame->coded);
+		json_object_object_add(jobj, "coded", jobj_sub);
 		json_object_object_add(
-			jobj, "format", json_object_new_string("h264"));
-		jobj_h264 = json_object_new_object();
-		jsonFillInH264Info(jobj_h264, &md->h264);
-		json_object_object_add(jobj, "h264", jobj_h264);
+			jobj,
+			"has_errors",
+			json_object_new_int(!!(frame->coded.info.flags &
+					       VDEF_FRAME_FLAG_VISUAL_ERROR)));
+		json_object_object_add(
+			jobj,
+			"is_silent",
+			json_object_new_int(!!(frame->coded.info.flags &
+					       VDEF_FRAME_FLAG_SILENT)));
 		break;
 
 	default:
-		ULOGW("Format %d not supported", md->format);
+		ULOGW("unknown frame format: %d(%s)",
+		      frame->format,
+		      vdef_frame_type_to_str(frame->format));
 		break;
 	}
-
 	json_object_object_add(
-		jobj, "has_errors", json_object_new_int(md->has_errors));
+		jobj, "is_sync", json_object_new_int(frame->is_sync));
 	json_object_object_add(
-		jobj, "is_silent", json_object_new_int(md->is_silent));
+		jobj, "is_ref", json_object_new_int(frame->is_ref));
 	json_object_object_add(jobj,
 			       "ntp_timestamp",
-			       json_object_new_int64(md->ntp_timestamp));
+			       json_object_new_int64(frame->ntp_timestamp));
 	json_object_object_add(
 		jobj,
 		"ntp_unskewed_timestamp",
-		json_object_new_int64(md->ntp_unskewed_timestamp));
+		json_object_new_int64(frame->ntp_unskewed_timestamp));
 	json_object_object_add(jobj,
 			       "ntp_raw_timestamp",
-			       json_object_new_int64(md->ntp_raw_timestamp));
+			       json_object_new_int64(frame->ntp_raw_timestamp));
 	json_object_object_add(
 		jobj,
 		"ntp_raw_unskewed_timestamp",
-		json_object_new_int64(md->ntp_raw_unskewed_timestamp));
+		json_object_new_int64(frame->ntp_raw_unskewed_timestamp));
 	json_object_object_add(jobj,
 			       "play_timestamp",
-			       json_object_new_int64(md->play_timestamp));
+			       json_object_new_int64(frame->play_timestamp));
 	json_object_object_add(jobj,
 			       "capture_timestamp",
-			       json_object_new_int64(md->capture_timestamp));
+			       json_object_new_int64(frame->capture_timestamp));
 	json_object_object_add(jobj,
 			       "local_timestamp",
-			       json_object_new_int64(md->local_timestamp));
-	if (md->has_metadata) {
-		jobj_vmeta = json_object_new_object();
-		int ret = vmeta_frame_to_json(&md->metadata, jobj_vmeta);
+			       json_object_new_int64(frame->local_timestamp));
+	if (metadata) {
+		jobj_sub = json_object_new_object();
+		if (jobj_sub == nullptr)
+			return -ENOMEM;
+		int ret = vmeta_frame_to_json(metadata, jobj_sub);
 		if (ret < 0) {
-			if (jobj_vmeta != NULL)
-				json_object_put(jobj_vmeta);
+			if (jobj_sub != nullptr)
+				json_object_put(jobj_sub);
 			return ret;
 		}
-		json_object_object_add(jobj, "metadata", jobj_vmeta);
+		json_object_object_add(jobj, "metadata", jobj_sub);
 	}
 
 	return ret;
@@ -434,17 +506,19 @@ int pdraw_frameMetadataToJson(const struct pdraw_video_frame *md,
 
 #else /* BUILD_JSON undefined */
 
-int pdraw_frameMetadataToJsonStr(const struct pdraw_video_frame *,
-				 char *,
-				 unsigned int)
+int pdraw_frameMetadataToJsonStr(const struct pdraw_video_frame *frame,
+				 struct vmeta_frame *metadata,
+				 char *output,
+				 unsigned int len)
 {
 	ULOGW("%s not implemented", __func__);
 	return -ENOSYS;
 }
 
 
-int pdraw_frameMetadataToJson(const struct pdraw_video_frame *,
-			      struct json_object *)
+int pdraw_frameMetadataToJson(const struct pdraw_video_frame *frame,
+			      struct vmeta_frame *metadata,
+			      struct json_object *jobj)
 {
 	ULOGW("%s not implemented", __func__);
 	return -ENOSYS;
@@ -453,120 +527,71 @@ int pdraw_frameMetadataToJson(const struct pdraw_video_frame *,
 #endif /* BUILD_JSON */
 
 
-int pdraw_packYUVFrame(const struct pdraw_video_frame *in_frame,
-		       struct pdraw_video_frame *out_frame,
-		       struct vbuf_buffer *out_buf)
+uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_coded_video_frame *frame,
+					 const char *key)
 {
 	int res;
-	size_t capacity;
-	uint8_t *data;
-	unsigned int i;
+	struct mbuf_ancillary_data *data;
+	uint64_t ts = 0;
+	const void *raw_data;
+	size_t len;
 
-	ULOG_ERRNO_RETURN_ERR_IF(in_frame == NULL, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(out_frame == NULL, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(out_buf == NULL, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(
-		in_frame->format != PDRAW_VIDEO_MEDIA_FORMAT_YUV, EINVAL);
+	res = mbuf_coded_video_frame_get_ancillary_data(frame, key, &data);
+	if (res < 0)
+		return 0;
 
-	if ((in_frame->yuv.format != PDRAW_YUV_FORMAT_I420) &&
-	    (in_frame->yuv.format != PDRAW_YUV_FORMAT_NV12)) {
-		res = -ENOSYS;
-		ULOGE("unsupported YUV format (%d)", in_frame->yuv.format);
+	raw_data = mbuf_ancillary_data_get_buffer(data, &len);
+	if (!raw_data || len != sizeof(ts))
 		goto out;
-	}
-
-	if ((in_frame->yuv.width == 0) || (in_frame->yuv.height == 0) ||
-	    (in_frame->yuv.crop_width == 0) ||
-	    (in_frame->yuv.crop_height == 0)) {
-		res = -ENOSYS;
-		ULOGE("unsupported dimensions (%dx%d, crop %dx%d)",
-		      in_frame->yuv.width,
-		      in_frame->yuv.height,
-		      in_frame->yuv.crop_width,
-		      in_frame->yuv.crop_height);
-		goto out;
-	}
-
-	capacity = in_frame->yuv.crop_width * in_frame->yuv.crop_height * 3 / 2;
-
-	res = vbuf_set_capacity(out_buf, capacity);
-	if (res < 0) {
-		ULOG_ERRNO("vbuf_set_capacity", -res);
-		goto out;
-	}
-
-	data = vbuf_get_data(out_buf);
-	if (data == NULL) {
-		res = -EIO;
-		ULOG_ERRNO("vbuf_get_data", -res);
-		goto out;
-	}
-
-	*out_frame = *in_frame;
-	out_frame->yuv.width = in_frame->yuv.crop_width;
-	out_frame->yuv.height = in_frame->yuv.crop_height;
-	out_frame->yuv.crop_left = 0;
-	out_frame->yuv.crop_top = 0;
-	out_frame->yuv.crop_width = in_frame->yuv.crop_width;
-	out_frame->yuv.crop_height = in_frame->yuv.crop_height;
-	switch (in_frame->yuv.format) {
-	case PDRAW_YUV_FORMAT_I420:
-		out_frame->yuv.plane[0] = data;
-		out_frame->yuv.plane[1] =
-			data + out_frame->yuv.width * out_frame->yuv.height;
-		out_frame->yuv.plane[2] = data + out_frame->yuv.width *
-							 out_frame->yuv.height *
-							 5 / 4;
-		out_frame->yuv.stride[0] = out_frame->yuv.width;
-		out_frame->yuv.stride[1] = out_frame->yuv.width / 2;
-		out_frame->yuv.stride[2] = out_frame->yuv.width / 2;
-		for (i = 0; i < out_frame->yuv.height; i++) {
-			memcpy((uint8_t *)out_frame->yuv.plane[0] +
-				       i * out_frame->yuv.width,
-			       in_frame->yuv.plane[0] +
-				       i * in_frame->yuv.stride[0],
-			       out_frame->yuv.width);
-		}
-		for (i = 0; i < out_frame->yuv.height / 2; i++) {
-			memcpy((uint8_t *)out_frame->yuv.plane[1] +
-				       i * out_frame->yuv.width / 2,
-			       in_frame->yuv.plane[1] +
-				       i * in_frame->yuv.stride[1],
-			       out_frame->yuv.width / 2);
-			memcpy((uint8_t *)out_frame->yuv.plane[2] +
-				       i * out_frame->yuv.width / 2,
-			       in_frame->yuv.plane[2] +
-				       i * in_frame->yuv.stride[2],
-			       out_frame->yuv.width / 2);
-		}
-		break;
-	case PDRAW_YUV_FORMAT_NV12:
-		out_frame->yuv.plane[0] = data;
-		out_frame->yuv.plane[1] =
-			data + out_frame->yuv.width * out_frame->yuv.height;
-		out_frame->yuv.plane[2] = NULL;
-		out_frame->yuv.stride[0] = out_frame->yuv.width;
-		out_frame->yuv.stride[1] = out_frame->yuv.width;
-		out_frame->yuv.stride[2] = 0;
-		for (i = 0; i < out_frame->yuv.height; i++) {
-			memcpy((uint8_t *)out_frame->yuv.plane[0] +
-				       i * out_frame->yuv.width,
-			       in_frame->yuv.plane[0] +
-				       i * in_frame->yuv.stride[0],
-			       out_frame->yuv.width);
-		}
-		for (i = 0; i < out_frame->yuv.height / 2; i++) {
-			memcpy((uint8_t *)out_frame->yuv.plane[1] +
-				       i * out_frame->yuv.width,
-			       in_frame->yuv.plane[1] +
-				       i * in_frame->yuv.stride[1],
-			       out_frame->yuv.width);
-		}
-		break;
-	default:
-		break;
-	}
+	memcpy(&ts, raw_data, sizeof(ts));
 
 out:
-	return res;
+	mbuf_ancillary_data_unref(data);
+	return ts;
 }
+
+
+uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_raw_video_frame *frame,
+					 const char *key)
+{
+	int res;
+	struct mbuf_ancillary_data *data;
+	uint64_t ts = 0;
+	const void *raw_data;
+	size_t len;
+
+	res = mbuf_raw_video_frame_get_ancillary_data(frame, key, &data);
+	if (res < 0)
+		return 0;
+
+	raw_data = mbuf_ancillary_data_get_buffer(data, &len);
+	if (!raw_data || len != sizeof(ts))
+		goto out;
+	memcpy(&ts, raw_data, sizeof(ts));
+
+out:
+	mbuf_ancillary_data_unref(data);
+	return ts;
+}
+
+namespace Pdraw {
+
+std::atomic<unsigned int> Loggable::mIdCounter(0);
+
+Loggable::Loggable()
+{
+	mName = std::string(__func__) + "#" + std::to_string(++mIdCounter);
+	self = this;
+}
+
+void Loggable::setName(std::string &name)
+{
+	mName = name;
+}
+
+void Loggable::setName(const char *name)
+{
+	mName = std::string(name);
+}
+
+} // namespace Pdraw

@@ -36,6 +36,7 @@
 #	include "pdraw_gles2_hmd.hpp"
 #	include "pdraw_gles2_video.hpp"
 #	include "pdraw_renderer.hpp"
+#	include <atomic>
 
 namespace Pdraw {
 
@@ -43,32 +44,37 @@ class Gles2Renderer : public Renderer {
 public:
 	Gles2Renderer(Session *session,
 		      Element::Listener *listener,
-		      IPdraw::VideoRendererListener *rndListener);
+		      IPdraw::IVideoRenderer *renderer,
+		      IPdraw::IVideoRenderer::Listener *rndListener,
+		      unsigned int mediaId,
+		      const struct pdraw_rect *renderPos,
+		      const struct pdraw_video_renderer_params *params,
+		      struct egl_display *eglDisplay);
 
 	~Gles2Renderer(void);
-
-	virtual int setup(const struct pdraw_rect *renderPos,
-			  const struct pdraw_video_renderer_params *params,
-			  struct egl_display *eglDisplay);
 
 	int start(void);
 
 	int stop(void);
 
 	int render(struct pdraw_rect *contentPos,
-		   const float *viewMat = NULL,
-		   const float *projMat = NULL);
+		   const float *viewMat = nullptr,
+		   const float *projMat = nullptr);
 
 	int resize(const struct pdraw_rect *renderPos);
+
+	int setMediaId(unsigned int mediaId);
+
+	unsigned int getMediaId(void);
 
 	int setParams(const struct pdraw_video_renderer_params *params);
 
 
 	int getParams(struct pdraw_video_renderer_params *params);
 
-	int addInputMedia(Media *media);
+	int addInputMedia(RawVideoMedia *media);
 
-	int removeInputMedia(Media *media);
+	int removeInputMedia(RawVideoMedia *media);
 
 	int removeInputMedias(void);
 
@@ -84,6 +90,10 @@ protected:
 		FLASH_THEN_BLACK_AND_WHITE,
 	};
 
+	virtual int setup(const struct pdraw_rect *renderPos,
+			  const struct pdraw_video_renderer_params *params,
+			  struct egl_display *eglDisplay);
+
 	int startHmd(void);
 
 	int stopHmd(void);
@@ -92,24 +102,24 @@ protected:
 
 	int stopExtLoad(void);
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlush(RawChannel *channel);
 
-	void onChannelSos(Channel *channel);
+	void onChannelSos(RawChannel *channel);
 
-	void onChannelEos(Channel *channel);
+	void onChannelEos(RawChannel *channel);
 
-	void onChannelReconfigure(Channel *channel);
+	void onChannelReconfigure(RawChannel *channel);
 
-	void onChannelTimeout(Channel *channel);
+	void onChannelTimeout(RawChannel *channel);
 
-	void onChannelPhotoTrigger(Channel *channel);
+	void onChannelPhotoTrigger(RawChannel *channel);
 
 	int doTransition(uint64_t timestamp, bool frameReady, bool *loadFrame);
 
 	void abortTransition(void);
 
-	virtual int loadVideoFrame(const uint8_t *data,
-				   VideoMedia::Frame *frame);
+	virtual int loadVideoFrame(struct mbuf_raw_video_frame *mbufFrame,
+				   RawVideoMedia::Frame *frame);
 
 	void createProjMatrix(Eigen::Matrix4f &projMat,
 			      float aspectRatio,
@@ -120,35 +130,36 @@ protected:
 				  vmeta_frame *meta);
 
 	virtual int
-	loadExternalVideoFrame(const uint8_t *data,
-			       VideoMedia::Frame *frame,
-			       const struct pdraw_session_info *session_info,
-			       const struct vmeta_session *session_meta);
+	loadExternalVideoFrame(struct mbuf_raw_video_frame *mbufFrame,
+			       RawVideoMedia::Frame *frame,
+			       const struct pdraw_media_info *mediaInfo);
 
-	virtual int renderVideoFrame(VideoMedia::Frame *frame,
-				     const struct pdraw_rect *renderPos,
+	virtual int renderVideoFrame(const struct pdraw_rect *renderPos,
 				     struct pdraw_rect *contentPos,
 				     Eigen::Matrix4f &viewProjMat);
 
-	virtual int renderExternalVideoFrame(VideoMedia::Frame *frame,
-					     const struct pdraw_rect *renderPos,
+	virtual int renderExternalVideoFrame(const struct pdraw_rect *renderPos,
 					     struct pdraw_rect *contentPos,
 					     Eigen::Matrix4f &viewProjMat);
 
 	static void timerCb(struct pomp_timer *timer, void *userdata);
 
+	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
+
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
-	int removeQueueFdFromPomp(struct vbuf_queue *queue);
+	int removeQueueFdFromPomp(struct mbuf_raw_video_frame_queue *queue);
 
+	unsigned int mMediaId;
+	unsigned int mCurrentMediaId;
 	bool mRunning;
-	bool mRendering;
-	pthread_mutex_t mRenderMutex;
-	bool mRenderMutexCreated;
-	pthread_cond_t mRenderCond;
-	bool mRenderCondCreated;
-	struct vbuf_buffer *mCurrentBuffer;
-	Media *mLastAddedMedia;
+	struct mbuf_raw_video_frame *mCurrentFrame;
+	RawVideoMedia::Frame mCurrentFrameData;
+	struct vdef_raw_frame mCurrentFrameInfo;
+	struct vmeta_frame *mCurrentFrameMetadata;
+	RawVideoMedia *mLastAddedMedia;
+	struct pdraw_media_info mMediaInfo;
+	struct vmeta_session mMediaInfoSessionMeta;
 	struct pomp_timer *mTimer;
 	Gles2Hmd *mGles2Hmd;
 	unsigned int mGles2HmdFirstTexUnit;
@@ -165,7 +176,6 @@ protected:
 	int mY;
 	unsigned int mWidth;
 	unsigned int mHeight;
-	enum gles2_video_color_conversion mColorConversion;
 	enum Transition mPendingTransition;
 	enum Transition mCurrentTransition;
 	uint64_t mTransitionStartTime;
@@ -176,9 +186,21 @@ protected:
 	unsigned int mExtVideoTextureHeight;
 	bool mRenderVideoOverlay;
 	bool mFirstFrame;
+	bool mFrameLoaded;
+
+	/* Logging-related variables */
+	/* previous mFrameLoaded value logged */
+	bool mFrameLoadedLogged;
+	/* Watchdog timer: triggered if no new frame is received for a given
+	 * amount of time */
+	struct pomp_timer *mWatchdogTimer;
+	std::atomic_bool mWatchdogTriggered;
 
 private:
-	int setupExtTexture(const VideoMedia::Frame *frame);
+	int setupExtTexture(const struct vdef_raw_frame *frameInfo,
+			    const RawVideoMedia::Frame *frame);
+
+	static void idleRenewMedia(void *userdata);
 };
 
 } /* namespace Pdraw */

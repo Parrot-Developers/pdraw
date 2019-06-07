@@ -28,56 +28,57 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_channel.hpp"
+#define ULOG_TAG pdraw_channel_coded_video
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#include "pdraw_channel_coded_video.hpp"
+#include "pdraw_media.hpp"
 
 #include <errno.h>
-
-#define ULOG_TAG pdraw_channel
-#include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_channel);
 
 namespace Pdraw {
 
 
-Channel::Channel(SinkListener *sinkListener) :
-		mSinkListener(sinkListener), mSourceListener(NULL), mKey(NULL),
-		mMediaTypeCaps(0), mVideoMediaFormatCaps(0),
-		mVideoMediaSubFormatCaps(0), mQueue(NULL), mPool(NULL),
-		mFlushPending(false)
+CodedChannel::CodedChannel(SinkListener *sinkListener) :
+		mSinkListener(sinkListener), mSourceListener(nullptr),
+		mKey(nullptr), mCodedVideoMediaFormatCaps(nullptr),
+		mCodedVideoMediaFormatCapsCount(0), mQueue(nullptr),
+		mPool(nullptr), mFlushPending(false)
 {
 }
 
 
-int Channel::queue(vbuf_buffer *buf)
+int CodedChannel::queue(mbuf_coded_video_frame *frame)
 {
-	if (buf == NULL)
+	if (frame == nullptr)
 		return -EINVAL;
-	if (mSinkListener == NULL) {
+	if (mSinkListener == nullptr) {
 		ULOGE("invalid sink listener");
 		return -EPROTO;
 	}
 
-	mSinkListener->onChannelQueue(this, buf);
+	mSinkListener->onChannelQueue(this, frame);
 	return 0;
 }
 
 
-int Channel::flush(void)
+int CodedChannel::flush(void)
 {
 	int res;
 
-	if (mSinkListener == NULL) {
+	if (mSinkListener == nullptr) {
 		ULOGE("invalid sink listener");
 		return -EPROTO;
 	}
 
 	struct pomp_msg *event = pomp_msg_new();
-	if (event == NULL) {
+	if (event == nullptr) {
 		ULOG_ERRNO("pomp_msg_new", ENOMEM);
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, DownstreamEvent::FLUSH, NULL);
+	res = pomp_msg_write(event, DownstreamEvent::FLUSH, nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -94,7 +95,7 @@ int Channel::flush(void)
 }
 
 
-int Channel::flushDone(void)
+int CodedChannel::flushDone(void)
 {
 	int res;
 
@@ -102,16 +103,16 @@ int Channel::flushDone(void)
 		return 0;
 
 	mFlushPending = false;
-	if (mSourceListener == NULL)
+	if (mSourceListener == nullptr)
 		return 0;
 
 	struct pomp_msg *event = pomp_msg_new();
-	if (event == NULL) {
+	if (event == nullptr) {
 		ULOG_ERRNO("pomp_msg_new", ENOMEM);
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, UpstreamEvent::FLUSHED, NULL);
+	res = pomp_msg_write(event, UpstreamEvent::FLUSHED, nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -127,20 +128,20 @@ int Channel::flushDone(void)
 }
 
 
-int Channel::resync(void)
+int CodedChannel::resync(void)
 {
 	int res;
 
-	if (mSourceListener == NULL)
+	if (mSourceListener == nullptr)
 		return 0;
 
 	struct pomp_msg *event = pomp_msg_new();
-	if (event == NULL) {
+	if (event == nullptr) {
 		ULOG_ERRNO("pomp_msg_new", ENOMEM);
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, UpstreamEvent::RESYNC, NULL);
+	res = pomp_msg_write(event, UpstreamEvent::RESYNC, nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -156,22 +157,22 @@ int Channel::resync(void)
 }
 
 
-int Channel::teardown(void)
+int CodedChannel::teardown(void)
 {
 	int res;
 
-	if (mSinkListener == NULL) {
+	if (mSinkListener == nullptr) {
 		ULOGE("invalid sink listener");
 		return -EPROTO;
 	}
 
 	struct pomp_msg *event = pomp_msg_new();
-	if (event == NULL) {
+	if (event == nullptr) {
 		ULOG_ERRNO("pomp_msg_new", ENOMEM);
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, DownstreamEvent::TEARDOWN, NULL);
+	res = pomp_msg_write(event, DownstreamEvent::TEARDOWN, nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -187,20 +188,20 @@ int Channel::teardown(void)
 }
 
 
-int Channel::unlink(void)
+int CodedChannel::unlink(void)
 {
 	int res;
 
-	if (mSourceListener == NULL)
+	if (mSourceListener == nullptr)
 		return 0;
 
 	struct pomp_msg *event = pomp_msg_new();
-	if (event == NULL) {
+	if (event == nullptr) {
 		ULOG_ERRNO("pomp_msg_new", ENOMEM);
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, UpstreamEvent::UNLINK, NULL);
+	res = pomp_msg_write(event, UpstreamEvent::UNLINK, nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -216,7 +217,7 @@ int Channel::unlink(void)
 }
 
 
-int Channel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
+int CodedChannel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
 {
 	int res;
 
@@ -225,18 +226,18 @@ int Channel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
 		ULOGE("invalid event");
 		return -EPROTO;
 	}
-	if (mSinkListener == NULL) {
+	if (mSinkListener == nullptr) {
 		ULOGE("invalid sink listener");
 		return -EPROTO;
 	}
 
 	struct pomp_msg *event = pomp_msg_new();
-	if (event == NULL) {
+	if (event == nullptr) {
 		ULOG_ERRNO("pomp_msg_new", ENOMEM);
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, downstreamEvent, NULL);
+	res = pomp_msg_write(event, downstreamEvent, nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -252,7 +253,7 @@ int Channel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
 }
 
 
-const char *Channel::getDownstreamEventStr(DownstreamEvent val)
+const char *CodedChannel::getDownstreamEventStr(DownstreamEvent val)
 {
 	switch (val) {
 	case FLUSH:
@@ -270,12 +271,12 @@ const char *Channel::getDownstreamEventStr(DownstreamEvent val)
 	case PHOTO_TRIGGER:
 		return "PHOTO_TRIGGER";
 	default:
-		return NULL;
+		return nullptr;
 	}
 }
 
 
-const char *Channel::getUpstreamEventStr(UpstreamEvent val)
+const char *CodedChannel::getUpstreamEventStr(UpstreamEvent val)
 {
 	switch (val) {
 	case UNLINK:
@@ -285,7 +286,7 @@ const char *Channel::getUpstreamEventStr(UpstreamEvent val)
 	case RESYNC:
 		return "RESYNC";
 	default:
-		return NULL;
+		return nullptr;
 	}
 }
 

@@ -35,17 +35,17 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_vsink_test);
 
+#include <media-buffers/mbuf_raw_video_frame.h>
 #include <pdraw-vsink/pdraw_vsink.h>
-#include <video-buffers/vbuf.h>
-#include <video-buffers/vbuf_generic.h>
+#include <pdraw/pdraw_defs.h>
+#include <video-defs/vdefs.h>
+#include <video-metadata/vmeta.h>
 
 
 int main(int argc, char **argv)
 {
 	int status = EXIT_SUCCESS, res, i;
 	struct pdraw_vsink *vsink = NULL;
-	struct vbuf_cbs vbuf_cbs;
-	struct vbuf_buffer *buffer = NULL;
 
 	if (argc < 2) {
 		ULOGE("usage: %s <url>", argv[0]);
@@ -59,35 +59,68 @@ int main(int argc, char **argv)
 	}
 	ULOGI("started");
 
-	res = vbuf_generic_get_cbs(&vbuf_cbs);
-	if (res < 0) {
-		ULOG_ERRNO("vbuf_generic_get_cbs", -res);
-		status = EXIT_FAILURE;
-		goto out;
-	}
+	for (i = 0; i < 20; i++) {
+		struct pdraw_video_frame frame_info = {0};
+		struct mbuf_raw_video_frame *frame = NULL;
+		struct vmeta_frame *frame_meta = NULL;
+		unsigned int plane_count;
 
-	res = vbuf_new(0, 0, &vbuf_cbs, NULL, &buffer);
-	if (res < 0) {
-		ULOG_ERRNO("vbuf_new", -res);
-		status = EXIT_FAILURE;
-		goto out;
-	}
-
-	for (i = 0; i < 100; i++) {
-		struct pdraw_video_frame frame;
-		memset(&frame, 0, sizeof(frame));
-		res = pdraw_vsink_get_frame(vsink, -1, &frame, buffer);
+		/* Get a new frame */
+		res = pdraw_vsink_get_frame(vsink, NULL, &frame_info, &frame);
 		if (res < 0) {
 			ULOG_ERRNO("pdraw_vsink_get_frame", -res);
 			continue;
 		}
-		ULOGI("got a frame (width=%d height=%d)",
-		      frame.yuv.width,
-		      frame.yuv.height);
+
+		/* Get frame information */
+		ULOGI("frame #%d (width=%d height=%d)",
+		      i + 1,
+		      frame_info.raw.info.resolution.width,
+		      frame_info.raw.info.resolution.height);
+
+		/* Get the video metadata */
+		res = mbuf_raw_video_frame_get_metadata(frame, &frame_meta);
+		if (res < 0 && res != -ENOENT)
+			ULOG_ERRNO("mbuf_raw_video_frame_get_metadata", -res);
+		if (frame_meta != NULL) {
+			uint8_t battery_percentage;
+			vmeta_frame_get_battery_percentage(frame_meta,
+							   &battery_percentage);
+			ULOGI("metadata: battery_percentage=%d%%",
+			      battery_percentage);
+		}
+
+		/* Get the frame planes */
+		plane_count =
+			vdef_get_raw_frame_plane_count(&frame_info.raw.format);
+		for (unsigned int k = 0; k < plane_count; k++) {
+			const void *plane = NULL;
+			size_t plane_len;
+			res = mbuf_raw_video_frame_get_plane(
+				frame, k, &plane, &plane_len);
+			if (res < 0) {
+				ULOG_ERRNO("mbuf_raw_video_frame_get_plane(%u)",
+					   -res,
+					   k);
+				continue;
+			}
+			ULOGI("plane[%d]: addr=%p stride=%zu",
+			      k,
+			      plane,
+			      frame_info.raw.plane_stride[k]);
+			res = mbuf_raw_video_frame_release_plane(
+				frame, k, plane);
+			if (res < 0)
+				ULOG_ERRNO(
+					"mbuf_raw_video_frame_release_plane(%u)",
+					-res,
+					k);
+		}
+
+		vmeta_frame_unref(frame_meta);
+		mbuf_raw_video_frame_unref(frame);
 	}
 
-out:
-	vbuf_unref(buffer);
 	res = pdraw_vsink_stop(vsink);
 	if (res < 0)
 		ULOG_ERRNO("pdraw_vsink_stop", -res);

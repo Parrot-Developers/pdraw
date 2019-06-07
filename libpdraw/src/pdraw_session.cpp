@@ -28,11 +28,19 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_session.hpp"
-#include "pdraw_avcdecoder.hpp"
+#define ULOG_TAG pdraw_session
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#include "pdraw_decoder_video.hpp"
 #include "pdraw_demuxer_record.hpp"
 #include "pdraw_demuxer_stream_mux.hpp"
 #include "pdraw_demuxer_stream_net.hpp"
+#include "pdraw_encoder_video.hpp"
+#include "pdraw_muxer_record.hpp"
+#include "pdraw_muxer_stream_rtmp.hpp"
+#include "pdraw_scaler_video.hpp"
+#include "pdraw_session.hpp"
 #include "pdraw_utils.hpp"
 
 #include <math.h>
@@ -42,99 +50,29 @@
 #include <string>
 #include <vector>
 
-#define ULOG_TAG pdraw_session
-#include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_session);
-
 namespace Pdraw {
-
-
-enum cmd_type {
-	CMD_TYPE_ELEMENT_SET_STATE,
-	CMD_TYPE_ELEMENT_DELETE,
-	CMD_TYPE_AVCDECODER_COMPLETE_FLUSH,
-	CMD_TYPE_AVCDECODER_COMPLETE_STOP,
-	CMD_TYPE_AVCDECODER_RESYNC,
-	CMD_TYPE_RENDERER_COMPLETE_STOP,
-};
-
-
-struct cmd_base {
-	enum cmd_type type;
-};
-
-
-struct cmd_element_set_state {
-	struct cmd_base base;
-	Element *element;
-	Element::State state;
-};
-PDRAW_STATIC_ASSERT(sizeof(struct cmd_element_set_state) <= PIPE_BUF - 1);
-
-
-struct cmd_element_delete {
-	struct cmd_base base;
-	Element *element;
-};
-PDRAW_STATIC_ASSERT(sizeof(struct cmd_element_delete) <= PIPE_BUF - 1);
-
-
-struct cmd_avcdecoder_complete_flush {
-	struct cmd_base base;
-	AvcDecoder *decoder;
-};
-PDRAW_STATIC_ASSERT(sizeof(struct cmd_avcdecoder_complete_flush) <=
-		    PIPE_BUF - 1);
-
-
-struct cmd_avcdecoder_complete_stop {
-	struct cmd_base base;
-	AvcDecoder *decoder;
-};
-PDRAW_STATIC_ASSERT(sizeof(struct cmd_avcdecoder_complete_stop) <=
-		    PIPE_BUF - 1);
-
-
-struct cmd_avcdecoder_resync {
-	struct cmd_base base;
-	AvcDecoder *decoder;
-};
-PDRAW_STATIC_ASSERT(sizeof(struct cmd_avcdecoder_resync) <= PIPE_BUF - 1);
-
-
-struct cmd_renderer_complete_stop {
-	struct cmd_base base;
-	Renderer *renderer;
-};
-PDRAW_STATIC_ASSERT(sizeof(struct cmd_renderer_complete_stop) <= PIPE_BUF - 1);
 
 
 int createPdraw(struct pomp_loop *loop,
 		IPdraw::Listener *listener,
 		IPdraw **retObj)
 {
-	IPdraw *pdraw = NULL;
-	if (loop == NULL) {
+	IPdraw *pdraw = nullptr;
+	if (loop == nullptr) {
 		ULOGE("invalid loop");
 		return -EINVAL;
 	}
-	if (retObj == NULL) {
+	if (retObj == nullptr) {
 		ULOGE("invalid pointer");
 		return -EINVAL;
 	}
 	pdraw = new Session(loop, listener);
-	if (pdraw == NULL) {
+	if (pdraw == nullptr) {
 		ULOGE("failed to create pdraw instance");
 		return -EPROTO;
 	}
 	*retObj = pdraw;
 	return 0;
-}
-
-
-const char *pdrawDroneModelStr(enum pdraw_drone_model val)
-{
-	return pdraw_droneModelStr(val);
 }
 
 
@@ -150,33 +88,15 @@ const char *pdrawPipelineModeStr(enum pdraw_pipeline_mode val)
 }
 
 
-const char *pdrawSessionTypeStr(enum pdraw_session_type val)
+const char *pdrawPlaybackTypeStr(enum pdraw_playback_type val)
 {
-	return pdraw_sessionTypeStr(val);
+	return pdraw_playbackTypeStr(val);
 }
 
 
 const char *pdrawMediaTypeStr(enum pdraw_media_type val)
 {
 	return pdraw_mediaTypeStr(val);
-}
-
-
-const char *pdrawVideoMediaFormatStr(enum pdraw_video_media_format val)
-{
-	return pdraw_videoMediaFormatStr(val);
-}
-
-
-const char *pdrawYuvFormatStr(enum pdraw_yuv_format val)
-{
-	return pdraw_yuvFormatStr(val);
-}
-
-
-const char *pdrawH264FormatStr(enum pdraw_h264_format val)
-{
-	return pdraw_h264FormatStr(val);
 }
 
 
@@ -207,45 +127,32 @@ const char *pdrawVideoRendererTransitionFlagStr(
 
 
 int pdrawVideoFrameToJsonStr(const struct pdraw_video_frame *frame,
+			     struct vmeta_frame *metadata,
 			     char *str,
 			     unsigned int len)
 {
-	return pdraw_frameMetadataToJsonStr(frame, str, len);
+	return pdraw_frameMetadataToJsonStr(frame, metadata, str, len);
 }
 
 
 int pdrawVideoFrameToJson(const struct pdraw_video_frame *frame,
+			  struct vmeta_frame *metadata,
 			  struct json_object *jobj)
 {
-	return pdraw_frameMetadataToJson(frame, jobj);
+	return pdraw_frameMetadataToJson(frame, metadata, jobj);
 }
 
 
-int pdrawPackYuvFrame(const struct pdraw_video_frame *in_frame,
-		      struct pdraw_video_frame *out_frame,
-		      struct vbuf_buffer *out_buf)
-{
-	return pdraw_packYUVFrame(in_frame, out_frame, out_buf);
-}
+Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener) :
+		mFactory(this), mListener(listener), mState(STOPPED),
+		mLoop(loop), mAndroidJvm(nullptr)
 
-
-Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener)
 {
 	int res;
 	pthread_mutexattr_t attr;
-	bool mutex_created = false, attr_created = false;
+	bool attr_created = false;
 
-	mListener = listener;
-	mState = INVALID;
-	mSessionType = PDRAW_SESSION_TYPE_UNKNOWN;
-	mDemuxer = NULL;
-	mDemuxerReady = false;
-	mMediaIdCounter = 0;
-	mLoop = loop;
-	mAndroidJvm = NULL;
-	mUrecoverableErrorOccured = false;
-	mReadyToPlay = false;
-	mMbox = NULL;
+	mLoopThread = pthread_self();
 
 	res = pthread_mutexattr_init(&attr);
 	if (res != 0) {
@@ -265,41 +172,12 @@ Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener)
 		ULOG_ERRNO("pthread_mutex_init", res);
 		goto error;
 	}
-	mutex_created = true;
-
-	mMbox = mbox_new(PIPE_BUF - 1);
-	if (mMbox == NULL) {
-		res = -ENOMEM;
-		ULOG_ERRNO("mbox_new", -res);
-		goto error;
-	}
-
-	res = pomp_loop_add(mLoop,
-			    mbox_get_read_fd(mMbox),
-			    POMP_FD_EVENT_IN,
-			    &mboxCb,
-			    this);
-	if (res < 0) {
-		ULOG_ERRNO("pomp_loop_add", -res);
-		goto error;
-	}
 
 	pthread_mutexattr_destroy(&attr);
-	setState(CREATED);
+	setState(READY);
 	return;
 
 error:
-	if (mMbox != NULL) {
-		if (mLoop != NULL) {
-			res = pomp_loop_remove(mLoop, mbox_get_read_fd(mMbox));
-			if (res < 0)
-				ULOG_ERRNO("pomp_loop_remove", -res);
-		}
-		mbox_destroy(mMbox);
-		mMbox = NULL;
-	}
-	if (mutex_created)
-		pthread_mutex_destroy(&mMutex);
 	if (attr_created)
 		pthread_mutexattr_destroy(&attr);
 }
@@ -307,10 +185,18 @@ error:
 
 Session::~Session(void)
 {
-	int res;
-
-	if ((mState != INVALID) && (mState != CREATED) && (mState != CLOSED))
+	if (mState != STOPPED)
 		ULOGW("destroying while instance is still running");
+
+	/* Remove any leftover idle callbacks */
+	if (mLoop != nullptr) {
+		pomp_loop_idle_remove(mLoop, idleElementStateChange, this);
+		pomp_loop_idle_remove(mLoop, idleElementDelete, this);
+		pomp_loop_idle_remove(mLoop, idleRendererCompleteStop, this);
+		pomp_loop_idle_remove(mLoop, callStopResponse, this);
+		pomp_loop_idle_remove(mLoop, callOnMediaAdded, this);
+		pomp_loop_idle_remove(mLoop, callOnMediaRemoved, this);
+	}
 
 	pthread_mutex_lock(&mMutex);
 	std::vector<Element *>::iterator e = mElements.begin();
@@ -321,29 +207,15 @@ Session::~Session(void)
 	mElements.clear();
 	pthread_mutex_unlock(&mMutex);
 
-	/* Remove any leftover idle callbacks */
-	if (mLoop != NULL) {
-		pomp_loop_idle_remove(mLoop, callOpenResponse, this);
-		pomp_loop_idle_remove(mLoop, callCloseResponse, this);
-		pomp_loop_idle_remove(mLoop, callOnUnrecoverableError, this);
-		pomp_loop_idle_remove(mLoop, callOnMediaAdded, this);
-		pomp_loop_idle_remove(mLoop, callOnMediaRemoved, this);
-		pomp_loop_idle_remove(mLoop, callReadyToPlay, this);
-		pomp_loop_idle_remove(mLoop, callEndOfRange, this);
-		pomp_loop_idle_remove(mLoop, callPlayResponse, this);
-		pomp_loop_idle_remove(mLoop, callPauseResponse, this);
-		pomp_loop_idle_remove(mLoop, callSeekResponse, this);
-		pomp_loop_idle_remove(mLoop, callVideoSinkFlush, this);
+	while (!mMediaAddedInfoArgs.empty()) {
+		struct pdraw_media_info info = mMediaAddedInfoArgs.front();
+		mMediaAddedInfoArgs.pop();
+		Media::cleanupMediaInfo(&info);
 	}
-
-	if (mMbox != NULL) {
-		if (mLoop != NULL) {
-			res = pomp_loop_remove(mLoop, mbox_get_read_fd(mMbox));
-			if (res < 0)
-				ULOG_ERRNO("pomp_loop_remove", -res);
-		}
-		mbox_destroy(mMbox);
-		mMbox = NULL;
+	while (!mMediaRemovedInfoArgs.empty()) {
+		struct pdraw_media_info info = mMediaRemovedInfoArgs.front();
+		mMediaRemovedInfoArgs.pop();
+		Media::cleanupMediaInfo(&info);
 	}
 
 	pthread_mutex_destroy(&mMutex);
@@ -354,363 +226,493 @@ Session::~Session(void)
  * API methods
  */
 
-int Session::open(const std::string &url)
-{
-	int ret;
-	std::string ext;
-
-	if (mState != CREATED) {
-		ULOGE("%s: invalid state", __func__);
-		return -EPROTO;
-	}
-
-	if (mDemuxer != NULL) {
-		ULOGE("%s: a demuxer is already running", __func__);
-		return -EBUSY;
-	}
-
-	setState(OPENING);
-
-	if (url.length() < 4) {
-		ULOGE("invalid URL length");
-		ret = -EPROTO;
-		goto error_restore;
-	}
-	ext = url.substr(url.length() - 4, 4);
-	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-	if (url.substr(0, 7) == "rtsp://") {
-		pthread_mutex_lock(&mMutex);
-		mSessionType = PDRAW_SESSION_TYPE_LIVE; /* TODO: live/replay */
-		pthread_mutex_unlock(&mMutex);
-		mDemuxer = new StreamDemuxerNet(this, this, this, this);
-		if (mDemuxer == NULL) {
-			ULOGE("failed to alloc demuxer");
-			ret = -ENOMEM;
-			goto error_restore;
-		}
-		pthread_mutex_lock(&mMutex);
-		mElements.push_back(mDemuxer);
-		pthread_mutex_unlock(&mMutex);
-		ret = ((StreamDemuxerNet *)mDemuxer)->setup(url);
-		if (ret < 0) {
-			ULOG_ERRNO("demuxer->setup", -ret);
-			pthread_mutex_lock(&mMutex);
-			mElements.erase(std::remove(mElements.begin(),
-						    mElements.end(),
-						    mDemuxer),
-					mElements.end());
-			pthread_mutex_unlock(&mMutex);
-			delete mDemuxer;
-			mDemuxer = NULL;
-			mDemuxerReady = false;
-			goto error_restore;
-		}
-		ret = mDemuxer->start();
-		if (ret < 0) {
-			ULOG_ERRNO("demuxer->start", -ret);
-			pthread_mutex_lock(&mMutex);
-			mElements.erase(std::remove(mElements.begin(),
-						    mElements.end(),
-						    mDemuxer),
-					mElements.end());
-			pthread_mutex_unlock(&mMutex);
-			delete mDemuxer;
-			mDemuxer = NULL;
-			mDemuxerReady = false;
-			goto error_restore;
-		}
-	} else if (ext == ".mp4") {
-		pthread_mutex_lock(&mMutex);
-		mSessionType = PDRAW_SESSION_TYPE_REPLAY;
-		pthread_mutex_unlock(&mMutex);
-		mDemuxer = new RecordDemuxer(this, this, this, this);
-		if (mDemuxer == NULL) {
-			ULOGE("failed to alloc demuxer");
-			ret = -ENOMEM;
-			goto error_restore;
-		}
-		pthread_mutex_lock(&mMutex);
-		mElements.push_back(mDemuxer);
-		pthread_mutex_unlock(&mMutex);
-		ret = ((RecordDemuxer *)mDemuxer)->setup(url);
-		if (ret < 0) {
-			ULOG_ERRNO("demuxer->setup", -ret);
-			pthread_mutex_lock(&mMutex);
-			mElements.erase(std::remove(mElements.begin(),
-						    mElements.end(),
-						    mDemuxer),
-					mElements.end());
-			pthread_mutex_unlock(&mMutex);
-			delete mDemuxer;
-			mDemuxer = NULL;
-			mDemuxerReady = false;
-			goto error_restore;
-		}
-		ret = mDemuxer->start();
-		if (ret < 0) {
-			ULOG_ERRNO("demuxer->start", -ret);
-			pthread_mutex_lock(&mMutex);
-			mElements.erase(std::remove(mElements.begin(),
-						    mElements.end(),
-						    mDemuxer),
-					mElements.end());
-			pthread_mutex_unlock(&mMutex);
-			delete mDemuxer;
-			mDemuxer = NULL;
-			mDemuxerReady = false;
-			goto error_restore;
-		}
-	} else {
-		ULOGE("unsupported URL");
-		ret = -ENOSYS;
-		goto error_restore;
-	}
-
-	/* Waiting for the asynchronous open; openResponse()
-	 * will be called when it's done */
-	return 0;
-
-error_restore:
-	/* State was OPENING, restore it to CREATED */
-	setState(CREATED);
-	return ret;
-}
-
-
-int Session::open(const std::string &localAddr,
-		  uint16_t localStreamPort,
-		  uint16_t localControlPort,
-		  const std::string &remoteAddr,
-		  uint16_t remoteStreamPort,
-		  uint16_t remoteControlPort)
-{
-	int ret;
-
-	if (mState != CREATED) {
-		ULOGE("%s: invalid state", __func__);
-		return -EPROTO;
-	}
-
-	if (mDemuxer != NULL) {
-		ULOGE("%s: a demuxer is already running", __func__);
-		return -EBUSY;
-	}
-
-	setState(OPENING);
-
-	pthread_mutex_lock(&mMutex);
-	mSessionType = PDRAW_SESSION_TYPE_LIVE;
-	pthread_mutex_unlock(&mMutex);
-	mDemuxer = new StreamDemuxerNet(this, this, this, this);
-	if (mDemuxer == NULL) {
-		ULOGE("failed to alloc demuxer");
-		ret = -ENOMEM;
-		goto error_restore;
-	}
-	pthread_mutex_lock(&mMutex);
-	mElements.push_back(mDemuxer);
-	pthread_mutex_unlock(&mMutex);
-
-	ret = ((StreamDemuxerNet *)mDemuxer)
-		      ->setup(localAddr,
-			      localStreamPort,
-			      localControlPort,
-			      remoteAddr,
-			      remoteStreamPort,
-			      remoteControlPort);
-	if (ret < 0) {
-		ULOG_ERRNO("demuxer->setup", -ret);
-		pthread_mutex_lock(&mMutex);
-		mElements.erase(std::remove(mElements.begin(),
-					    mElements.end(),
-					    mDemuxer),
-				mElements.end());
-		pthread_mutex_unlock(&mMutex);
-		delete mDemuxer;
-		mDemuxer = NULL;
-		mDemuxerReady = false;
-		goto error_restore;
-	}
-	ret = mDemuxer->start();
-	if (ret < 0) {
-		ULOG_ERRNO("demuxer->start", -ret);
-		pthread_mutex_lock(&mMutex);
-		mElements.erase(std::remove(mElements.begin(),
-					    mElements.end(),
-					    mDemuxer),
-				mElements.end());
-		pthread_mutex_unlock(&mMutex);
-		delete mDemuxer;
-		mDemuxer = NULL;
-		mDemuxerReady = false;
-		goto error_restore;
-	}
-
-	/* Waiting for the asynchronous open; openResponse()
-	 * will be called when it's done */
-	return 0;
-
-error_restore:
-	/* State was OPENING, restore it to CREATED */
-	setState(CREATED);
-	return ret;
-}
-
-
-int Session::open(const std::string &url, struct mux_ctx *mux)
-{
-#ifdef BUILD_LIBMUX
-	int ret;
-
-	if (mState != CREATED) {
-		ULOGE("%s: invalid state", __func__);
-		return -EPROTO;
-	}
-
-	if (mDemuxer != NULL) {
-		ULOGE("%s: a demuxer is already running", __func__);
-		return -EBUSY;
-	}
-
-	setState(OPENING);
-
-	pthread_mutex_lock(&mMutex);
-	mSessionType = PDRAW_SESSION_TYPE_LIVE; /* TODO: live/replay */
-	pthread_mutex_unlock(&mMutex);
-	mDemuxer = new StreamDemuxerMux(this, this, this, this);
-	if (mDemuxer == NULL) {
-		ULOGE("failed to alloc demuxer");
-		ret = -ENOMEM;
-		goto error_restore;
-	}
-	pthread_mutex_lock(&mMutex);
-	mElements.push_back(mDemuxer);
-	pthread_mutex_unlock(&mMutex);
-
-	ret = ((StreamDemuxerMux *)mDemuxer)->setup(url, mux);
-	if (ret < 0) {
-		ULOG_ERRNO("demuxer->setup", -ret);
-		pthread_mutex_lock(&mMutex);
-		mElements.erase(std::remove(mElements.begin(),
-					    mElements.end(),
-					    mDemuxer),
-				mElements.end());
-		pthread_mutex_unlock(&mMutex);
-		delete mDemuxer;
-		mDemuxer = NULL;
-		mDemuxerReady = false;
-		goto error_restore;
-	}
-	ret = mDemuxer->start();
-	if (ret < 0) {
-		ULOG_ERRNO("demuxer->start", -ret);
-		pthread_mutex_lock(&mMutex);
-		mElements.erase(std::remove(mElements.begin(),
-					    mElements.end(),
-					    mDemuxer),
-				mElements.end());
-		pthread_mutex_unlock(&mMutex);
-		delete mDemuxer;
-		mDemuxer = NULL;
-		mDemuxerReady = false;
-		goto error_restore;
-	}
-
-	/* Waiting for the asynchronous open; openResponse()
-	 * will be called when it's done */
-	return 0;
-
-error_restore:
-	/* State was OPENING, restore it to CREATED */
-	setState(CREATED);
-	return ret;
-#else /* BUILD_LIBMUX */
-	return -ENOSYS;
-#endif /* BUILD_LIBMUX */
-}
-
-
-int Session::close(void)
+int Session::stop(void)
 {
 	int ret;
 	bool stopped = true;
 	std::vector<Element *>::iterator e;
 
-	if (mState == CLOSING) {
-		/* Return without calling the closeResponse() function */
+	if (mState == STOPPING) {
+		/* Return without calling the stopResponse() function */
 		ULOGI("%s: already in %s state, nothing to do",
 		      __func__,
 		      stateStr(mState));
 		return 0;
 	}
 
-	if (mState == CREATED || mState == CLOSED) {
-		/* Call the closeResponse() function with OK status */
+	if (mState == STOPPED) {
+		/* Call the stopResponse() function with OK status */
 		ULOGI("%s: state is %s, nothing to do",
 		      __func__,
 		      stateStr(mState));
 		ret = 0;
-		goto already_closed;
+		goto already_stopped;
 	}
 
-	if (mState != OPENED && mState != OPENING) {
+	if (mState != READY) {
 		ULOGE("%s: invalid state (%s)", __func__, stateStr(mState));
 		return -EPROTO;
 	}
 
-	setState(CLOSING);
+	setState(STOPPING);
 
 	pthread_mutex_lock(&mMutex);
 	e = mElements.begin();
 	while (e != mElements.end()) {
 		if ((*e)->getState() != Element::State::STOPPED) {
 			stopped = false;
-			break;
+		} else {
+			int err = (*e)->stop();
+			if (err < 0)
+				ULOG_ERRNO("element->stop", -err);
 		}
 		e++;
 	}
 	pthread_mutex_unlock(&mMutex);
 
 	if (stopped) {
-		/* Call the closeResponse() function with OK status */
+		/* Call the stopResponse() function with OK status */
 		ULOGI("%s: all elements are stopped, closing", __func__);
-		setState(CLOSED);
+		setState(STOPPED);
 		ret = 0;
-		goto already_closed;
+		goto already_stopped;
 	}
 
-	if (mDemuxer != NULL) {
-		ret = mDemuxer->stop();
-		if (ret < 0) {
-			ULOG_ERRNO("demuxer->stop", -ret);
-			return ret;
-		}
-	}
-
-	/* Waiting for the asynchronous stop; closeResponse()
+	/* Waiting for the asynchronous stop; stopResponse()
 	 * will be called when it's done */
 	return 0;
 
-already_closed:
-	if (mListener != NULL && ret == 0) {
-		mCloseRespStatusArgs.push(ret);
-		pomp_loop_idle_add(mLoop, callCloseResponse, this);
-	}
+already_stopped:
+	if (mListener != nullptr && ret == 0)
+		stopResp(ret);
 	return ret;
 }
 
 
-uint16_t Session::getSingleStreamLocalStreamPort(void)
+/* Called on the rendering thread */
+int Session::createVideoRenderer(
+	unsigned int mediaId,
+	const struct pdraw_rect *renderPos,
+	const struct pdraw_video_renderer_params *params,
+	IPdraw::IVideoRenderer::Listener *listener,
+	IPdraw::IVideoRenderer **retObj,
+	struct egl_display *eglDisplay)
 {
-	if (mDemuxer == NULL) {
-		ULOG_ERRNO("invalid demuxer", EPROTO);
-		return 0;
+	int res;
+	Session::VideoRenderer *renderer = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(renderPos == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mMutex);
+	if (mState == STOPPING || mState == STOPPED) {
+		ULOGE("renderer creation refused in %s state",
+		      stateStr(mState));
+		pthread_mutex_unlock(&mMutex);
+		return -EPROTO;
 	}
 
+	renderer = new Session::VideoRenderer(
+		this, mediaId, renderPos, params, listener, eglDisplay);
+	if (renderer == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the video renderer", __func__);
+		return -ENOMEM;
+	}
+
+	mElements.push_back(renderer->getElement());
+	pthread_mutex_unlock(&mMutex);
+
+	res = renderer->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("renderer->start", -res);
+		return res;
+	}
+
+	*retObj = renderer;
+
+	return 0;
+}
+
+
+/* Called on the rendering thread */
+Session::VideoRenderer::VideoRenderer(
+	Session *session,
+	unsigned int mediaId,
+	const struct pdraw_rect *renderPos,
+	const struct pdraw_video_renderer_params *params,
+	IPdraw::IVideoRenderer::Listener *listener,
+	struct egl_display *eglDisplay)
+{
+	mRenderer = Renderer::create(session,
+				     session,
+				     this,
+				     listener,
+				     mediaId,
+				     renderPos,
+				     params,
+				     eglDisplay);
+	if (mRenderer == nullptr) {
+		ULOGE("%s: failed to create the video renderer", __func__);
+		return;
+	}
+}
+
+
+/* Called on the rendering thread */
+Session::VideoRenderer::~VideoRenderer(void)
+{
+	if (mRenderer == nullptr)
+		return;
+
+	int ret = mRenderer->stop();
+	if (ret < 0)
+		ULOG_ERRNO("renderer->stop", -ret);
+}
+
+
+/* Called on the rendering thread */
+int Session::VideoRenderer::resize(const struct pdraw_rect *renderPos)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->resize(renderPos);
+}
+
+
+/* Called on the rendering thread */
+int Session::VideoRenderer::setMediaId(unsigned int mediaId)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->setMediaId(mediaId);
+}
+
+
+/* Called on the rendering thread */
+unsigned int Session::VideoRenderer::getMediaId(void)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->getMediaId();
+}
+
+
+/* Called on the rendering thread */
+int Session::VideoRenderer::setParams(
+	const struct pdraw_video_renderer_params *params)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->setParams(params);
+}
+
+
+/* Called on the rendering thread */
+int Session::VideoRenderer::getParams(
+	struct pdraw_video_renderer_params *params)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->getParams(params);
+}
+
+
+/* Called on the rendering thread */
+int Session::VideoRenderer::render(struct pdraw_rect *contentPos,
+				   const float *viewMat,
+				   const float *projMat)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->render(contentPos, viewMat, projMat);
+}
+
+
+int Session::createDemuxer(const std::string &url,
+			   IPdraw::IDemuxer::Listener *listener,
+			   IPdraw::IDemuxer **retObj)
+{
+	return createDemuxer(url, nullptr, listener, retObj);
+}
+
+
+int Session::createDemuxer(const std::string &localAddr,
+			   uint16_t localStreamPort,
+			   uint16_t localControlPort,
+			   const std::string &remoteAddr,
+			   uint16_t remoteStreamPort,
+			   uint16_t remoteControlPort,
+			   IPdraw::IDemuxer::Listener *listener,
+			   IPdraw::IDemuxer **retObj)
+{
+	int res;
+	Session::Demuxer *demuxer = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mMutex);
+	if (mState == STOPPING || mState == STOPPED) {
+		ULOGE("demuxer creation refused in %s state", stateStr(mState));
+		pthread_mutex_unlock(&mMutex);
+		return -EPROTO;
+	}
+
+	demuxer = new Session::Demuxer(this,
+				       localAddr,
+				       localStreamPort,
+				       localControlPort,
+				       remoteAddr,
+				       remoteStreamPort,
+				       remoteControlPort,
+				       listener);
+	if (demuxer == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the demuxer", __func__);
+		return -ENOMEM;
+	}
+	if (demuxer->getElement() == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the demuxer", __func__);
+		delete demuxer;
+		return -EINVAL;
+	}
+
+	mElements.push_back(demuxer->getElement());
+	pthread_mutex_unlock(&mMutex);
+
+	res = demuxer->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("demuxer->start", -res);
+		goto error;
+	}
+
+	*retObj = demuxer;
+
+	/* Waiting for the asynchronous open; openResponse()
+	 * will be called when it's done */
+	return 0;
+
+error:
+	if (demuxer != nullptr) {
+		pthread_mutex_lock(&mMutex);
+		std::vector<Element *>::iterator e = mElements.begin();
+		while (e != mElements.end()) {
+			if (*e != demuxer->getElement()) {
+				e++;
+				continue;
+			}
+			mElements.erase(e);
+			break;
+		}
+		pthread_mutex_unlock(&mMutex);
+		delete demuxer;
+	}
+	return res;
+}
+
+
+int Session::createDemuxer(const std::string &url,
+			   struct mux_ctx *mux,
+			   IPdraw::IDemuxer::Listener *listener,
+			   IPdraw::IDemuxer **retObj)
+{
+	int res;
+	Session::Demuxer *demuxer = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(url.length() == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mMutex);
+	if (mState == STOPPING || mState == STOPPED) {
+		ULOGE("demuxer creation refused in %s state", stateStr(mState));
+		pthread_mutex_unlock(&mMutex);
+		return -EPROTO;
+	}
+
+	demuxer = new Session::Demuxer(this, url, mux, listener);
+	if (demuxer == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the demuxer", __func__);
+		return -ENOMEM;
+	}
+	if (demuxer->getElement() == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the demuxer", __func__);
+		delete demuxer;
+		return -EINVAL;
+	}
+
+	mElements.push_back(demuxer->getElement());
+	pthread_mutex_unlock(&mMutex);
+
+	res = demuxer->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("demuxer->start", -res);
+		goto error;
+	}
+
+	*retObj = demuxer;
+
+	/* Waiting for the asynchronous open; openResponse()
+	 * will be called when it's done */
+	return 0;
+
+error:
+	if (demuxer != nullptr) {
+		pthread_mutex_lock(&mMutex);
+		std::vector<Element *>::iterator e = mElements.begin();
+		while (e != mElements.end()) {
+			if (*e != demuxer->getElement()) {
+				e++;
+				continue;
+			}
+			mElements.erase(e);
+			break;
+		}
+		pthread_mutex_unlock(&mMutex);
+		delete demuxer;
+	}
+	return res;
+}
+
+
+Session::Demuxer::Demuxer(Session *session,
+			  const std::string &url,
+			  struct mux_ctx *mux,
+			  IPdraw::IDemuxer::Listener *listener) :
+		mSession(session),
+		mDemuxer(nullptr)
+{
+	std::string ext;
+
+	if (url.length() < 4) {
+		ULOGE("%s: invalid URL length", __func__);
+		return;
+	}
+	ext = url.substr(url.length() - 4, 4);
+	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+	if ((mux != nullptr) && (url.substr(0, 7) == "rtsp://")) {
+#ifdef BUILD_LIBMUX
+		StreamDemuxerMux *demuxer;
+		demuxer = new StreamDemuxerMux(
+			mSession, mSession, mSession, this, listener, url, mux);
+		if (demuxer == nullptr) {
+			ULOGE("%s: failed to create the stream demuxer",
+			      __func__);
+			return;
+		}
+		mDemuxer = demuxer;
+#else /* BUILD_LIBMUX */
+		ULOGE("%s: libmux is not supported", __func__);
+#endif /* BUILD_LIBMUX */
+	} else if (url.substr(0, 7) == "rtsp://") {
+		StreamDemuxerNet *demuxer;
+		demuxer = new StreamDemuxerNet(
+			mSession, mSession, mSession, this, listener, url);
+		if (demuxer == nullptr) {
+			ULOGE("%s: failed to create the stream demuxer",
+			      __func__);
+			return;
+		}
+		mDemuxer = demuxer;
+	} else if (ext == ".mp4") {
+		RecordDemuxer *demuxer;
+		demuxer = new RecordDemuxer(
+			mSession, mSession, mSession, this, listener, url);
+		if (demuxer == nullptr) {
+			ULOGE("%s: failed to create the record demuxer",
+			      __func__);
+			return;
+		}
+		mDemuxer = demuxer;
+	} else {
+		ULOGE("%s: unsupported URL", __func__);
+	}
+}
+
+
+Session::Demuxer::Demuxer(Session *session,
+			  const std::string &localAddr,
+			  uint16_t localStreamPort,
+			  uint16_t localControlPort,
+			  const std::string &remoteAddr,
+			  uint16_t remoteStreamPort,
+			  uint16_t remoteControlPort,
+			  IPdraw::IDemuxer::Listener *listener) :
+		mSession(session),
+		mDemuxer(nullptr)
+{
+	StreamDemuxerNet *demuxer;
+	demuxer = new StreamDemuxerNet(mSession,
+				       mSession,
+				       mSession,
+				       this,
+				       listener,
+				       localAddr,
+				       localStreamPort,
+				       localControlPort,
+				       remoteAddr,
+				       remoteStreamPort,
+				       remoteControlPort);
+	if (demuxer == nullptr) {
+		ULOGE("%s: failed to create the stream demuxer", __func__);
+		return;
+	}
+	mDemuxer = demuxer;
+}
+
+
+Session::Demuxer::~Demuxer(void)
+{
+	if (mDemuxer == nullptr)
+		return;
+
+	int res = mDemuxer->stop();
+	if (res < 0)
+		ULOG_ERRNO("Demuxer::stop", -res);
+}
+
+
+int Session::Demuxer::close(void)
+{
+	int res;
+
+	if (mDemuxer == nullptr)
+		return -EPROTO;
+
+	res = mDemuxer->stop();
+	if (res < 0) {
+		ULOG_ERRNO("Demuxer::stop", -res);
+		return res;
+	}
+
+	/* Waiting for the asynchronous stop; closeResponse()
+	 * will be called when it's done */
+	mDemuxer = nullptr;
+	return 0;
+}
+
+
+uint16_t Session::Demuxer::getSingleStreamLocalStreamPort(void)
+{
+	if (mDemuxer == nullptr)
+		return 0;
+
 	StreamDemuxerNet *demuxer = dynamic_cast<StreamDemuxerNet *>(mDemuxer);
-	if (demuxer == NULL) {
-		ULOG_ERRNO("invalid demuxer", ENOSYS);
+	if (demuxer == nullptr) {
+		ULOGE("%s: invalid demuxer", __func__);
 		return 0;
 	}
 
@@ -718,16 +720,14 @@ uint16_t Session::getSingleStreamLocalStreamPort(void)
 }
 
 
-uint16_t Session::getSingleStreamLocalControlPort(void)
+uint16_t Session::Demuxer::getSingleStreamLocalControlPort(void)
 {
-	if (mDemuxer == NULL) {
-		ULOG_ERRNO("invalid demuxer", EPROTO);
+	if (mDemuxer == nullptr)
 		return 0;
-	}
 
 	StreamDemuxerNet *demuxer = dynamic_cast<StreamDemuxerNet *>(mDemuxer);
-	if (demuxer == NULL) {
-		ULOG_ERRNO("invalid demuxer", ENOSYS);
+	if (demuxer == nullptr) {
+		ULOGE("%s: invalid demuxer", __func__);
 		return 0;
 	}
 
@@ -735,315 +735,238 @@ uint16_t Session::getSingleStreamLocalControlPort(void)
 }
 
 
-bool Session::isReadyToPlay(void)
+bool Session::Demuxer::isReadyToPlay(void)
 {
-	return mReadyToPlay;
-}
-
-
-bool Session::isPaused(void)
-{
-	/* TODO */
-	if (mDemuxer != NULL)
-		return mDemuxer->isPaused();
-	else
+	if (mDemuxer == nullptr)
 		return false;
+
+	return mDemuxer->isReadyToPlay();
 }
 
 
-int Session::play(float speed)
+bool Session::Demuxer::isPaused(void)
 {
-	int ret = 0;
+	if (mDemuxer == nullptr)
+		return false;
 
-	if (mState != OPENED) {
-		ULOGE("%s: invalid state (%s)", __func__, stateStr(mState));
-		return -EPROTO;
-	}
-
-	if (mDemuxer == NULL) {
-		ULOGE("%s: no demuxer is running", __func__);
-		return -EPROTO;
-	}
-
-	ret = mDemuxer->play(speed);
-	if (ret < 0)
-		ULOG_ERRNO("demuxer->play", -ret);
-	return ret;
+	return mDemuxer->isPaused();
 }
 
 
-int Session::pause(void)
+int Session::Demuxer::play(float speed)
+{
+	if (mDemuxer == nullptr)
+		return -EPROTO;
+
+	return mDemuxer->play(speed);
+}
+
+
+int Session::Demuxer::pause(void)
 {
 	return play(0.);
 }
 
 
-int Session::previousFrame(void)
+int Session::Demuxer::previousFrame(void)
 {
-	int ret = 0;
-
-	if (mState != OPENED) {
-		ULOGE("%s: invalid state (%s)", __func__, stateStr(mState));
+	if (mDemuxer == nullptr)
 		return -EPROTO;
-	}
-
-	if (mDemuxer == NULL) {
-		ULOGE("%s: no demuxer is running", __func__);
-		return -EPROTO;
-	}
-
-	ret = mDemuxer->previous();
-	if (ret < 0)
-		ULOG_ERRNO("demuxer->previous", -ret);
-	return ret;
+	return mDemuxer->previous();
 }
 
 
-int Session::nextFrame(void)
+int Session::Demuxer::nextFrame(void)
 {
-	int ret = 0;
-
-	if (mState != OPENED) {
-		ULOGE("%s: invalid state (%s)", __func__, stateStr(mState));
+	if (mDemuxer == nullptr)
 		return -EPROTO;
-	}
-
-	if (mDemuxer == NULL) {
-		ULOGE("%s: no demuxer is running", __func__);
-		return -EPROTO;
-	}
-
-	ret = mDemuxer->next();
-	if (ret < 0)
-		ULOG_ERRNO("demuxer->next", -ret);
-	return ret;
+	return mDemuxer->next();
 }
 
 
-int Session::seek(int64_t delta, bool exact)
+int Session::Demuxer::seek(int64_t delta, bool exact)
 {
-	int ret = 0;
-
-	if (mState != OPENED) {
-		ULOGE("%s: invalid state (%s)", __func__, stateStr(mState));
+	if (mDemuxer == nullptr)
 		return -EPROTO;
-	}
 
-	if (mDemuxer == NULL) {
-		ULOGE("%s: no demuxer is running", __func__);
-		return -EPROTO;
-	}
-
-	ret = mDemuxer->seek(delta, exact);
-	if (ret < 0)
-		ULOG_ERRNO("demuxer->seek", -ret);
-	return ret;
+	return mDemuxer->seek(delta, exact);
 }
 
 
-int Session::seekForward(uint64_t delta, bool exact)
+int Session::Demuxer::seekForward(uint64_t delta, bool exact)
 {
 	return seek((int64_t)delta);
 }
 
 
-int Session::seekBack(uint64_t delta, bool exact)
+int Session::Demuxer::seekBack(uint64_t delta, bool exact)
 {
 	return seek(-((int64_t)delta));
 }
 
 
-int Session::seekTo(uint64_t timestamp, bool exact)
+int Session::Demuxer::seekTo(uint64_t timestamp, bool exact)
 {
-	int ret = 0;
-
-	if (mState != OPENED) {
-		ULOGE("%s: invalid state (%s)", __func__, stateStr(mState));
+	if (mDemuxer == nullptr)
 		return -EPROTO;
-	}
 
-	if (mDemuxer == NULL) {
-		ULOGE("%s: no demuxer is running", __func__);
-		return -EPROTO;
-	}
-
-	ret = mDemuxer->seekTo(timestamp, exact);
-	if (ret < 0)
-		ULOG_ERRNO("demuxer->seekTo", -ret);
-	return ret;
+	return mDemuxer->seekTo(timestamp, exact);
 }
 
 
-uint64_t Session::getDuration(void)
+uint64_t Session::Demuxer::getDuration(void)
 {
-	/* TODO */
-	return (mDemuxer) ? mDemuxer->getDuration() : 0;
+	if (mDemuxer == nullptr)
+		return 0;
+
+	return mDemuxer->getDuration();
 }
 
 
-uint64_t Session::getCurrentTime(void)
+uint64_t Session::Demuxer::getCurrentTime(void)
 {
-	/* TODO */
-	return (mDemuxer) ? mDemuxer->getCurrentTime() : 0;
+	if (mDemuxer == nullptr)
+		return 0;
+
+	return mDemuxer->getCurrentTime();
 }
 
 
-/* Called on the rendering thread */
-int Session::startVideoRenderer(
-	const struct pdraw_rect *renderPos,
-	const struct pdraw_video_renderer_params *params,
-	VideoRendererListener *listener,
-	struct pdraw_video_renderer **retObj,
-	struct egl_display *eglDisplay)
+int Session::createMuxer(const std::string &url, IPdraw::IMuxer **retObj)
 {
+	ULOG_ERRNO_RETURN_ERR_IF(url.length() == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+
+#if MUXER_TEST
 	int res;
-	Renderer *renderer = NULL;
-
-	if (renderPos == NULL)
-		return -EINVAL;
-	if (params == NULL)
-		return -EINVAL;
-	if (listener == NULL)
-		return -EINVAL;
-	if (retObj == NULL)
-		return -EINVAL;
+	Session::Muxer *muxer = nullptr;
 
 	pthread_mutex_lock(&mMutex);
-	if (mState == CLOSING || mState == CLOSED) {
-		ULOGE("renderer creation refused in %s state",
-		      stateStr(mState));
+	if (mState == STOPPING || mState == STOPPED) {
+		ULOGE("muxer creation refused in %s state", stateStr(mState));
 		pthread_mutex_unlock(&mMutex);
 		return -EPROTO;
 	}
 
-	renderer = Renderer::create(this, this, listener);
-	if (renderer == NULL) {
+	muxer = new Session::Muxer(this, url);
+	if (muxer == nullptr) {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("failed to create renderer");
-		return -EPROTO;
+		ULOGE("%s: failed to create the muxer", __func__);
+		return -ENOMEM;
 	}
 
-	mElements.push_back(renderer);
+	mElements.push_back(muxer->getElement());
 	pthread_mutex_unlock(&mMutex);
 
-	res = renderer->setup(renderPos, params, eglDisplay);
+	res = muxer->getElement()->start();
 	if (res < 0) {
-		ULOG_ERRNO("renderer->setup", -res);
-		return res;
-	}
-	res = renderer->start();
-	if (res < 0) {
-		ULOG_ERRNO("renderer->start", -res);
-		return res;
+		ULOG_ERRNO("muxer->start", -res);
+		goto error;
 	}
 
-	*retObj = (struct pdraw_video_renderer *)renderer;
+	*retObj = muxer;
 
 	return 0;
+
+error:
+	if (muxer != nullptr) {
+		pthread_mutex_lock(&mMutex);
+		std::vector<Element *>::iterator e = mElements.begin();
+		while (e != mElements.end()) {
+			if (*e != muxer->getElement()) {
+				e++;
+				continue;
+			}
+			mElements.erase(e);
+			break;
+		}
+		pthread_mutex_unlock(&mMutex);
+		delete muxer;
+	}
+	return res;
+
+#else
+	/* Not supported yet */
+	return -ENOSYS;
+#endif
 }
 
 
-/* Called on the rendering thread */
-int Session::stopVideoRenderer(struct pdraw_video_renderer *renderer)
+Session::Muxer::Muxer(Session *session, const std::string &url)
 {
-	if (renderer == NULL)
-		return -EINVAL;
+	std::string ext;
 
-	Renderer *r = reinterpret_cast<Renderer *>(renderer);
-	int ret = r->stop();
-	if (ret < 0)
-		ULOG_ERRNO("renderer->stop", -ret);
+	mSession = session;
+	mMuxer = nullptr;
 
-	return 0;
+	if (url.length() < 4) {
+		ULOGE("%s: invalid URL length", __func__);
+		return;
+	}
+	ext = url.substr(url.length() - 4, 4);
+	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+	if (url.substr(0, 7) == "rtmp://") {
+		RtmpStreamMuxer *muxer;
+		muxer = new Pdraw::RtmpStreamMuxer(session, session, url);
+		if (muxer == nullptr) {
+			ULOGE("%s: failed to create the RTMP stream muxer",
+			      __func__);
+			return;
+		}
+		mMuxer = muxer;
+	} else if (ext == ".mp4") {
+		RecordMuxer *muxer;
+		muxer = new Pdraw::RecordMuxer(session, session, url);
+		if (muxer == nullptr) {
+			ULOGE("%s: failed to create the record muxer",
+			      __func__);
+			return;
+		}
+		mMuxer = muxer;
+	} else {
+		ULOGE("%s: unsupported URL", __func__);
+	}
 }
 
 
-/* Called on the rendering thread */
-int Session::resizeVideoRenderer(struct pdraw_video_renderer *renderer,
-				 const struct pdraw_rect *renderPos)
+Session::Muxer::~Muxer(void)
 {
-	if (renderer == NULL)
-		return -EINVAL;
+	if (mMuxer == nullptr)
+		return;
 
-	Renderer *r = reinterpret_cast<Renderer *>(renderer);
-	return r->resize(renderPos);
+	int res = mMuxer->stop();
+	if (res < 0)
+		ULOG_ERRNO("Muxer::stop", -res);
 }
 
 
-/* Called on the rendering thread */
-int Session::setVideoRendererParams(
-	struct pdraw_video_renderer *renderer,
-	const struct pdraw_video_renderer_params *params)
+int Session::Muxer::addMedia(
+	unsigned int mediaId,
+	const struct pdraw_muxer_video_media_params *params)
 {
-	if (renderer == NULL)
-		return -EINVAL;
-
-	Renderer *r = reinterpret_cast<Renderer *>(renderer);
-	return r->setParams(params);
-}
-
-
-/* Called on the rendering thread */
-int Session::getVideoRendererParams(struct pdraw_video_renderer *renderer,
-				    struct pdraw_video_renderer_params *params)
-{
-	if (renderer == NULL)
-		return -EINVAL;
-
-	Renderer *r = reinterpret_cast<Renderer *>(renderer);
-	return r->getParams(params);
-}
-
-
-/* Called on the rendering thread */
-int Session::renderVideo(struct pdraw_video_renderer *renderer,
-			 struct pdraw_rect *contentPos,
-			 const float *viewMat,
-			 const float *projMat)
-{
-	if (renderer == NULL)
-		return -EINVAL;
-
-	Renderer *r = reinterpret_cast<Renderer *>(renderer);
-	return r->render(contentPos, viewMat, projMat);
-}
-
-
-int Session::startVideoSink(unsigned int mediaId,
-			    const struct pdraw_video_sink_params *params,
-			    VideoSinkListener *listener,
-			    struct pdraw_video_sink **retObj)
-{
-	int res;
-	Source *source = NULL;
-	VideoSink *sink = NULL;
-	VideoMedia *videoMedia = NULL;
-	Channel *channel = NULL;
+	int res = 0;
+	CodedSource *source = nullptr;
+	CodedVideoMedia *media = nullptr;
+	CodedChannel *channel = nullptr;
 	bool found = false;
 
-	if (params == NULL)
-		return -EINVAL;
-	if (listener == NULL)
-		return -EINVAL;
-	if (retObj == NULL)
-		return -EINVAL;
+	if (mMuxer == nullptr)
+		return -EPROTO;
 
-	pthread_mutex_lock(&mMutex);
+	pthread_mutex_lock(&mSession->mMutex);
 
-	std::vector<Element *>::iterator e = mElements.begin();
-	while (e != mElements.end()) {
-		source = dynamic_cast<Source *>(*e);
-		if (source == NULL) {
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		source = dynamic_cast<CodedSource *>(*e);
+		if (source == nullptr) {
 			e++;
 			continue;
 		}
 		unsigned int mediaCount = source->getOutputMediaCount();
 		for (unsigned int i = 0; i < mediaCount; i++) {
-			Media *media = source->getOutputMedia(i);
-			videoMedia = dynamic_cast<VideoMedia *>(media);
-			if (videoMedia == NULL)
-				continue;
-			if (videoMedia->id == mediaId) {
+			media = source->getOutputMedia(i);
+			if ((media != nullptr) && (media->id == mediaId)) {
 				found = true;
 				break;
 			}
@@ -1052,205 +975,408 @@ int Session::startVideoSink(unsigned int mediaId,
 			break;
 		e++;
 	}
-	if ((!found) || (source == NULL) || (videoMedia == NULL)) {
-		pthread_mutex_unlock(&mMutex);
+	if ((!found) || (source == nullptr) || (media == nullptr)) {
+		pthread_mutex_unlock(&mSession->mMutex);
 		return -ENOENT;
 	}
 
-	sink = new VideoSink(this, params->required_format, this);
-	if (sink == NULL) {
-		pthread_mutex_unlock(&mMutex);
-		ULOGE("video sink creation failed");
+	res = mMuxer->addInputMedia(media);
+	if (res < 0) {
+		ULOG_ERRNO("RecordMuxer::addInputMedia", -res);
+		goto out;
+	}
+	channel = mMuxer->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get muxer input channel");
+		res = -EPROTO;
+		goto out;
+	}
+	res = source->addOutputChannel(media, channel);
+	if (res < 0) {
+		ULOG_ERRNO("Source::addOutputChannel", -res);
+		goto out;
+	}
+
+out:
+	pthread_mutex_unlock(&mSession->mMutex);
+	return res;
+}
+
+
+Session::CodedVideoSink::CodedVideoSink(
+	Session *session,
+	const struct pdraw_video_sink_params *params,
+	IPdraw::ICodedVideoSink::Listener *listener)
+{
+	mSink = new Pdraw::ExternalCodedVideoSink(
+		session,
+		&params->required_coded_format,
+		session,
+		listener,
+		this,
+		params);
+	if (mSink == nullptr) {
+		ULOGE("%s: failed to create the video sink", __func__);
+		return;
+	}
+}
+
+
+Session::CodedVideoSink::~CodedVideoSink(void)
+{
+	if (mSink == nullptr)
+		return;
+	int ret = mSink->stop();
+	if (ret < 0)
+		ULOG_ERRNO("sink->stop", -ret);
+}
+
+
+int Session::CodedVideoSink::resync(void)
+{
+	if (mSink == nullptr)
+		return -EPROTO;
+	return mSink->resync();
+}
+
+
+struct mbuf_coded_video_frame_queue *Session::CodedVideoSink::getQueue(void)
+{
+	if (mSink == nullptr)
+		return nullptr;
+	return mSink->getQueue();
+}
+
+
+int Session::CodedVideoSink::queueFlushed(void)
+{
+	if (mSink == nullptr)
+		return -EPROTO;
+	return mSink->flushDone();
+}
+
+
+Session::RawVideoSink::RawVideoSink(
+	Session *session,
+	const struct pdraw_video_sink_params *params,
+	IPdraw::IRawVideoSink::Listener *listener)
+{
+	mSink = new Pdraw::ExternalRawVideoSink(
+		session, session, listener, this, params);
+	if (mSink == nullptr) {
+		ULOGE("%s: failed to create the video sink", __func__);
+		return;
+	}
+}
+
+
+Session::RawVideoSink::~RawVideoSink(void)
+{
+	if (mSink == nullptr)
+		return;
+	int ret = mSink->stop();
+	if (ret < 0)
+		ULOG_ERRNO("sink->stop", -ret);
+}
+
+
+struct mbuf_raw_video_frame_queue *Session::RawVideoSink::getQueue(void)
+{
+	if (mSink == nullptr)
+		return nullptr;
+	return mSink->getQueue();
+}
+
+
+int Session::RawVideoSink::queueFlushed(void)
+{
+	if (mSink == nullptr)
+		return -EPROTO;
+	return mSink->flushDone();
+}
+
+
+int Session::internalCreateCodedVideoSink(
+	CodedSource *source,
+	CodedVideoMedia *media,
+	const struct pdraw_video_sink_params *params,
+	IPdraw::ICodedVideoSink::Listener *listener,
+	IPdraw::ICodedVideoSink **retObj)
+{
+	/* Note: mMutex is held while this function is called */
+	int res;
+	Session::CodedVideoSink *sink = nullptr;
+	CodedChannel *channel = nullptr;
+
+	sink = new CodedVideoSink(this, params, listener);
+	if (sink == nullptr) {
+		ULOGE("coded video sink creation failed");
 		return -ENOMEM;
 	}
-	mElements.push_back(sink);
-	res = sink->addInputMedia(videoMedia);
+
+	mElements.push_back(sink->getElement());
+
+	res = sink->getSink()->addInputMedia(media);
 	if (res < 0) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("videoSink->addInputMedia", -res);
-		goto error;
-	}
-	res = sink->setup(listener, params);
-	if (res < 0) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("videoSink->setup", -res);
-		goto error;
-	}
-	res = sink->start();
-	if (res < 0) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("videoSink->start", -res);
-		goto error;
-	}
-	channel = sink->getInputChannel(videoMedia);
-	if (channel == NULL) {
-		pthread_mutex_unlock(&mMutex);
-		ULOGE("failed to get video sink input channel");
-		res = -EPROTO;
-		goto error;
-	}
-	res = source->addOutputChannel(videoMedia, channel);
-	if (res < 0) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("source->addOutputChannel", -res);
-		goto error;
-	}
-	/* Force a resync after linking the elements; this allows a H.264
-	 * video sink to start on an IDR frame for example */
-	res = sink->resync();
-	if (res < 0) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("videoSink->resync", -res);
+		ULOG_ERRNO("codedVideoSink->addInputMedia", -res);
 		goto error;
 	}
 
-	pthread_mutex_unlock(&mMutex);
-	*retObj = (struct pdraw_video_sink *)sink;
+	res = sink->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("codedVideoSink->start", -res);
+		goto error;
+	}
+
+	channel = sink->getSink()->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get coded video sink input channel");
+		res = -EPROTO;
+		goto error;
+	}
+
+	res = source->addOutputChannel(media, channel);
+	if (res < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -res);
+		goto error;
+	}
+
+	/* Force a resync after linking the elements; this allows a coded
+	 * video sink to start on an IDR frame for example */
+	res = sink->getCodedVideoSink()->resync();
+	if (res < 0) {
+		ULOG_ERRNO("codedVideoSink->resync", -res);
+		goto error;
+	}
+
+	*retObj = sink;
 
 	return 0;
 
 error:
-	if (sink != NULL) {
-		if (channel != NULL) {
-			source->removeOutputChannel(videoMedia,
-						    channel->getKey());
+	if (sink != nullptr) {
+		if (channel != nullptr) {
+			/* removeOutputChannel must be called without mMutex
+			 * being held, so release it here */
+			pthread_mutex_unlock(&mMutex);
+			source->removeOutputChannel(media, channel->getKey());
+			pthread_mutex_lock(&mMutex);
 		}
-		pthread_mutex_lock(&mMutex);
+		std::vector<Element *>::iterator e = mElements.begin();
 		while (e != mElements.end()) {
-			if (*e != sink) {
+			if (*e != sink->getElement()) {
 				e++;
 				continue;
 			}
 			mElements.erase(e);
 			break;
 		}
-		pthread_mutex_unlock(&mMutex);
 		delete sink;
 	}
 	return res;
 }
 
 
-int Session::stopVideoSink(struct pdraw_video_sink *sink)
+int Session::internalCreateRawVideoSink(
+	RawSource *source,
+	RawVideoMedia *media,
+	const struct pdraw_video_sink_params *params,
+	IPdraw::IRawVideoSink::Listener *listener,
+	IPdraw::IRawVideoSink **retObj)
 {
-	if (sink == NULL)
-		return -EINVAL;
+	/* Note: mMutex is held while this function is called */
+	int res;
+	Session::RawVideoSink *sink = nullptr;
+	RawChannel *channel = nullptr;
 
-	VideoSink *s = reinterpret_cast<VideoSink *>(sink);
-	int ret = s->stop();
-	if (ret < 0)
-		ULOG_ERRNO("videoSink->stop", -ret);
-
-	return ret;
-}
-
-
-int Session::resyncVideoSink(struct pdraw_video_sink *sink)
-{
-	if (sink == NULL)
-		return -EINVAL;
-
-	VideoSink *s = reinterpret_cast<VideoSink *>(sink);
-	int ret = s->resync();
-	if (ret < 0)
-		ULOG_ERRNO("videoSink->resync", -ret);
-
-	return ret;
-}
-
-
-struct vbuf_queue *Session::getVideoSinkQueue(struct pdraw_video_sink *sink)
-{
-	if (sink == NULL) {
-		ULOG_ERRNO("sink", EINVAL);
-		return NULL;
+	sink = new RawVideoSink(this, params, listener);
+	if (sink == nullptr) {
+		ULOGE("raw video sink creation failed");
+		return -ENOMEM;
 	}
 
-	VideoSink *s = reinterpret_cast<VideoSink *>(sink);
-	return s->getQueue();
+	mElements.push_back(sink->getElement());
+
+	res = sink->getSink()->addInputMedia(media);
+	if (res < 0) {
+		ULOG_ERRNO("rawVideoSink->addInputMedia", -res);
+		goto error;
+	}
+
+	res = sink->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("rawVideoSink->start", -res);
+		goto error;
+	}
+
+	channel = sink->getSink()->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get raw video sink input channel");
+		res = -EPROTO;
+		goto error;
+	}
+
+	res = source->addOutputChannel(media, channel);
+	if (res < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -res);
+		goto error;
+	}
+
+	*retObj = sink;
+
+	return 0;
+
+error:
+	if (sink != nullptr) {
+		if (channel != nullptr) {
+			/* removeOutputChannel must be called without mMutex
+			 * being held, so release it here */
+			pthread_mutex_unlock(&mMutex);
+			source->removeOutputChannel(media, channel->getKey());
+			pthread_mutex_lock(&mMutex);
+		}
+		std::vector<Element *>::iterator e = mElements.begin();
+		while (e != mElements.end()) {
+			if (*e != sink->getElement()) {
+				e++;
+				continue;
+			}
+			mElements.erase(e);
+			break;
+		}
+		delete sink;
+	}
+	return res;
 }
 
 
-int Session::videoSinkQueueFlushed(struct pdraw_video_sink *sink)
+int Session::createCodedVideoSink(unsigned int mediaId,
+				  const struct pdraw_video_sink_params *params,
+				  IPdraw::ICodedVideoSink::Listener *listener,
+				  IPdraw::ICodedVideoSink **retObj)
 {
-	if (sink == NULL)
+	int ret = 0;
+	bool found = false;
+
+	if (params == nullptr)
+		return -EINVAL;
+	if (listener == nullptr)
+		return -EINVAL;
+	if (retObj == nullptr)
 		return -EINVAL;
 
-	VideoSink *s = reinterpret_cast<VideoSink *>(sink);
-	int ret = s->flushDone();
-	if (ret < 0)
-		ULOG_ERRNO("videoSink->flushDone", -ret);
-
-	return ret;
-}
-
-
-enum pdraw_session_type Session::getSessionType(void)
-{
 	pthread_mutex_lock(&mMutex);
-	enum pdraw_session_type ret = mSessionType;
+
+	std::vector<Element *>::iterator e = mElements.begin();
+	while (e != mElements.end()) {
+		CodedVideoMedia *media;
+		CodedSource *source = dynamic_cast<CodedSource *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			media = source->getOutputMedia(i);
+			if ((media != nullptr) && (media->id == mediaId)) {
+				found = true;
+				break;
+			}
+		}
+		if (found) {
+			ret = internalCreateCodedVideoSink(
+				source, media, params, listener, retObj);
+			goto exit;
+		}
+		e++;
+	}
+	ret = -ENOENT;
+exit:
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-void Session::getSelfFriendlyName(std::string *friendlyName)
+int Session::createRawVideoSink(unsigned int mediaId,
+				const struct pdraw_video_sink_params *params,
+				IPdraw::IRawVideoSink::Listener *listener,
+				IPdraw::IRawVideoSink **retObj)
 {
-	mSelfMetadata.getFriendlyName(friendlyName);
+	int ret = 0;
+	bool found = false;
+
+	if (params == nullptr)
+		return -EINVAL;
+	if (listener == nullptr)
+		return -EINVAL;
+	if (retObj == nullptr)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+
+	std::vector<Element *>::iterator e = mElements.begin();
+	while (e != mElements.end()) {
+		RawVideoMedia *media;
+		RawSource *source = dynamic_cast<RawSource *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			media = source->getOutputMedia(i);
+			if ((media != nullptr) && (media->id == mediaId)) {
+				found = true;
+				break;
+			}
+		}
+		if (found) {
+			ret = internalCreateRawVideoSink(
+				source, media, params, listener, retObj);
+			goto exit;
+		}
+		e++;
+	}
+	ret = -ENOENT;
+exit:
+	pthread_mutex_unlock(&mMutex);
+	return ret;
 }
 
 
-void Session::setSelfFriendlyName(const std::string &friendlyName)
+void Session::getFriendlyNameSetting(std::string *friendlyName)
 {
-	mSelfMetadata.setFriendlyName(friendlyName);
+	mSettings.getFriendlyName(friendlyName);
 }
 
 
-void Session::getSelfSerialNumber(std::string *serialNumber)
+void Session::setFriendlyNameSetting(const std::string &friendlyName)
 {
-	mSelfMetadata.getSerialNumber(serialNumber);
+	mSettings.setFriendlyName(friendlyName);
 }
 
 
-void Session::setSelfSerialNumber(const std::string &serialNumber)
+void Session::getSerialNumberSetting(std::string *serialNumber)
 {
-	mSelfMetadata.setSerialNumber(serialNumber);
+	mSettings.getSerialNumber(serialNumber);
 }
 
 
-void Session::getSelfSoftwareVersion(std::string *softwareVersion)
+void Session::setSerialNumberSetting(const std::string &serialNumber)
 {
-	mSelfMetadata.getSoftwareVersion(softwareVersion);
+	mSettings.setSerialNumber(serialNumber);
 }
 
 
-void Session::setSelfSoftwareVersion(const std::string &softwareVersion)
+void Session::getSoftwareVersionSetting(std::string *softwareVersion)
 {
-	mSelfMetadata.setSoftwareVersion(softwareVersion);
+	mSettings.getSoftwareVersion(softwareVersion);
 }
 
 
-bool Session::isSelfPilot(void)
+void Session::setSoftwareVersionSetting(const std::string &softwareVersion)
 {
-	return mSelfMetadata.isPilot();
-}
-
-
-void Session::setSelfPilot(bool isPilot)
-{
-	mSelfMetadata.setPilot(isPilot);
-}
-
-
-void Session::getPeerSessionMetadata(struct vmeta_session *session)
-{
-	mPeerMetadata.get(session);
-}
-
-
-enum pdraw_drone_model Session::getPeerDroneModel(void)
-{
-	return mPeerMetadata.getDroneModel();
+	mSettings.setSoftwareVersion(softwareVersion);
 }
 
 
@@ -1262,7 +1388,7 @@ enum pdraw_pipeline_mode Session::getPipelineModeSetting(void)
 
 void Session::setPipelineModeSetting(enum pdraw_pipeline_mode mode)
 {
-	if (mState != CREATED) {
+	if (mState != READY) {
 		ULOGE("%s: invalid state", __func__);
 		return;
 	}
@@ -1315,487 +1441,114 @@ void Session::setHmdModelSetting(enum pdraw_hmd_model hmdModel)
 }
 
 
+int Session::dumpPipeline(const std::string &fileName)
+{
+	return mFactory.dumpPipeline(fileName);
+}
+
+
 /*
  * Internal methods
  */
 
-int Session::getSessionInfo(struct pdraw_session_info *sessionInfo)
-{
-	if (sessionInfo == NULL)
-		return -EINVAL;
-
-	memset(sessionInfo, 0, sizeof(*sessionInfo));
-	std::string fn;
-	mSelfMetadata.getFriendlyName(&fn);
-	strncpy(sessionInfo->friendly_name,
-		fn.c_str(),
-		sizeof(sessionInfo->friendly_name));
-	sessionInfo->friendly_name[sizeof(sessionInfo->friendly_name) - 1] =
-		'\0';
-	std::string sn;
-	mSelfMetadata.getSerialNumber(&sn);
-	strncpy(sessionInfo->serial_number,
-		sn.c_str(),
-		sizeof(sessionInfo->serial_number));
-	sessionInfo->serial_number[sizeof(sessionInfo->serial_number) - 1] =
-		'\0';
-	std::string sv;
-	mSelfMetadata.getSoftwareVersion(&sv);
-	strncpy(sessionInfo->software_version,
-		sv.c_str(),
-		sizeof(sessionInfo->software_version));
-	sessionInfo
-		->software_version[sizeof(sessionInfo->software_version) - 1] =
-		'\0';
-	sessionInfo->drone_model = mPeerMetadata.getDroneModel();
-	sessionInfo->session_type = getSessionType();
-	sessionInfo->is_pilot = mSelfMetadata.isPilot() ? 1 : 0;
-	sessionInfo->duration = getDuration();
-
-	return 0;
-}
-
-
 void Session::asyncElementStateChange(Element *element, Element::State state)
 {
-	if (element == NULL) {
-		ULOG_ERRNO("element", EINVAL);
-		return;
-	}
-
-	/* Send a message to the loop */
-	int res;
-	struct cmd_element_set_state *cmd = NULL;
-	void *msg = calloc(PIPE_BUF - 1, 1);
-	if (msg == NULL) {
-		ULOG_ERRNO("calloc", ENOMEM);
-		return;
-	}
-	cmd = (struct cmd_element_set_state *)msg;
-	cmd->base.type = CMD_TYPE_ELEMENT_SET_STATE;
-	cmd->element = element;
-	cmd->state = state;
-	res = mbox_push(mMbox, msg);
-	if (res < 0)
-		ULOG_ERRNO("mbox_push", -res);
-	free(msg);
+	mElementStateChangeElementArgs.push(element);
+	mElementStateChangeStateArgs.push(state);
+	pomp_loop_idle_add(mLoop, idleElementStateChange, this);
 }
 
 
-int Session::asyncElementDelete(Element *element)
+int Session::addMediaToRenderer(unsigned int mediaId, Renderer *renderer)
 {
-	if (element == NULL)
-		return -EINVAL;
-
-	/* Send a message to the loop */
-	int res;
-	struct cmd_element_delete *cmd = NULL;
-	void *msg = calloc(PIPE_BUF - 1, 1);
-	if (msg == NULL)
-		return -ENOMEM;
-	cmd = (struct cmd_element_delete *)msg;
-	cmd->base.type = CMD_TYPE_ELEMENT_DELETE;
-	cmd->element = element;
-	res = mbox_push(mMbox, msg);
-	if (res < 0)
-		ULOG_ERRNO("mbox_push", -res);
-	free(msg);
-	return res;
+	return mFactory.addMediaToRenderer(mediaId, renderer);
 }
 
 
-void Session::inloopElementDelete(Element *element)
+void Session::asyncElementDelete(Element *element)
 {
-	if (element == NULL) {
-		ULOG_ERRNO("element", EINVAL);
-		return;
-	}
-
-	pthread_mutex_lock(&mMutex);
-
-	bool found = false;
-	std::vector<Element *>::iterator e = mElements.begin();
-	while (e != mElements.end()) {
-		if (*e != element) {
-			e++;
-			continue;
-		}
-		found = true;
-		mElements.erase(e);
-		break;
-	}
-
-	if (found) {
-		delete element;
-		if (element == mDemuxer) {
-			mDemuxer = NULL;
-			mDemuxerReady = false;
-		}
-	}
-
-	pthread_mutex_unlock(&mMutex);
-}
-
-
-int Session::asyncAvcDecoderCompleteFlush(AvcDecoder *decoder)
-{
-	if (decoder == NULL)
-		return -EINVAL;
-
-	/* Send a message to the loop */
-	int res;
-	struct cmd_avcdecoder_complete_flush *cmd = NULL;
-	void *msg = calloc(PIPE_BUF - 1, 1);
-	if (msg == NULL)
-		return -ENOMEM;
-	cmd = (struct cmd_avcdecoder_complete_flush *)msg;
-	cmd->base.type = CMD_TYPE_AVCDECODER_COMPLETE_FLUSH;
-	cmd->decoder = decoder;
-	res = mbox_push(mMbox, msg);
-	if (res < 0)
-		ULOG_ERRNO("mbox_push", -res);
-	free(msg);
-	return res;
-}
-
-
-void Session::inloopAvcDecoderCompleteFlush(AvcDecoder *decoder)
-{
-	if (decoder == NULL) {
-		ULOG_ERRNO("decoder", EINVAL);
-		return;
-	}
-
-	decoder->completeFlush();
-}
-
-
-int Session::asyncAvcDecoderCompleteStop(AvcDecoder *decoder)
-{
-	if (decoder == NULL)
-		return -EINVAL;
-
-	/* Send a message to the loop */
-	int res;
-	struct cmd_avcdecoder_complete_stop *cmd = NULL;
-	void *msg = calloc(PIPE_BUF - 1, 1);
-	if (msg == NULL)
-		return -ENOMEM;
-	cmd = (struct cmd_avcdecoder_complete_stop *)msg;
-	cmd->base.type = CMD_TYPE_AVCDECODER_COMPLETE_STOP;
-	cmd->decoder = decoder;
-	res = mbox_push(mMbox, msg);
-	if (res < 0)
-		ULOG_ERRNO("mbox_push", -res);
-	free(msg);
-	return res;
-}
-
-
-void Session::inloopAvcDecoderCompleteStop(AvcDecoder *decoder)
-{
-	if (decoder == NULL) {
-		ULOG_ERRNO("decoder", EINVAL);
-		return;
-	}
-
-	decoder->completeStop();
-}
-
-
-int Session::asyncAvcDecoderResync(AvcDecoder *decoder)
-{
-	if (decoder == NULL)
-		return -EINVAL;
-
-	/* Send a message to the loop */
-	int res;
-	struct cmd_avcdecoder_resync *cmd = NULL;
-	void *msg = calloc(PIPE_BUF - 1, 1);
-	if (msg == NULL)
-		return -ENOMEM;
-	cmd = (struct cmd_avcdecoder_resync *)msg;
-	cmd->base.type = CMD_TYPE_AVCDECODER_RESYNC;
-	cmd->decoder = decoder;
-	res = mbox_push(mMbox, msg);
-	if (res < 0)
-		ULOG_ERRNO("mbox_push", -res);
-	free(msg);
-	return res;
-}
-
-
-void Session::inloopAvcDecoderResync(AvcDecoder *decoder)
-{
-	if (decoder == NULL) {
-		ULOG_ERRNO("decoder", EINVAL);
-		return;
-	}
-
-	decoder->resync();
-}
-
-
-int Session::asyncRendererCompleteStop(Renderer *renderer)
-{
-	if (renderer == NULL)
-		return -EINVAL;
-
-	/* Send a message to the loop */
-	int res;
-	struct cmd_renderer_complete_stop *cmd = NULL;
-	void *msg = calloc(PIPE_BUF - 1, 1);
-	if (msg == NULL)
-		return -ENOMEM;
-	cmd = (struct cmd_renderer_complete_stop *)msg;
-	cmd->base.type = CMD_TYPE_RENDERER_COMPLETE_STOP;
-	cmd->renderer = renderer;
-	res = mbox_push(mMbox, msg);
-	if (res < 0)
-		ULOG_ERRNO("mbox_push", -res);
-	free(msg);
-	return res;
-}
-
-
-void Session::inloopRendererCompleteStop(Renderer *renderer)
-{
-	if (renderer == NULL) {
-		ULOG_ERRNO("renderer", EINVAL);
-		return;
-	}
-
-	renderer->completeStop();
-}
-
-
-void Session::fillMediaInfo(VideoMedia *media, struct pdraw_media_info *info)
-{
-	if (!media || !info)
-		return;
-
-	memset(info, 0, sizeof(*info));
-
-	info->type = PDRAW_MEDIA_TYPE_VIDEO;
-	info->id = media->id;
-	info->video.format = (pdraw_video_media_format)media->format;
-	info->video.type = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
-	switch (media->format) {
-	case VideoMedia::Format::YUV:
-		info->video.yuv.width = media->width;
-		info->video.yuv.height = media->height;
-		info->video.yuv.crop_left = media->cropLeft;
-		info->video.yuv.crop_width = media->cropWidth;
-		info->video.yuv.crop_top = media->cropTop;
-		info->video.yuv.crop_height = media->cropHeight;
-		info->video.yuv.sar_width = media->sarWidth;
-		info->video.yuv.sar_height = media->sarHeight;
-		info->video.yuv.horizontal_fov = media->hfov;
-		info->video.yuv.vertical_fov = media->vfov;
-		info->video.yuv.full_range = media->fullRange;
-		break;
-	case VideoMedia::Format::H264:
-		uint8_t *sps, *pps;
-		size_t spslen, ppslen, cplen;
-		info->video.h264.width = media->width;
-		info->video.h264.height = media->height;
-		media->getSpsPps(&sps, &spslen, &pps, &ppslen);
-		cplen = MIN(spslen, sizeof(info->video.h264.sps));
-		memcpy(info->video.h264.sps, sps, cplen);
-		info->video.h264.spslen = cplen;
-		cplen = MIN(ppslen, sizeof(info->video.h264.pps));
-		memcpy(info->video.h264.pps, pps, cplen);
-		info->video.h264.ppslen = cplen;
-		break;
-	default:
-		break;
-	}
-}
-
-
-int Session::addDecoderForMedia(Source *source, Media *media)
-{
-	int ret;
-
-	VideoMedia *videoMedia = dynamic_cast<VideoMedia *>(media);
-	if (videoMedia == NULL)
-		return 0;
-	AvcDecoder *decoder = new AvcDecoder(this, this, this);
-	if (decoder == NULL) {
-		ULOGE("decoder creation failed");
-		return -ENOMEM;
-	}
-	pthread_mutex_lock(&mMutex);
-	mElements.push_back(decoder);
-	pthread_mutex_unlock(&mMutex);
-	ret = decoder->addInputMedia(videoMedia);
-	if (ret < 0) {
-		ULOG_ERRNO("decoder->addInputMedia", -ret);
-		return ret;
-	}
-	ret = decoder->start();
-	if (ret < 0) {
-		ULOG_ERRNO("decoder->start", -ret);
-		return ret;
-	}
-	Channel *channel = decoder->getInputChannel(videoMedia);
-	if (channel == NULL) {
-		ULOGE("failed to get decoder input channel");
-		return -EPROTO;
-	}
-	ret = source->addOutputChannel(videoMedia, channel);
-	if (ret < 0) {
-		ULOG_ERRNO("source->addOutputChannel", -ret);
-		return ret;
-	}
-	/* Force a resync after linking the elements; this allows a H.264
-	 * decoder to start on an IDR frame for example */
-	decoder->resync();
-
-	return 0;
-}
-
-
-int Session::addMediaToRenderer(Source *source,
-				Media *media,
-				Renderer *renderer)
-{
-	int ret;
-	VideoMedia *videoMedia = dynamic_cast<VideoMedia *>(media);
-	if (videoMedia == NULL)
-		return -EPROTO;
-
-	ret = renderer->addInputMedia(videoMedia);
-	if (ret == -EEXIST) {
-		return 0;
-	} else if (ret < 0) {
-		ULOG_ERRNO("renderer->addInputMedia", -ret);
-		return ret;
-	}
-	Channel *channel = renderer->getInputChannel(videoMedia);
-	if (channel == NULL) {
-		ULOGE("failed to get renderer input channel");
-		return -EPROTO;
-	}
-	ret = source->addOutputChannel(videoMedia, channel);
-	if (ret < 0) {
-		ULOG_ERRNO("source->addOutputChannel", -ret);
-		return ret;
-	}
-	return 0;
-}
-
-
-int Session::addMediaToAllRenderers(Source *source, Media *media)
-{
-	int ret = 0;
-
-	pthread_mutex_lock(&mMutex);
-	std::vector<Element *>::iterator e = mElements.begin();
-	while (e != mElements.end() && ret == 0) {
-		Renderer *r = dynamic_cast<Renderer *>(*e);
-		e++;
-		if (r == NULL)
-			continue;
-		ret = addMediaToRenderer(source, media, r);
-	}
-	pthread_mutex_unlock(&mMutex);
-
-	return ret;
-}
-
-
-int Session::addAllMediaToRenderer(Renderer *renderer)
-{
-	int ret;
-
-	pthread_mutex_lock(&mMutex);
-	std::vector<Element *>::iterator e = mElements.begin();
-	while (e != mElements.end()) {
-		AvcDecoder *decoder = dynamic_cast<AvcDecoder *>(*e);
-		if (decoder == NULL) {
-			e++;
-			continue;
-		}
-		Media *media = decoder->getOutputMedia(0);
-		if (media == NULL) {
-			ULOGE("invalid media");
-			e++;
-			continue;
-		}
-		ret = addMediaToRenderer(decoder, media, renderer);
-		if (ret < 0)
-			ULOG_ERRNO("addMediaToRenderer", -ret);
-		e++;
-	}
-	pthread_mutex_unlock(&mMutex);
-
-	return 0;
+	mElementDeleteElementArgs.push(element);
+	pomp_loop_idle_add(mLoop, idleElementDelete, this);
 }
 
 
 void Session::setState(enum State state)
 {
-	enum State prev;
 	pthread_mutex_lock(&mMutex);
 	if (state == mState) {
 		pthread_mutex_unlock(&mMutex);
 		return;
 	}
 
-	prev = mState;
 	mState = state;
 	pthread_mutex_unlock(&mMutex);
 	ULOGI("state change to %s", stateStr(state));
-
-	if (mListener == NULL)
-		return;
-
-	updateReadyToPlay();
 }
 
 
 void Session::socketCreated(int fd)
 {
-	if (mListener != NULL)
+	if (mListener != nullptr)
 		mListener->onSocketCreated(this, fd);
 }
 
 
-int Session::flushVideoSink(VideoSink *sink)
-{
-	if (sink == NULL)
-		return -EINVAL;
+/**
+ * Calls from idle functions
+ */
 
-	mFlushVideoSinkArgs.push(sink);
-	pomp_loop_idle_add(mLoop, callVideoSinkFlush, this);
-
-	return 0;
-}
-
-/* Listener calls from idle functions */
-void Session::callOpenResponse(void *userdata)
+void Session::idleElementStateChange(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
-	int status = self->mOpenRespStatusArgs.front();
-	self->mOpenRespStatusArgs.pop();
-	self->mListener->openResponse(self, status);
+	Element *element = self->mElementStateChangeElementArgs.front();
+	Element::State state = self->mElementStateChangeStateArgs.front();
+	self->mElementStateChangeElementArgs.pop();
+	self->mElementStateChangeStateArgs.pop();
+	ULOG_ERRNO_RETURN_IF(element == nullptr, EINVAL);
+	self->onElementStateChanged(element, state);
 }
 
 
-void Session::callCloseResponse(void *userdata)
+void Session::idleElementDelete(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
-	int status = self->mCloseRespStatusArgs.front();
-	self->mCloseRespStatusArgs.pop();
-	self->mListener->closeResponse(self, status);
+	Element *element = self->mElementDeleteElementArgs.front();
+	self->mElementDeleteElementArgs.pop();
+	ULOG_ERRNO_RETURN_IF(element == nullptr, EINVAL);
+
+	pthread_mutex_lock(&self->mMutex);
+	std::vector<Element *>::iterator e = self->mElements.begin();
+	while (e != self->mElements.end()) {
+		if (*e != element) {
+			e++;
+			continue;
+		}
+		self->mElements.erase(e);
+		delete element;
+		break;
+	}
+	pthread_mutex_unlock(&self->mMutex);
 }
 
 
-void Session::callOnUnrecoverableError(void *userdata)
+void Session::idleRendererCompleteStop(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
-	self->mListener->onUnrecoverableError(self);
+	Renderer *renderer = self->mRendererCompleteStopRendererArgs.front();
+	self->mRendererCompleteStopRendererArgs.pop();
+	ULOG_ERRNO_RETURN_IF(renderer == nullptr, EINVAL);
+	renderer->completeStop();
+}
+
+
+void Session::callStopResponse(void *userdata)
+{
+	Session *self = reinterpret_cast<Session *>(userdata);
+	int status = self->mStopRespStatusArgs.front();
+	self->mStopRespStatusArgs.pop();
+	if (self->mListener == nullptr)
+		return;
+	self->mListener->stopResponse(self, status);
 }
 
 
@@ -1805,6 +1558,7 @@ void Session::callOnMediaAdded(void *userdata)
 	struct pdraw_media_info info = self->mMediaAddedInfoArgs.front();
 	self->mMediaAddedInfoArgs.pop();
 	self->mListener->onMediaAdded(self, &info);
+	Media::cleanupMediaInfo(&info);
 }
 
 
@@ -1814,178 +1568,16 @@ void Session::callOnMediaRemoved(void *userdata)
 	struct pdraw_media_info info = self->mMediaRemovedInfoArgs.front();
 	self->mMediaRemovedInfoArgs.pop();
 	self->mListener->onMediaRemoved(self, &info);
-}
-
-
-void Session::callReadyToPlay(void *userdata)
-{
-	Session *self = reinterpret_cast<Session *>(userdata);
-	bool ready = self->mReadyToPlayReadyArgs.front();
-	self->mReadyToPlayReadyArgs.pop();
-	self->mListener->readyToPlay(self, ready);
-}
-
-
-void Session::callEndOfRange(void *userdata)
-{
-	Session *self = reinterpret_cast<Session *>(userdata);
-	uint64_t timestamp = self->mEndOfRangeTimestampArgs.front();
-	self->mEndOfRangeTimestampArgs.pop();
-	self->mListener->onEndOfRange(self, timestamp);
-}
-
-
-void Session::callPlayResponse(void *userdata)
-{
-	Session *self = reinterpret_cast<Session *>(userdata);
-	int status = self->mPlayRespStatusArgs.front();
-	uint64_t timestamp = self->mPlayRespTimestampArgs.front();
-	float speed = self->mPlayRespSpeedArgs.front();
-	self->mPlayRespStatusArgs.pop();
-	self->mPlayRespTimestampArgs.pop();
-	self->mPlayRespSpeedArgs.pop();
-	self->mListener->playResponse(self, status, timestamp, speed);
-}
-
-
-void Session::callPauseResponse(void *userdata)
-{
-	Session *self = reinterpret_cast<Session *>(userdata);
-	int status = self->mPauseRespStatusArgs.front();
-	uint64_t timestamp = self->mPauseRespTimestampArgs.front();
-	self->mPauseRespStatusArgs.pop();
-	self->mPauseRespTimestampArgs.pop();
-	self->mListener->pauseResponse(self, status, timestamp);
-}
-
-
-void Session::callSeekResponse(void *userdata)
-{
-	Session *self = reinterpret_cast<Session *>(userdata);
-	int status = self->mSeekRespStatusArgs.front();
-	uint64_t timestamp = self->mSeekRespTimestampArgs.front();
-	float speed = self->mSeekRespSpeedArgs.front();
-	self->mSeekRespStatusArgs.pop();
-	self->mSeekRespTimestampArgs.pop();
-	self->mSeekRespSpeedArgs.pop();
-	self->mListener->seekResponse(self, status, timestamp, speed);
-}
-
-
-void Session::callVideoSinkFlush(void *userdata)
-{
-	Session *self = reinterpret_cast<Session *>(userdata);
-	VideoSink *sink = self->mFlushVideoSinkArgs.front();
-	self->mFlushVideoSinkArgs.pop();
-	struct pdraw_video_sink *s = (struct pdraw_video_sink *)sink;
-	VideoSinkListener *listener = sink->getVideoSinkListener();
-	if (listener == NULL)
-		self->videoSinkQueueFlushed(s);
-	else
-		listener->onVideoSinkFlush(self, s);
-}
-
-
-void Session::mboxCb(int fd, uint32_t revents, void *userdata)
-{
-	Session *self = (Session *)userdata;
-	int res;
-	void *msg;
-	struct cmd_base *base;
-
-	if (self == NULL)
-		return;
-
-	msg = malloc(PIPE_BUF - 1);
-	if (msg == NULL) {
-		ULOG_ERRNO("msg", ENOMEM);
-		return;
-	}
-
-	do {
-		/* Read from the mailbox */
-		res = mbox_peek(self->mMbox, msg);
-		if (res < 0) {
-			if (res != -EAGAIN)
-				ULOG_ERRNO("mbox_peek", -res);
-			break;
-		}
-
-		base = (struct cmd_base *)msg;
-		switch (base->type) {
-		case CMD_TYPE_ELEMENT_SET_STATE: {
-			struct cmd_element_set_state *cmd =
-				(struct cmd_element_set_state *)msg;
-			self->onElementStateChanged(cmd->element, cmd->state);
-			break;
-		}
-		case CMD_TYPE_ELEMENT_DELETE: {
-			struct cmd_element_delete *cmd =
-				(struct cmd_element_delete *)msg;
-			self->inloopElementDelete(cmd->element);
-			break;
-		}
-		case CMD_TYPE_AVCDECODER_COMPLETE_FLUSH: {
-			struct cmd_avcdecoder_complete_flush *cmd =
-				(struct cmd_avcdecoder_complete_flush *)msg;
-			self->inloopAvcDecoderCompleteFlush(cmd->decoder);
-			break;
-		}
-		case CMD_TYPE_AVCDECODER_COMPLETE_STOP: {
-			struct cmd_avcdecoder_complete_stop *cmd =
-				(struct cmd_avcdecoder_complete_stop *)msg;
-			self->inloopAvcDecoderCompleteStop(cmd->decoder);
-			break;
-		}
-		case CMD_TYPE_AVCDECODER_RESYNC: {
-			struct cmd_avcdecoder_resync *cmd =
-				(struct cmd_avcdecoder_resync *)msg;
-			self->inloopAvcDecoderResync(cmd->decoder);
-			break;
-		}
-		case CMD_TYPE_RENDERER_COMPLETE_STOP: {
-			struct cmd_renderer_complete_stop *cmd =
-				(struct cmd_renderer_complete_stop *)msg;
-			self->inloopRendererCompleteStop(cmd->renderer);
-			break;
-		}
-		default:
-			ULOGE("unknown command");
-			break;
-		}
-	} while (res == 0);
-
-	free(msg);
+	Media::cleanupMediaInfo(&info);
 }
 
 
 /* Must be called on the loop thread */
 void Session::onElementStateChanged(Element *element, Element::State state)
 {
-	int ret;
+	mFactory.onElementStateChanged(element, state);
 
-	switch (state) {
-	case Element::State::STARTED: {
-		if (element == mDemuxer) {
-			setState(OPENED);
-
-			if (mListener != NULL) {
-				mOpenRespStatusArgs.push(0);
-				pomp_loop_idle_add(
-					mLoop, callOpenResponse, this);
-			}
-		} else {
-			Renderer *r = dynamic_cast<Renderer *>(element);
-			if (r != NULL) {
-				ret = addAllMediaToRenderer(r);
-				if (ret < 0)
-					ULOG_ERRNO("addAllMediaToRenderer",
-						   -ret);
-			}
-		}
-		break;
-	}
-	case Element::State::STOPPED: {
+	if (state == Element::State::STOPPED) {
 		bool stopped = true;
 		State curState;
 
@@ -2004,67 +1596,32 @@ void Session::onElementStateChanged(Element *element, Element::State state)
 
 		pthread_mutex_unlock(&mMutex);
 
-		ret = asyncElementDelete(element);
-		if (ret < 0)
-			ULOG_ERRNO("asyncElementDelete", -ret);
+		asyncElementDelete(element);
 
-		if (stopped && curState == CLOSING) {
-			setState(CLOSED);
+		if (stopped && curState == STOPPING) {
+			setState(STOPPED);
 
-			if (mListener != NULL) {
-				mCloseRespStatusArgs.push(0);
-				pomp_loop_idle_add(
-					mLoop, callCloseResponse, this);
-			}
-		} else if (curState == OPENING && element == mDemuxer) {
-			setState(CREATED);
-			if (mListener != NULL) {
-				mOpenRespStatusArgs.push(-EPROTO);
-				pomp_loop_idle_add(
-					mLoop, callOpenResponse, this);
-			}
-		} else if (curState != OPENING && curState != CLOSING &&
-			   element == mDemuxer) {
-			onUnrecoverableError(mDemuxer);
+			if (mListener != nullptr)
+				stopResp(0);
 		}
-		break;
-	}
-	default:
-		break;
 	}
 }
 
 
 /* Must be called on the loop thread */
-void Session::onOutputMediaAdded(Source *source, Media *media)
+void Session::onOutputMediaAdded(CodedSource *source, CodedVideoMedia *media)
 {
-	int ret;
+	ULOGD("onOutputMediaAdded name=%s", media->getName().c_str());
 
-	ULOGD("onOutputMediaAdded id=%d type=%s",
-	      media->id,
-	      Media::getMediaTypeStr(media->type));
+	mFactory.onOutputMediaAdded(source, media);
 
-	if (source == mDemuxer) {
-		if (mSettings.getPipelineMode() ==
-		    PDRAW_PIPELINE_MODE_DECODE_ALL) {
-			ret = addDecoderForMedia(source, media);
-			if (ret < 0)
-				ULOG_ERRNO("addDecoderForMedia", -ret);
-		}
-	} else {
-		AvcDecoder *decoder = dynamic_cast<AvcDecoder *>(source);
-		if ((decoder != NULL)) {
-			ret = addMediaToAllRenderers(source, media);
-			if (ret < 0)
-				ULOG_ERRNO("addMediaToAllRenderers", -ret);
-		}
-	}
-
-	VideoMedia *videoMedia = dynamic_cast<VideoMedia *>(media);
-	if (videoMedia != NULL) {
-		if (mListener != NULL) {
-			struct pdraw_media_info info;
-			fillMediaInfo(videoMedia, &info);
+	if (mListener != nullptr) {
+		struct pdraw_media_info info;
+		media->fillMediaInfo(&info);
+		if (pthread_self() == mLoopThread) {
+			mListener->onMediaAdded(this, &info);
+			Media::cleanupMediaInfo(&info);
+		} else {
 			mMediaAddedInfoArgs.push(info);
 			pomp_loop_idle_add(mLoop, callOnMediaAdded, this);
 		}
@@ -2073,138 +1630,577 @@ void Session::onOutputMediaAdded(Source *source, Media *media)
 
 
 /* Must be called on the loop thread */
-void Session::onOutputMediaRemoved(Source *source, Media *media)
+void Session::onOutputMediaRemoved(CodedSource *source, CodedVideoMedia *media)
 {
-	ULOGD("onOutputMediaRemoved id=%d type=%s",
-	      media->id,
-	      Media::getMediaTypeStr(media->type));
+	ULOGD("onOutputMediaRemoved(coded) name=%s", media->getName().c_str());
 
-	VideoMedia *videoMedia = dynamic_cast<VideoMedia *>(media);
-	if (videoMedia != NULL) {
-		if (mListener != NULL) {
-			struct pdraw_media_info info;
-			fillMediaInfo(videoMedia, &info);
-			mMediaRemovedInfoArgs.push(info);
-			pomp_loop_idle_add(mLoop, callOnMediaRemoved, this);
+	mFactory.onOutputMediaRemoved(source, media);
+
+	if (mListener != nullptr) {
+		struct pdraw_media_info info;
+		media->fillMediaInfo(&info);
+		mMediaRemovedInfoArgs.push(info);
+		pomp_loop_idle_add(mLoop, callOnMediaRemoved, this);
+	}
+}
+
+
+/* Must be called on the loop thread */
+void Session::onOutputMediaAdded(RawSource *source, RawVideoMedia *media)
+{
+	ULOGD("onOutputMediaAdded(raw) name=%s", media->getName().c_str());
+
+	mFactory.onOutputMediaAdded(source, media);
+
+	if (mListener != nullptr) {
+		struct pdraw_media_info info;
+		media->fillMediaInfo(&info);
+		if (pthread_self() == mLoopThread) {
+			mListener->onMediaAdded(this, &info);
+			Media::cleanupMediaInfo(&info);
+		} else {
+			mMediaAddedInfoArgs.push(info);
+			pomp_loop_idle_add(mLoop, callOnMediaAdded, this);
 		}
 	}
 }
 
 
 /* Must be called on the loop thread */
-void Session::onReadyToPlay(Demuxer *demuxer, bool ready)
+void Session::onOutputMediaRemoved(RawSource *source, RawVideoMedia *media)
 {
-	if (demuxer != mDemuxer)
-		return;
+	ULOGD("onOutputMediaRemoved(raw) name=%s", media->getName().c_str());
 
-	mDemuxerReady = ready;
+	mFactory.onOutputMediaRemoved(source, media);
 
-	updateReadyToPlay();
+	if (mListener != nullptr) {
+		struct pdraw_media_info info;
+		media->fillMediaInfo(&info);
+		mMediaRemovedInfoArgs.push(info);
+		pomp_loop_idle_add(mLoop, callOnMediaRemoved, this);
+	}
 }
 
 
-void Session::updateReadyToPlay()
+void Session::stopResp(int status)
 {
-	bool next = (mState == OPENED && mDemuxerReady);
-
-	if (mReadyToPlay == next)
-		return;
-
-	mReadyToPlay = next;
-	mReadyToPlayReadyArgs.push(mReadyToPlay);
-	pomp_loop_idle_add(mLoop, callReadyToPlay, this);
-}
-
-
-int Session::selectDemuxerMedia(Demuxer *demuxer,
-				const struct pdraw_demuxer_media *medias,
-				size_t count)
-{
-	return mListener->selectDemuxerMedia(this, medias, count);
-}
-
-
-void Session::onEndOfRange(Demuxer *demuxer, uint64_t timestamp)
-{
-	if (demuxer != mDemuxer)
-		return;
-
-	mEndOfRangeTimestampArgs.push(timestamp);
-	pomp_loop_idle_add(mLoop, callEndOfRange, this);
-}
-
-void Session::playResp(Demuxer *demuxer,
-		       int status,
-		       uint64_t timestamp,
-		       float speed)
-{
-	if (demuxer != mDemuxer)
-		return;
-
-	mPlayRespStatusArgs.push(status);
-	mPlayRespTimestampArgs.push(timestamp);
-	mPlayRespSpeedArgs.push(speed);
-	pomp_loop_idle_add(mLoop, callPlayResponse, this);
-}
-
-void Session::pauseResp(Demuxer *demuxer, int status, uint64_t timestamp)
-{
-	if (demuxer != mDemuxer)
-		return;
-
-	mPauseRespStatusArgs.push(status);
-	mPauseRespTimestampArgs.push(timestamp);
-	pomp_loop_idle_add(mLoop, callPauseResponse, this);
-}
-
-void Session::seekResp(Demuxer *demuxer,
-		       int status,
-		       uint64_t timestamp,
-		       float speed)
-{
-	if (demuxer != mDemuxer)
-		return;
-
-	mSeekRespStatusArgs.push(status);
-	mSeekRespTimestampArgs.push(timestamp);
-	mSeekRespSpeedArgs.push(speed);
-	pomp_loop_idle_add(mLoop, callSeekResponse, this);
-}
-
-
-void Session::onUnrecoverableError(Demuxer *demuxer)
-{
-	if (demuxer != mDemuxer)
-		return;
-
-	/* Report to the app only the 1st error.
-	 * It is supposed to act accordingly and destroy the session. */
-	if (mUrecoverableErrorOccured)
-		return;
-
-	mUrecoverableErrorOccured = true;
-	pomp_loop_idle_add(mLoop, callOnUnrecoverableError, this);
+	mStopRespStatusArgs.push(status);
+	pomp_loop_idle_add(mLoop, callStopResponse, this);
 }
 
 
 const char *Session::stateStr(enum State val)
 {
 	switch (val) {
-	case State::INVALID:
-		return "INVALID";
-	case State::CREATED:
-		return "CREATED";
-	case State::OPENING:
-		return "OPENING";
-	case State::OPENED:
-		return "OPENED";
-	case State::CLOSING:
-		return "CLOSING";
-	case State::CLOSED:
-		return "CLOSED";
+	case State::STOPPED:
+		return "STOPPED";
+	case State::READY:
+		return "READY";
+	case State::STOPPING:
+		return "STOPPING";
 	default:
-		return NULL;
+		return nullptr;
 	}
+}
+
+
+Session::PipelineFactory::PipelineFactory(Session *session) : mSession(session)
+{
+	return;
+}
+
+
+Session::PipelineFactory::~PipelineFactory(void)
+{
+	return;
+}
+
+
+void Session::PipelineFactory::onElementStateChanged(Element *element,
+						     Element::State state)
+{
+	if (state == Element::State::STARTED) {
+		Renderer *r = dynamic_cast<Renderer *>(element);
+		if (r != nullptr) {
+			int ret = addAllMediaToRenderer(r);
+			if (ret < 0)
+				ULOG_ERRNO("addAllMediaToRenderer", -ret);
+		}
+	}
+}
+
+
+void Session::PipelineFactory::onOutputMediaAdded(CodedSource *source,
+						  CodedVideoMedia *media)
+{
+	Pdraw::Demuxer *demuxer = dynamic_cast<Pdraw::Demuxer *>(source);
+	if (demuxer != nullptr) {
+		if (mSession->mSettings.getPipelineMode() ==
+		    PDRAW_PIPELINE_MODE_DECODE_ALL) {
+			int ret = addDecoderForMedia(source, media);
+			if (ret < 0)
+				ULOG_ERRNO("addDecoderForMedia", -ret);
+		}
+	}
+}
+
+
+void Session::PipelineFactory::onOutputMediaAdded(RawSource *source,
+						  RawVideoMedia *media)
+{
+	VideoDecoder *decoder = dynamic_cast<VideoDecoder *>(source);
+	if ((decoder != nullptr)) {
+		int ret = addMediaToAllRenderers(source, media);
+		if (ret < 0)
+			ULOG_ERRNO("addMediaToAllRenderers", -ret);
+	}
+}
+
+
+void Session::PipelineFactory::onOutputMediaRemoved(CodedSource *source,
+						    CodedVideoMedia *media)
+{
+	return;
+}
+
+
+void Session::PipelineFactory::onOutputMediaRemoved(RawSource *source,
+						    RawVideoMedia *media)
+{
+	return;
+}
+
+
+int Session::PipelineFactory::dumpPipeline(const std::string &fileName)
+{
+	int ret;
+	FILE *f;
+
+	f = fopen(fileName.c_str(), "w");
+	if (f == nullptr) {
+		ret = -errno;
+		ULOG_ERRNO("fopen", -ret);
+		return ret;
+	}
+
+	fprintf(f, "digraph {\n");
+	fprintf(f, "\tnode [margin=0.2,fontsize=12];\n");
+
+	pthread_mutex_lock(&mSession->mMutex);
+
+	/* First pass: list the elements with their sink and source medias */
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		unsigned int elmId = (*e)->getId();
+		const char *elmName = (*e)->getName().c_str();
+		fprintf(f, "\te%u [shape=record,label=\"", elmId);
+
+		/* Element input medias */
+		CodedSink *csink = dynamic_cast<CodedSink *>(*e);
+		if (csink != nullptr) {
+			unsigned int count = csink->getInputMediaCount();
+			if (count > 0)
+				fprintf(f, "{ ");
+			for (unsigned int i = 0; i < count; i++) {
+				CodedVideoMedia *media =
+					csink->getInputMedia(i);
+				if (media == nullptr)
+					continue;
+				fprintf(f,
+					"%s<e%um%u> %s",
+					(i > 0) ? " | " : "",
+					elmId,
+					media->id,
+					media->getName().c_str());
+			}
+			if (count > 0)
+				fprintf(f, " } | ");
+		}
+		RawSink *rsink = dynamic_cast<RawSink *>(*e);
+		if (rsink != nullptr) {
+			unsigned int count = rsink->getInputMediaCount();
+			if (count > 0)
+				fprintf(f, "{ ");
+			for (unsigned int i = 0; i < count; i++) {
+				RawVideoMedia *media = rsink->getInputMedia(i);
+				if (media == nullptr)
+					continue;
+				fprintf(f,
+					"%s<e%um%u> %s",
+					(i > 0) ? " | " : "",
+					elmId,
+					media->id,
+					media->getName().c_str());
+			}
+			if (count > 0)
+				fprintf(f, " } | ");
+		}
+
+		/* Element name */
+		fprintf(f, "<e%u> %s", elmId, elmName);
+
+		/* Element output medias */
+		CodedSource *csource = dynamic_cast<CodedSource *>(*e);
+		if (csource != nullptr) {
+			unsigned int count = csource->getOutputMediaCount();
+			if (count > 0)
+				fprintf(f, " | { ");
+			for (unsigned int i = 0; i < count; i++) {
+				CodedVideoMedia *media =
+					csource->getOutputMedia(i);
+				if (media == nullptr)
+					continue;
+				fprintf(f,
+					"%s<e%um%u> %s",
+					(i > 0) ? " | " : "",
+					elmId,
+					media->id,
+					media->getName().c_str());
+			}
+			if (count > 0)
+				fprintf(f, " }");
+		}
+		RawSource *rsource = dynamic_cast<RawSource *>(*e);
+		if (rsource != nullptr) {
+			unsigned int count = rsource->getOutputMediaCount();
+			if (count > 0)
+				fprintf(f, " | { ");
+			for (unsigned int i = 0; i < count; i++) {
+				RawVideoMedia *media =
+					rsource->getOutputMedia(i);
+				if (media == nullptr)
+					continue;
+				fprintf(f,
+					"%s<e%um%u> %s",
+					(i > 0) ? " | " : "",
+					elmId,
+					media->id,
+					media->getName().c_str());
+			}
+			if (count > 0)
+				fprintf(f, " }");
+		}
+
+		fprintf(f, "\"];\n");
+		e++;
+	}
+
+	/* Second pass: list the links between sources and sinks */
+	e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		unsigned int dstElmId = (*e)->getId();
+
+		/* Element input medias */
+		CodedSink *csink = dynamic_cast<CodedSink *>(*e);
+		if (csink != nullptr) {
+			unsigned int count = csink->getInputMediaCount();
+			for (unsigned int i = 0; i < count; i++) {
+				CodedVideoMedia *media =
+					csink->getInputMedia(i);
+				std::vector<Element *>::iterator e2 =
+					mSession->mElements.begin();
+				while (e2 != mSession->mElements.end()) {
+					CodedSource *source =
+						dynamic_cast<CodedSource *>(
+							*e2);
+					if (source != nullptr) {
+						if (source->findOutputMedia(
+							    media) == nullptr) {
+							e2++;
+							continue;
+						}
+						unsigned int srcElmId =
+							(*e2)->getId();
+						fprintf(f,
+							"\te%u:e%um%u -> "
+							"e%u:e%um%u;\n",
+							srcElmId,
+							srcElmId,
+							media->id,
+							dstElmId,
+							dstElmId,
+							media->id);
+						break;
+					}
+					e2++;
+				}
+			}
+		}
+		RawSink *rsink = dynamic_cast<RawSink *>(*e);
+		if (rsink != nullptr) {
+			unsigned int count = rsink->getInputMediaCount();
+			for (unsigned int i = 0; i < count; i++) {
+				RawVideoMedia *media = rsink->getInputMedia(i);
+				std::vector<Element *>::iterator e2 =
+					mSession->mElements.begin();
+				while (e2 != mSession->mElements.end()) {
+					RawSource *source =
+						dynamic_cast<RawSource *>(*e2);
+					if (source != nullptr) {
+						if (source->findOutputMedia(
+							    media) == nullptr) {
+							e2++;
+							continue;
+						}
+						unsigned int srcElmId =
+							(*e2)->getId();
+						fprintf(f,
+							"\te%u:e%um%u -> "
+							"e%u:e%um%u;\n",
+							srcElmId,
+							srcElmId,
+							media->id,
+							dstElmId,
+							dstElmId,
+							media->id);
+						break;
+					}
+					e2++;
+				}
+			}
+		}
+
+		e++;
+	}
+
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	fprintf(f, "}");
+	fclose(f);
+
+	ULOGI("pipeline dumped to file '%s'", fileName.c_str());
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addDecoderForMedia(CodedSource *source,
+						 CodedVideoMedia *media)
+{
+	int ret;
+
+	VideoDecoder *decoder = new VideoDecoder(mSession, mSession, mSession);
+	if (decoder == nullptr) {
+		ULOGE("decoder creation failed");
+		return -ENOMEM;
+	}
+	ret = decoder->addInputMedia(media);
+	if (ret < 0) {
+		if (ret == -ENOSYS)
+			ret = 0;
+		else
+			ULOG_ERRNO("decoder->addInputMedia", -ret);
+		delete decoder;
+		return ret;
+	}
+	pthread_mutex_lock(&mSession->mMutex);
+	mSession->mElements.push_back(decoder);
+	pthread_mutex_unlock(&mSession->mMutex);
+	ret = decoder->start();
+	if (ret < 0) {
+		ULOG_ERRNO("decoder->start", -ret);
+		return ret;
+	}
+	CodedChannel *channel = decoder->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get decoder input channel");
+		return -EPROTO;
+	}
+	ret = source->addOutputChannel(media, channel);
+	if (ret < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -ret);
+		return ret;
+	}
+	/* Force a resync after linking the elements; this allows a H.264
+	 * decoder to start on an IDR frame for example */
+	decoder->resync();
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addEncoderForMedia(RawSource *source,
+						 RawVideoMedia *media)
+{
+	int ret;
+	VideoEncoder *encoder = new VideoEncoder(mSession, mSession, mSession);
+	if (encoder == nullptr) {
+		ULOGE("encoder creation failed");
+		return -ENOMEM;
+	}
+
+	pthread_mutex_lock(&mSession->mMutex);
+	mSession->mElements.push_back(encoder);
+	pthread_mutex_unlock(&mSession->mMutex);
+	ret = encoder->addInputMedia(media);
+	if (ret < 0) {
+		ULOG_ERRNO("encoder->addInputMedia", -ret);
+		return ret;
+	}
+	ret = encoder->start();
+	if (ret < 0) {
+		ULOG_ERRNO("encoder->start", -ret);
+		return ret;
+	}
+	RawChannel *channel = encoder->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get encoder input channel");
+		return -EPROTO;
+	}
+	ret = source->addOutputChannel(media, channel);
+	if (ret < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+int Session::PipelineFactory::addScalerForMedia(RawSource *source,
+						RawVideoMedia *media)
+{
+	int ret;
+	VideoScaler *scaler = new VideoScaler(mSession, mSession, mSession);
+	if (scaler == nullptr) {
+		ULOGE("scaler creation failed");
+		return -ENOMEM;
+	}
+
+	pthread_mutex_lock(&mSession->mMutex);
+	mSession->mElements.push_back(scaler);
+	pthread_mutex_unlock(&mSession->mMutex);
+	ret = scaler->addInputMedia(media);
+	if (ret < 0) {
+		ULOG_ERRNO("scaler->addInputMedia", -ret);
+		return ret;
+	}
+	ret = scaler->start();
+	if (ret < 0) {
+		ULOG_ERRNO("scaler->start", -ret);
+		return ret;
+	}
+	RawChannel *channel = scaler->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get scaler input channel");
+		return -EPROTO;
+	}
+	ret = source->addOutputChannel(media, channel);
+	if (ret < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToRenderer(RawSource *source,
+						 RawVideoMedia *media,
+						 Renderer *renderer)
+{
+	int ret;
+
+	ret = renderer->addInputMedia(media);
+	if ((ret == -EEXIST) || (ret == -EPERM)) {
+		return 0;
+	} else if (ret < 0) {
+		ULOG_ERRNO("renderer->addInputMedia", -ret);
+		return ret;
+	}
+	RawChannel *channel = renderer->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get renderer input channel");
+		return -EPROTO;
+	}
+	ret = source->addOutputChannel(media, channel);
+	if (ret < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -ret);
+		return ret;
+	}
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToRenderer(unsigned int mediaId,
+						 Renderer *renderer)
+{
+	int ret;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		VideoDecoder *decoder = dynamic_cast<VideoDecoder *>(*e);
+		if (decoder == nullptr) {
+			e++;
+			continue;
+		}
+		RawVideoMedia *media = decoder->getOutputMedia(0);
+		if (media == nullptr) {
+			ULOGE("invalid media");
+			e++;
+			continue;
+		}
+		if (media->id != mediaId) {
+			e++;
+			continue;
+		}
+		ret = addMediaToRenderer(decoder, media, renderer);
+		if (ret < 0)
+			ULOG_ERRNO("addMediaToRenderer", -ret);
+		break;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToAllRenderers(RawSource *source,
+						     RawVideoMedia *media)
+{
+	int ret = 0;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end() && ret == 0) {
+		Renderer *r = dynamic_cast<Renderer *>(*e);
+		e++;
+		if (r == nullptr)
+			continue;
+		ret = addMediaToRenderer(source, media, r);
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return ret;
+}
+
+
+int Session::PipelineFactory::addAllMediaToRenderer(Renderer *renderer)
+{
+	int ret;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		VideoDecoder *decoder = dynamic_cast<VideoDecoder *>(*e);
+		if (decoder == nullptr) {
+			e++;
+			continue;
+		}
+		RawVideoMedia *media = decoder->getOutputMedia(0);
+		if (media == nullptr) {
+			ULOGE("invalid media");
+			e++;
+			continue;
+		}
+		ret = addMediaToRenderer(decoder, media, renderer);
+		if (ret < 0)
+			ULOG_ERRNO("addMediaToRenderer", -ret);
+		e++;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
 }
 
 } /* namespace Pdraw */

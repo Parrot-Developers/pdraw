@@ -32,25 +32,24 @@
 #define _PDRAW_RENDERER_HPP_
 
 #include "pdraw_element.hpp"
-#include "pdraw_sink.hpp"
 
 #include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
 
-class Renderer : public Element, public Sink {
+class Renderer : public RawSinkElement {
 public:
 	virtual ~Renderer(void);
 
-	virtual int setup(const struct pdraw_rect *renderPos,
-			  const struct pdraw_video_renderer_params *params,
-			  struct egl_display *eglDisplay) = 0;
-
 	virtual int render(struct pdraw_rect *contentPos,
-			   const float *viewMat = NULL,
-			   const float *projMat = NULL) = 0;
+			   const float *viewMat = nullptr,
+			   const float *projMat = nullptr) = 0;
 
 	virtual int resize(const struct pdraw_rect *renderPos) = 0;
+
+	virtual int setMediaId(unsigned int mediaId) = 0;
+
+	virtual unsigned int getMediaId(void) = 0;
 
 	virtual int
 	setParams(const struct pdraw_video_renderer_params *params) = 0;
@@ -59,22 +58,39 @@ public:
 
 	virtual void completeStop(void) = 0;
 
-	static Renderer *create(Session *session,
-				Element::Listener *listener,
-				IPdraw::VideoRendererListener *rndListener);
+	static Renderer *
+	create(Session *session,
+	       Element::Listener *listener,
+	       IPdraw::IVideoRenderer *renderer,
+	       IPdraw::IVideoRenderer::Listener *rndListener,
+	       unsigned int mediaId,
+	       const struct pdraw_rect *renderPos,
+	       const struct pdraw_video_renderer_params *params,
+	       struct egl_display *eglDisplay);
 
 protected:
 	Renderer(Session *session,
 		 Element::Listener *listener,
-		 IPdraw::VideoRendererListener *rndListener,
+		 IPdraw::IVideoRenderer *renderer,
+		 IPdraw::IVideoRenderer::Listener *rndListener,
 		 uint32_t mediaTypeCaps,
-		 uint32_t videoMediaFormatCaps,
-		 uint32_t videoMediaSubFormatCaps);
+		 const struct vdef_raw_format *rawVideoMediaFormatCaps,
+		 int rawVideoMediaFormatCapsCount,
+		 unsigned int mediaId,
+		 const struct pdraw_rect *renderPos,
+		 const struct pdraw_video_renderer_params *params,
+		 struct egl_display *eglDisplay);
 
 	void removeRendererListener(void);
 
-	IPdraw::VideoRendererListener *mRendererListener;
+	void asyncCompleteStop(void);
+
+	IPdraw::IVideoRenderer *mRenderer;
+	IPdraw::IVideoRenderer::Listener *mRendererListener;
 	pthread_mutex_t mListenerMutex;
+
+private:
+	static void idleCompleteStop(void *userdata);
 };
 
 } /* namespace Pdraw */

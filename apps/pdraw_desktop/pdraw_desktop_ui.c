@@ -31,9 +31,26 @@
 #include "pdraw_desktop.h"
 
 
+static const struct {
+	unsigned int h;
+	unsigned int v;
+} layout[MAX_RENDERERS] = {
+	{1, 1},
+	{2, 1},
+	{2, 2},
+	{2, 2},
+	{3, 2},
+	{3, 2},
+	{3, 3},
+	{3, 3},
+	{3, 3},
+};
+
+
 static void user_event(struct pdraw_desktop *self, SDL_UserEvent *event)
 {
 	int status;
+	unsigned int media_id;
 	switch (event->code) {
 	case PDRAW_DESKTOP_EVENT_OPEN:
 		pdraw_desktop_open(self);
@@ -42,9 +59,6 @@ static void user_event(struct pdraw_desktop *self, SDL_UserEvent *event)
 		status = (int)(intptr_t)event->data1;
 		if (status < 0)
 			pdraw_desktop_close(self);
-		break;
-	case PDRAW_DESKTOP_EVENT_CLOSE_RESP:
-		self->stopped = 1;
 		break;
 	case PDRAW_DESKTOP_EVENT_UNRECOVERABLE_ERROR:
 		pdraw_desktop_close(self);
@@ -58,6 +72,13 @@ static void user_event(struct pdraw_desktop *self, SDL_UserEvent *event)
 	case PDRAW_DESKTOP_EVENT_PAUSE_RESP:
 		break;
 	case PDRAW_DESKTOP_EVENT_SEEK_RESP:
+		break;
+	case PDRAW_DESKTOP_EVENT_STOP_RESP:
+		self->stopped = 1;
+		break;
+	case PDRAW_DESKTOP_EVENT_ADD_RENDERER:
+		media_id = (unsigned int)(intptr_t)event->data1;
+		pdraw_desktop_ui_add_media(self, media_id);
 		break;
 	default:
 		break;
@@ -74,12 +95,10 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 		pdraw_desktop_close(self);
 		break;
 	case SDL_WINDOWEVENT:
-		if ((event->window.event == SDL_WINDOWEVENT_RESIZED) &&
-		    (self->renderer != NULL)) {
+		if (event->window.event == SDL_WINDOWEVENT_RESIZED) {
 			self->window_width = event->window.data1;
 			self->window_height = event->window.data2;
-			pdraw_desktop_resize(
-				self, self->window_width, self->window_height);
+			pdraw_desktop_ui_resize(self);
 		}
 		break;
 	case SDL_KEYDOWN:
@@ -97,13 +116,15 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 			pdraw_desktop_seek_forward_10s(self);
 			break;
 		case SDLK_LEFT:
-			if (pdraw_be_is_paused(self->pdraw) == 0)
+			if (pdraw_be_demuxer_is_paused(self->pdraw,
+						       self->demuxer) == 0)
 				pdraw_desktop_seek_back_10s(self);
 			else
 				pdraw_desktop_previous_frame(self);
 			break;
 		case SDLK_RIGHT:
-			if (pdraw_be_is_paused(self->pdraw) == 0)
+			if (pdraw_be_demuxer_is_paused(self->pdraw,
+						       self->demuxer) == 0)
 				pdraw_desktop_seek_forward_10s(self);
 			else
 				pdraw_desktop_next_frame(self);
@@ -138,6 +159,9 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 				ULOGW("SDL_SetWindowFullscreen() failed: %d",
 				      res);
 			}
+			break;
+		case SDLK_d:
+			pdraw_desktop_dump_pipeline(self);
 			break;
 		}
 		break;
@@ -179,7 +203,8 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 		self->window_height,
 		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
 			((self->fullscreen) ? SDL_WINDOW_FULLSCREEN_DESKTOP
-					    : 0));
+					    : 0) |
+			((self->always_on_top) ? SDL_WINDOW_ALWAYS_ON_TOP : 0));
 	if (self->window == NULL) {
 		ULOGE("SDL_CreateWindow() failed: %s", SDL_GetError());
 		res = -EPROTO;
@@ -202,7 +227,7 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 		res = -EPROTO;
 		return res;
 	}
-#endif /* _WIN32 */
+#endif /* !_WIN32 */
 
 	self->user_event = SDL_RegisterEvents(1);
 	if (self->user_event == (uint32_t)-1) {
@@ -217,6 +242,25 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 
 int pdraw_desktop_ui_destroy(struct pdraw_desktop *self)
 {
+	int res;
+
+	for (unsigned int i = 0; i < self->renderer_count; i++) {
+		if (self->gles2hud[i] != NULL) {
+			res = pdraw_gles2hud_destroy(self->gles2hud[i]);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_gles2hud_destroy", -res);
+			self->gles2hud[i] = NULL;
+		}
+		if (self->renderer[i] != NULL) {
+			res = pdraw_be_video_renderer_destroy(
+				self->pdraw, self->renderer[i]);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_video_renderer_destroy",
+					   -res);
+			self->renderer[i] = NULL;
+		}
+	}
+
 	if (self->gl_context)
 		SDL_GL_DeleteContext(self->gl_context);
 	SDL_Quit();
@@ -249,6 +293,123 @@ void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
 }
 
 
+static void
+get_rect(struct pdraw_desktop *self, struct pdraw_rect *rect, unsigned int idx)
+{
+	unsigned int layout_idx = self->demuxer_media_count - 1;
+	unsigned int h = layout[layout_idx].h;
+	unsigned int v = layout[layout_idx].v;
+	unsigned int x = idx % h;
+	unsigned int y = v - 1 - idx / h;
+	if (idx / h == v - 1) {
+		/* Last line */
+		idx -= (self->demuxer_media_count / h) * h;
+		h = self->demuxer_media_count -
+		    (self->demuxer_media_count / h) * h;
+		if (h == 0)
+			h = layout[layout_idx].h;
+		x = idx % h;
+	}
+	rect->x = self->window_width * x / h;
+	rect->y = self->window_height * y / v;
+	rect->width = self->window_width / h;
+	rect->height = self->window_height / v;
+}
+
+
+void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
+				unsigned int media_id)
+{
+	int res, inc;
+	unsigned int i;
+
+	/* Try to reuse an existing renderer without media */
+	for (i = 0; i < self->renderer_count; i++) {
+		if ((self->renderer[i] == NULL) ||
+		    (self->renderer_media_id[i] != 0))
+			continue;
+		res = pdraw_be_video_renderer_set_media_id(
+			self->pdraw, self->renderer[i], media_id);
+		if (res < 0) {
+			ULOG_ERRNO("pdraw_be_video_renderer_set_media_id",
+				   -res);
+			return;
+		}
+		self->renderer_media_id[i] = media_id;
+		return;
+	}
+
+	/* Find a free renderer slot to use */
+	for (i = 0; i < self->renderer_count; i++) {
+		if (self->renderer[i] == NULL)
+			break;
+	}
+	inc = i == self->renderer_count;
+	if (self->renderer_count >= MAX_RENDERERS)
+		return;
+	if (self->renderer_count >= self->demuxer_media_count)
+		return;
+
+	/* Create the renderer */
+	struct pdraw_video_renderer_params params = {0};
+	params.fill_mode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND;
+	params.enable_transition_flags = 0xFFFFFFFF;
+	params.enable_hmd_distortion_correction = self->enable_hmd;
+	params.enable_overexposure_zebras = self->enable_zebras;
+	params.overexposure_zebras_threshold = self->zebras_threshold;
+	params.enable_histograms =
+		((self->enable_hud) &&
+		 (self->hud_type == PDRAW_GLES2HUD_TYPE_IMAGING))
+			? 1
+			: 0;
+
+	/* Test: take a 2:3 crop at the center and force a 2:3 DAR and a 1600
+	 * pixels texture width (only enabled with the '--ext-tex' option) */
+	params.video_texture_width = 1600;
+	params.video_texture_dar_width = 2;
+	params.video_texture_dar_height = 3;
+
+	get_rect(self, &self->render_pos[i], i);
+	res = pdraw_be_video_renderer_new(self->pdraw,
+					  media_id,
+					  &self->render_pos[i],
+					  &params,
+					  &render_cbs,
+					  self,
+					  &self->renderer[i]);
+	if (res < 0) {
+		ULOG_ERRNO("pdraw_be_video_renderer_new", -res);
+		return;
+	}
+	if (self->enable_hud) {
+		struct pdraw_gles2hud_config hud_config;
+		memset(&hud_config, 0, sizeof(hud_config));
+		res = pdraw_gles2hud_new(&hud_config, &self->gles2hud[i]);
+		if (res < 0)
+			ULOG_ERRNO("pdraw_gles2hud_new", -res);
+	}
+	res = pdraw_desktop_ext_tex_setup(self);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_desktop_ext_tex_setup", -res);
+	if (inc)
+		self->renderer_count++;
+	self->renderer_media_id[i] = media_id;
+}
+
+
+void pdraw_desktop_ui_resize(struct pdraw_desktop *self)
+{
+	for (unsigned int i = 0; i < self->renderer_count; i++) {
+		int res;
+		get_rect(self, &self->render_pos[i], i);
+		res = pdraw_be_video_renderer_resize(
+			self->pdraw, self->renderer[i], &self->render_pos[i]);
+		if (res < 0)
+			ULOG_ERRNO("pdraw_be_video_renderer_resize", -res);
+	}
+}
+
+
 int pdraw_desktop_ui_loop(struct pdraw_desktop *self)
 {
 	int res;
@@ -263,16 +424,29 @@ int pdraw_desktop_ui_loop(struct pdraw_desktop *self)
 			else
 				sdl_event(self, &event);
 		}
-		if (self->renderer != NULL) {
+		glViewport(0, 0, self->window_width, self->window_height);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+		for (unsigned int i = 0; i < self->renderer_count; i++) {
+			if (self->renderer[i] == NULL)
+				continue;
 			pdraw_desktop_view_create_matrices(
-				self, view_mat, proj_mat, 0.1f, 100.f);
-			res = pdraw_be_render_video_mat(self->pdraw,
-							self->renderer,
-							NULL,
-							view_mat,
-							proj_mat);
+				self,
+				self->render_pos[i].width,
+				self->render_pos[i].height,
+				view_mat,
+				proj_mat,
+				0.1f,
+				100.f);
+			res = pdraw_be_video_renderer_render_mat(
+				self->pdraw,
+				self->renderer[i],
+				NULL,
+				view_mat,
+				proj_mat);
 			if (res < 0)
-				ULOG_ERRNO("pdraw_be_render_video_mat", -res);
+				ULOG_ERRNO("pdraw_be_video_renderer_render_mat",
+					   -res);
 		}
 		SDL_GL_SwapWindow(self->window);
 	}

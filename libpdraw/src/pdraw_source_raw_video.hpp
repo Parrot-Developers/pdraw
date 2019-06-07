@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Pipeline source element
+ * Pipeline source element for raw video
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,103 +28,105 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SOURCE_HPP_
-#define _PDRAW_SOURCE_HPP_
+#ifndef _PDRAW_SOURCE_RAW_VIDEO_HPP_
+#define _PDRAW_SOURCE_RAW_VIDEO_HPP_
 
-#include "pdraw_channel.hpp"
+#include "pdraw_channel_raw_video.hpp"
 #include "pdraw_media.hpp"
 
-#include <string>
 #include <vector>
 
 namespace Pdraw {
 
-class Source : public Channel::SourceListener {
+class RawSource : public RawChannel::SourceListener {
 public:
 	class Listener {
 	public:
 		virtual ~Listener(void) {}
 
-		virtual void onOutputMediaAdded(Source *source,
-						Media *media) = 0;
+		virtual void onOutputMediaAdded(RawSource *source,
+						RawVideoMedia *media) = 0;
 
-		virtual void onOutputMediaRemoved(Source *source,
-						  Media *media) = 0;
+		virtual void onOutputMediaRemoved(RawSource *source,
+						  RawVideoMedia *media) = 0;
 	};
 
-	virtual ~Source(void);
+	virtual ~RawSource(void);
 
 	void lock(void);
 
 	void unlock(void);
 
+	virtual std::string &getName(void) = 0;
+
 	unsigned int getOutputMediaCount(void);
 
-	Media *getOutputMedia(unsigned int index);
+	RawVideoMedia *getOutputMedia(unsigned int index);
 
-	Media *findOutputMedia(Media *media);
+	RawVideoMedia *findOutputMedia(RawVideoMedia *media);
 
-	unsigned int getOutputChannelCount(Media *media);
+	unsigned int getOutputChannelCount(RawVideoMedia *media);
 
-	Channel *getOutputChannel(Media *media, unsigned int index);
+	RawChannel *getOutputChannel(RawVideoMedia *media, unsigned int index);
 
-	Channel *getOutputChannel(Media *media, void *key);
+	RawChannel *getOutputChannel(RawVideoMedia *media, void *key);
 
-	int addOutputChannel(Media *media, Channel *channel);
+	int addOutputChannel(RawVideoMedia *media, RawChannel *channel);
 
-	int removeOutputChannel(Media *media, void *key);
+	int removeOutputChannel(RawVideoMedia *media, void *key);
 
 protected:
 	struct OutputPort {
-		Media *media;
-		std::vector<Channel *> channels;
-		struct vbuf_pool *pool;
+		RawVideoMedia *media;
+		std::vector<RawChannel *> channels;
+		struct mbuf_pool *pool;
+		bool sharedPool;
 
-		inline OutputPort() : media(NULL), pool(NULL) {}
+		inline OutputPort() :
+				media(nullptr), pool(nullptr), sharedPool(false)
+		{
+		}
 	};
 
-	Source(Listener *listener);
+	RawSource(unsigned int maxOutputMedias, Listener *listener);
 
-	Media *getOutputMediaFromChannel(void *key);
+	RawVideoMedia *getOutputMediaFromChannel(void *key);
 
-	OutputPort *getOutputPort(Media *media);
+	OutputPort *getOutputPort(RawVideoMedia *media);
 
-	int addOutputPort(Media *media);
+	int addOutputPort(RawVideoMedia *media);
 
-	int removeOutputPort(Media *media);
+	int removeOutputPort(RawVideoMedia *media);
 
 	int removeOutputPorts(void);
 
-	int createOutputPortBuffersPool(Media *media,
-					unsigned int count,
-					size_t capacity);
+	int createOutputPortMemoryPool(RawVideoMedia *media,
+				       unsigned int count,
+				       size_t capacity);
 
-	int destroyOutputPortBuffersPool(Media *media);
+	int destroyOutputPortMemoryPool(RawVideoMedia *media);
 
-	int getH264OutputBuffer(VideoMedia *videoMedia,
-				struct vbuf_buffer **buffer,
-				bool *byteStreamRequired);
+	int sendDownstreamEvent(RawVideoMedia *media,
+				RawChannel::DownstreamEvent event);
 
-	int sendDownstreamEvent(Media *media, Channel::DownstreamEvent event);
-
-	virtual void onChannelUpstreamEvent(Channel *channel,
+	virtual void onChannelUpstreamEvent(RawChannel *channel,
 					    struct pomp_msg *event);
 
-	virtual void onChannelUnlink(Channel *channel);
+	virtual void onChannelUnlink(RawChannel *channel);
 
-	virtual void onChannelFlushed(Channel *channel);
+	virtual void onChannelFlushed(RawChannel *channel);
 
-	virtual void onChannelResync(Channel *channel);
+	virtual void onChannelResync(RawChannel *channel);
 
 	pthread_mutex_t mMutex;
-	std::string mName;
+	unsigned int mMaxOutputMedias;
 	std::vector<OutputPort> mOutputPorts;
 	Listener *mListener;
 
 private:
-	int destroyOutputPortBuffersPool(OutputPort *port);
+	int destroyOutputPortMemoryPool(OutputPort *port);
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_SOURCE_HPP_ */
+#endif /* !_PDRAW_SOURCE_RAW_VIDEO_HPP_ */

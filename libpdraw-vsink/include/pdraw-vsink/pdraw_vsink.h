@@ -77,21 +77,20 @@ PDRAW_VSINK_API int pdraw_vsink_stop(struct pdraw_vsink *self);
 
 /**
  * Get a frame.
- * The buffer to hold the frame data must be created by the caller but can
- * have a null capacity. The buffer will be reallocated by the function if
- * necessary. The ownership of the buffer stays with the caller and the buffer
- * should be unreferenced once no longer needed.
+ * The caller can pass a mbuf_mem object to hold the frame. If not given, this
+ * call will allocate a memory internally.
  * @param self: pdraw_vsink instance handle
- * @param timeout_ms: timeout in milliseconds (0 means return immediately,
- *                    negative value means wait forever)
- * @param frame: frame information (output)
- * @param buffer: buffer to be filled with the frame data
+ * @param frame_memory: memory used by the frame (optional)
+ * @param frame_info: frame information (output)
+ * @param ret_frame: frame (output)
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_VSINK_API int pdraw_vsink_get_frame(struct pdraw_vsink *self,
-					  int timeout_ms,
-					  struct pdraw_video_frame *frame,
-					  struct vbuf_buffer *buffer);
+PDRAW_VSINK_API int
+pdraw_vsink_get_frame(struct pdraw_vsink *self,
+		      struct mbuf_mem *frame_memory,
+		      struct pdraw_video_frame *frame_info,
+		      struct mbuf_raw_video_frame **ret_frame);
+/* TODO: Add timeout !!! */
 
 
 #ifdef __cplusplus

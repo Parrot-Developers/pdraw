@@ -12,26 +12,27 @@ LOCAL_SRC_FILES := \
 	src/pdraw_vsink.c
 LOCAL_LIBRARIES := \
 	libfutils \
+	libmedia-buffers \
+	libmedia-buffers-memory \
+	libmedia-buffers-memory-generic \
 	libpdraw \
 	libpomp \
-	libulog \
-	libvideo-buffers \
-	libvideo-buffers-generic \
-	libvideo-metadata
+	libulog
 
 include $(BUILD_LIBRARY)
 
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := pdraw_vsink_test
+LOCAL_MODULE := pdraw-vsink-test
 LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer video sink wrapper library test program
 LOCAL_CATEGORY_PATH := multimedia
 LOCAL_SRC_FILES := tests/pdraw_vsink_test.c
 LOCAL_LIBRARIES := \
+	libmedia-buffers \
 	libpdraw-vsink \
 	libulog \
-	libvideo-buffers \
-	libvideo-buffers-generic
+	libvideo-defs \
+	libvideo-metadata
 
 include $(BUILD_EXECUTABLE)

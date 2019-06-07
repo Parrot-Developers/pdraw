@@ -28,19 +28,21 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_source.hpp"
+#define ULOG_TAG pdraw_source_raw_video
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#include "pdraw_source_raw_video.hpp"
 
 #include <errno.h>
 
-#include <video-buffers/vbuf_generic.h>
-#define ULOG_TAG pdraw_source
-#include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_source);
+#include <media-buffers/mbuf_mem_generic.h>
 
 namespace Pdraw {
 
 
-Source::Source(Listener *listener) : mName(""), mListener(listener)
+RawSource::RawSource(unsigned int maxOutputMedias, Listener *listener) :
+		mMaxOutputMedias(maxOutputMedias), mListener(listener)
 {
 	int res;
 	pthread_mutexattr_t attr;
@@ -74,7 +76,7 @@ error:
 }
 
 
-Source::~Source(void)
+RawSource::~RawSource(void)
 {
 	int ret = removeOutputPorts();
 	if (ret < 0)
@@ -90,19 +92,19 @@ Source::~Source(void)
 }
 
 
-void Source::lock(void)
+void RawSource::lock(void)
 {
 	pthread_mutex_lock(&mMutex);
 }
 
 
-void Source::unlock(void)
+void RawSource::unlock(void)
 {
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-unsigned int Source::getOutputMediaCount(void)
+unsigned int RawSource::getOutputMediaCount(void)
 {
 	pthread_mutex_lock(&mMutex);
 	unsigned int ret = mOutputPorts.size();
@@ -111,21 +113,21 @@ unsigned int Source::getOutputMediaCount(void)
 }
 
 
-Media *Source::getOutputMedia(unsigned int index)
+RawVideoMedia *RawSource::getOutputMedia(unsigned int index)
 {
 	pthread_mutex_lock(&mMutex);
-	Media *ret = (index < mOutputPorts.size())
-			     ? mOutputPorts.at(index).media
-			     : NULL;
+	RawVideoMedia *ret = (index < mOutputPorts.size())
+				     ? mOutputPorts.at(index).media
+				     : nullptr;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-Media *Source::findOutputMedia(Media *media)
+RawVideoMedia *RawSource::findOutputMedia(RawVideoMedia *media)
 {
 	pthread_mutex_lock(&mMutex);
-	Media *ret = NULL;
+	RawVideoMedia *ret = nullptr;
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
@@ -141,14 +143,14 @@ Media *Source::findOutputMedia(Media *media)
 }
 
 
-Media *Source::getOutputMediaFromChannel(void *key)
+RawVideoMedia *RawSource::getOutputMediaFromChannel(void *key)
 {
 	pthread_mutex_lock(&mMutex);
-	Media *ret = NULL;
+	RawVideoMedia *ret = nullptr;
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
-		std::vector<Channel *>::iterator c = p->channels.begin();
+		std::vector<RawChannel *>::iterator c = p->channels.begin();
 
 		while (c != p->channels.end()) {
 			if ((*c)->getKey() != key) {
@@ -159,7 +161,7 @@ Media *Source::getOutputMediaFromChannel(void *key)
 			break;
 		}
 
-		if (ret == NULL) {
+		if (ret == nullptr) {
 			p++;
 			continue;
 		}
@@ -171,15 +173,15 @@ Media *Source::getOutputMediaFromChannel(void *key)
 }
 
 
-Source::OutputPort *Source::getOutputPort(Media *media)
+RawSource::OutputPort *RawSource::getOutputPort(RawVideoMedia *media)
 {
-	if (media == NULL) {
+	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
-		return NULL;
+		return nullptr;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	OutputPort *ret = NULL;
+	OutputPort *ret = nullptr;
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
@@ -196,12 +198,17 @@ Source::OutputPort *Source::getOutputPort(Media *media)
 }
 
 
-int Source::addOutputPort(Media *media)
+int RawSource::addOutputPort(RawVideoMedia *media)
 {
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
+
+	if (mOutputPorts.size() >= mMaxOutputMedias) {
+		pthread_mutex_unlock(&mMutex);
+		return -ENOBUFS;
+	}
 
 	OutputPort port;
 	port.media = media;
@@ -209,18 +216,17 @@ int Source::addOutputPort(Media *media)
 
 	pthread_mutex_unlock(&mMutex);
 
-	ULOGI("'%s': add port for media id=%d type=%s",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type));
+	ULOGI("%s: add port for media name=%s",
+	      getName().c_str(),
+	      media->getName().c_str());
 
 	return 0;
 }
 
 
-int Source::removeOutputPort(Media *media)
+int RawSource::removeOutputPort(RawVideoMedia *media)
 {
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
@@ -242,8 +248,8 @@ int Source::removeOutputPort(Media *media)
 			      count);
 			return -EBUSY;
 		}
-		p->media = NULL;
-		destroyOutputPortBuffersPool(&(*p));
+		p->media = nullptr;
+		destroyOutputPortMemoryPool(&(*p));
 		mOutputPorts.erase(p);
 		break;
 	}
@@ -252,16 +258,15 @@ int Source::removeOutputPort(Media *media)
 	if (!found)
 		return -ENOENT;
 
-	ULOGI("'%s': delete port for media id=%d type=%s",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type));
+	ULOGI("%s: delete port for media name=%s",
+	      getName().c_str(),
+	      media->getName().c_str());
 
 	return 0;
 }
 
 
-int Source::removeOutputPorts(void)
+int RawSource::removeOutputPorts(void)
 {
 	pthread_mutex_lock(&mMutex);
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
@@ -278,14 +283,13 @@ int Source::removeOutputPorts(void)
 			      count);
 			return -EBUSY;
 		}
-		ULOGI("'%s': delete port for media id=%d type=%s",
-		      mName.c_str(),
-		      p->media->id,
-		      Media::getMediaTypeStr(p->media->type));
+		ULOGI("%s: delete port for media name=%s",
+		      getName().c_str(),
+		      p->media->getName().c_str());
 		/* Note: unlike removeOutputPort(), here the media is deleted */
 		delete p->media;
-		p->media = NULL;
-		destroyOutputPortBuffersPool(&(*p));
+		p->media = nullptr;
+		destroyOutputPortMemoryPool(&(*p));
 		p++;
 	}
 
@@ -296,14 +300,13 @@ int Source::removeOutputPorts(void)
 }
 
 
-int Source::createOutputPortBuffersPool(Media *media,
-					unsigned int count,
-					size_t capacity)
+int RawSource::createOutputPortMemoryPool(RawVideoMedia *media,
+					  unsigned int count,
+					  size_t capacity)
 {
 	int ret;
-	struct vbuf_cbs cbs;
 
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
 	if (count == 0)
 		return -EINVAL;
@@ -311,7 +314,7 @@ int Source::createOutputPortBuffersPool(Media *media,
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
-	OutputPort *port = NULL;
+	OutputPort *port = nullptr;
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
@@ -323,22 +326,21 @@ int Source::createOutputPortBuffersPool(Media *media,
 		break;
 	}
 
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		return -ENOENT;
 	}
 
-	ret = vbuf_generic_get_cbs(&cbs);
+	ret = mbuf_pool_new(mbuf_mem_generic_impl,
+			    capacity,
+			    count,
+			    MBUF_POOL_NO_GROW,
+			    0,
+			    getName().c_str(),
+			    &port->pool);
 	if (ret < 0) {
 		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("vbuf_generic_get_cbs", -ret);
-		return ret;
-	}
-
-	ret = vbuf_pool_new(count, capacity, 0, &cbs, &port->pool);
-	if (ret < 0) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("vbuf_pool_new", -ret);
+		ULOG_ERRNO("mbuf_pool_new", -ret);
 		return ret;
 	}
 
@@ -347,40 +349,39 @@ int Source::createOutputPortBuffersPool(Media *media,
 }
 
 
-int Source::destroyOutputPortBuffersPool(OutputPort *port)
+int RawSource::destroyOutputPortMemoryPool(OutputPort *port)
 {
-	int ret;
+	int ret = 0;
 
-	if (port == NULL)
+	if (port == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
 
-	if (port->pool == NULL) {
+	if (port->pool == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		return 0;
 	}
 
-	ret = vbuf_pool_abort(port->pool);
-	if (ret < 0)
-		ULOG_ERRNO("vbuf_pool_abort", -ret);
-	ret = vbuf_pool_destroy(port->pool);
-	if (ret < 0)
-		ULOG_ERRNO("vbuf_pool_destroy", -ret);
+	if (!port->sharedPool) {
+		ret = mbuf_pool_destroy(port->pool);
+		if (ret < 0)
+			ULOG_ERRNO("mbuf_pool_destroy", -ret);
+	}
 
-	port->pool = NULL;
+	port->pool = nullptr;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-int Source::destroyOutputPortBuffersPool(Media *media)
+int RawSource::destroyOutputPortMemoryPool(RawVideoMedia *media)
 {
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
-	OutputPort *port = NULL;
+	OutputPort *port = nullptr;
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
@@ -392,115 +393,27 @@ int Source::destroyOutputPortBuffersPool(Media *media)
 		break;
 	}
 
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		return -ENOENT;
 	}
 
-	int ret = destroyOutputPortBuffersPool(port);
+	int ret = destroyOutputPortMemoryPool(port);
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-int Source::getH264OutputBuffer(VideoMedia *videoMedia,
-				struct vbuf_buffer **buffer,
-				bool *byteStreamRequired)
+unsigned int RawSource::getOutputChannelCount(RawVideoMedia *media)
 {
-	int ret = 0;
-	unsigned int outputChannelCount = 0, i;
-	Channel *channel;
-	OutputPort *port;
-	struct vbuf_pool *pool, *extPool = NULL;
-
-	if (videoMedia == NULL)
-		return -EINVAL;
-	if (buffer == NULL)
-		return -EINVAL;
-	if (byteStreamRequired == NULL)
-		return -EINVAL;
-	if (videoMedia->format != VideoMedia::Format::H264)
-		return -EINVAL;
-
-	*byteStreamRequired = false;
-	pthread_mutex_lock(&mMutex);
-	outputChannelCount = getOutputChannelCount(videoMedia);
-
-	/* Find out if byte stream format is required: it is necessary if
-	 * at least one output channel only supports byte stream format */
-	for (i = 0; i < outputChannelCount; i++) {
-		channel = getOutputChannel(videoMedia, i);
-		if (channel == NULL) {
-			ULOGW("invalid channel");
-			continue;
-		}
-		bool byteStream =
-			(channel->getVideoMediaSubFormatCaps() ==
-			 VideoMedia::H264BitstreamFormat::BYTE_STREAM);
-
-		pool = channel->getPool();
-		if (pool != NULL)
-			extPool = pool;
-		*byteStreamRequired |= byteStream;
-	}
-
-	/* Use an external pool if we are in a case where there is only 1
-	 * channel with its own external pool: in that case there is no need
-	 * to use the source output port pool as it would add a useless copy,
-	 * just use a buffer from the external pool */
-	if ((outputChannelCount == 1) && (extPool != NULL)) {
-		ret = vbuf_pool_get(extPool, 0, buffer);
-		if ((ret < 0) || (*buffer == NULL)) {
-			if (ret != -EAGAIN) {
-				pthread_mutex_unlock(&mMutex);
-				ULOG_ERRNO("vbuf_pool_get:external", -ret);
-				return ret;
-			} else {
-				ULOGD("no buffer available in the external "
-				      "pool, fall back to the source "
-				      "output port pool");
-			}
-		} else {
-			pthread_mutex_unlock(&mMutex);
-			return ret;
-		}
-	}
-
-	/* Use the source pool */
-	if (*buffer == NULL) {
-		port = getOutputPort(videoMedia);
-		if (port == NULL) {
-			pthread_mutex_unlock(&mMutex);
-			ULOGW("no output port found");
-			return -EPROTO;
-		}
-		if (port->pool == NULL) {
-			pthread_mutex_unlock(&mMutex);
-			ULOGW("invalid output port pool");
-			return -EPROTO;
-		}
-		ret = vbuf_pool_get(port->pool, 0, buffer);
-		if ((ret < 0) || (*buffer == NULL)) {
-			if (ret != -EAGAIN)
-				ULOG_ERRNO("vbuf_pool_get:source", -ret);
-		}
-	}
-
-	pthread_mutex_unlock(&mMutex);
-	return ret;
-}
-
-
-unsigned int Source::getOutputChannelCount(Media *media)
-{
-	if (media == NULL) {
+	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
 		return 0;
 	}
 
 	pthread_mutex_lock(&mMutex);
 	OutputPort *port = getOutputPort(media);
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
 		return 0;
@@ -512,54 +425,55 @@ unsigned int Source::getOutputChannelCount(Media *media)
 }
 
 
-Channel *Source::getOutputChannel(Media *media, unsigned int index)
+RawChannel *RawSource::getOutputChannel(RawVideoMedia *media,
+					unsigned int index)
 {
-	if (media == NULL) {
+	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
-		return NULL;
+		return nullptr;
 	}
 
 	pthread_mutex_lock(&mMutex);
 	OutputPort *port = getOutputPort(media);
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
-		return NULL;
+		return nullptr;
 	}
 	if (index >= port->channels.size()) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("index", ENOENT);
-		return NULL;
+		return nullptr;
 	}
 
-	Channel *ret = port->channels.at(index);
+	RawChannel *ret = port->channels.at(index);
 	pthread_mutex_unlock(&mMutex);
 
 	return ret;
 }
 
 
-Channel *Source::getOutputChannel(Media *media, void *key)
+RawChannel *RawSource::getOutputChannel(RawVideoMedia *media, void *key)
 {
-	if (media == NULL) {
+	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
-		return NULL;
+		return nullptr;
 	}
-	if (key == NULL) {
+	if (key == nullptr) {
 		ULOG_ERRNO("key", EINVAL);
-		return NULL;
+		return nullptr;
 	}
 
 	pthread_mutex_lock(&mMutex);
 	OutputPort *port = getOutputPort(media);
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
-		return NULL;
+		return nullptr;
 	}
 
-	Channel *ret = NULL;
-	std::vector<Channel *>::iterator c = port->channels.begin();
+	RawChannel *ret = nullptr;
+	std::vector<RawChannel *>::iterator c = port->channels.begin();
 
 	while (c != port->channels.end()) {
 		if ((*c)->getKey() != key) {
@@ -575,21 +489,21 @@ Channel *Source::getOutputChannel(Media *media, void *key)
 }
 
 
-int Source::addOutputChannel(Media *media, Channel *channel)
+int RawSource::addOutputChannel(RawVideoMedia *media, RawChannel *channel)
 {
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
-	if (channel == NULL)
+	if (channel == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
-	Channel *c = getOutputChannel(media, channel->getKey());
-	if (c != NULL) {
+	RawChannel *c = getOutputChannel(media, channel->getKey());
+	if (c != nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		return -EEXIST;
 	}
 	OutputPort *port = getOutputPort(media);
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		return -ENOENT;
 	}
@@ -598,31 +512,30 @@ int Source::addOutputChannel(Media *media, Channel *channel)
 	port->channels.push_back(channel);
 	pthread_mutex_unlock(&mMutex);
 
-	ULOGI("'%s': link media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGI("%s: link media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 	return 0;
 }
 
 
-int Source::removeOutputChannel(Media *media, void *key)
+int RawSource::removeOutputChannel(RawVideoMedia *media, void *key)
 {
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
-	if (key == NULL)
+	if (key == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
 	OutputPort *port = getOutputPort(media);
-	if (port == NULL) {
+	if (port == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		return -ENOENT;
 	}
 
 	bool found = false;
-	std::vector<Channel *>::iterator c = port->channels.begin();
+	std::vector<RawChannel *>::iterator c = port->channels.begin();
 
 	while (c != port->channels.end()) {
 		if ((*c)->getKey() != key) {
@@ -630,7 +543,7 @@ int Source::removeOutputChannel(Media *media, void *key)
 			continue;
 		}
 		found = true;
-		(*c)->setSourceListener(NULL);
+		(*c)->setSourceListener(nullptr);
 		port->channels.erase(c);
 		break;
 	}
@@ -639,22 +552,22 @@ int Source::removeOutputChannel(Media *media, void *key)
 	if (!found)
 		return -ENOENT;
 
-	ULOGI("'%s': unlink media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGI("%s: unlink media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      key);
 	return 0;
 }
 
 
-int Source::sendDownstreamEvent(Media *media, Channel::DownstreamEvent event)
+int RawSource::sendDownstreamEvent(RawVideoMedia *media,
+				   RawChannel::DownstreamEvent event)
 {
 	int ret;
 	unsigned int outputChannelCount, i;
-	Channel *channel;
+	RawChannel *channel;
 
-	if (media == NULL)
+	if (media == nullptr)
 		return -EINVAL;
 
 	pthread_mutex_lock(&mMutex);
@@ -663,7 +576,7 @@ int Source::sendDownstreamEvent(Media *media, Channel::DownstreamEvent event)
 	outputChannelCount = getOutputChannelCount(media);
 	for (i = 0; i < outputChannelCount; i++) {
 		channel = getOutputChannel(media, i);
-		if (channel == NULL) {
+		if (channel == nullptr) {
 			ULOGW("invalid channel");
 			continue;
 		}
@@ -678,15 +591,15 @@ int Source::sendDownstreamEvent(Media *media, Channel::DownstreamEvent event)
 }
 
 
-void Source::onChannelUnlink(Channel *channel)
+void RawSource::onChannelUnlink(RawChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel->getKey());
-	if (media == NULL) {
+	RawVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	if (media == nullptr) {
 		ULOGE("media not found");
 		return;
 	}
@@ -697,22 +610,21 @@ void Source::onChannelUnlink(Channel *channel)
 }
 
 
-void Source::onChannelFlushed(Channel *channel)
+void RawSource::onChannelFlushed(RawChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel->getKey());
-	if (media == NULL) {
+	RawVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	if (media == nullptr) {
 		ULOGE("media not found");
 		return;
 	}
-	ULOGD("'%s': channel flushed media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGD("%s: channel flushed media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 
 	/* Nothing to do here, the function should be
@@ -720,22 +632,21 @@ void Source::onChannelFlushed(Channel *channel)
 }
 
 
-void Source::onChannelResync(Channel *channel)
+void RawSource::onChannelResync(RawChannel *channel)
 {
-	if (channel == NULL) {
+	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel->getKey());
-	if (media == NULL) {
+	RawVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	if (media == nullptr) {
 		ULOGE("media not found");
 		return;
 	}
-	ULOGD("'%s': channel resync media id=%d type=%s (channel key=%p)",
-	      mName.c_str(),
-	      media->id,
-	      Media::getMediaTypeStr(media->type),
+	ULOGD("%s: channel resync media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
 	      channel->getKey());
 
 	/* Nothing to do here, the function should be
@@ -743,21 +654,22 @@ void Source::onChannelResync(Channel *channel)
 }
 
 
-void Source::onChannelUpstreamEvent(Channel *channel, struct pomp_msg *event)
+void RawSource::onChannelUpstreamEvent(RawChannel *channel,
+				       struct pomp_msg *event)
 {
-	ULOGD("'%s': channel upstream event %s",
-	      mName.c_str(),
-	      Channel::getUpstreamEventStr(
-		      (Channel::UpstreamEvent)pomp_msg_get_id(event)));
+	ULOGD("%s: channel upstream event %s",
+	      getName().c_str(),
+	      RawChannel::getUpstreamEventStr(
+		      (RawChannel::UpstreamEvent)pomp_msg_get_id(event)));
 
 	switch (pomp_msg_get_id(event)) {
-	case Channel::UpstreamEvent::UNLINK:
+	case RawChannel::UpstreamEvent::UNLINK:
 		onChannelUnlink(channel);
 		break;
-	case Channel::UpstreamEvent::FLUSHED:
+	case RawChannel::UpstreamEvent::FLUSHED:
 		onChannelFlushed(channel);
 		break;
-	case Channel::UpstreamEvent::RESYNC:
+	case RawChannel::UpstreamEvent::RESYNC:
 		onChannelResync(channel);
 		break;
 	default:

@@ -54,18 +54,6 @@ namespace Pdraw {
 #	define GLES2_VIDEO_HISTOGRAM_FBO_TARGET_SIZE 256
 
 
-enum gles2_video_color_conversion {
-	GLES2_VIDEO_COLOR_CONVERSION_NONE = 0,
-	GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB,
-	GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB,
-	GLES2_VIDEO_COLOR_CONVERSION_MAX,
-};
-
-enum gles2_video_yuv_range {
-	GLES2_VIDEO_YUV_LIMITED_RANGE = 0,
-	GLES2_VIDEO_YUV_FULL_RANGE,
-};
-
 enum gles2_video_transition {
 	GLES2_VIDEO_TRANSITION_NONE = 0,
 	GLES2_VIDEO_TRANSITION_FADE_TO_BLACK,
@@ -76,10 +64,10 @@ enum gles2_video_transition {
 	GLES2_VIDEO_TRANSITION_FADE_FROM_BLACK_AND_WHITE,
 	GLES2_VIDEO_TRANSITION_FADE_TO_BLUR,
 	GLES2_VIDEO_TRANSITION_FADE_FROM_BLUR,
+	GLES2_VIDEO_TRANSITION_FLASH,
 };
 
 class Session;
-class VideoMedia;
 
 
 class Gles2Video {
@@ -142,31 +130,23 @@ public:
 
 	void abortTransition(void);
 
-	int loadFrame(const uint8_t *frameData,
-		      size_t framePlaneOffset[3],
+	int loadFrame(const uint8_t *framePlanes[3],
 		      size_t framePlaneStride[3],
-		      unsigned int frameWidth,
-		      unsigned int frameHeight,
-		      enum gles2_video_color_conversion colorConversion,
-		      struct egl_display *eglDisplay = NULL);
+		      const struct vdef_raw_format *format,
+		      const struct vdef_frame_info *info,
+		      struct egl_display *eglDisplay = nullptr);
 
-	int renderFrame(size_t framePlaneStride[3],
-			unsigned int frameHeight,
-			unsigned int cropLeft,
-			unsigned int cropTop,
-			unsigned int cropWidth,
-			unsigned int cropHeight,
-			unsigned int sarWidth,
-			unsigned int sarHeight,
-			const struct pdraw_rect *renderPos,
+	int renderFrame(const struct pdraw_rect *renderPos,
 			struct pdraw_rect *contentPos,
 			Eigen::Matrix4f &viewProjMat,
-			enum gles2_video_color_conversion colorConversion,
-			enum gles2_video_yuv_range yuvRange,
-			const struct vmeta_frame *metadata,
+			size_t framePlaneStride[3],
+			const struct vdef_raw_format *format,
+			const struct vdef_frame_info *info,
+			const struct vdef_rect *crop,
+			struct vmeta_frame *metadata,
 			const struct pdraw_video_renderer_params *params);
 
-	void setVideoMedia(VideoMedia *media);
+	int clear(Eigen::Matrix4f &viewProjMat);
 
 	void setExtTexture(GLuint texture);
 
@@ -174,39 +154,42 @@ public:
 			   size_t histogramLen[PDRAW_HISTOGRAM_CHANNEL_MAX]);
 
 private:
+	enum program {
+		PROGRAM_NOCONV = 0,
+		PROGRAM_YUV_TO_RGB_PLANAR,
+		PROGRAM_YUV_TO_RGB_PLANAR_10_16LE,
+		PROGRAM_YUV_TO_RGB_SEMIPLANAR,
+		PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH,
+		PROGRAM_MAX,
+	};
+
+	enum program getProgram(const struct vdef_raw_format *format);
+
 	int setupBlur(void);
 
 	void cleanupBlur(void);
 
-	int setupBlurFbo(unsigned int cropWidth, unsigned int cropHeight);
+	int setupBlurFbo(void);
 
 	void cleanupBlurFbo(void);
 
 	void renderBlur(size_t framePlaneStride[3],
-			unsigned int frameHeight,
-			unsigned int cropLeft,
-			unsigned int cropTop,
-			unsigned int cropWidth,
-			unsigned int cropHeight,
-			const struct pdraw_rect *render_pos,
+			const struct vdef_raw_format *format,
+			const struct vdef_frame_info *info,
+			const struct vdef_rect *crop,
+			const struct pdraw_rect *renderPos,
 			float videoW,
 			float videoH,
-			enum gles2_video_color_conversion colorConversion,
-			enum gles2_video_yuv_range yuvRange,
 			Eigen::Matrix4f &viewProjMat);
 
-	int setupPaddingFbo(unsigned int cropWidth,
-			    unsigned int cropHeight,
-			    enum pdraw_video_renderer_fill_mode fillMode);
+	int setupPaddingFbo(enum pdraw_video_renderer_fill_mode fillMode);
 
 	void cleanupPaddingFbo(void);
 
 	void renderPadding(size_t framePlaneStride[3],
-			   unsigned int frameHeight,
-			   unsigned int cropLeft,
-			   unsigned int cropTop,
-			   unsigned int cropWidth,
-			   unsigned int cropHeight,
+			   const struct vdef_raw_format *format,
+			   const struct vdef_frame_info *info,
+			   const struct vdef_rect *crop,
 			   const struct pdraw_rect *renderPos,
 			   float videoW,
 			   float videoH,
@@ -215,15 +198,13 @@ private:
 			   float videoAR,
 			   float windowAR,
 			   enum pdraw_video_renderer_fill_mode fillMode,
-			   enum gles2_video_color_conversion colorConversion,
-			   enum gles2_video_yuv_range yuvRange,
 			   bool immersive,
 			   Eigen::Matrix4f &viewProjMat);
 
-	void setupZebra(enum gles2_video_color_conversion colorConversion);
+	void setupZebra(enum program prog);
 
 	void updateZebra(struct pdraw_rect *contentPos,
-			 enum gles2_video_color_conversion colorConversion,
+			 enum program prog,
 			 bool enable,
 			 float threshold);
 
@@ -231,22 +212,16 @@ private:
 
 	void cleanupHistograms(void);
 
-	void
-	computeHistograms(size_t framePlaneStride[3],
-			  unsigned int frameHeight,
-			  unsigned int cropLeft,
-			  unsigned int cropTop,
-			  unsigned int cropWidth,
-			  unsigned int cropHeight,
-			  const struct pdraw_rect *renderPos,
-			  enum gles2_video_color_conversion colorConversion,
-			  enum gles2_video_yuv_range yuvRange,
-			  bool enable);
+	void computeHistograms(size_t framePlaneStride[3],
+			       const struct vdef_raw_format *format,
+			       const struct vdef_frame_info *info,
+			       const struct vdef_rect *crop,
+			       const struct pdraw_rect *renderPos,
+			       bool enable);
 
 	void updateTransition(void);
 
 	Session *mSession;
-	VideoMedia *mMedia;
 	unsigned int mVideoWidth;
 	unsigned int mVideoHeight;
 	unsigned int mFirstTexUnit;
@@ -255,24 +230,24 @@ private:
 	uint64_t mTransitionStartTime;
 	uint64_t mTransitionDuration;
 	bool mTransitionHold;
-	GLint mProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramYuv2RgbMatrix[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramYuv2RgbOffset[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramStride[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramSatCoef[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramLightCoef[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramDarkCoef[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramZebraEnable[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramZebraThreshold[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramZebraPhase[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mProgramZebraWeight[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+	GLint mProgram[PROGRAM_MAX];
+	GLint mProgramTransformMatrix[PROGRAM_MAX];
+	GLint mProgramYuv2RgbMatrix[PROGRAM_MAX];
+	GLint mProgramYuv2RgbOffset[PROGRAM_MAX];
+	GLint mProgramStride[PROGRAM_MAX];
+	GLint mProgramMaxCoords[PROGRAM_MAX];
+	GLint mProgramSatCoef[PROGRAM_MAX];
+	GLint mProgramLightCoef[PROGRAM_MAX];
+	GLint mProgramDarkCoef[PROGRAM_MAX];
+	GLint mProgramZebraEnable[PROGRAM_MAX];
+	GLint mProgramZebraThreshold[PROGRAM_MAX];
+	GLint mProgramZebraPhase[PROGRAM_MAX];
+	GLint mProgramZebraWeight[PROGRAM_MAX];
 	GLuint mTextures[GLES2_VIDEO_TEX_UNIT_COUNT];
 	GLuint mExtTexture;
-	GLint mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_MAX]
-			      [GLES2_VIDEO_TEX_UNIT_COUNT];
-	GLint mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+	GLint mUniformSamplers[PROGRAM_MAX][GLES2_VIDEO_TEX_UNIT_COUNT];
+	GLint mPositionHandle[PROGRAM_MAX];
+	GLint mTexcoordHandle[PROGRAM_MAX];
 	bool mBlurInit;
 	bool mApplyBlur;
 	float mBlurWeights[GLES2_VIDEO_BLUR_TAP_COUNT];
@@ -294,13 +269,12 @@ private:
 	GLuint mPaddingFboTexture[4];
 	bool mHistogramInit;
 	uint64_t mHistogramLastComputeTime;
-	GLint mHistogramProgram[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mHistogramYuv2RgbMatrix[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mHistogramYuv2RgbOffset[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mHistogramUniformSampler[GLES2_VIDEO_COLOR_CONVERSION_MAX]
-				      [GLES2_VIDEO_TEX_UNIT_COUNT];
-	GLint mHistogramPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
-	GLint mHistogramTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_MAX];
+	GLint mHistogramProgram[PROGRAM_MAX];
+	GLint mHistogramYuv2RgbMatrix[PROGRAM_MAX];
+	GLint mHistogramYuv2RgbOffset[PROGRAM_MAX];
+	GLint mHistogramUniformSampler[PROGRAM_MAX][GLES2_VIDEO_TEX_UNIT_COUNT];
+	GLint mHistogramPositionHandle[PROGRAM_MAX];
+	GLint mHistogramTexcoordHandle[PROGRAM_MAX];
 	GLuint mHistogramFbo;
 	GLuint mHistogramFboTexture;
 	uint8_t *mHistogramBuffer;
@@ -316,6 +290,9 @@ private:
 #	ifdef BCM_VIDEOCORE
 	EGLImageKHR mEglImage;
 #	endif /* BCM_VIDEOCORE */
+
+	static const GLchar *videoFragmentShaders[PROGRAM_MAX][3];
+	static const GLchar *histogramFragmentShaders[PROGRAM_MAX][2];
 };
 
 } /* namespace Pdraw */

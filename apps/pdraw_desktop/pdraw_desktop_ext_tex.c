@@ -208,52 +208,68 @@ int pdraw_desktop_ext_tex_cleanup(struct pdraw_desktop *self)
 int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
 			       struct pdraw_backend *pdraw,
 			       struct pdraw_video_renderer *renderer,
-			       const struct pdraw_session_info *session_info,
-			       const struct vmeta_session *session_meta,
-			       const struct pdraw_video_frame *frame,
+			       const struct pdraw_media_info *media_info,
+			       struct mbuf_raw_video_frame *frame,
 			       const void *frame_userdata,
 			       size_t frame_userdata_len)
 {
-	unsigned int i;
+	int ret;
+	unsigned int i, nplanes;
 	float vertices[8];
 	float texcoords[8];
+	const void *planes[VDEF_RAW_MAX_PLANE_COUNT] = {0};
+	float ar1, ar2, h, v;
+
+	struct vdef_raw_frame frame_info;
 
 	if (!self->ext_tex)
 		return -ENOSYS;
 
-	if ((pdraw == NULL) || (renderer == NULL) || (session_info == NULL) ||
-	    (session_meta == NULL) || (frame == NULL))
+	if ((pdraw == NULL) || (renderer == NULL) || (media_info == NULL) ||
+	    (frame == NULL))
 		return -EINVAL;
 
-	if (frame->format != PDRAW_VIDEO_MEDIA_FORMAT_YUV) {
-		ULOGE("unsupported media format");
+	ret = mbuf_raw_video_frame_get_frame_info(frame, &frame_info);
+	if (ret < 0) {
+		ULOG_ERRNO("mbuf_raw_video_frame_get_frame_info", -ret);
+		return ret;
+	}
+	if (!vdef_raw_format_cmp(&frame_info.format, &vdef_i420)) {
+		ULOGE("unsupported video format");
 		return -ENOSYS;
 	}
-	if (frame->yuv.format != PDRAW_YUV_FORMAT_I420) {
-		ULOGE("unsupported YUV format");
-		return -ENOSYS;
-	}
-	if ((frame->yuv.height == 0) || (frame->yuv.stride[0] == 0)) {
+	if (vdef_dim_is_null(&frame_info.info.resolution)) {
 		ULOGE("invalid frame dimensions");
 		return -EINVAL;
+	}
+	nplanes = vdef_get_raw_frame_plane_count(&frame_info.format);
+	for (i = 0; i < nplanes; i++) {
+		size_t dummyLen;
+		ret = mbuf_raw_video_frame_get_plane(
+			frame, i, &planes[i], &dummyLen);
+		if (ret < 0) {
+			ULOG_ERRNO("mbuf_raw_video_frame_get_plane", -ret);
+			goto out;
+		}
 	}
 
 	glUseProgram(self->ext_tex_program);
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	for (i = 0; i < 3; i++) {
-		unsigned int height = frame->yuv.height / ((i > 0) ? 2 : 1);
+		unsigned int height =
+			frame_info.info.resolution.height / ((i > 0) ? 2 : 1);
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(GL_TEXTURE_2D, self->ext_tex_textures[i]);
 		glTexImage2D(GL_TEXTURE_2D,
 			     0,
 			     GL_LUMINANCE,
-			     frame->yuv.stride[i],
+			     frame_info.plane_stride[i],
 			     height,
 			     0,
 			     GL_LUMINANCE,
 			     GL_UNSIGNED_BYTE,
-			     frame->yuv.plane[i]);
+			     planes[i]);
 		glUniform1i(self->ext_tex_uniform_samplers[i], i);
 	}
 
@@ -282,10 +298,9 @@ int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
 	glEnableVertexAttribArray(self->ext_tex_position_handle);
 
 	/* Test: take a 2:3 crop at the center */
-	float ar1 =
-		(float)frame->yuv.crop_width / (float)frame->yuv.crop_height;
-	float ar2 = 2.f / 3.f;
-	float h, v;
+	ar1 = (float)frame_info.info.resolution.width /
+	      (float)frame_info.info.resolution.height;
+	ar2 = 2.f / 3.f;
 	if (ar1 < ar2) {
 		h = 1.f;
 		v = ar2 / ar1;
@@ -295,30 +310,18 @@ int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
 	}
 	h = (1.f - h) / 2.f;
 	v = (1.f - v) / 2.f;
-	texcoords[0] = ((float)frame->yuv.crop_left +
-			h * (float)frame->yuv.crop_width) /
-		       (float)frame->yuv.stride[0];
-	texcoords[1] = ((float)frame->yuv.crop_top +
-			(1.f - v) * (float)frame->yuv.crop_height) /
-		       (float)frame->yuv.height;
-	texcoords[2] = ((float)frame->yuv.crop_left +
-			(1.f - h) * (float)frame->yuv.crop_width) /
-		       (float)frame->yuv.stride[0];
-	texcoords[3] = ((float)frame->yuv.crop_top +
-			(1.f - v) * (float)frame->yuv.crop_height) /
-		       (float)frame->yuv.height;
-	texcoords[4] = ((float)frame->yuv.crop_left +
-			h * (float)frame->yuv.crop_width) /
-		       (float)frame->yuv.stride[0];
-	texcoords[5] = ((float)frame->yuv.crop_top +
-			v * (float)frame->yuv.crop_height) /
-		       (float)frame->yuv.height;
-	texcoords[6] = ((float)frame->yuv.crop_left +
-			(1.f - h) * (float)frame->yuv.crop_width) /
-		       (float)frame->yuv.stride[0];
-	texcoords[7] = ((float)frame->yuv.crop_top +
-			v * (float)frame->yuv.crop_height) /
-		       (float)frame->yuv.height;
+	texcoords[0] = h * (float)frame_info.info.resolution.width /
+		       (float)frame_info.plane_stride[0];
+	texcoords[1] = 1.f - v;
+	texcoords[2] = (1.f - h) * (float)frame_info.info.resolution.width /
+		       (float)frame_info.plane_stride[0];
+	texcoords[3] = 1.f - v;
+	texcoords[4] = h * (float)frame_info.info.resolution.width /
+		       (float)frame_info.plane_stride[0];
+	texcoords[5] = v;
+	texcoords[6] = (1.f - h) * (float)frame_info.info.resolution.width /
+		       (float)frame_info.plane_stride[0];
+	texcoords[7] = v;
 
 	glVertexAttribPointer(self->ext_tex_texcoord_handle,
 			      2,
@@ -333,5 +336,11 @@ int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
 	glDisableVertexAttribArray(self->ext_tex_position_handle);
 	glDisableVertexAttribArray(self->ext_tex_texcoord_handle);
 
+out:
+	for (i = 0; i < nplanes; i++) {
+		if (planes[i] == NULL)
+			continue;
+		mbuf_raw_video_frame_release_plane(frame, i, planes[i]);
+	}
 	return 0;
 }

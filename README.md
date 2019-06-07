@@ -76,6 +76,7 @@ The library depends on the following Alchemy modules:
 * eigen
 * libfutils
 * libh264
+* libh265
 * libmp4
 * libpomp
 * librtsp

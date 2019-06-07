@@ -37,14 +37,24 @@
 #	else /* !_WIN32 */
 #		define PDRAW_API __attribute__((visibility("default")))
 #	endif /* !_WIN32 */
+#	ifdef __cplusplus
+/* codecheck_ignore[STORAGE_CLASS] */
+#		define PDRAW_API_VAR extern "C" PDRAW_API
+#	else /* !__cplusplus */
+#		define PDRAW_API_VAR PDRAW_API
+#	endif
 #else /* !PDRAW_API_EXPORTS */
 #	define PDRAW_API
+/* codecheck_ignore[STORAGE_CLASS] */
+#	define PDRAW_API_VAR extern
 #endif /* !PDRAW_API_EXPORTS */
 
 #include <inttypes.h>
 
 #include <libpomp.h>
-#include <video-buffers/vbuf.h>
+#include <media-buffers/mbuf_coded_video_frame.h>
+#include <media-buffers/mbuf_raw_video_frame.h>
+#include <video-defs/vdefs.h>
 #include <video-metadata/vmeta.h>
 
 
@@ -52,8 +62,6 @@
 struct egl_display;
 struct json_object;
 struct mux_ctx;
-struct pdraw_video_renderer;
-struct pdraw_video_sink;
 
 
 /* Absolute maximum value of playback speed for records; if the requested
@@ -61,30 +69,10 @@ struct pdraw_video_sink;
  * -PDRAW_PLAY_SPEED_MAX, the video is played as fast as possible */
 #define PDRAW_PLAY_SPEED_MAX 1000.f
 
-
-/* Drone model */
-enum pdraw_drone_model {
-	/* Unknown drone model */
-	PDRAW_DRONE_MODEL_UNKNOWN = 0,
-
-	/* Parrot Bebop */
-	PDRAW_DRONE_MODEL_BEBOP,
-
-	/* Parrot Bebop 2 */
-	PDRAW_DRONE_MODEL_BEBOP2,
-
-	/* Parrot Disco */
-	PDRAW_DRONE_MODEL_DISCO,
-
-	/* Parrot Bluegrass */
-	PDRAW_DRONE_MODEL_BLUEGRASS,
-
-	/* Parrot Anafi */
-	PDRAW_DRONE_MODEL_ANAFI,
-
-	/* Parrot Anafi Thermal */
-	PDRAW_DRONE_MODEL_ANAFI_THERMAL,
-};
+/**
+ * mbuf ancillary data key for pdraw_video_frame structs
+ */
+PDRAW_API_VAR const char *PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME;
 
 
 /* Head-mounted display model */
@@ -111,16 +99,16 @@ enum pdraw_pipeline_mode {
 };
 
 
-/* Session type */
-enum pdraw_session_type {
-	/* Unknown session type */
-	PDRAW_SESSION_TYPE_UNKNOWN = 0,
+/* Playback type */
+enum pdraw_playback_type {
+	/* Unknown playback type */
+	PDRAW_PLAYBACK_TYPE_UNKNOWN = 0,
 
-	/* Live stream session */
-	PDRAW_SESSION_TYPE_LIVE,
+	/* Live stream */
+	PDRAW_PLAYBACK_TYPE_LIVE,
 
-	/* Replay session (either streamed or local) */
-	PDRAW_SESSION_TYPE_REPLAY,
+	/* Replay (either streamed or local) */
+	PDRAW_PLAYBACK_TYPE_REPLAY,
 };
 
 
@@ -131,48 +119,6 @@ enum pdraw_media_type {
 
 	/* Video media */
 	PDRAW_MEDIA_TYPE_VIDEO,
-};
-
-
-/* Video media format */
-enum pdraw_video_media_format {
-	/* Unknown video media format */
-	PDRAW_VIDEO_MEDIA_FORMAT_UNKNOWN = 0,
-
-	/* YUV video media */
-	PDRAW_VIDEO_MEDIA_FORMAT_YUV = (1 << 0),
-
-	/* H.264 video media */
-	PDRAW_VIDEO_MEDIA_FORMAT_H264 = (1 << 1),
-
-	/* Opaque video media */
-	PDRAW_VIDEO_MEDIA_FORMAT_OPAQUE = (1 << 2),
-};
-
-
-/* YUV format */
-enum pdraw_yuv_format {
-	/* Unknown YUV format */
-	PDRAW_YUV_FORMAT_UNKNOWN = 0,
-
-	/* "I420" YUV 4:2:0 planar (3 planes, YUV order) */
-	PDRAW_YUV_FORMAT_I420,
-
-	/* "NV12" YUV 4:2:0 semi-planar (2 planes, Y + interleaved UV) */
-	PDRAW_YUV_FORMAT_NV12,
-};
-
-
-/* H.264 format */
-enum pdraw_h264_format {
-	/* Unknown H.264 format */
-	PDRAW_H264_FORMAT_UNKNOWN = 0,
-
-	/* H.264 Annex B byte stream format */
-	PDRAW_H264_FORMAT_BYTE_STREAM,
-
-	/* AVCC format (4-bytes NALU length in network order) */
-	PDRAW_H264_FORMAT_AVCC,
 };
 
 
@@ -245,107 +191,78 @@ enum pdraw_video_renderer_transition_flag {
 #define PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_ALL UINT32_MAX
 
 
-/* Session information */
-struct pdraw_session_info {
-	/* Friendly name (self) */
-	char friendly_name[40];
+/* Raw video media information */
+struct pdraw_raw_video_info {
+	/* Raw video format */
+	struct vdef_raw_format format;
 
-	/* Serial number (self) */
-	char serial_number[32];
-
-	/* Software version (self) */
-	char software_version[20];
-
-	/* Peer drone model */
-	enum pdraw_drone_model drone_model;
-
-	/* Session type */
-	enum pdraw_session_type session_type;
-
-	/* 1 if the session is for the drone pilot, 0 otherwise */
-	int is_pilot;
-
-	/* Playback duration in microseconds (replay only, 0 otherwise) */
-	uint64_t duration;
+	/* Format information */
+	struct vdef_format_info info;
 };
 
 
-/* YUV video media information */
-struct pdraw_video_yuv_info {
-	/* Picture width in pixels */
-	unsigned int width;
+/* Coded video media information */
+struct pdraw_coded_video_info {
+	/* Coded video format */
+	struct vdef_coded_format format;
 
-	/* Picture height in pixels */
-	unsigned int height;
+	/* Format information */
+	struct vdef_format_info info;
 
-	/* Picture left crop in pixels */
-	unsigned int crop_left;
+	union {
+		/* H.264 information */
+		struct {
+			/* SPS (raw NALU without start code) */
+			uint8_t sps[64];
 
-	/* Picture top crop in pixels */
-	unsigned int crop_top;
+			/* SPS size in bytes */
+			size_t spslen;
 
-	/* Picture crop width in pixels */
-	unsigned int crop_width;
+			/* PPS (raw NALU without start code) */
+			uint8_t pps[64];
 
-	/* Picture crop height in pixels */
-	unsigned int crop_height;
+			/* PPS size in bytes */
+			size_t ppslen;
+		} h264;
 
-	/* Sample aspect ratio width (no unit; full
-	 * aspect ratio is sar_width / sar_height) */
-	unsigned int sar_width;
+		/* H.265 information */
+		struct {
+			/* VPS (raw NALU without start code) */
+			uint8_t vps[64];
 
-	/* Sample aspect ratio height (no unit; full
-	 * aspect ratio is sar_width / sar_height) */
-	unsigned int sar_height;
+			/* VPS size in bytes */
+			size_t vpslen;
 
-	/* Video signal range: 0 = Y [16..235], Cb&Cr [16..240]
-	 * 1 = Y&Cb&Cr [0..255] */
-	int full_range;
+			/* SPS (raw NALU without start code) */
+			uint8_t sps[64];
 
-	/* Picture horizontal field of view in degrees (0.0 means unknown) */
-	float horizontal_fov;
+			/* SPS size in bytes */
+			size_t spslen;
 
-	/* Picture vertical field of view in degrees (0.0 means unknown) */
-	float vertical_fov;
-};
+			/* PPS (raw NALU without start code) */
+			uint8_t pps[64];
 
-
-/* H.264 video media information */
-struct pdraw_video_h264_info {
-	/* Picture width in pixels */
-	unsigned int width;
-
-	/* Picture height in pixels */
-	unsigned int height;
-
-	/* H.264 SPS (raw NALU without start code) */
-	uint8_t sps[64];
-
-	/* H.264 SPS size in bytes */
-	size_t spslen;
-
-	/* H.264 PPS (raw NALU without start code) */
-	uint8_t pps[64];
-
-	/* H.264 PPS size in bytes */
-	size_t ppslen;
+			/* PPS size in bytes */
+			size_t ppslen;
+		} h265;
+	};
 };
 
 
 /* Video media information */
 struct pdraw_video_info {
 	/* Video media format */
-	enum pdraw_video_media_format format;
+	enum vdef_frame_type format;
 
 	/* Video type */
 	enum pdraw_video_type type;
 
 	union {
-		/* YUV video media information */
-		struct pdraw_video_yuv_info yuv;
+		/* Raw video media information */
+		struct pdraw_raw_video_info raw;
 
-		/* H.264 video media information */
-		struct pdraw_video_h264_info h264;
+		/* Coded video media information */
+		struct pdraw_coded_video_info coded;
 	};
 };
 
@@ -358,6 +275,21 @@ struct pdraw_media_info {
 	/* Media identifier (unique within a same libpdraw instance) */
 	unsigned int id;
 
+	/* Media name (unique within a same libpdraw instance) */
+	const char *name;
+
+	/* Media path (unique within a same libpdraw instance) */
+	const char *path;
+
+	/* Playback type */
+	enum pdraw_playback_type playback_type;
+
+	/* Playback duration in microseconds (replay only, 0 otherwise) */
+	uint64_t duration;
+
+	/* Session metadata */
+	const struct vmeta_session *session_meta;
+
 	union {
 		/* Video media information */
 		struct pdraw_video_info video;
@@ -365,91 +297,27 @@ struct pdraw_media_info {
 };
 
 
-/* YUV video frame information */
-struct pdraw_video_yuv_frame {
-	/* YUV format */
-	enum pdraw_yuv_format format;
-
-	/* Planes data pointers (the planes count depends on the
-	 * chroma format; 0 for unused planes) */
-	const uint8_t *plane[3];
-
-	/* Planes stride in bytes (the planes count depends on the
-	 * chroma format; 0 for unused planes) */
-	unsigned int stride[3];
-
-	/* Picture width in pixels */
-	unsigned int width;
-
-	/* Picture height in pixels */
-	unsigned int height;
-
-	/* Picture left crop in pixels */
-	unsigned int crop_left;
-
-	/* Picture top crop in pixels */
-	unsigned int crop_top;
-
-	/* Picture crop width in pixels */
-	unsigned int crop_width;
-
-	/* Picture crop height in pixels */
-	unsigned int crop_height;
-
-	/* Sample aspect ratio width (no unit; full
-	 * aspect ratio is sar_width / sar_height) */
-	unsigned int sar_width;
-
-	/* Sample aspect ratio height (no unit; full
-	 * aspect ratio is sar_width / sar_height) */
-	unsigned int sar_height;
-
-	/* Video signal range: 0 = Y [16..235], Cb&Cr [16..240]
-	 * 1 = Y&Cb&Cr [0..255] */
-	int full_range;
-};
-
-
-/* H.264 video frame information */
-struct pdraw_video_h264_frame {
-	/* H.264 format */
-	enum pdraw_h264_format format;
-
-	/* 1 if the frame is syntactically complete, 0 otherwise */
-	int is_complete;
-
-	/* 1 if the frame is a synchronization sample (IDR frame),
-	 * 0 otherwise */
-	int is_sync;
-
-	/* 1 if the frame is a reference frame, 0 otherwise */
-	int is_ref;
-};
-
-
 /* Video frame information */
 struct pdraw_video_frame {
 	/* Video media format */
-	enum pdraw_video_media_format format;
+	enum vdef_frame_type format;
 
 	union {
-		/* YUV video frame information */
-		struct pdraw_video_yuv_frame yuv;
+		/* Raw video frame information */
+		struct vdef_raw_frame raw;
 
-		/* H.264 video frame information */
-		struct pdraw_video_h264_frame h264;
+		/* Coded video frame information */
+		struct vdef_coded_frame coded;
 	};
 
-	/* 1 if the frame has errors (either missing slices or error
-	 * propagation from a missing slice in reference frames),
-	 * 0 otherwise; errors are on H.264 video frames but the has_error
-	 * value is propagated to YUV frames after decoding */
-	int has_errors;
+	/* 1 if the frame is a synchronization sample (IDR frame),
+	 * 0 otherwise.
+	 * Only meaningful for coded frames */
+	int is_sync;
 
-	/* 1 if the frame is to be decoded but not displayed, 0 otherwise
-	 * (e.g. to mask H.264 grey IDR frames for decoder synchronization
-	 * and the first intra-refresh on streams) */
-	int is_silent;
+	/* 1 if the frame is a reference frame, 0 otherwise.
+	 * Only meaningful for coded frames */
+	int is_ref;
 
 	/* NTP timestamp in microseconds; this timestamp is monotonic;
 	 * a 0 value can mean the timestamp is not available; for records (MP4)
@@ -503,13 +371,6 @@ struct pdraw_video_frame {
 	 * should be used only for statistics or debugging purposes and
 	 * should not be used for presentation */
 	uint64_t local_timestamp;
-
-	/* 1 if the frame metadata is valid, i.e. the metadata structure is
-	 * filled, 0 otherwise */
-	int has_metadata;
-
-	/* Video frame metadata */
-	struct vmeta_frame metadata;
 };
 
 
@@ -634,23 +495,41 @@ struct pdraw_video_renderer_params {
 
 /* Video sink parameters */
 struct pdraw_video_sink_params {
-	/* Buffer queue maximum count; optional, can be 0 which means
-	 * buffers are never dropped from the queue; when not 0 and
-	 * queue_drop_when_full is 1, older buffer will be automatically
-	 * dropped when the queue is full to make room for new buffers;
-	 * when not 0 and queue_drop_when_full is 0, newest buffers will
-	 * not be queued if the queue is full */
+	/* Frame queue maximum count; optional, can be 0 which means
+	 * frames are never dropped from the queue; when not 0, older frames
+	 * will be automatically dropped when the queue is full to make room for
+	 * new frames. */
 	unsigned int queue_max_count;
 
-	/* 1: drop oldest buffers in the queue when it is full, 0: never
-	 * drop; only meaningful when queue_max_count is not 0 */
-	int queue_drop_when_full;
+	/* Required format for raw or coded video sinks; the default
+	 * value is VDEF_CODED_FORMAT_UNKNOWN for a coded video sink or
+	 * VDEF_RAW_FORMAT_UNKNOWN for a raw video sink which means no
+	 * preference */
+	union {
+		struct vdef_raw_format required_raw_format;
+		struct vdef_coded_format required_coded_format;
+	};
 
-	/* Required format for H.264 video sinks; the default value is
-	 * PDRAW_H264_FORMAT_UNKNOWN which means no preference; the value
-	 * is unused for non-H.264 video sinks and should be set to
-	 * PDRAW_H264_FORMAT_UNKNOWN */
-	enum pdraw_h264_format required_format;
+	/* Enable the fake frame_num generation for H.264 medias */
+	int fake_frame_num;
+};
+
+
+/* Muxer video media parameters */
+struct pdraw_muxer_video_media_params {
+	/* Scaling resolution; null values mean no scaling (keep the
+	 * original dimensions) */
+	struct vdef_dim resolution;
+
+	/* Transcoding format; VDEF_ENCODING_UNKNOWN means no transcoding
+	 * (then scaling must be disabled with null resolution) */
+	enum vdef_encoding encoding;
+
+	/* Target bitrate in bits per second */
+	unsigned int target_bitrate;
+
+	/* GOP length in seconds (if 0.0, defaults to 1.0) */
+	float gop_length_sec;
 };
 
 
@@ -668,6 +547,9 @@ struct pdraw_demuxer_media {
 	 * either 0 or -ENOSYS; note: if multiple medias are marked as
 	 * default, the first one will be chosen */
 	int is_default;
+
+	/* Session metadata */
+	struct vmeta_session session_meta;
 
 	/* Internal information (implementation dependant, do not use) */
 	int idx;

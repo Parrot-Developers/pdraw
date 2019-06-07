@@ -22,7 +22,7 @@ include $(BUILD_LIBRARY)
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := pdraw_backend_test
+LOCAL_MODULE := pdraw-backend-test
 LOCAL_CATEGORY_PATH := multimedia
 LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer back-end library test program
 LOCAL_SRC_FILES := \

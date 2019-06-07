@@ -7,7 +7,7 @@ System requirements
 -------------------
 
 *PDrAW* works as a standalone program & library for Linux
-(tested on Ubuntu 18.04) and macOS (tested on macOS 10.14.4 Mojave)
+(tested on Ubuntu 20.04) and macOS (tested on macOS 11.6 Big Sur)
 
 You need to install the following packages:
 
@@ -15,59 +15,70 @@ Linux:
 
 .. code-block:: console
 
-    $ apt install python git repo python3 build-essential pkg-config zlib1g-dev libglfw3-dev libsdl2-dev rsync
+    $ apt install curl git python3 zlib1g-dev libglfw3-dev libsdl2-dev cmake qtbase5-dev build-essential
+
+We use ``repo`` as a tool for downloading and updating the workspace. The tool
+might be available from your OS package manager (which is the preferred way of
+installing it), but is notoriously absent from Ubuntu 20.04.
+
+To install it on Ubuntu 20.04 :
+
+.. code-block:: console
+
+    # ~/bin/ can be replaced by any directory on your PATH
+    $ curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+    $ chmod a+x ~/bin/repo
+    $ sed -i.bak -e 's;#!/usr/bin/env python$;#!/usr/bin/env python3;' ~/bin/repo
+
+
 
 macOS:
 
-We use the homebrew_ package manager to install packages under macOS.
-homebrew_ requires Xcode (or Xcode command line tools).
-If you use another package manager, you will need
-to install the required packages manually.
+We use the homebrew_ package manager to install packages under macOS. If you
+use another package manager, you will need to install the required packages
+manually.
 
-We also require the Xcode command line tools, with header package
-installed in ``/``.
+We also require the Xcode command line tools, which should be automatically
+installed by homebrew.
 
 .. _homebrew: https://brew.sh/
 
 .. code-block:: console
 
-    # Install homebrew + Xcode first
-    # Note: check the macOS version in the package name!
-    $ installer -pkg /Library/Developer/CommandLineTools/Packages/macOS_SDK_headers_for_macOS_10.14.pkg -target /
-    $ brew install repo gpg python3 glfw sdl2 pkg-config
+    # Install homebrew first
+    $ brew install repo pkg-config glfw3 sdl2 cmake
 
-Clone the GroundSDK workspace
------------------------------
+Clone the GroundSDK-Tools workspace
+-----------------------------------
 
-*PDrAW* is part of Parrot's *GroundSDK* workspace, so you need to clone that
-workspace, using the ``repo`` tool.
+*PDrAW* is part of Parrot's *GroundSDK-Tools* workspace, so you need to clone
+that workspace, using the ``repo`` tool.
 
 .. code-block:: console
 
-    # Assuming you want to put the code in $HOME/code/groundsdk
-    $ mkdir -p $HOME/code/groundsdk
-    $ cd $HOME/code/groundsdk
-    $ repo init -u https://github.com/Parrot-Developers/groundsdk-manifest -m release.xml
+    # Assuming you want to put the code in $HOME/code/groundsdk-tools
+    $ mkdir -p $HOME/code/groundsdk-tools
+    $ cd $HOME/code/groundsdk-tools
+    $ repo init -u https://github.com/Parrot-Developers/groundsdk-tools-manifest
     $ repo sync
 
 After the initial clone, only the ``repo sync`` command will be needed to
-update your workspace to the latest *GroundSDK* version.
+update your workspace to the latest *GroundSDK-Tools* version.
 
 Build PDrAW
 -----------
 
-After each update, the *PDrAW* project needs to be rebuilt with the following
-command:
+After each update, the *GroundSDK-Tools* project needs to be rebuilt with the
+following command:
 
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./build.sh -p pdraw-linux -t build -j/1
+    $ ./build.sh -p groundsdk-linux -t build -j/1
 
 .. Note:: For macOS users, replace the following parts of example command lines:
 
-   - ``native-wrapper.sh`` with ``native-darwin-wrapper.sh``
-   - ``pdraw-linux`` with ``pdraw-macos``
+   - ``groundsdk-linux`` with ``groundsdk-macos``
 
 .. Note:: This commands builds both the *pdraw* and *vmeta-extract*
    executables, and all the required libraries required to use *PDrAW* from your
@@ -82,4 +93,4 @@ in the ``out`` directory:
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./out/pdraw-linux/staging/native-wrapper.sh pdraw --help
+    $ ./out/groundsdk-linux/staging/native-wrapper.sh pdraw --help

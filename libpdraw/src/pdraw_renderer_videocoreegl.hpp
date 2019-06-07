@@ -46,29 +46,32 @@ class VideoCoreEglRenderer : public Gles2Renderer {
 public:
 	VideoCoreEglRenderer(Session *session,
 			     Element::Listener *listener,
-			     IPdraw::VideoRendererListener *rndListener);
+			     IPdraw::IVideoRenderer *renderer,
+			     IPdraw::IVideoRenderer::Listener *rndListener,
+			     unsigned int mediaId,
+			     const struct pdraw_rect *renderPos,
+			     const struct pdraw_video_renderer_params *params,
+			     struct egl_display *eglDisplay);
 
 	~VideoCoreEglRenderer(void);
 
+private:
 	int setup(const struct pdraw_rect *renderPos,
 		  const struct pdraw_video_renderer_params *params,
 		  struct egl_display *eglDisplay);
 
-private:
-	int loadVideoFrame(const uint8_t *data, VideoMedia::Frame *frame);
+	int loadVideoFrame(const uint8_t *data, RawVideoMedia::Frame *frame);
 
-	int
-	loadExternalVideoFrame(const uint8_t *data,
-			       VideoMedia::Frame *frame,
-			       const struct pdraw_session_info *session_info,
-			       const struct vmeta_session *session_meta);
+	int loadExternalVideoFrame(const uint8_t *data,
+				   RawVideoMedia::Frame *frame,
+				   const struct pdraw_media_info *media_info);
 
-	int renderVideoFrame(VideoMedia::Frame *frame,
+	int renderVideoFrame(RawVideoMedia::Frame *frame,
 			     const struct pdraw_rect *renderPos,
 			     struct pdraw_rect *contentPos,
 			     Eigen::Matrix4f &viewProjMat);
 
-	int renderExternalVideoFrame(VideoMedia::Frame *frame,
+	int renderExternalVideoFrame(RawVideoMedia::Frame *frame,
 				     const struct pdraw_rect *renderPos,
 				     struct pdraw_rect *contentPos,
 				     Eigen::Matrix4f &viewProjMat);

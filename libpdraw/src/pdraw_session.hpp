@@ -31,13 +31,14 @@
 #ifndef _PDRAW_SESSION_HPP_
 #define _PDRAW_SESSION_HPP_
 
-#include "pdraw_avcdecoder.hpp"
+#include "pdraw_decoder_video.hpp"
 #include "pdraw_demuxer.hpp"
+#include "pdraw_external_coded_video_sink.hpp"
+#include "pdraw_external_raw_video_sink.hpp"
 #include "pdraw_media.hpp"
-#include "pdraw_metadata_session.hpp"
+#include "pdraw_muxer.hpp"
 #include "pdraw_renderer.hpp"
 #include "pdraw_settings.hpp"
-#include "pdraw_sink_video.hpp"
 
 #include <inttypes.h>
 
@@ -50,6 +51,7 @@
 #	define IPTOS_PREC_FLASHOVERRIDE 0x80
 #else /* !_WIN32 */
 #	include <arpa/inet.h>
+#	include <netinet/ip.h>
 #endif /* !_WIN32 */
 
 #include <queue>
@@ -72,16 +74,261 @@ class Settings;
 
 class Session : public IPdraw,
 		public Element::Listener,
-		public Source::Listener,
-		public Demuxer::Listener {
+		public CodedSource::Listener,
+		public RawSource::Listener {
 public:
 	enum State {
-		INVALID = 0,
-		CREATED,
-		OPENING,
-		OPENED,
-		CLOSING,
-		CLOSED,
+		STOPPED = 0,
+		READY,
+		STOPPING,
+	};
+
+
+	class PipelineFactory {
+	public:
+		PipelineFactory(Session *session);
+
+		~PipelineFactory(void);
+
+		void onElementStateChanged(Element *element,
+					   Element::State state);
+
+		void onOutputMediaAdded(CodedSource *source,
+					CodedVideoMedia *media);
+
+		void onOutputMediaAdded(RawSource *source,
+					RawVideoMedia *media);
+
+		void onOutputMediaRemoved(CodedSource *source,
+					  CodedVideoMedia *media);
+
+		void onOutputMediaRemoved(RawSource *source,
+					  RawVideoMedia *media);
+
+		int dumpPipeline(const std::string &fileName);
+
+		int addMediaToRenderer(unsigned int mediaId,
+				       Renderer *renderer);
+
+	private:
+		int addDecoderForMedia(CodedSource *source,
+				       CodedVideoMedia *media);
+
+		int addEncoderForMedia(RawSource *source, RawVideoMedia *media);
+
+		int addScalerForMedia(RawSource *source, RawVideoMedia *media);
+
+		int addMediaToRenderer(RawSource *source,
+				       RawVideoMedia *media,
+				       Renderer *renderer);
+
+		int addMediaToAllRenderers(RawSource *source,
+					   RawVideoMedia *media);
+
+		int addAllMediaToRenderer(Renderer *renderer);
+
+		Session *mSession;
+	};
+
+
+	class Demuxer : public IPdraw::IDemuxer {
+	public:
+		Demuxer(Session *session,
+			const std::string &url,
+			struct mux_ctx *mux,
+			IPdraw::IDemuxer::Listener *listener);
+
+		Demuxer(Session *session,
+			const std::string &localAddr,
+			uint16_t localStreamPort,
+			uint16_t localControlPort,
+			const std::string &remoteAddr,
+			uint16_t remoteStreamPort,
+			uint16_t remoteControlPort,
+			IPdraw::IDemuxer::Listener *listener);
+
+		~Demuxer(void);
+
+		int close(void);
+
+		uint16_t getSingleStreamLocalStreamPort(void);
+
+		uint16_t getSingleStreamLocalControlPort(void);
+
+		bool isReadyToPlay(void);
+
+		bool isPaused(void);
+
+		int play(float speed = 1.0f);
+
+		int pause(void);
+
+		int previousFrame(void);
+
+		int nextFrame(void);
+
+		int seek(int64_t delta, bool exact = false);
+
+		int seekForward(uint64_t delta, bool exact = false);
+
+		int seekBack(uint64_t delta, bool exact = false);
+
+		int seekTo(uint64_t timestamp, bool exact = false);
+
+		uint64_t getDuration(void);
+
+		uint64_t getCurrentTime(void);
+
+		Element *getElement()
+		{
+			return mDemuxer;
+		}
+
+		Pdraw::Demuxer *getDemuxer()
+		{
+			return mDemuxer;
+		}
+
+	private:
+		Session *mSession;
+		Pdraw::Demuxer *mDemuxer;
+	};
+
+
+	class Muxer : public IPdraw::IMuxer {
+	public:
+		Muxer(Session *session, const std::string &url);
+
+		~Muxer(void);
+
+		int
+		addMedia(unsigned int mediaId,
+			 const struct pdraw_muxer_video_media_params *params);
+
+		Element *getElement()
+		{
+			return mMuxer;
+		}
+
+		Pdraw::Muxer *getMuxer()
+		{
+			return mMuxer;
+		}
+
+	private:
+		Session *mSession;
+		Pdraw::Muxer *mMuxer;
+	};
+
+
+	class VideoRenderer : public IPdraw::IVideoRenderer {
+	public:
+		/* Called on the rendering thread */
+		VideoRenderer(Session *session,
+			      unsigned int mediaId,
+			      const struct pdraw_rect *renderPos,
+			      const struct pdraw_video_renderer_params *params,
+			      IPdraw::IVideoRenderer::Listener *listener,
+			      struct egl_display *eglDisplay = nullptr);
+
+		/* Called on the rendering thread */
+		~VideoRenderer(void);
+
+		/* Called on the rendering thread */
+		int resize(const struct pdraw_rect *renderPos);
+
+		/* Called on the rendering thread */
+		int setMediaId(unsigned int mediaId);
+
+		/* Called on the rendering thread */
+		unsigned int getMediaId(void);
+
+		/* Called on the rendering thread */
+		int setParams(const struct pdraw_video_renderer_params *params);
+
+		/* Called on the rendering thread */
+		int getParams(struct pdraw_video_renderer_params *params);
+
+		/* Called on the rendering thread */
+		int render(struct pdraw_rect *contentPos,
+			   const float *viewMat = nullptr,
+			   const float *projMat = nullptr);
+
+		Element *getElement()
+		{
+			return mRenderer;
+		}
+
+	private:
+		Pdraw::Renderer *mRenderer;
+	};
+
+
+	class CodedVideoSink : public IPdraw::ICodedVideoSink {
+	public:
+		CodedVideoSink(Session *session,
+			       const struct pdraw_video_sink_params *params,
+			       IPdraw::ICodedVideoSink::Listener *listener);
+
+		~CodedVideoSink(void);
+
+		int resync(void);
+
+		struct mbuf_coded_video_frame_queue *getQueue(void);
+
+		int queueFlushed(void);
+
+		Element *getElement()
+		{
+			return mSink;
+		}
+
+		CodedSink *getSink()
+		{
+			return mSink;
+		}
+
+		Pdraw::ExternalCodedVideoSink *getCodedVideoSink()
+		{
+			return mSink;
+		}
+
+	private:
+		Pdraw::ExternalCodedVideoSink *mSink;
+	};
+
+
+	class RawVideoSink : public IPdraw::IRawVideoSink {
+	public:
+		RawVideoSink(Session *session,
+			     const struct pdraw_video_sink_params *params,
+			     IPdraw::IRawVideoSink::Listener *listener);
+
+		~RawVideoSink(void);
+
+		int resync(void);
+
+		struct mbuf_raw_video_frame_queue *getQueue(void);
+
+		int queueFlushed(void);
+
+		Element *getElement()
+		{
+			return mSink;
+		}
+
+		RawSink *getSink()
+		{
+			return mSink;
+		}
+
+		Pdraw::ExternalRawVideoSink *getRawVideoSink()
+		{
+			return mSink;
+		}
+
+	private:
+		Pdraw::ExternalRawVideoSink *mSink;
 	};
 
 
@@ -94,112 +341,58 @@ public:
 	 * API methods
 	 */
 
-	int open(const std::string &url);
+	int stop(void);
 
-	int open(const std::string &localAddr,
-		 uint16_t localStreamPort,
-		 uint16_t localControlPort,
-		 const std::string &remoteAddr,
-		 uint16_t remoteStreamPort,
-		 uint16_t remoteControlPort);
+	int createDemuxer(const std::string &url,
+			  IPdraw::IDemuxer::Listener *listener,
+			  IPdraw::IDemuxer **retObj);
 
-	int open(const std::string &url, struct mux_ctx *mux);
+	int createDemuxer(const std::string &localAddr,
+			  uint16_t localStreamPort,
+			  uint16_t localControlPort,
+			  const std::string &remoteAddr,
+			  uint16_t remoteStreamPort,
+			  uint16_t remoteControlPort,
+			  IPdraw::IDemuxer::Listener *listener,
+			  IPdraw::IDemuxer **retObj);
 
-	int close(void);
+	int createDemuxer(const std::string &url,
+			  struct mux_ctx *mux,
+			  IPdraw::IDemuxer::Listener *listener,
+			  IPdraw::IDemuxer **retObj);
 
-	uint16_t getSingleStreamLocalStreamPort(void);
-
-	uint16_t getSingleStreamLocalControlPort(void);
-
-	bool isReadyToPlay(void);
-
-	bool isPaused(void);
-
-	int play(float speed = 1.0f);
-
-	int pause(void);
-
-	int previousFrame(void);
-
-	int nextFrame(void);
-
-	int seek(int64_t delta, bool exact = false);
-
-	int seekForward(uint64_t delta, bool exact = false);
-
-	int seekBack(uint64_t delta, bool exact = false);
-
-	int seekTo(uint64_t timestamp, bool exact = false);
-
-	uint64_t getDuration(void);
-
-	uint64_t getCurrentTime(void);
+	int createMuxer(const std::string &url, IPdraw::IMuxer **retObj);
 
 	/* Called on the rendering thread */
-	int startVideoRenderer(const struct pdraw_rect *renderPos,
-			       const struct pdraw_video_renderer_params *params,
-			       VideoRendererListener *listener,
-			       struct pdraw_video_renderer **retObj,
-			       struct egl_display *eglDisplay = NULL);
+	int
+	createVideoRenderer(unsigned int mediaId,
+			    const struct pdraw_rect *renderPos,
+			    const struct pdraw_video_renderer_params *params,
+			    IPdraw::IVideoRenderer::Listener *listener,
+			    IPdraw::IVideoRenderer **retObj,
+			    struct egl_display *eglDisplay = nullptr);
 
-	/* Called on the rendering thread */
-	int stopVideoRenderer(struct pdraw_video_renderer *renderer);
+	int createCodedVideoSink(unsigned int mediaId,
+				 const struct pdraw_video_sink_params *params,
+				 IPdraw::ICodedVideoSink::Listener *listener,
+				 IPdraw::ICodedVideoSink **retObj);
 
-	/* Called on the rendering thread */
-	int resizeVideoRenderer(struct pdraw_video_renderer *renderer,
-				const struct pdraw_rect *renderPos);
+	int createRawVideoSink(unsigned int mediaId,
+			       const struct pdraw_video_sink_params *params,
+			       IPdraw::IRawVideoSink::Listener *listener,
+			       IPdraw::IRawVideoSink **retObj);
 
+	void getFriendlyNameSetting(std::string *friendlyName);
 
-	/* Called on the rendering thread */
-	int setVideoRendererParams(
-		struct pdraw_video_renderer *renderer,
-		const struct pdraw_video_renderer_params *params);
+	void setFriendlyNameSetting(const std::string &friendlyName);
 
+	void getSerialNumberSetting(std::string *serialNumber);
 
-	/* Called on the rendering thread */
-	int getVideoRendererParams(struct pdraw_video_renderer *renderer,
-				   struct pdraw_video_renderer_params *params);
+	void setSerialNumberSetting(const std::string &serialNumber);
 
-	/* Called on the rendering thread */
-	int renderVideo(struct pdraw_video_renderer *renderer,
-			struct pdraw_rect *contentPos,
-			const float *viewMat = NULL,
-			const float *projMat = NULL);
+	void getSoftwareVersionSetting(std::string *softwareVersion);
 
-	int startVideoSink(unsigned int mediaId,
-			   const struct pdraw_video_sink_params *params,
-			   VideoSinkListener *listener,
-			   struct pdraw_video_sink **retObj);
-
-	int stopVideoSink(struct pdraw_video_sink *sink);
-
-	int resyncVideoSink(struct pdraw_video_sink *sink);
-
-	struct vbuf_queue *getVideoSinkQueue(struct pdraw_video_sink *sink);
-
-	int videoSinkQueueFlushed(struct pdraw_video_sink *sink);
-
-	enum pdraw_session_type getSessionType(void);
-
-	void getSelfFriendlyName(std::string *friendlyName);
-
-	void setSelfFriendlyName(const std::string &friendlyName);
-
-	void getSelfSerialNumber(std::string *serialNumber);
-
-	void setSelfSerialNumber(const std::string &serialNumber);
-
-	void getSelfSoftwareVersion(std::string *softwareVersion);
-
-	void setSelfSoftwareVersion(const std::string &softwareVersion);
-
-	bool isSelfPilot(void);
-
-	void setSelfPilot(bool isPilot);
-
-	void getPeerSessionMetadata(struct vmeta_session *session);
-
-	enum pdraw_drone_model getPeerDroneModel(void);
+	void setSoftwareVersionSetting(const std::string &softwareVersion);
 
 	enum pdraw_pipeline_mode getPipelineModeSetting(void);
 
@@ -233,83 +426,46 @@ public:
 		mAndroidJvm = jvm;
 	}
 
+	int dumpPipeline(const std::string &fileName);
+
 
 	/*
 	 * Internal methods
 	 */
-
-	Demuxer *getDemuxer(void)
-	{
-		return mDemuxer;
-	}
 
 	Settings *getSettings(void)
 	{
 		return &mSettings;
 	}
 
-	SessionSelfMetadata *getSelfMetadata(void)
-	{
-		return &mSelfMetadata;
-	}
-
-	SessionPeerMetadata *getPeerMetadata(void)
-	{
-		return &mPeerMetadata;
-	}
-
-	int getSessionInfo(struct pdraw_session_info *sessionInfo);
-
 	struct pomp_loop *getLoop()
 	{
 		return mLoop;
 	}
 
-	int asyncElementDelete(Element *element);
+	int addMediaToRenderer(unsigned int mediaId, Renderer *renderer);
 
-	int asyncAvcDecoderCompleteFlush(AvcDecoder *decoder);
-
-	int asyncAvcDecoderCompleteStop(AvcDecoder *decoder);
-
-	int asyncAvcDecoderResync(AvcDecoder *decoder);
-
-	int asyncRendererCompleteStop(Renderer *renderer);
+	void asyncElementDelete(Element *element);
 
 	/* Called on the loop thread */
 	void socketCreated(int fd);
 
-	int flushVideoSink(VideoSink *sink);
-
 private:
-	/* Called on the loop thread */
-	void inloopElementDelete(Element *element);
-
-	/* Called on the loop thread */
-	void inloopAvcDecoderCompleteFlush(AvcDecoder *decoder);
-
-	/* Called on the loop thread */
-	void inloopAvcDecoderCompleteStop(AvcDecoder *decoder);
-
-	/* Called on the loop thread */
-	void inloopAvcDecoderResync(AvcDecoder *decoder);
-
-	/* Called on the loop thread */
-	void inloopRendererCompleteStop(Renderer *renderer);
-
-	int addDecoderForMedia(Source *source, Media *media);
-
-	void fillMediaInfo(VideoMedia *media, struct pdraw_media_info *info);
+	int internalCreateCodedVideoSink(
+		CodedSource *source,
+		CodedVideoMedia *media,
+		const struct pdraw_video_sink_params *params,
+		ICodedVideoSink::Listener *listener,
+		ICodedVideoSink **retObj);
 
 	int
-	addMediaToRenderer(Source *source, Media *media, Renderer *renderer);
-
-	int addMediaToAllRenderers(Source *source, Media *media);
-
-	int addAllMediaToRenderer(Renderer *renderer);
+	internalCreateRawVideoSink(RawSource *source,
+				   RawVideoMedia *media,
+				   const struct pdraw_video_sink_params *params,
+				   IRawVideoSink::Listener *listener,
+				   IRawVideoSink **retObj);
 
 	void setState(enum State state);
-
-	static void mboxCb(int fd, uint32_t revents, void *userdata);
 
 	static void *runLoopThread(void *ptr);
 
@@ -317,78 +473,43 @@ private:
 
 	void asyncElementStateChange(Element *element, Element::State state);
 
-	void onOutputMediaAdded(Source *source, Media *media);
+	void onOutputMediaAdded(CodedSource *source, CodedVideoMedia *media);
 
-	void onOutputMediaRemoved(Source *source, Media *media);
+	void onOutputMediaAdded(RawSource *source, RawVideoMedia *media);
 
-	void onReadyToPlay(Demuxer *demuxer, bool ready);
+	void onOutputMediaRemoved(CodedSource *source, CodedVideoMedia *media);
 
-	void onEndOfRange(Demuxer *demuxer, uint64_t timestamp);
+	void onOutputMediaRemoved(RawSource *source, RawVideoMedia *media);
 
-	int selectDemuxerMedia(Demuxer *demuxer,
-			       const struct pdraw_demuxer_media *medias,
-			       size_t count);
-
-	void
-	playResp(Demuxer *demuxer, int status, uint64_t timestamp, float speed);
-
-	void pauseResp(Demuxer *demuxer, int status, uint64_t timestamp);
-
-	void
-	seekResp(Demuxer *demuxer, int status, uint64_t timestamp, float speed);
-
-	void updateReadyToPlay();
-
-	void onUnrecoverableError(Demuxer *demuxer);
+	void stopResp(int status);
 
 	static const char *stateStr(enum State val);
 
+	PipelineFactory mFactory;
 	IPdraw::Listener *mListener;
 	enum State mState;
 	struct pomp_loop *mLoop;
-	struct mbox *mMbox;
+	pthread_t mLoopThread;
 	pthread_mutex_t mMutex;
-	enum pdraw_session_type mSessionType;
 	Settings mSettings;
-	SessionSelfMetadata mSelfMetadata;
-	SessionPeerMetadata mPeerMetadata;
 	std::vector<Element *> mElements;
-	Demuxer *mDemuxer;
-	unsigned int mMediaIdCounter;
 	void *mAndroidJvm;
-	bool mDemuxerReady;
-	bool mReadyToPlay;
-	bool mUrecoverableErrorOccured;
 
-	/* Listener calls from idle functions */
-	static void callOpenResponse(void *userdata);
-	static void callCloseResponse(void *userdata);
-	static void callOnUnrecoverableError(void *userdata);
-	/* callSelectMediaTrack omitted. Function has to be synchronous */
+	/* Calls from idle functions */
+	static void idleElementStateChange(void *userdata);
+	std::queue<Element *> mElementStateChangeElementArgs;
+	std::queue<Element::State> mElementStateChangeStateArgs;
+	static void idleElementDelete(void *userdata);
+	std::queue<Element *> mElementDeleteElementArgs;
+	static void idleRendererCompleteStop(void *userdata);
+	std::queue<Renderer *> mRendererCompleteStopRendererArgs;
+	static void callStopResponse(void *userdata);
+	std::queue<int> mStopRespStatusArgs;
 	static void callOnMediaAdded(void *userdata);
-	static void callOnMediaRemoved(void *userdata);
-	static void callReadyToPlay(void *userdata);
-	static void callEndOfRange(void *userdata);
-	static void callPlayResponse(void *userdata);
-	static void callPauseResponse(void *userdata);
-	static void callSeekResponse(void *userdata);
-	static void callVideoSinkFlush(void *userdata);
-	/* callOnSocketCreated omitted. Function has to be synchronous */
-	std::queue<int> mOpenRespStatusArgs;
-	std::queue<int> mCloseRespStatusArgs;
 	std::queue<struct pdraw_media_info> mMediaAddedInfoArgs;
+	static void callOnMediaRemoved(void *userdata);
 	std::queue<struct pdraw_media_info> mMediaRemovedInfoArgs;
-	std::queue<bool> mReadyToPlayReadyArgs;
-	std::queue<uint64_t> mEndOfRangeTimestampArgs;
-	std::queue<int> mPlayRespStatusArgs;
-	std::queue<uint64_t> mPlayRespTimestampArgs;
-	std::queue<float> mPlayRespSpeedArgs;
-	std::queue<int> mPauseRespStatusArgs;
-	std::queue<uint64_t> mPauseRespTimestampArgs;
-	std::queue<int> mSeekRespStatusArgs;
-	std::queue<uint64_t> mSeekRespTimestampArgs;
-	std::queue<float> mSeekRespSpeedArgs;
-	std::queue<VideoSink *> mFlushVideoSinkArgs;
+	/* callOnSocketCreated omitted. Function has to be synchronous */
 };
 
 } /* namespace Pdraw */

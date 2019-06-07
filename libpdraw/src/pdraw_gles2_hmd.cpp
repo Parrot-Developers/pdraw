@@ -34,11 +34,11 @@
  * and translated from Java to C++
  */
 
-#include "pdraw_gles2_hmd.hpp"
-
 #define ULOG_TAG pdraw_gles2hmd
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_gles2hmd);
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#include "pdraw_gles2_hmd.hpp"
 
 #ifdef USE_GLES2
 
@@ -120,12 +120,12 @@ Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit,
 		goto err;
 	}
 
-	glShaderSource(vertexShader, 1, &pdraw_gles2HmdVertexShader, NULL);
+	glShaderSource(vertexShader, 1, &pdraw_gles2HmdVertexShader, nullptr);
 	glCompileShader(vertexShader);
 	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+		glGetShaderInfoLog(vertexShader, 512, nullptr, infoLog);
 		ULOGE("vertex shader compilation failed '%s'", infoLog);
 		goto err;
 	}
@@ -136,12 +136,13 @@ Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit,
 		goto err;
 	}
 
-	glShaderSource(fragmentShader, 1, &pdraw_gles2HmdFragmentShader, NULL);
+	glShaderSource(
+		fragmentShader, 1, &pdraw_gles2HmdFragmentShader, nullptr);
 	glCompileShader(fragmentShader);
 	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+		glGetShaderInfoLog(fragmentShader, 512, nullptr, infoLog);
 		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		goto err;
 	}
@@ -154,7 +155,7 @@ Gles2HmdEye::Gles2HmdEye(unsigned int firstTexUnit,
 	glGetProgramiv(mProgram, GL_LINK_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetProgramInfoLog(mProgram, 512, NULL, infoLog);
+		glGetProgramInfoLog(mProgram, 512, nullptr, infoLog);
 		ULOGE("program link failed '%s'", infoLog);
 		goto err;
 	}
@@ -533,13 +534,13 @@ int Gles2Hmd::renderHmd(GLuint texture,
 {
 	int ret = 0;
 
-	if (mLeftEye != NULL) {
+	if (mLeftEye != nullptr) {
 		ret = mLeftEye->renderEye(texture, textureWidth, textureHeight);
 		if (ret != 0)
 			return ret;
 	}
 
-	if (mRightEye != NULL) {
+	if (mRightEye != nullptr) {
 		ret = mRightEye->renderEye(
 			texture, textureWidth, textureHeight);
 		if (ret != 0)

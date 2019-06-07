@@ -34,9 +34,20 @@
 #include <inttypes.h>
 #include <pthread.h>
 
+#include <atomic>
 #include <string>
 
 #include <pdraw/pdraw_defs.h>
+
+/**
+ * mbuf ancillary data key for CodedVideoMedia::Frame objects
+ */
+#define PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME "pdraw.coded_video_media.frame"
+
+/**
+ * mbuf ancillary data key for RawVideoMedia::Frame objects
+ */
+#define PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME "pdraw.raw_video_media.frame"
 
 namespace Pdraw {
 
@@ -46,106 +57,52 @@ class Media {
 public:
 	enum Type {
 		UNKNOWN = 0,
-		VIDEO = (1 << 0),
-		AUDIO = (1 << 1),
+		RAW_VIDEO = (1 << 0),
+		CODED_VIDEO = (1 << 1),
+		RAW_AUDIO = (1 << 2),
+		CODED_AUDIO = (1 << 3),
 	};
 
 	Media(Session *session, Type t);
 
 	virtual ~Media(void) {}
 
+	std::string &getName(void);
+
+	std::string &getPath(void);
+
+	void setPath(std::string &name);
+
+	void setPath(const char *name);
+
 	static const char *getMediaTypeStr(Type val);
+
+	virtual void fillMediaInfo(struct pdraw_media_info *minfo) = 0;
+
+	static void cleanupMediaInfo(struct pdraw_media_info *minfo);
 
 	Type type;
 	unsigned int id;
+	struct vmeta_session sessionMeta;
+	enum pdraw_playback_type playbackType;
+	uint64_t duration;
+
+protected:
+	void setClassName(std::string &name);
+
+	void setClassName(const char *name);
 
 private:
 	Session *mSession;
-	static pthread_mutex_t mMutex;
-	static unsigned int mIdCounter;
+	std::string mName;
+	std::string mPath;
+	static std::atomic<unsigned int> mIdCounter;
 };
 
 
-class VideoMedia : public Media {
+class RawVideoMedia : public Media {
 public:
-	enum Format {
-		FORMAT_UNKNOWN = 0,
-		YUV = (1 << 0),
-		H264 = (1 << 1),
-		OPAQUE = (1 << 2),
-	};
-
-	enum SubFormat {
-		SUBFORMAT_UNKNOWN = 0,
-		YUV_I420 = (1 << 0),
-		YUV_NV12 = (1 << 1),
-		OPAQUE_MMAL = (1 << 2),
-		H264_BYTE_STREAM = (1 << 3),
-		H264_AVCC = (1 << 4),
-	};
-
-	enum YuvFormat {
-		YUV_UNKNOWN = SubFormat::SUBFORMAT_UNKNOWN,
-		I420 = SubFormat::YUV_I420,
-		NV12 = SubFormat::YUV_NV12,
-	};
-
-	enum OpaqueFormat {
-		OPAQUE_UNKNOWN = SubFormat::SUBFORMAT_UNKNOWN,
-		MMAL = SubFormat::OPAQUE_MMAL,
-	};
-
-	enum H264BitstreamFormat {
-		H264_UNKNOWN = SubFormat::SUBFORMAT_UNKNOWN,
-		BYTE_STREAM = SubFormat::H264_BYTE_STREAM,
-		AVCC = SubFormat::H264_AVCC,
-	};
-
-	struct YuvFrame {
-		YuvFormat format;
-		size_t planeOffset[3];
-		size_t planeStride[3];
-		unsigned int width;
-		unsigned int height;
-		unsigned int sarWidth;
-		unsigned int sarHeight;
-		unsigned int cropLeft;
-		unsigned int cropTop;
-		unsigned int cropWidth;
-		unsigned int cropHeight;
-		bool fullRange;
-	};
-
-	struct OpaqueFrame {
-		OpaqueFormat format;
-		size_t stride;
-		unsigned int width;
-		unsigned int height;
-		unsigned int sarWidth;
-		unsigned int sarHeight;
-		unsigned int cropLeft;
-		unsigned int cropTop;
-		unsigned int cropWidth;
-		unsigned int cropHeight;
-		bool fullRange;
-	};
-
-	struct H264Frame {
-		H264BitstreamFormat format;
-		bool isComplete;
-		bool isSync;
-		bool isRef;
-	};
-
 	struct Frame {
-		Format format;
-		union {
-			struct YuvFrame yuvFrame;
-			struct OpaqueFrame opaqueFrame;
-			struct H264Frame h264Frame;
-		};
-		bool hasErrors;
-		bool isSilent;
 		uint64_t ntpTimestamp;
 		uint64_t ntpUnskewedTimestamp;
 		uint64_t ntpRawTimestamp;
@@ -153,50 +110,67 @@ public:
 		uint64_t playTimestamp;
 		uint64_t captureTimestamp;
 		uint64_t localTimestamp;
-		bool hasMetadata;
-		struct vmeta_frame metadata;
 		uint64_t demuxOutputTimestamp;
 		uint64_t decoderOutputTimestamp;
+		uint64_t scalerOutputTimestamp;
 	};
 
-	VideoMedia(Session *session);
+	RawVideoMedia(Session *session);
 
-	virtual ~VideoMedia(void);
+	~RawVideoMedia(void);
 
-	int getSpsPps(uint8_t **sps,
-		      size_t *spsSize,
-		      uint8_t **pps,
-		      size_t *ppsSize);
+	virtual void fillMediaInfo(struct pdraw_media_info *minfo);
 
-	int setSpsPps(const uint8_t *sps,
-		      size_t spsSize,
-		      const uint8_t *pps,
-		      size_t ppsSize);
+	struct vdef_raw_format format;
+	struct vdef_format_info info;
+};
 
-	static const char *getVideoFormatStr(Format val);
 
-	static const char *getVideoSubFormatStr(SubFormat val);
-
-	Format format;
-	union {
-		SubFormat subFormat;
-		YuvFormat yuvFormat;
-		OpaqueFormat opaqueFormat;
-		H264BitstreamFormat h264BitstreamFormat;
+class CodedVideoMedia : public Media {
+public:
+	struct CodedFrame {
 	};
-	unsigned int width;
-	unsigned int height;
-	unsigned int cropLeft;
-	unsigned int cropWidth;
-	unsigned int cropTop;
-	unsigned int cropHeight;
-	unsigned int sarWidth;
-	unsigned int sarHeight;
-	float hfov;
-	float vfov;
-	bool fullRange;
+
+	struct Frame {
+		bool isSync;
+		bool isRef;
+		uint64_t ntpTimestamp;
+		uint64_t ntpUnskewedTimestamp;
+		uint64_t ntpRawTimestamp;
+		uint64_t ntpRawUnskewedTimestamp;
+		uint64_t playTimestamp;
+		uint64_t captureTimestamp;
+		uint64_t localTimestamp;
+		uint64_t demuxOutputTimestamp;
+		uint64_t encoderOutputTimestamp;
+	};
+
+	CodedVideoMedia(Session *session);
+
+	~CodedVideoMedia(void);
+
+	int getPs(const uint8_t **vps,
+		  size_t *vpsSize,
+		  const uint8_t **sps,
+		  size_t *spsSize,
+		  const uint8_t **pps,
+		  size_t *ppsSize);
+
+	int setPs(const uint8_t *vps,
+		  size_t vpsSize,
+		  const uint8_t *sps,
+		  size_t spsSize,
+		  const uint8_t *pps,
+		  size_t ppsSize);
+
+	virtual void fillMediaInfo(struct pdraw_media_info *minfo);
+
+	struct vdef_coded_format format;
+	struct vdef_format_info info;
 
 private:
+	uint8_t *mVps;
+	size_t mVpsSize;
 	uint8_t *mSps;
 	size_t mSpsSize;
 	uint8_t *mPps;

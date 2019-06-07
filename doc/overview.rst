@@ -3,19 +3,20 @@
 Overview
 ========
 
-*PDrAW* (pronounced like the name "Pedro") is a video viewer for medias created
-by Parrot drones, like *Anafi*. The viewer supports both streamed (RTP/RTSP)
-and recorded (MP4) videos.
+*PDrAW* (pronounced like the name "Pedro") is a video player for medias created
+by Parrot drones such as *Anafi* or *Anafi Ai*. The player supports both
+streamed (RTP/RTSP) and recorded (MP4) videos.
 
-*PDrAW* is the main video pipeline implementation of *GroundSDK* .
-We are using it in our *FreeFlight6* application, both on iOS and Android.
+*PDrAW* is the main video pipeline implementation of *GroundSDK*. We are using
+it in our *FreeFlight6* and *FreeFlight7* applications, both on iOS and Android.
+It is also usable on desktop platforms.
 
 Supported platforms
 -------------------
 
 - Linux PC
 - macOS
-- Android (4.2 minimum) (note: for sample code, see *GroundSDK Android*)
+- Android (5.0 minimum) (note: for sample code, see *GroundSDK Android*)
 - iOS (8.0 minimum) (note: for sample code, see *GroundSDK iOS*)
 
 Features
@@ -53,8 +54,10 @@ Decoding:
 
   - H.264 video decoding (ITU-T H.264 / ISO/IEC 14496-10), baseline, main
     and high profiles
+  - H.265 video decoding (ITU-T H.265 / ISO/IEC 23008-2), main and main 10
+    profiles
   - Frame output API for application-side processing on the video (either
-    H.264 frames before decoding or YUV frames after decoding)
+    H.264/H.265 frames before decoding or YUV frames after decoding)
 
 Rendering:
 
@@ -94,22 +97,22 @@ PDrAW architecture
   software, and thus is the preferred interface to use for your application.
 
 - The *pdraw* executable demonstrates most of the library features. It can
-  be seen as both a complete player for *Anafi* videos (live & replay), and a
-  sample code for *libpdraw-backend* usage in a SDL2 environment.
+  be seen as both a complete player for *Anafi* and *Anafi Ai* videos (live &
+  replay), and a sample code for *libpdraw-backend* usage in a SDL2 environment.
 
 Both libraries provide C & C++ headers.
 
 Other tools
 -----------
 
-The *GroundSDK* video tools also pack some other very useful tools:
+The *GroundSDK* tools also pack some other very useful tools:
 
-- The *vmeta-extract* executable can read MP4 files made by an *Anafi*, and
-  extract the video metadata into a CSV or JSON file.
+- The *vmeta-extract* executable can read MP4 files produced by *Anafi* or
+  *Anafi Ai* drones, and extract the video metadata into a JSON file.
 
 - The *libpdraw-vsink* library provides an easy way to get decoded (YUV)
-  frames, with associated metadata, from an *Anafi* stream or record.
-  A sample code is provided in
+  frames, with associated metadata, from an *Anafi* or *Anafi Ai* stream or
+  record. A sample code is provided in
   ``<SDK>/packages/pdraw/libpdraw-vsink/tests/``
 
 .. _libmux: https://github.com/Parrot-Developers/libmux

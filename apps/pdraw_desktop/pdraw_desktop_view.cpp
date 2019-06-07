@@ -34,13 +34,15 @@
 
 
 void pdraw_desktop_view_create_matrices(struct pdraw_desktop *self,
+					unsigned int width,
+					unsigned int height,
 					float *view_mat,
 					float *proj_mat,
 					float near,
 					float far)
 {
 	float w = 1.f;
-	float h = (float)self->window_width / (float)self->window_height;
+	float h = (float)width / (float)height;
 	float a = (far + near) / (far - near);
 	float b = -((2 * far * near) / (far - near));
 

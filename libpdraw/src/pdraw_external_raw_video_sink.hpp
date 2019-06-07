@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Session metadata
+ * Application external raw video sink
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,80 +28,78 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_METADATA_SESSION_HPP_
-#define _PDRAW_METADATA_SESSION_HPP_
+#ifndef _PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_
+#define _PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_
 
-#include "pdraw_utils.hpp"
+#include "pdraw_element.hpp"
 
 #include <inttypes.h>
-#include <pthread.h>
 
-#include <string>
-#include <vector>
+#include <media-buffers/mbuf_raw_video_frame.h>
+#include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
 
 
-class SessionSelfMetadata {
+class ExternalRawVideoSink : public RawSinkElement {
 public:
-	SessionSelfMetadata(void);
+	ExternalRawVideoSink(Session *session,
+			     Element::Listener *elementListener,
+			     IPdraw::IRawVideoSink::Listener *listener,
+			     IPdraw::IRawVideoSink *sink,
+			     const struct pdraw_video_sink_params *params);
 
-	~SessionSelfMetadata(void);
+	~ExternalRawVideoSink(void);
 
-	void lock(void);
+	int start(void);
 
-	void unlock(void);
+	int stop(void);
 
-	void getFriendlyName(std::string *friendlyName);
+	int flushDone(void);
 
-	void setFriendlyName(const std::string &friendlyName);
-
-	void getSerialNumber(std::string *serialNumber);
-
-	void setSerialNumber(const std::string &serialNumber);
-
-	void getSoftwareVersion(std::string *softwareVersion);
-
-	void setSoftwareVersion(const std::string &softwareVersion);
-
-	bool isPilot(void);
-
-	void setPilot(bool isPilot);
-
-private:
-	pthread_mutex_t mMutex;
-	std::string mFriendlyName;
-	std::string mSerialNumber;
-	std::string mSoftwareVersion;
-	bool mIsPilot;
-};
-
-
-class SessionPeerMetadata {
-public:
-	SessionPeerMetadata(void);
-
-	~SessionPeerMetadata(void);
-
-	void lock(void);
-
-	void unlock(void);
-
-	void get(struct vmeta_session *meta);
-
-	void set(const struct vmeta_session *meta);
-
-	enum pdraw_drone_model getDroneModel(void)
+	struct mbuf_raw_video_frame_queue *getQueue(void)
 	{
-		return mDroneModel;
+		return mInputFrameQueue;
+	}
+
+	IPdraw::IRawVideoSink *getVideoSink(void)
+	{
+		return mVideoSink;
+	}
+
+	IPdraw::IRawVideoSink::Listener *getVideoSinkListener(void)
+	{
+		return mVideoSinkListener;
 	}
 
 private:
-	pthread_mutex_t mMutex;
-	struct vmeta_session mMeta;
-	enum pdraw_drone_model mDroneModel;
+	int flush(void);
+
+	int channelTeardown(RawChannel *channel);
+
+	void onChannelQueue(RawChannel *channel,
+			    struct mbuf_raw_video_frame *frame);
+
+	void onChannelFlush(RawChannel *channel);
+
+	void onChannelTeardown(RawChannel *channel);
+
+	int prepareRawVideoFrame(RawChannel *channel,
+				 struct mbuf_raw_video_frame *frame);
+
+	/* Video sink listener calls from idle functions */
+	static void callVideoSinkFlush(void *userdata);
+
+	IPdraw::IRawVideoSink *mVideoSink;
+	IPdraw::IRawVideoSink::Listener *mVideoSinkListener;
+	struct pdraw_video_sink_params mParams;
+	RawVideoMedia *mInputMedia;
+	struct mbuf_raw_video_frame_queue *mInputFrameQueue;
+	bool mIsFlushed;
+	bool mInputChannelFlushPending;
+	bool mTearingDown;
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_METADATA_SESSION_HPP_ */
+#endif /* !_PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_ */

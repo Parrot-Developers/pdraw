@@ -7,34 +7,34 @@ Use the PDrAW program
 ---------------------
 
 The *PDrAW* program can be used to display a live stream from an *Anafi*,
-connected directly with wifi or through a *SkyController 3*.
+connected directly with wifi or through a *SkyController*.
 
 .. Note:: For macOS users, replace the following parts of example command lines:
 
-   - ``native-wrapper.sh`` with ``native-darwin-wrapper.sh``
-   - ``pdraw-linux`` with ``pdraw-macos``
+   - ``groundsdk-linux`` with ``groundsdk-macos``
 
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./out/pdraw-linux/staging/native-wrapper.sh pdraw -u rtsp://192.168.42.1/live
-    # Or rtsp://192.168.53.1/live if connected through a SkyController3
+    $ ./out/groundsdk-linux/staging/native-wrapper.sh pdraw -u rtsp://192.168.42.1/live
+    # Or rtsp://192.168.53.1/live if connected through a SkyController
 
 It can also be used to replay a file from the drone memory/SD-card
 
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./out/pdraw-linux/staging/native-wrapper.sh pdraw -u rtsp://192.168.42.1/replay/100000010001.MP4
-    # Or rtsp://192.168.53.1/replay/XXXX if connected through a SkyController3
-    # The replay URL can be queried from the Anafi webserver http://anafi.local
+    $ ./out/groundsdk-linux/staging/native-wrapper.sh pdraw -u rtsp://192.168.42.1/replay/100000010001.MP4
+    # Or rtsp://192.168.53.1/replay/XXXX if connected through a SkyController
+    # The replay URL can be queried from the drone webserver:
+    # http://anafi.local for Anafi or http://anafi-ai.local for Anafi Ai
 
 Or play a local file
 
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./out/pdraw-linux/staging/native-wrapper.sh pdraw -u path/to/file.mp4
+    $ ./out/groundsdk-linux/staging/native-wrapper.sh pdraw -u path/to/file.mp4
     # No need to be connected to a drone!
 
 Further options can be found with the ``-h`` flag, e.g.:
@@ -49,7 +49,7 @@ To build an application using *libpdraw-backend*, you can either
 `use alchemy`_ to build your app, or use `your own build system`_.
 
 .. Note:: The same applies when using *libpdraw* directly, but your app will
-   be responsible for providing and running the *pomp_loop*.
+   be responsible for providing and running the *pomp_loop* event loop.
 
 .. _use alchemy:
 
@@ -74,6 +74,7 @@ to check if the binary is properly linked.
 .. _main:
 
 .. literalinclude:: examples/main.c
+    :language: C
     :linenos:
 
 The application can then be built with the following command:
@@ -81,14 +82,14 @@ The application can then be built with the following command:
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./build.sh -p pdraw-linux -A test-app -j/1
+    $ ./build.sh -p groundsdk-linux -A test-app -j/1
 
 And run with the following command:
 
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./out/pdraw-linux/staging/native-wrapper.sh test-app rtsp://192.168.42.1/live
+    $ ./out/groundsdk-linux/staging/native-wrapper.sh test-app rtsp://192.168.42.1/live
 
 .. _your own build system:
 
@@ -104,7 +105,7 @@ First, we need to build the SDK from *Alchemy* to be used externally:
 .. code-block:: console
 
     # Run from the workspace root directory
-    $ ./build.sh -p pdraw-linux -A sdk -j/1
+    $ ./build.sh -p groundsdk-linux -A sdk -j/1
 
 For this example, we will use the same main_ file from the *Alchemy* sample,
 and assume that the SDK was properly built from a folder called ``<SDK>``.
@@ -123,4 +124,4 @@ binary:
 
     # Run from your Makefile/main.c directory
     $ make
-    $ env LD_LIBRARY_PATH=<SDK>/out/pdraw-linux/sdk/usr/lib ./test-app rtsp://192.168.43.1/live
+    $ env LD_LIBRARY_PATH=<SDK>/out/groundsdk-linux/sdk/usr/lib ./test-app rtsp://192.168.42.1/live

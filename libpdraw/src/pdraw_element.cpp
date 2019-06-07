@@ -28,48 +28,51 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define ULOG_TAG pdraw_elmt
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 #include "pdraw_element.hpp"
 
 #include <errno.h>
 
-#define ULOG_TAG pdraw_element
-#include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_element);
-
 namespace Pdraw {
 
 
+std::atomic<unsigned int> Element::mIdCounter(0);
+
+
 Element::Element(Session *session, Listener *listener) :
-		mSession(session), mListener(listener), mState(INVALID),
-		mName("")
+		mSession(session), mListener(listener), mState(INVALID)
 {
 	int res;
 	pthread_mutexattr_t attr;
 	bool attr_created = false;
 
+	mId = ++mIdCounter;
+	std::string name = std::string(__func__) + "#" + std::to_string(mId);
+	Loggable::setName(name);
+
 	res = pthread_mutexattr_init(&attr);
 	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_init", res);
-		goto error;
+		PDRAW_LOG_ERRNO("pthread_mutexattr_init", res);
+		goto out;
 	}
 	attr_created = true;
 
 	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_settype", res);
-		goto error;
+		PDRAW_LOG_ERRNO("pthread_mutexattr_settype", res);
+		goto out;
 	}
 
 	res = pthread_mutex_init(&mMutex, &attr);
 	if (res != 0) {
-		ULOG_ERRNO("pthread_mutex_init", res);
-		goto error;
+		PDRAW_LOG_ERRNO("pthread_mutex_init", res);
+		goto out;
 	}
 
-	pthread_mutexattr_destroy(&attr);
-	return;
-
-error:
+out:
 	if (attr_created)
 		pthread_mutexattr_destroy(&attr);
 }
@@ -94,6 +97,26 @@ void Element::unlock(void)
 }
 
 
+unsigned int Element::getId(void)
+{
+	return mId;
+}
+
+
+void Element::setClassName(std::string &name)
+{
+	std::string new_name = name + "#" + std::to_string(mId);
+	Loggable::setName(new_name);
+}
+
+
+void Element::setClassName(const char *name)
+{
+	std::string new_name = std::string(name) + "#" + std::to_string(mId);
+	Loggable::setName(new_name);
+}
+
+
 Element::State Element::getState(void)
 {
 	pthread_mutex_lock(&mMutex);
@@ -113,9 +136,7 @@ void Element::setState(Element::State state)
 
 	mState = state;
 	pthread_mutex_unlock(&mMutex);
-	ULOGI("'%s': element state change to %s",
-	      mName.c_str(),
-	      getElementStateStr(state));
+	PDRAW_LOGI("element state change to %s", getElementStateStr(state));
 
 	if (mListener)
 		mListener->onElementStateChanged(this, state);
@@ -132,9 +153,8 @@ void Element::setStateAsyncNotify(Element::State state)
 
 	mState = state;
 	pthread_mutex_unlock(&mMutex);
-	ULOGI("'%s': element state change to %s (async notify)",
-	      mName.c_str(),
-	      getElementStateStr(state));
+	PDRAW_LOGI("element state change to %s (async notify)",
+		   getElementStateStr(state));
 
 	if (mListener)
 		mListener->asyncElementStateChange(this, state);
@@ -157,8 +177,368 @@ const char *Element::getElementStateStr(Element::State val)
 	case Element::State::STOPPED:
 		return "STOPPED";
 	default:
-		return NULL;
+		return nullptr;
 	}
+}
+
+
+void CodedToRawFilterElement::onChannelSos(CodedChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	CodedSink::onChannelSos(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::SOS);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void CodedToRawFilterElement::onChannelEos(CodedChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	CodedSink::onChannelEos(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::EOS);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void CodedToRawFilterElement::onChannelReconfigure(CodedChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	CodedSink::onChannelReconfigure(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::RECONFIGURE);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void CodedToRawFilterElement::onChannelTimeout(CodedChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	CodedSink::onChannelTimeout(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::TIMEOUT);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void CodedToRawFilterElement::onChannelPhotoTrigger(CodedChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	CodedSink::onChannelPhotoTrigger(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::PHOTO_TRIGGER);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void RawToCodedFilterElement::onChannelSos(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelSos(channel);
+
+	CodedSource::lock();
+	unsigned int count = CodedSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		CodedVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = CodedSource::sendDownstreamEvent(
+			media, CodedChannel::DownstreamEvent::SOS);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	CodedSource::unlock();
+}
+
+
+void RawToCodedFilterElement::onChannelEos(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelEos(channel);
+
+	CodedSource::lock();
+	unsigned int count = CodedSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		CodedVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = CodedSource::sendDownstreamEvent(
+			media, CodedChannel::DownstreamEvent::EOS);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	CodedSource::unlock();
+}
+
+
+void RawToCodedFilterElement::onChannelReconfigure(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelReconfigure(channel);
+
+	CodedSource::lock();
+	unsigned int count = CodedSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		CodedVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = CodedSource::sendDownstreamEvent(
+			media, CodedChannel::DownstreamEvent::RECONFIGURE);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	CodedSource::unlock();
+}
+
+
+void RawToCodedFilterElement::onChannelTimeout(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelTimeout(channel);
+
+	CodedSource::lock();
+	unsigned int count = CodedSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		CodedVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = CodedSource::sendDownstreamEvent(
+			media, CodedChannel::DownstreamEvent::TIMEOUT);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	CodedSource::unlock();
+}
+
+
+void RawToCodedFilterElement::onChannelPhotoTrigger(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelPhotoTrigger(channel);
+
+	CodedSource::lock();
+	unsigned int count = CodedSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		CodedVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = CodedSource::sendDownstreamEvent(
+			media, CodedChannel::DownstreamEvent::PHOTO_TRIGGER);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	CodedSource::unlock();
+}
+
+
+void RawToRawFilterElement::onChannelSos(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelSos(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::SOS);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void RawToRawFilterElement::onChannelEos(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelEos(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::EOS);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void RawToRawFilterElement::onChannelReconfigure(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelReconfigure(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::RECONFIGURE);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void RawToRawFilterElement::onChannelTimeout(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelTimeout(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::TIMEOUT);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
+}
+
+
+void RawToRawFilterElement::onChannelPhotoTrigger(RawChannel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSink::onChannelPhotoTrigger(channel);
+
+	RawSource::lock();
+	unsigned int count = RawSource::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = RawSource::sendDownstreamEvent(
+			media, RawChannel::DownstreamEvent::PHOTO_TRIGGER);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	RawSource::unlock();
 }
 
 } /* namespace Pdraw */

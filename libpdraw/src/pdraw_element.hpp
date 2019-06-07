@@ -31,11 +31,19 @@
 #ifndef _PDRAW_ELEMENT_HPP_
 #define _PDRAW_ELEMENT_HPP_
 
+#include "pdraw_channel_coded_video.hpp"
+#include "pdraw_channel_raw_video.hpp"
 #include "pdraw_media.hpp"
+#include "pdraw_sink_coded_video.hpp"
+#include "pdraw_sink_raw_video.hpp"
+#include "pdraw_source_coded_video.hpp"
+#include "pdraw_source_raw_video.hpp"
+#include "pdraw_utils.hpp"
 
 #include <errno.h>
 #include <pthread.h>
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -43,7 +51,7 @@ namespace Pdraw {
 
 class Session;
 
-class Element {
+class Element : public Loggable {
 public:
 	friend class Session;
 
@@ -77,12 +85,18 @@ public:
 
 	void unlock(void);
 
+	unsigned int getId(void);
+
 	Element::State getState(void);
 
 	static const char *getElementStateStr(Element::State val);
 
 protected:
 	Element(Session *session, Listener *listener);
+
+	void setClassName(std::string &name);
+
+	void setClassName(const char *name);
 
 	void setState(Element::State state);
 
@@ -91,8 +105,232 @@ protected:
 	Session *mSession;
 	Listener *mListener;
 	Element::State mState;
+	unsigned int mId;
 	pthread_mutex_t mMutex;
-	std::string mName;
+	static std::atomic<unsigned int> mIdCounter;
+};
+
+
+class CodedSourceElement : public Element, public CodedSource {
+public:
+	friend class Session;
+
+	CodedSourceElement(Session *session,
+			   Element::Listener *listener,
+			   unsigned int maxOutputMedias,
+			   CodedSource::Listener *sourceListener) :
+			Element(session, listener),
+			CodedSource(maxOutputMedias, sourceListener)
+	{
+	}
+
+	virtual ~CodedSourceElement(void) {}
+
+protected:
+	std::string &getName(void)
+	{
+		return Element::getName();
+	}
+};
+
+
+class RawSourceElement : public Element, public RawSource {
+public:
+	friend class Session;
+
+	RawSourceElement(Session *session,
+			 Element::Listener *listener,
+			 unsigned int maxOutputMedias,
+			 RawSource::Listener *sourceListener) :
+			Element(session, listener),
+			RawSource(maxOutputMedias, sourceListener)
+	{
+	}
+
+	virtual ~RawSourceElement(void) {}
+
+protected:
+	std::string &getName(void)
+	{
+		return Element::getName();
+	}
+};
+
+
+class CodedSinkElement : public Element, public CodedSink {
+public:
+	friend class Session;
+
+	CodedSinkElement(
+		Session *session,
+		Element::Listener *listener,
+		unsigned int maxInputMedias,
+		const struct vdef_coded_format *codedVideoMediaFormatCaps,
+		int codedVideoMediaFormatCapsCount) :
+			Element(session, listener),
+			CodedSink(maxInputMedias,
+				  codedVideoMediaFormatCaps,
+				  codedVideoMediaFormatCapsCount)
+	{
+	}
+
+	virtual ~CodedSinkElement(void) {}
+
+protected:
+	std::string &getName(void)
+	{
+		return Element::getName();
+	}
+};
+
+
+class RawSinkElement : public Element, public RawSink {
+public:
+	friend class Session;
+
+	RawSinkElement(Session *session,
+		       Element::Listener *listener,
+		       unsigned int maxInputMedias,
+		       const struct vdef_raw_format *rawVideoMediaFormatCaps,
+		       int rawVideoMediaFormatCapsCount) :
+			Element(session, listener),
+			RawSink(maxInputMedias,
+				rawVideoMediaFormatCaps,
+				rawVideoMediaFormatCapsCount)
+	{
+	}
+
+	virtual ~RawSinkElement(void) {}
+
+protected:
+	std::string &getName(void)
+	{
+		return Element::getName();
+	}
+};
+
+
+class CodedToRawFilterElement : public Element,
+				public CodedSink,
+				public RawSource {
+public:
+	friend class Session;
+
+	CodedToRawFilterElement(
+		Session *session,
+		Element::Listener *listener,
+		unsigned int maxInputMedias,
+		const struct vdef_coded_format *codedVideoMediaFormatCaps,
+		int codedVideoMediaFormatCapsCount,
+		unsigned int maxOutputMedias,
+		RawSource::Listener *sourceListener) :
+			Element(session, listener),
+			CodedSink(maxInputMedias,
+				  codedVideoMediaFormatCaps,
+				  codedVideoMediaFormatCapsCount),
+			RawSource(maxOutputMedias, sourceListener)
+	{
+	}
+
+	virtual ~CodedToRawFilterElement(void) {}
+
+protected:
+	std::string &getName(void)
+	{
+		return Element::getName();
+	}
+
+	virtual void onChannelSos(CodedChannel *channel);
+
+	virtual void onChannelEos(CodedChannel *channel);
+
+	virtual void onChannelReconfigure(CodedChannel *channel);
+
+	virtual void onChannelTimeout(CodedChannel *channel);
+
+	virtual void onChannelPhotoTrigger(CodedChannel *channel);
+};
+
+
+class RawToCodedFilterElement : public Element,
+				public RawSink,
+				public CodedSource {
+public:
+	friend class Session;
+
+	RawToCodedFilterElement(
+		Session *session,
+		Element::Listener *listener,
+		unsigned int maxInputMedias,
+		const struct vdef_raw_format *rawVideoMediaFormatCaps,
+		int rawVideoMediaFormatCapsCount,
+		unsigned int maxOutputMedias,
+		CodedSource::Listener *sourceListener) :
+			Element(session, listener),
+			RawSink(maxInputMedias,
+				rawVideoMediaFormatCaps,
+				rawVideoMediaFormatCapsCount),
+			CodedSource(maxOutputMedias, sourceListener)
+	{
+	}
+
+	virtual ~RawToCodedFilterElement(void) {}
+
+protected:
+	std::string &getName(void)
+	{
+		return Element::getName();
+	}
+
+	virtual void onChannelSos(RawChannel *channel);
+
+	virtual void onChannelEos(RawChannel *channel);
+
+	virtual void onChannelReconfigure(RawChannel *channel);
+
+	virtual void onChannelTimeout(RawChannel *channel);
+
+	virtual void onChannelPhotoTrigger(RawChannel *channel);
+};
+
+
+class RawToRawFilterElement : public Element, public RawSink, public RawSource {
+public:
+	friend class Session;
+
+	RawToRawFilterElement(
+		Session *session,
+		Element::Listener *listener,
+		unsigned int maxInputMedias,
+		const struct vdef_raw_format *rawVideoMediaFormatCaps,
+		int rawVideoMediaFormatCapsCount,
+		unsigned int maxOutputMedias,
+		RawSource::Listener *sourceListener) :
+			Element(session, listener),
+			RawSink(maxInputMedias,
+				rawVideoMediaFormatCaps,
+				rawVideoMediaFormatCapsCount),
+			RawSource(maxOutputMedias, sourceListener)
+	{
+	}
+
+	virtual ~RawToRawFilterElement(void) {}
+
+protected:
+	std::string &getName(void)
+	{
+		return Element::getName();
+	}
+
+	virtual void onChannelSos(RawChannel *channel);
+
+	virtual void onChannelEos(RawChannel *channel);
+
+	virtual void onChannelReconfigure(RawChannel *channel);
+
+	virtual void onChannelTimeout(RawChannel *channel);
+
+	virtual void onChannelPhotoTrigger(RawChannel *channel);
 };
 
 } /* namespace Pdraw */

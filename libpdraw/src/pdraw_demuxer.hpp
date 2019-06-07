@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Demuxer interface
+ * Generic demuxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -33,7 +33,10 @@
 
 #include "pdraw_element.hpp"
 #include "pdraw_media.hpp"
-#include "pdraw_source.hpp"
+
+#include <pdraw/pdraw.hpp>
+
+#include <queue>
 
 namespace Pdraw {
 
@@ -41,41 +44,15 @@ namespace Pdraw {
 #define DEMUXER_OUTPUT_BUFFER_COUNT (30)
 
 
-class Demuxer : public Element, public Source {
+class Demuxer : public CodedSourceElement {
 public:
-	class Listener {
-	public:
-		virtual ~Listener(void) {}
-
-		virtual void onReadyToPlay(Demuxer *demuxer, bool ready) = 0;
-
-		virtual void onEndOfRange(Demuxer *demuxer,
-					  uint64_t timestamp) = 0;
-
-		virtual int
-		selectDemuxerMedia(Demuxer *demuxer,
-				   const struct pdraw_demuxer_media *medias,
-				   size_t count) = 0;
-
-		virtual void playResp(Demuxer *demuxer,
-				      int status,
-				      uint64_t timestamp,
-				      float speed) = 0;
-
-		virtual void
-		pauseResp(Demuxer *demuxer, int status, uint64_t timestamp) = 0;
-
-		virtual void seekResp(Demuxer *demuxer,
-				      int status,
-				      uint64_t timestamp,
-				      float speed) = 0;
-	};
-
-	virtual ~Demuxer(void) {}
+	virtual ~Demuxer(void);
 
 	virtual int flush(void) = 0;
 
 	virtual int play(float speed = 1.0f) = 0;
+
+	virtual bool isReadyToPlay(void) = 0;
 
 	virtual bool isPaused(void) = 0;
 
@@ -91,18 +68,78 @@ public:
 
 	virtual uint64_t getCurrentTime(void) = 0;
 
+	IPdraw::IDemuxer *getDemuxer(void)
+	{
+		return mDemuxer;
+	}
+
+	IPdraw::IDemuxer::Listener *getDemuxerListener(void)
+	{
+		return mDemuxerListener;
+	}
+
 protected:
 	Demuxer(Session *session,
 		Element::Listener *elementListener,
-		Source::Listener *sourceListener,
-		Demuxer::Listener *demuxerListener) :
-			Element(session, elementListener),
-			Source(sourceListener),
-			mDemuxerListener(demuxerListener)
+		CodedSource::Listener *sourceListener,
+		IPdraw::IDemuxer *demuxer,
+		IPdraw::IDemuxer::Listener *demuxerListener) :
+			CodedSourceElement(session,
+					   elementListener,
+					   UINT_MAX,
+					   sourceListener),
+			mDemuxer(demuxer), mDemuxerListener(demuxerListener),
+			mReadyToPlay(false), mUnrecoverableError(false),
+			mCalledOpenResp(false)
 	{
 	}
 
-	Demuxer::Listener *mDemuxerListener;
+	void openResponse(int status);
+
+	void closeResponse(int status);
+
+	void onUnrecoverableError(int error = -EPROTO);
+
+	int selectMedia(const struct pdraw_demuxer_media *medias, size_t count);
+
+	void readyToPlay(bool ready);
+
+	void onEndOfRange(uint64_t timestamp);
+
+	void playResponse(int status, uint64_t timestamp, float speed);
+
+	void pauseResponse(int status, uint64_t timestamp);
+
+	void seekResponse(int status, uint64_t timestamp, float speed);
+
+	IPdraw::IDemuxer *mDemuxer;
+	IPdraw::IDemuxer::Listener *mDemuxerListener;
+	bool mReadyToPlay;
+	bool mUnrecoverableError;
+	bool mCalledOpenResp;
+
+	/* Demuxer listener calls from idle functions */
+	static void callOpenResponse(void *userdata);
+	std::queue<int> mOpenRespStatusArgs;
+	static void callCloseResponse(void *userdata);
+	std::queue<int> mCloseRespStatusArgs;
+	static void callOnUnrecoverableError(void *userdata);
+	/* Note: callSelectMedia omitted: function has to be synchronous */
+	static void callReadyToPlay(void *userdata);
+	std::queue<bool> mReadyToPlayReadyArgs;
+	static void callEndOfRange(void *userdata);
+	std::queue<uint64_t> mEndOfRangeTimestampArgs;
+	static void callPlayResponse(void *userdata);
+	std::queue<int> mPlayRespStatusArgs;
+	std::queue<uint64_t> mPlayRespTimestampArgs;
+	std::queue<float> mPlayRespSpeedArgs;
+	static void callPauseResponse(void *userdata);
+	std::queue<int> mPauseRespStatusArgs;
+	std::queue<uint64_t> mPauseRespTimestampArgs;
+	static void callSeekResponse(void *userdata);
+	std::queue<int> mSeekRespStatusArgs;
+	std::queue<uint64_t> mSeekRespTimestampArgs;
+	std::queue<float> mSeekRespSpeedArgs;
 };
 
 } /* namespace Pdraw */

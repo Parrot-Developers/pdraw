@@ -33,23 +33,23 @@
 
 #ifdef USE_GLES2
 
-#	if defined(BCM_VIDEOCORE) || defined(ANDROID_NDK)
-#		include <GLES2/gl2.h>
-#	elif defined(__APPLE__)
+#	if defined(__APPLE__)
 #		include <TargetConditionals.h>
 #		if TARGET_OS_IPHONE
 #			include <OpenGLES/ES2/gl.h>
 #			include <OpenGLES/ES2/glext.h>
-#		else
+#		elif defined(USE_GLFW3)
 #			include <GLFW/glfw3.h>
 #			include <OpenGL/OpenGL.h>
 #			include <OpenGL/glext.h>
 #		endif
 #	elif defined(_WIN32)
 #		include <epoxy/gl.h>
-#	else
+#	elif defined(USE_GLFW3)
 #		define GLFW_INCLUDE_ES2
 #		include <GLFW/glfw3.h>
+#	else
+#		include <GLES2/gl2.h>
 #	endif
 
 /* Uncomment to enable extra GL error checking */

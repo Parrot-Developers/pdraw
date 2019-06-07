@@ -35,9 +35,13 @@
 
 #	include "pdraw_demuxer_stream.hpp"
 
+#	include <atomic>
 #	include <string>
 
 #	include <libmux.h>
+
+#	include <transport-packet/tpkt.h>
+#	include <transport-socket/tskt.h>
 
 namespace Pdraw {
 
@@ -45,46 +49,104 @@ class StreamDemuxerMux : public StreamDemuxer {
 public:
 	StreamDemuxerMux(Session *session,
 			 Element::Listener *elementListener,
-			 Source::Listener *sourceListener,
-			 Demuxer::Listener *demuxerListener);
+			 CodedSource::Listener *sourceListener,
+			 IPdraw::IDemuxer *demuxer,
+			 IPdraw::IDemuxer::Listener *demuxerListener,
+			 const std::string &url,
+			 struct mux_ctx *mux);
 
 	~StreamDemuxerMux(void);
 
-	int setup(const std::string &url, struct mux_ctx *mux);
+protected:
+	VideoMedia *createVideoMedia(void);
 
 private:
-	int startRtpAvp(void);
+	class VideoMediaMux : StreamDemuxer::VideoMedia {
+	public:
+		VideoMediaMux(StreamDemuxerMux *demuxer);
 
-	int stopRtpAvp(void);
+		~VideoMediaMux(void);
 
-	static void dataCb(struct mux_ctx *ctx,
-			   uint32_t chanid,
-			   enum mux_channel_event event,
-			   struct pomp_buffer *buf,
-			   void *userdata);
+		int startRtpAvp(void);
 
-	static void ctrlCb(struct mux_ctx *ctx,
-			   uint32_t chanid,
-			   enum mux_channel_event event,
-			   struct pomp_buffer *buf,
-			   void *userdata);
+		int stopRtpAvp(void);
 
-	static void rtpCb(struct mux_ctx *ctx,
-			  uint32_t chanid,
-			  enum mux_channel_event event,
-			  struct pomp_buffer *buf,
-			  void *userdata);
+		int sendCtrl(struct vstrm_receiver *stream,
+			     struct tpkt_packet *pkt);
 
-	int sendCtrl(struct vstrm_receiver *stream, struct pomp_buffer *buf);
+		int prepareSetup(void);
 
-	int prepareSetup(uint16_t *streamPort,
-			 uint16_t *controlPort,
-			 enum rtsp_lower_transport *lowerTransport);
+		enum rtsp_lower_transport getLowerTransport(void);
+
+		uint16_t getLocalStreamPort(void);
+
+		uint16_t getLocalControlPort(void);
+
+		uint16_t getRemoteStreamPort(void);
+
+		uint16_t getRemoteControlPort(void);
+
+		void setLocalStreamPort(uint16_t port);
+
+		void setLocalControlPort(uint16_t port);
+
+		void setRemoteStreamPort(uint16_t port);
+
+		void setRemoteControlPort(uint16_t port);
+
+	private:
+		static void legacyDataCb(struct mux_ctx *ctx,
+					 uint32_t chanid,
+					 enum mux_channel_event event,
+					 struct pomp_buffer *buf,
+					 void *userdata);
+
+		static void legacyCtrlCb(struct mux_ctx *ctx,
+					 uint32_t chanid,
+					 enum mux_channel_event event,
+					 struct pomp_buffer *buf,
+					 void *userdata);
+
+		int createSockets(void);
+
+		void closeSockets(void);
+
+		struct tpkt_packet *newRxPkt(void);
+
+		static void dataCb(int fd, uint32_t events, void *userdata);
+
+		static void ctrlCb(int fd, uint32_t events, void *userdata);
+
+		static void callFinishSetup(void *userdata);
+
+		static void proxyOpenCb(struct mux_ip_proxy *proxy,
+					uint16_t localPort,
+					void *userdata);
+
+		static void proxyCloseCb(struct mux_ip_proxy *proxy,
+					 void *userdata);
+
+		static void proxyUpdateCb(struct mux_ip_proxy *proxy,
+					  void *userdata);
+
+		static void proxyFailedCb(struct mux_ip_proxy *proxy,
+					  int err,
+					  void *userdata);
+
+		StreamDemuxerMux *mDemuxerMux;
+		struct tskt_socket *mStreamSock;
+		struct mux_ip_proxy *mStreamProxy;
+		bool mStreamProxyOpened;
+		struct tskt_socket *mControlSock;
+		struct mux_ip_proxy *mControlProxy;
+		bool mControlProxyOpened;
+		struct tpkt_packet *mRxPkt;
+		size_t mRxBufLen;
+	};
 
 	bool setMux(struct mux_ctx *mux);
 
 	struct mux_ctx *mMux;
-	uint16_t mMuxPort;
 };
 
 } /* namespace Pdraw */

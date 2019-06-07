@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * INET Socket implementation
+ * GStreamer PDrAW source plugin
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,96 +28,25 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SOCKET_INET_HPP_
-#define _PDRAW_SOCKET_INET_HPP_
+#ifndef _GSTPDRAWSRC_H_
+#define _GSTPDRAWSRC_H_
 
-#ifdef _WIN32
-#	include <winsock2.h>
-#	include <ws2tcpip.h>
-#	undef OPAQUE
-#else /* !_WIN32 */
-#	include <arpa/inet.h>
-#	include <netinet/in.h>
-#	include <netinet/ip.h>
-#	include <sys/socket.h>
-#endif /* !_WIN32 */
+/* clang-format off */
+#include <gst/gst.h>
+#include <gst/base/gstpushsrc.h>
 
-#include <inttypes.h>
+#include <pdraw/pdraw_backend.h>
+#include <media-buffers/mbuf_coded_video_frame.h>
+#include <media-buffers/mbuf_mem_generic.h>
+#include <video-defs/vdefs.h>
 
-#include <string>
+G_BEGIN_DECLS
 
-#include <libpomp.h>
+#define GST_TYPE_PDRAW_SRC (gst_pdraw_src_get_type ())
 
-namespace Pdraw {
+G_DECLARE_FINAL_TYPE (GstPdrawSrc, gst_pdraw_src, GST, PDRAW_SRC,
+    GstPushSrc)
 
+G_END_DECLS
 
-class Session;
-
-
-class InetSocket {
-public:
-	InetSocket(Session *session,
-		   const std::string &localAddress,
-		   uint16_t localPort,
-		   const std::string &remoteAddress,
-		   uint16_t remotePort,
-		   struct pomp_loop *loop,
-		   pomp_fd_event_cb_t fdCb,
-		   void *userdata);
-
-	~InetSocket(void);
-
-	int setRxBufferSize(size_t size);
-
-	int setTxBufferSize(size_t size);
-
-	int setClass(int cls);
-
-	void *getRxBuffer(void)
-	{
-		return mRxBuffer;
-	}
-
-	std::string getLocalAddress(void)
-	{
-		return std::string(inet_ntoa(mLocalAddress.sin_addr));
-	}
-
-	uint16_t getLocalPort(void)
-	{
-		return ntohs(mLocalAddress.sin_port);
-	}
-
-	std::string getRemoteAddress(void)
-	{
-		return std::string(inet_ntoa(mRemoteAddress.sin_addr));
-	}
-
-	uint16_t getRemotePort(void)
-	{
-		return ntohs(mRemoteAddress.sin_port);
-	}
-
-	size_t getRxBufferSize(void)
-	{
-		return mRxBufferSize;
-	}
-
-	ssize_t read(void);
-
-	ssize_t write(const void *buf, size_t len);
-
-private:
-	struct pomp_loop *mLoop;
-	int mFd;
-	pomp_fd_event_cb_t mFdCb;
-	void *mUserdata;
-	struct sockaddr_in mLocalAddress;
-	struct sockaddr_in mRemoteAddress;
-	void *mRxBuffer;
-	size_t mRxBufferSize;
-};
-
-} /* namespace Pdraw */
-
-#endif /* !_PDRAW_SOCKET_INET_HPP_ */
+#endif /* !_GSTPDRAWSRC_H_ */

@@ -42,7 +42,7 @@ namespace Pdraw {
 
 const GLchar *pdraw_gles2HmdVertexShader =
 #	if defined(GL_ES_VERSION_2_0) &&                                      \
-		(defined(ANDROID) || defined(__APPLE__))
+		(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision highp float;\n"
 #	endif
 	"uniform vec2 EyeToSourceUVScale;\n"
@@ -130,7 +130,7 @@ const GLchar *pdraw_gles2HmdVertexShader =
 
 const GLchar *pdraw_gles2HmdFragmentShader =
 #	if defined(GL_ES_VERSION_2_0) &&                                      \
-		(defined(ANDROID) || defined(__APPLE__))
+		(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision highp float;\n"
 	"uniform sampler2D Texture0;\n"
 #	elif 0 && defined(GL_ES_VERSION_2_0) && defined(ANDROID)

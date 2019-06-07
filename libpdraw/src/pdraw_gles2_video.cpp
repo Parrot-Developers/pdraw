@@ -28,6 +28,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#define ULOG_TAG pdraw_gles2vid
+#include <ulog.h>
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 #include "pdraw_gles2_video.hpp"
 
 #ifdef USE_GLES2
@@ -42,15 +46,9 @@
 #	endif /* BCM_VIDEOCORE */
 
 #	include <futils/futils.h>
-#	define ULOG_TAG pdraw_gles2vid
-#	include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_gles2vid);
 
 namespace Pdraw {
 
-
-#	define PDRAW_GLES2_VIDEO_DEFAULT_HFOV (78.)
-#	define PDRAW_GLES2_VIDEO_DEFAULT_VFOV (49.)
 
 /* Blurred padding dark coef */
 #	define PDRAW_BLURRED_PADDING_DARK_COEF (0.75f)
@@ -67,6 +65,9 @@ namespace Pdraw {
 #	define GLES2_VIDEO_BLURRED_PADDING_SIGMA 3.0f
 
 #	define GLES2_VIDEO_HISTOGRAM_COMPUTE_INTERVAL_US 100000
+
+#	define GLES2_VIDEO_FLASH_LIGHT_COEF 0.3f
+#	define GLES2_VIDEO_FLASH_GAMMA_COEF 2.0f
 
 
 static const GLchar *videoVertexShader =
@@ -111,17 +112,18 @@ static const GLchar *textureNoconvFragmentShader =
 	"uniform sampler2D s_texture_2;\n"
 #	endif /* BCM_VIDEOCORE */
 	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
-	"    return texture2D(s_texture_0, coord).rgb;\n"
+	"    return texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).rgb;\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
-	"    return texture2D(s_texture_0, coord + offset_px * stride[0]).rgb;\n"
+	"    return texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).rgb;\n"
 	"}\n";
 
 static const GLchar *textureI420FragmentShader =
@@ -129,24 +131,60 @@ static const GLchar *textureI420FragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, coord).r;\n"
-	"    yuv.g = texture2D(s_texture_1, coord).r - 0.5;\n"
-	"    yuv.b = texture2D(s_texture_2, coord).r - 0.5;\n"
+	"    yuv.r = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    yuv.g = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0)).r;\n"
+	"    yuv.b = texture2D(s_texture_2, min(coord, max_coords[2] - stride[2] / 2.0)).r;\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, coord + offset_px * stride[0]).r;\n"
-	"    yuv.g = texture2D(s_texture_1, coord + offset_px * stride[1]).r - 0.5;\n"
-	"    yuv.b = texture2D(s_texture_2, coord + offset_px * stride[2]).r - 0.5;\n"
+	"    yuv.r = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    yuv.g = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0)).r;\n"
+	"    yuv.b = texture2D(s_texture_2, min(coord + offset_px * stride[2], max_coords[2] - stride[2] / 2.0)).r;\n"
+	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
+	"}\n";
+
+/* YUV 4:2:0 planar with 16 bits data format in little endian
+ * and 10 bits depth, padding in higher bits */
+static const GLchar *textureI42010LELowFragmentShader =
+	"uniform sampler2D s_texture_0;\n"
+	"uniform sampler2D s_texture_1;\n"
+	"uniform sampler2D s_texture_2;\n"
+	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
+	"uniform mat3 yuv2rgb_mat;\n"
+	"uniform vec3 yuv2rgb_offset;\n"
+	"\n"
+	"vec3 read_rgb(vec2 coord)\n"
+	"{\n"
+	"    vec3 yuv;\n"
+	"    vec4 y = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 u = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0));\n"
+	"    vec4 v = texture2D(s_texture_2, min(coord, max_coords[2] - stride[2] / 2.0));\n"
+	"    yuv.r = y.a * 64. + y.r / 4.;\n"
+	"    yuv.g = u.a * 64. + u.r / 4.;\n"
+	"    yuv.b = v.a * 64. + v.r / 4.;\n"
+	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
+	"}\n"
+	"\n"
+	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
+	"{\n"
+	"    vec3 yuv;\n"
+	"    vec4 y = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 u = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0));\n"
+	"    vec4 v = texture2D(s_texture_2, min(coord + offset_px * stride[2], max_coords[2] - stride[2] / 2.0));\n"
+	"    yuv.r = y.a * 64. + y.r / 4.;\n"
+	"    yuv.g = u.a * 64. + u.r / 4.;\n"
+	"    yuv.b = v.a * 64. + v.r / 4.;\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
@@ -155,22 +193,56 @@ static const GLchar *textureNV12FragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, coord).r;\n"
-	"    yuv.gb = texture2D(s_texture_1, coord).ra - vec2(0.5);\n"
+	"    yuv.r = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    yuv.gb = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0)).ra;\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, coord + offset_px * stride[0]).r;\n"
-	"    yuv.gb = texture2D(s_texture_1, coord + offset_px * stride[1]).ra - 0.5;\n"
+	"    yuv.r = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    yuv.gb = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0)).ra;\n"
+	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
+	"}\n";
+
+/* YUV 4:2:0 semi-planar with 16 bits data format in little endian
+ * and 10 bits depth, padding in lower bits */
+static const GLchar *textureNV1210LEHighFragmentShader =
+	"uniform sampler2D s_texture_0;\n"
+	"uniform sampler2D s_texture_1;\n"
+	"uniform sampler2D s_texture_2;\n"
+	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
+	"uniform mat3 yuv2rgb_mat;\n"
+	"uniform vec3 yuv2rgb_offset;\n"
+	"\n"
+	"vec3 read_rgb(vec2 coord)\n"
+	"{\n"
+	"    vec3 yuv;\n"
+	"    vec4 y = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 uv = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0));\n"
+	"    yuv.r = y.a + y.r / 256.;\n"
+	"    yuv.g = uv.g + uv.b / 256.;\n"
+	"    yuv.b = uv.a + uv.r / 256.;\n"
+	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
+	"}\n"
+	"\n"
+	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
+	"{\n"
+	"    vec3 yuv;\n"
+	"    vec4 y = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 uv = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0));\n"
+	"    yuv.r = y.a + y.r / 256.;\n"
+	"    yuv.g = uv.g + uv.b / 256.;\n"
+	"    yuv.b = uv.a + uv.r / 256.;\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
@@ -179,7 +251,7 @@ static const GLchar *videoFragmentShader =
 	"#extension GL_OES_EGL_image_external : require\n"
 #	endif /* BCM_VIDEOCORE */
 #	if defined(GL_ES_VERSION_2_0) &&                                      \
-		(defined(ANDROID) || defined(__APPLE__))
+		(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision highp float;\n"
 #	endif
 	"varying vec2 v_texcoord;\n"
@@ -224,18 +296,33 @@ static const GLchar *videoFragmentShader =
 	"    gl_FragColor = vec4(rgb, 1.0);\n"
 	"}\n";
 
-static const GLchar *videoNoconvFragmentShaders[] = {
-	videoFragmentShader,
-	textureNoconvFragmentShader,
-	zebraFragmentShader};
-
-static const GLchar *videoNV12FragmentShaders[] = {videoFragmentShader,
-						   textureNV12FragmentShader,
-						   zebraFragmentShader};
-
-static const GLchar *videoI420FragmentShaders[] = {videoFragmentShader,
-						   textureI420FragmentShader,
-						   zebraFragmentShader};
+const GLchar *Gles2Video::videoFragmentShaders[PROGRAM_MAX][3] = {
+	{
+		videoFragmentShader,
+		textureNoconvFragmentShader,
+		zebraFragmentShader,
+	},
+	{
+		videoFragmentShader,
+		textureI420FragmentShader,
+		zebraFragmentShader,
+	},
+	{
+		videoFragmentShader,
+		textureI42010LELowFragmentShader,
+		zebraFragmentShader,
+	},
+	{
+		videoFragmentShader,
+		textureNV12FragmentShader,
+		zebraFragmentShader,
+	},
+	{
+		videoFragmentShader,
+		textureNV1210LEHighFragmentShader,
+		zebraFragmentShader,
+	},
+};
 
 static const GLchar *blurHVertexShader =
 	"attribute vec2 position;\n"
@@ -273,7 +360,7 @@ static const GLchar *blurVVertexShader =
 
 static const GLchar *blurHFragmentShader =
 #	if defined(GL_ES_VERSION_2_0) &&                                      \
-		(defined(ANDROID) || defined(__APPLE__))
+		(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision mediump float;\n"
 #	endif
 	"varying float v_texcoord_x[15];\n"
@@ -293,7 +380,7 @@ static const GLchar *blurHFragmentShader =
 
 static const GLchar *blurVFragmentShader =
 #	if defined(GL_ES_VERSION_2_0) &&                                      \
-		(defined(ANDROID) || defined(__APPLE__))
+		(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision mediump float;\n"
 #	endif
 	"varying float v_texcoord_x;\n"
@@ -327,7 +414,7 @@ static const GLchar *histogramFragmentShader =
 	"#extension GL_OES_EGL_image_external : require\n"
 #	endif /* BCM_VIDEOCORE */
 #	if defined(GL_ES_VERSION_2_0) &&                                      \
-		(defined(ANDROID) || defined(__APPLE__))
+		(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
 	"precision mediump float;\n"
 #	endif
 	"varying vec2 v_texcoord;\n"
@@ -341,33 +428,27 @@ static const GLchar *histogramFragmentShader =
 	"    gl_FragColor = vec4(rgb, luma);\n"
 	"}\n";
 
-static const GLchar
-	*histogramFragmentShaders[GLES2_VIDEO_COLOR_CONVERSION_MAX][2] = {
-		{
-			histogramFragmentShader,
-			textureNoconvFragmentShader,
-		},
-		{
-			histogramFragmentShader,
-			textureI420FragmentShader,
-		},
-		{
-			histogramFragmentShader,
-			textureNV12FragmentShader,
-		},
-};
-
-static const GLfloat yuv2RgbMats[][9] = {
-	/* Limited range */
-	{1.164f, 1.164f, 1.164f, 0.f, -0.392f, 2.017f, 1.596f, -0.813f, 0.f},
-	/* Full range */
-	{1.f, 1.f, 1.f, 0.f, -0.344f, 1.772f, 1.402f, -0.714f, 0.f}};
-
-static const GLfloat yuv2RgbOffsets[][3] = {
-	/* Limited range */
-	{-0.0625f, 0.f, 0.f},
-	/* Full range */
-	{0.f, 0.f, 0.f},
+const GLchar *Gles2Video::histogramFragmentShaders[PROGRAM_MAX][2] = {
+	{
+		histogramFragmentShader,
+		textureNoconvFragmentShader,
+	},
+	{
+		histogramFragmentShader,
+		textureI420FragmentShader,
+	},
+	{
+		histogramFragmentShader,
+		textureNV12FragmentShader,
+	},
+	{
+		histogramFragmentShader,
+		textureI42010LELowFragmentShader,
+	},
+	{
+		histogramFragmentShader,
+		textureNV1210LEHighFragmentShader,
+	},
 };
 
 static const GLfloat zebraAvgWeights[9] = {0.077847f,
@@ -386,13 +467,11 @@ Gles2Video::Gles2Video(Session *session,
 		       unsigned int firstTexUnit)
 {
 	int ret;
-	GLint vertexShader = 0, fragmentShaderNoconv = 0;
-	GLint fragmentShaderYuvp = 0, fragmentShaderYuvsp = 0;
+	GLint vertexShader = 0, fragmentShader[PROGRAM_MAX] = {};
 	GLint success = 0;
 	unsigned int i;
 
 	mSession = session;
-	mMedia = NULL;
 	mVideoWidth = 0;
 	mVideoHeight = 0;
 	mFirstTexUnit = firstTexUnit;
@@ -406,6 +485,7 @@ Gles2Video::Gles2Video(Session *session,
 	memset(mProgramYuv2RgbMatrix, 0, sizeof(mProgramYuv2RgbMatrix));
 	memset(mProgramYuv2RgbOffset, 0, sizeof(mProgramYuv2RgbOffset));
 	memset(mProgramStride, 0, sizeof(mProgramStride));
+	memset(mProgramMaxCoords, 0, sizeof(mProgramMaxCoords));
 	memset(mProgramSatCoef, 0, sizeof(mProgramSatCoef));
 	memset(mProgramLightCoef, 0, sizeof(mProgramLightCoef));
 	memset(mProgramDarkCoef, 0, sizeof(mProgramDarkCoef));
@@ -447,7 +527,7 @@ Gles2Video::Gles2Video(Session *session,
 	memset(mHistogramTexcoordHandle, 0, sizeof(mHistogramTexcoordHandle));
 	mHistogramFbo = 0;
 	mHistogramFboTexture = 0;
-	mHistogramBuffer = NULL;
+	mHistogramBuffer = nullptr;
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++)
 		mHistogramValid[i] = false;
 	memset(mHistogram, 0, sizeof(mHistogram));
@@ -464,322 +544,102 @@ Gles2Video::Gles2Video(Session *session,
 
 	GLCHK();
 
+	/* Vertex shader */
 	vertexShader = glCreateShader(GL_VERTEX_SHADER);
 	if ((vertexShader == 0) || (vertexShader == GL_INVALID_ENUM)) {
 		ULOGE("failed to create vertex shader");
 		goto err;
 	}
 
-	glShaderSource(vertexShader, 1, &videoVertexShader, NULL);
+	glShaderSource(vertexShader, 1, &videoVertexShader, nullptr);
 	glCompileShader(vertexShader);
 	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+		glGetShaderInfoLog(vertexShader, 512, nullptr, infoLog);
 		ULOGE("vertex shader compilation failed '%s'", infoLog);
 		goto err;
 	}
 
-	fragmentShaderNoconv = glCreateShader(GL_FRAGMENT_SHADER);
-	if ((fragmentShaderNoconv == 0) ||
-	    (fragmentShaderNoconv == GL_INVALID_ENUM)) {
-		ULOGE("failed to create fragment shader");
-		goto err;
-	}
+	for (i = 0; i < PROGRAM_MAX; i++) {
+		/* Fragment shader */
+		fragmentShader[i] = glCreateShader(GL_FRAGMENT_SHADER);
+		if ((fragmentShader[i] == 0) ||
+		    (fragmentShader[i] == GL_INVALID_ENUM)) {
+			ULOGE("failed to create fragment shader");
+			goto err;
+		}
 
-	glShaderSource(
-		fragmentShaderNoconv, 3, videoNoconvFragmentShaders, NULL);
-	glCompileShader(fragmentShaderNoconv);
-	glGetShaderiv(fragmentShaderNoconv, GL_COMPILE_STATUS, &success);
-	if (!success) {
-		GLchar infoLog[512];
-		glGetShaderInfoLog(fragmentShaderNoconv, 512, NULL, infoLog);
-		ULOGE("fragment shader compilation failed '%s'", infoLog);
-		goto err;
-	}
+		glShaderSource(
+			fragmentShader[i], 3, videoFragmentShaders[i], nullptr);
+		glCompileShader(fragmentShader[i]);
+		glGetShaderiv(fragmentShader[i], GL_COMPILE_STATUS, &success);
+		if (!success) {
+			GLchar infoLog[512];
+			glGetShaderInfoLog(
+				fragmentShader[i], 512, nullptr, infoLog);
+			ULOGE("fragment shader compilation failed '%s'",
+			      infoLog);
+			goto err;
+		}
 
-	fragmentShaderYuvsp = glCreateShader(GL_FRAGMENT_SHADER);
-	if ((fragmentShaderYuvsp == 0) ||
-	    (fragmentShaderYuvsp == GL_INVALID_ENUM)) {
-		ULOGE("failed to create fragment shader");
-		goto err;
-	}
+		/* Link shaders */
+		mProgram[i] = glCreateProgram();
+		glAttachShader(mProgram[i], vertexShader);
+		glAttachShader(mProgram[i], fragmentShader[i]);
+		glLinkProgram(mProgram[i]);
+		glGetProgramiv(mProgram[i], GL_LINK_STATUS, &success);
+		if (!success) {
+			GLchar infoLog[512];
+			glGetProgramInfoLog(mProgram[i], 512, nullptr, infoLog);
+			ULOGE("program link failed '%s'", infoLog);
+			goto err;
+		}
 
-	glShaderSource(fragmentShaderYuvsp, 3, videoNV12FragmentShaders, NULL);
-	glCompileShader(fragmentShaderYuvsp);
-	glGetShaderiv(fragmentShaderYuvsp, GL_COMPILE_STATUS, &success);
-	if (!success) {
-		GLchar infoLog[512];
-		glGetShaderInfoLog(fragmentShaderYuvsp, 512, NULL, infoLog);
-		ULOGE("fragment shader compilation failed '%s'", infoLog);
-		goto err;
-	}
-
-	fragmentShaderYuvp = glCreateShader(GL_FRAGMENT_SHADER);
-	if ((fragmentShaderYuvp == 0) ||
-	    (fragmentShaderYuvp == GL_INVALID_ENUM)) {
-		ULOGE("failed to create fragment shader");
-		goto err;
-	}
-
-	glShaderSource(fragmentShaderYuvp, 3, videoI420FragmentShaders, NULL);
-	glCompileShader(fragmentShaderYuvp);
-	glGetShaderiv(fragmentShaderYuvp, GL_COMPILE_STATUS, &success);
-	if (!success) {
-		GLchar infoLog[512];
-		glGetShaderInfoLog(fragmentShaderYuvp, 512, NULL, infoLog);
-		ULOGE("fragment shader compilation failed '%s'", infoLog);
-		goto err;
-	}
-
-	/* Link shaders */
-	mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE] = glCreateProgram();
-	glAttachShader(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		       vertexShader);
-	glAttachShader(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		       fragmentShaderNoconv);
-	glLinkProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]);
-	glGetProgramiv(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		       GL_LINK_STATUS,
-		       &success);
-	if (!success) {
-		GLchar infoLog[512];
-		glGetProgramInfoLog(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-				    512,
-				    NULL,
-				    infoLog);
-		ULOGE("program link failed '%s'", infoLog);
-		goto err;
-	}
-
-	/* Link shaders */
-	mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] = glCreateProgram();
-	glAttachShader(mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-		       vertexShader);
-	glAttachShader(mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-		       fragmentShaderYuvp);
-	glLinkProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB]);
-	glGetProgramiv(mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-		       GL_LINK_STATUS,
-		       &success);
-	if (!success) {
-		GLchar infoLog[512];
-		glGetProgramInfoLog(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			512,
-			NULL,
-			infoLog);
-		ULOGE("program link failed '%s'", infoLog);
-		goto err;
-	}
-
-	/* Link shaders */
-	mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] = glCreateProgram();
-	glAttachShader(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-		       vertexShader);
-	glAttachShader(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-		       fragmentShaderYuvsp);
-	glLinkProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB]);
-	glGetProgramiv(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-		       GL_LINK_STATUS,
-		       &success);
-	if (!success) {
-		GLchar infoLog[512];
-		glGetProgramInfoLog(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			512,
-			NULL,
-			infoLog);
-		ULOGE("program link failed '%s'", infoLog);
-		goto err;
+		glDeleteShader(fragmentShader[i]);
+		fragmentShader[i] = 0;
 	}
 
 	glDeleteShader(vertexShader);
 	vertexShader = 0;
-	glDeleteShader(fragmentShaderNoconv);
-	fragmentShaderNoconv = 0;
-	glDeleteShader(fragmentShaderYuvp);
-	fragmentShaderYuvp = 0;
-	glDeleteShader(fragmentShaderYuvsp);
-	fragmentShaderYuvsp = 0;
 
 	GLCHK();
 
-	mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"transform_matrix");
-	mProgramStride[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE], "stride");
-	mProgramSatCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"sat_coef");
-	mProgramLightCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"light_coef");
-	mProgramDarkCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"dark_coef");
-	mProgramZebraEnable[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"zebra_enable");
-	mProgramZebraThreshold[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"zebra_sat");
-	mProgramZebraPhase[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"zebra_phase");
-	mProgramZebraWeight[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"zebra_weight");
-	mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NONE][0] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			"s_texture_0");
-	mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetAttribLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-				    "position");
-	mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE] =
-		glGetAttribLocation(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-				    "texcoord");
-
-	mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"transform_matrix");
-	mProgramYuv2RgbMatrix[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"yuv2rgb_mat");
-	mProgramYuv2RgbOffset[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"yuv2rgb_offset");
-	mProgramStride[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"stride");
-	mProgramSatCoef[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"sat_coef");
-	mProgramLightCoef[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"light_coef");
-	mProgramDarkCoef[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"dark_coef");
-	mProgramZebraEnable[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"zebra_enable");
-	mProgramZebraThreshold[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"zebra_sat");
-	mProgramZebraPhase[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"zebra_phase");
-	mProgramZebraWeight[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"zebra_weight");
-	mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB][0] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"s_texture_0");
-	mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB][1] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"s_texture_1");
-	mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB][2] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"s_texture_2");
-	mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetAttribLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"position");
-	mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] =
-		glGetAttribLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB],
-			"texcoord");
-
-	mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"transform_matrix");
-	mProgramYuv2RgbMatrix[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"yuv2rgb_mat");
-	mProgramYuv2RgbOffset[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"yuv2rgb_offset");
-	mProgramStride[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"stride");
-	mProgramSatCoef[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"sat_coef");
-	mProgramLightCoef[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"light_coef");
-	mProgramDarkCoef[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"dark_coef");
-	mProgramZebraEnable[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"zebra_enable");
-	mProgramZebraThreshold[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"zebra_sat");
-	mProgramZebraPhase[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"zebra_phase");
-	mProgramZebraWeight[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"zebra_weight");
-	mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB][0] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"s_texture_0");
-	mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB][1] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"s_texture_1");
-	mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB][2] =
-		glGetUniformLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"s_texture_2");
-	mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetAttribLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"position");
-	mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] =
-		glGetAttribLocation(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB],
-			"texcoord");
+	for (i = 0; i < PROGRAM_MAX; i++) {
+		mProgramTransformMatrix[i] =
+			glGetUniformLocation(mProgram[i], "transform_matrix");
+		mProgramYuv2RgbMatrix[i] =
+			glGetUniformLocation(mProgram[i], "yuv2rgb_mat");
+		mProgramYuv2RgbOffset[i] =
+			glGetUniformLocation(mProgram[i], "yuv2rgb_offset");
+		mProgramStride[i] = glGetUniformLocation(mProgram[i], "stride");
+		mProgramMaxCoords[i] =
+			glGetUniformLocation(mProgram[i], "max_coords");
+		mProgramSatCoef[i] =
+			glGetUniformLocation(mProgram[i], "sat_coef");
+		mProgramLightCoef[i] =
+			glGetUniformLocation(mProgram[i], "light_coef");
+		mProgramDarkCoef[i] =
+			glGetUniformLocation(mProgram[i], "dark_coef");
+		mProgramZebraEnable[i] =
+			glGetUniformLocation(mProgram[i], "zebra_enable");
+		mProgramZebraThreshold[i] =
+			glGetUniformLocation(mProgram[i], "zebra_sat");
+		mProgramZebraPhase[i] =
+			glGetUniformLocation(mProgram[i], "zebra_phase");
+		mProgramZebraWeight[i] =
+			glGetUniformLocation(mProgram[i], "zebra_weight");
+		mUniformSamplers[i][0] =
+			glGetUniformLocation(mProgram[i], "s_texture_0");
+		mUniformSamplers[i][1] =
+			glGetUniformLocation(mProgram[i], "s_texture_1");
+		mUniformSamplers[i][2] =
+			glGetUniformLocation(mProgram[i], "s_texture_2");
+		mPositionHandle[i] =
+			glGetAttribLocation(mProgram[i], "position");
+		mTexcoordHandle[i] =
+			glGetAttribLocation(mProgram[i], "texcoord");
+	}
 
 	GLCHK();
 
@@ -796,9 +656,11 @@ Gles2Video::Gles2Video(Session *session,
 	GLCHK();
 
 	/* Setup zebra shaders */
-	setupZebra(GLES2_VIDEO_COLOR_CONVERSION_NONE);
-	setupZebra(GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB);
-	setupZebra(GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB);
+	setupZebra(PROGRAM_NOCONV);
+	setupZebra(PROGRAM_YUV_TO_RGB_PLANAR);
+	setupZebra(PROGRAM_YUV_TO_RGB_SEMIPLANAR);
+	setupZebra(PROGRAM_YUV_TO_RGB_PLANAR_10_16LE);
+	setupZebra(PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH);
 
 	GLCHK(glGenTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
 
@@ -825,7 +687,6 @@ Gles2Video::Gles2Video(Session *session,
 			GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
 	}
 
-	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 	GLCHK(glBindTexture(GL_TEXTURE_2D, 0));
 
 	return;
@@ -835,23 +696,11 @@ err:
 		GLCHK(glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
 	if (vertexShader)
 		GLCHK(glDeleteShader(vertexShader));
-	if (fragmentShaderNoconv)
-		GLCHK(glDeleteShader(fragmentShaderNoconv));
-	if (fragmentShaderYuvp)
-		GLCHK(glDeleteShader(fragmentShaderYuvp));
-	if (fragmentShaderYuvsp)
-		GLCHK(glDeleteShader(fragmentShaderYuvsp));
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE] > 0) {
-		GLCHK(glDeleteProgram(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
-	}
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] > 0) {
-		GLCHK(glDeleteProgram(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB]));
-	}
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] > 0) {
-		GLCHK(glDeleteProgram(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB]));
+	for (i = 0; i < PROGRAM_MAX; i++) {
+		if (fragmentShader[i])
+			GLCHK(glDeleteShader(fragmentShader[i]));
+		if (mProgram[i] > 0)
+			GLCHK(glDeleteProgram(mProgram[i]));
 	}
 	memset(mProgram, 0, sizeof(mProgram));
 	memset(mTextures, 0, sizeof(mTextures));
@@ -864,22 +713,36 @@ Gles2Video::~Gles2Video(void)
 {
 	if (mTextures[0])
 		GLCHK(glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE] > 0) {
-		GLCHK(glDeleteProgram(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
-	}
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB] > 0) {
-		GLCHK(glDeleteProgram(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB]));
-	}
-	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB] > 0) {
-		GLCHK(glDeleteProgram(
-			mProgram[GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB]));
+	for (unsigned int i = 0; i < PROGRAM_MAX; i++) {
+		if (mProgram[i] > 0)
+			GLCHK(glDeleteProgram(mProgram[i]));
 	}
 
 	cleanupBlur();
 	cleanupPaddingFbo();
 	cleanupHistograms();
+}
+
+
+enum Gles2Video::program
+Gles2Video::getProgram(const struct vdef_raw_format *format)
+{
+	if (vdef_raw_format_cmp(format, &vdef_i420)) {
+		return PROGRAM_YUV_TO_RGB_PLANAR;
+	} else if (vdef_raw_format_cmp(format, &vdef_nv12)) {
+		return PROGRAM_YUV_TO_RGB_SEMIPLANAR;
+	} else if (vdef_raw_format_cmp(format, &vdef_i420_10_16le)) {
+		return PROGRAM_YUV_TO_RGB_PLANAR_10_16LE;
+	} else if (vdef_raw_format_cmp(format, &vdef_nv12_10_16le_high)) {
+		return PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH;
+	} else if (vdef_raw_format_cmp(format, &vdef_rgb)) {
+		return PROGRAM_NOCONV;
+	} else if (vdef_raw_format_cmp(format, &vdef_mmal_opaque)) {
+		return PROGRAM_NOCONV;
+	} else {
+		ULOGE("unsupported frame format");
+		return PROGRAM_NOCONV;
+	}
 }
 
 
@@ -905,12 +768,12 @@ int Gles2Video::setupBlur(void)
 		goto error;
 	}
 
-	glShaderSource(vertexShaderH, 1, &blurHVertexShader, NULL);
+	glShaderSource(vertexShaderH, 1, &blurHVertexShader, nullptr);
 	glCompileShader(vertexShaderH);
 	glGetShaderiv(vertexShaderH, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(vertexShaderH, 512, NULL, infoLog);
+		glGetShaderInfoLog(vertexShaderH, 512, nullptr, infoLog);
 		ULOGE("vertex shader (H) compilation failed '%s'", infoLog);
 		ret = -EPROTO;
 		goto error;
@@ -923,12 +786,12 @@ int Gles2Video::setupBlur(void)
 		goto error;
 	}
 
-	glShaderSource(vertexShaderV, 1, &blurVVertexShader, NULL);
+	glShaderSource(vertexShaderV, 1, &blurVVertexShader, nullptr);
 	glCompileShader(vertexShaderV);
 	glGetShaderiv(vertexShaderV, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(vertexShaderV, 512, NULL, infoLog);
+		glGetShaderInfoLog(vertexShaderV, 512, nullptr, infoLog);
 		ULOGE("vertex shader (V) compilation failed '%s'", infoLog);
 		ret = -EPROTO;
 		goto error;
@@ -941,12 +804,12 @@ int Gles2Video::setupBlur(void)
 		goto error;
 	}
 
-	glShaderSource(fragmentShaderH, 1, &blurHFragmentShader, NULL);
+	glShaderSource(fragmentShaderH, 1, &blurHFragmentShader, nullptr);
 	glCompileShader(fragmentShaderH);
 	glGetShaderiv(fragmentShaderH, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(fragmentShaderH, 512, NULL, infoLog);
+		glGetShaderInfoLog(fragmentShaderH, 512, nullptr, infoLog);
 		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		ret = -EPROTO;
 		goto error;
@@ -959,12 +822,12 @@ int Gles2Video::setupBlur(void)
 		goto error;
 	}
 
-	glShaderSource(fragmentShaderV, 1, &blurVFragmentShader, NULL);
+	glShaderSource(fragmentShaderV, 1, &blurVFragmentShader, nullptr);
 	glCompileShader(fragmentShaderV);
 	glGetShaderiv(fragmentShaderV, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(fragmentShaderV, 512, NULL, infoLog);
+		glGetShaderInfoLog(fragmentShaderV, 512, nullptr, infoLog);
 		ULOGE("fragment shader compilation failed '%s'", infoLog);
 		ret = -EPROTO;
 		goto error;
@@ -978,7 +841,7 @@ int Gles2Video::setupBlur(void)
 	glGetProgramiv(mBlurProgram[0], GL_LINK_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetProgramInfoLog(mBlurProgram[0], 512, NULL, infoLog);
+		glGetProgramInfoLog(mBlurProgram[0], 512, nullptr, infoLog);
 		ULOGE("program link failed '%s'", infoLog);
 		ret = -EPROTO;
 		goto error;
@@ -991,7 +854,7 @@ int Gles2Video::setupBlur(void)
 	glGetProgramiv(mBlurProgram[1], GL_LINK_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetProgramInfoLog(mBlurProgram[1], 512, NULL, infoLog);
+		glGetProgramInfoLog(mBlurProgram[1], 512, nullptr, infoLog);
 		ULOGE("program link failed '%s'", infoLog);
 		ret = -EPROTO;
 		goto error;
@@ -1048,7 +911,7 @@ void Gles2Video::cleanupBlur(void)
 }
 
 
-int Gles2Video::setupBlurFbo(unsigned int cropWidth, unsigned int cropHeight)
+int Gles2Video::setupBlurFbo(void)
 {
 	int ret = 0;
 	unsigned int i;
@@ -1102,7 +965,7 @@ int Gles2Video::setupBlurFbo(unsigned int cropWidth, unsigned int cropHeight)
 				   0,
 				   GL_RGB,
 				   GL_UNSIGNED_BYTE,
-				   NULL));
+				   nullptr));
 
 		GLCHK(glTexParameteri(
 			GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
@@ -1153,20 +1016,17 @@ void Gles2Video::cleanupBlurFbo(void)
 
 
 void Gles2Video::renderBlur(size_t framePlaneStride[3],
-			    unsigned int frameHeight,
-			    unsigned int cropLeft,
-			    unsigned int cropTop,
-			    unsigned int cropWidth,
-			    unsigned int cropHeight,
-			    const struct pdraw_rect *render_pos,
+			    const struct vdef_raw_format *format,
+			    const struct vdef_frame_info *info,
+			    const struct vdef_rect *crop,
+			    const struct pdraw_rect *renderPos,
 			    float videoW,
 			    float videoH,
-			    enum gles2_video_color_conversion colorConversion,
-			    enum gles2_video_yuv_range yuvRange,
 			    Eigen::Matrix4f &viewProjMat)
 {
 	unsigned int i;
 	float stride[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxCoords[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
 	bool mirrorTexture = false;
@@ -1174,16 +1034,18 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 	if (!mBlurInit)
 		return;
 
+	enum program prog;
+	prog = getProgram(format);
+
 	/* Pass 1 downscale */
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mBlurFbo[0]));
 	GLCHK(glViewport(0, 0, mBlurFboWidth, mBlurFboHeight));
-	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 
-	GLCHK(glUseProgram(mProgram[colorConversion]));
+	GLCHK(glUseProgram(mProgram[prog]));
 
-	switch (colorConversion) {
+	switch (prog) {
 	default:
-	case GLES2_VIDEO_COLOR_CONVERSION_NONE:
+	case PROGRAM_NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -1192,70 +1054,82 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 				    (mExtTexture > 0) ? mExtTexture
 						      : mTextures[0]));
 #	endif /* BCM_VIDEOCORE */
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
-				  mFirstTexUnit));
+		GLCHK(glUniform1i(mUniformSamplers[prog][0], mFirstTexUnit));
 		stride[0] = 1.f / framePlaneStride[0];
-		stride[1] = 1.f / frameHeight;
-		GLCHK(glUniform2fv(mProgramStride[colorConversion],
-				   GLES2_VIDEO_TEX_UNIT_COUNT,
-				   stride));
+		stride[1] = 1.f / info->resolution.height;
+		maxCoords[0] =
+			(float)(crop->left + crop->width) / framePlaneStride[0];
+		maxCoords[1] = (float)(crop->top + crop->height) /
+			       info->resolution.height;
 		break;
-	case GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB:
+	case PROGRAM_YUV_TO_RGB_PLANAR:
+	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
 		mirrorTexture = true;
 		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-			int height = frameHeight / ((i > 0) ? 2 : 1);
+			int height =
+				info->resolution.height / ((i > 0) ? 2 : 1);
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
-			GLCHK(glUniform1i(mUniformSamplers[colorConversion][i],
+			GLCHK(glUniform1i(mUniformSamplers[prog][i],
 					  mFirstTexUnit + i));
 			stride[2 * i] = 1.f / framePlaneStride[i];
 			stride[2 * i + 1] = 1.f / height;
+			maxCoords[2 * i] =
+				(float)(crop->left + crop->width) /
+				(framePlaneStride[i] * ((i > 0) ? 2 : 1));
+			maxCoords[2 * i + 1] =
+				(float)(crop->top + crop->height) /
+				info->resolution.height;
 		}
-
-		GLCHK(glUniform2fv(mProgramStride[colorConversion],
-				   GLES2_VIDEO_TEX_UNIT_COUNT,
-				   stride));
-		GLCHK(glUniform3f(mProgramYuv2RgbOffset[colorConversion],
-				  yuv2RgbOffsets[yuvRange][0],
-				  yuv2RgbOffsets[yuvRange][1],
-				  yuv2RgbOffsets[yuvRange][2]));
-		GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[colorConversion],
-					 1,
-					 GL_FALSE,
-					 &yuv2RgbMats[yuvRange][0]));
 		break;
-	case GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB:
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
 		mirrorTexture = true;
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+		GLCHK(glUniform1i(mUniformSamplers[prog][0],
 				  mFirstTexUnit + 0));
 		stride[0] = 1.f / framePlaneStride[0];
-		stride[1] = 1.f / frameHeight;
+		stride[1] = 1.f / info->resolution.height;
+		maxCoords[0] =
+			(float)(crop->left + crop->width) / framePlaneStride[0];
+		maxCoords[1] = (float)(crop->top + crop->height) /
+			       info->resolution.height;
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][1],
+		GLCHK(glUniform1i(mUniformSamplers[prog][1],
 				  mFirstTexUnit + 1));
 		stride[2] = 1.f / (framePlaneStride[1] / 2);
-		stride[3] = 1.f / (frameHeight / 2);
-
-		GLCHK(glUniform2fv(mProgramStride[colorConversion],
-				   GLES2_VIDEO_TEX_UNIT_COUNT,
-				   stride));
-		GLCHK(glUniform3f(mProgramYuv2RgbOffset[colorConversion],
-				  yuv2RgbOffsets[yuvRange][0],
-				  yuv2RgbOffsets[yuvRange][1],
-				  yuv2RgbOffsets[yuvRange][2]));
-		GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[colorConversion],
-					 1,
-					 GL_FALSE,
-					 &yuv2RgbMats[yuvRange][0]));
+		stride[3] = 1.f / (info->resolution.height / 2);
+		maxCoords[2] =
+			(float)(crop->left + crop->width) / framePlaneStride[1];
+		maxCoords[3] = (float)(crop->top + crop->height) /
+			       info->resolution.height;
 		break;
 	}
 
+	GLCHK(glUniform2fv(
+		mProgramStride[prog], GLES2_VIDEO_TEX_UNIT_COUNT, stride));
+	GLCHK(glUniform2fv(mProgramMaxCoords[prog],
+			   GLES2_VIDEO_TEX_UNIT_COUNT,
+			   maxCoords));
+	GLCHK(glUniform3f(mProgramYuv2RgbOffset[prog],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][0],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][1],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][2]));
+	GLCHK(glUniformMatrix3fv(
+		mProgramYuv2RgbMatrix[prog],
+		1,
+		GL_FALSE,
+		&vdef_yuv_to_rgb_norm_matrix[info->matrix_coefs]
+					    [info->full_range][0]));
+
 	/* Disable overexposure zebras */
-	updateZebra(NULL, colorConversion, false, 0.f);
+	updateZebra(nullptr, prog, false, 0.f);
 
 	vertices[0] = -1.;
 	vertices[1] = -1.;
@@ -1272,59 +1146,55 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 
 	Eigen::Matrix4f id = Eigen::Matrix4f::Identity();
 	GLCHK(glUniformMatrix4fv(
-		mProgramTransformMatrix[colorConversion], 1, false, id.data()));
-	GLCHK(glUniform1f(mProgramSatCoef[colorConversion], 1.f));
-	GLCHK(glUniform1f(mProgramLightCoef[colorConversion], 1.f));
-	GLCHK(glUniform1f(mProgramDarkCoef[colorConversion], 1.f));
+		mProgramTransformMatrix[prog], 1, false, id.data()));
+	GLCHK(glUniform1f(mProgramSatCoef[prog], 1.f));
+	GLCHK(glUniform1f(mProgramLightCoef[prog], 1.f));
+	GLCHK(glUniform1f(mProgramDarkCoef[prog], 1.f));
 
-	GLCHK(glVertexAttribPointer(mPositionHandle[colorConversion],
-				    3,
-				    GL_FLOAT,
-				    false,
-				    0,
-				    vertices));
-	GLCHK(glEnableVertexAttribArray(mPositionHandle[colorConversion]));
+	GLCHK(glVertexAttribPointer(
+		mPositionHandle[prog], 3, GL_FLOAT, false, 0, vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[prog]));
 
 	if (mirrorTexture) {
-		texCoords[0] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[1] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[2] = (float)(cropLeft + cropWidth) /
+		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[1] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[2] = (float)(crop->left + crop->width) /
 			       (float)framePlaneStride[0];
-		texCoords[3] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[4] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[5] = (float)cropTop / (float)frameHeight;
-		texCoords[6] = (float)(cropLeft + cropWidth) /
-			       (float)framePlaneStride[0];
-		texCoords[7] = (float)cropTop / (float)frameHeight;
-	} else {
-		texCoords[0] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[1] = (float)cropTop / (float)frameHeight;
-		texCoords[2] = (float)(cropLeft + cropWidth) /
-			       (float)framePlaneStride[0];
-		texCoords[3] = (float)cropTop / (float)frameHeight;
-		texCoords[4] = (float)cropLeft / (float)framePlaneStride[0];
+		texCoords[3] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[4] = (float)crop->left / (float)framePlaneStride[0];
 		texCoords[5] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[6] = (float)(cropLeft + cropWidth) /
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[6] = (float)(crop->left + crop->width) /
 			       (float)framePlaneStride[0];
 		texCoords[7] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
+			(float)crop->top / (float)info->resolution.height;
+	} else {
+		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[1] =
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[2] = (float)(crop->left + crop->width) /
+			       (float)framePlaneStride[0];
+		texCoords[3] =
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[4] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[5] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[6] = (float)(crop->left + crop->width) /
+			       (float)framePlaneStride[0];
+		texCoords[7] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
 	}
 
-	GLCHK(glVertexAttribPointer(mTexcoordHandle[colorConversion],
-				    2,
-				    GL_FLOAT,
-				    false,
-				    0,
-				    texCoords));
-	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[colorConversion]));
+	GLCHK(glVertexAttribPointer(
+		mTexcoordHandle[prog], 2, GL_FLOAT, false, 0, texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[prog]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(mPositionHandle[colorConversion]));
-	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[colorConversion]));
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[prog]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[prog]));
 
 	/* Horizontal blur pass */
 	vertices[0] = -1.;
@@ -1372,28 +1242,34 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 
 	/* Render to screen */
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mDefaultFbo));
-	GLCHK(glViewport(render_pos->x,
-			 render_pos->y,
-			 render_pos->width,
-			 render_pos->height));
-	GLCHK(glUseProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glViewport(renderPos->x,
+			 renderPos->y,
+			 renderPos->width,
+			 renderPos->height));
+	GLCHK(glUseProgram(mProgram[PROGRAM_NOCONV]));
 	GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
 			      GLES2_VIDEO_TEX_UNIT_COUNT));
 	GLCHK(glBindTexture(GL_TEXTURE_2D, mBlurFboTexture[0]));
-	GLCHK(glUniform1i(
-		mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NONE][0],
-		mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT));
-	GLCHK(glUniformMatrix4fv(
-		mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		1,
-		false,
-		viewProjMat.data()));
-	GLCHK(glUniform1f(mProgramSatCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			  mSatCoef));
-	GLCHK(glUniform1f(mProgramLightCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			  mLightCoef));
-	GLCHK(glUniform1f(mProgramDarkCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			  mDarkCoef));
+	GLCHK(glUniform1i(mUniformSamplers[PROGRAM_NOCONV][0],
+			  mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT));
+	GLCHK(glUniformMatrix4fv(mProgramTransformMatrix[PROGRAM_NOCONV],
+				 1,
+				 false,
+				 viewProjMat.data()));
+	GLCHK(glUniform1f(mProgramSatCoef[PROGRAM_NOCONV], mSatCoef));
+	GLCHK(glUniform1f(mProgramLightCoef[PROGRAM_NOCONV], mLightCoef));
+	GLCHK(glUniform1f(mProgramDarkCoef[PROGRAM_NOCONV], mDarkCoef));
+
+	maxCoords[0] = 1.;
+	maxCoords[1] = 1.;
+	stride[0] = 0.;
+	stride[1] = 0.;
+	GLCHK(glUniform2fv(mProgramStride[PROGRAM_NOCONV],
+			   GLES2_VIDEO_TEX_UNIT_COUNT,
+			   stride));
+	GLCHK(glUniform2fv(mProgramMaxCoords[PROGRAM_NOCONV],
+			   GLES2_VIDEO_TEX_UNIT_COUNT,
+			   maxCoords));
 
 	vertices[0] = -videoW;
 	vertices[1] = -videoH;
@@ -1417,40 +1293,32 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 	texCoords[6] = 1.;
 	texCoords[7] = 1.;
 
-	GLCHK(glVertexAttribPointer(
-		mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		3,
-		GL_FLOAT,
-		false,
-		0,
-		vertices));
-	GLCHK(glEnableVertexAttribArray(
-		mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glVertexAttribPointer(mPositionHandle[PROGRAM_NOCONV],
+				    3,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[PROGRAM_NOCONV]));
 
-	GLCHK(glVertexAttribPointer(
-		mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		2,
-		GL_FLOAT,
-		false,
-		0,
-		texCoords));
-	GLCHK(glEnableVertexAttribArray(
-		mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glVertexAttribPointer(mTexcoordHandle[PROGRAM_NOCONV],
+				    2,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[PROGRAM_NOCONV]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(
-		mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
-	GLCHK(glDisableVertexAttribArray(
-		mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[PROGRAM_NOCONV]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[PROGRAM_NOCONV]));
 
-	GLCHK(glUseProgram(mProgram[colorConversion]));
+	GLCHK(glUseProgram(mProgram[prog]));
 }
 
 
-int Gles2Video::setupPaddingFbo(unsigned int cropWidth,
-				unsigned int cropHeight,
-				enum pdraw_video_renderer_fill_mode fillMode)
+int Gles2Video::setupPaddingFbo(enum pdraw_video_renderer_fill_mode fillMode)
 {
 	GLenum gle;
 	unsigned int i;
@@ -1520,7 +1388,7 @@ int Gles2Video::setupPaddingFbo(unsigned int cropWidth,
 			0,
 			GL_RGB,
 			GL_UNSIGNED_BYTE,
-			NULL));
+			nullptr));
 
 		GLCHK(glTexParameteri(
 			GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
@@ -1571,28 +1439,24 @@ void Gles2Video::cleanupPaddingFbo(void)
 }
 
 
-void Gles2Video::renderPadding(
-	size_t framePlaneStride[3],
-	unsigned int frameHeight,
-	unsigned int cropLeft,
-	unsigned int cropTop,
-	unsigned int cropWidth,
-	unsigned int cropHeight,
-	const struct pdraw_rect *renderPos,
-	float videoW,
-	float videoH,
-	float videoW2,
-	float videoH2,
-	float videoAR,
-	float windowAR,
-	enum pdraw_video_renderer_fill_mode fillMode,
-	enum gles2_video_color_conversion colorConversion,
-	enum gles2_video_yuv_range yuvRange,
-	bool immersive,
-	Eigen::Matrix4f &viewProjMat)
+void Gles2Video::renderPadding(size_t framePlaneStride[3],
+			       const struct vdef_raw_format *format,
+			       const struct vdef_frame_info *info,
+			       const struct vdef_rect *crop,
+			       const struct pdraw_rect *renderPos,
+			       float videoW,
+			       float videoH,
+			       float videoW2,
+			       float videoH2,
+			       float videoAR,
+			       float windowAR,
+			       enum pdraw_video_renderer_fill_mode fillMode,
+			       bool immersive,
+			       Eigen::Matrix4f &viewProjMat)
 {
 	unsigned int i;
 	float stride[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxCoords[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
 	bool mirrorTexture = false;
@@ -1604,16 +1468,18 @@ void Gles2Video::renderPadding(
 	    (fillMode != PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND))
 		return;
 
+	enum program prog;
+	prog = getProgram(format);
+
 	/* Pass 1 downscale */
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo[0]));
 	GLCHK(glViewport(0, 0, mPaddingPass1Width, mPaddingPass1Height));
-	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
 
-	GLCHK(glUseProgram(mProgram[colorConversion]));
+	GLCHK(glUseProgram(mProgram[prog]));
 
-	switch (colorConversion) {
+	switch (prog) {
 	default:
-	case GLES2_VIDEO_COLOR_CONVERSION_NONE:
+	case PROGRAM_NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -1622,70 +1488,82 @@ void Gles2Video::renderPadding(
 				    (mExtTexture > 0) ? mExtTexture
 						      : mTextures[0]));
 #	endif /* BCM_VIDEOCORE */
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
-				  mFirstTexUnit));
+		GLCHK(glUniform1i(mUniformSamplers[prog][0], mFirstTexUnit));
 		stride[0] = 1.f / framePlaneStride[0];
-		stride[1] = 1.f / frameHeight;
-		GLCHK(glUniform2fv(mProgramStride[colorConversion],
-				   GLES2_VIDEO_TEX_UNIT_COUNT,
-				   stride));
+		stride[1] = 1.f / info->resolution.height;
+		maxCoords[0] =
+			(float)(crop->left + crop->width) / framePlaneStride[0];
+		maxCoords[1] = (float)(crop->top + crop->height) /
+			       info->resolution.height;
 		break;
-	case GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB:
+	case PROGRAM_YUV_TO_RGB_PLANAR:
+	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
 		mirrorTexture = true;
 		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-			int height = frameHeight / ((i > 0) ? 2 : 1);
+			int height =
+				info->resolution.height / ((i > 0) ? 2 : 1);
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
-			GLCHK(glUniform1i(mUniformSamplers[colorConversion][i],
+			GLCHK(glUniform1i(mUniformSamplers[prog][i],
 					  mFirstTexUnit + i));
 			stride[2 * i] = 1.f / framePlaneStride[i];
 			stride[2 * i + 1] = 1.f / height;
+			maxCoords[2 * i] =
+				(float)(crop->left + crop->width) /
+				(framePlaneStride[i] * ((i > 0) ? 2 : 1));
+			maxCoords[2 * i + 1] =
+				(float)(crop->top + crop->height) /
+				info->resolution.height;
 		}
-
-		GLCHK(glUniform2fv(mProgramStride[colorConversion],
-				   GLES2_VIDEO_TEX_UNIT_COUNT,
-				   stride));
-		GLCHK(glUniform3f(mProgramYuv2RgbOffset[colorConversion],
-				  yuv2RgbOffsets[yuvRange][0],
-				  yuv2RgbOffsets[yuvRange][1],
-				  yuv2RgbOffsets[yuvRange][2]));
-		GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[colorConversion],
-					 1,
-					 GL_FALSE,
-					 &yuv2RgbMats[yuvRange][0]));
 		break;
-	case GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB:
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
 		mirrorTexture = true;
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+		GLCHK(glUniform1i(mUniformSamplers[prog][0],
 				  mFirstTexUnit + 0));
 		stride[0] = 1.f / framePlaneStride[0];
-		stride[1] = 1.f / frameHeight;
+		stride[1] = 1.f / info->resolution.height;
+		maxCoords[0] =
+			(float)(crop->left + crop->width) / framePlaneStride[0];
+		maxCoords[1] = (float)(crop->top + crop->height) /
+			       info->resolution.height;
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][1],
+		GLCHK(glUniform1i(mUniformSamplers[prog][1],
 				  mFirstTexUnit + 1));
 		stride[2] = 1.f / (framePlaneStride[1] / 2);
-		stride[3] = 1.f / (frameHeight / 2);
-
-		GLCHK(glUniform2fv(mProgramStride[colorConversion],
-				   GLES2_VIDEO_TEX_UNIT_COUNT,
-				   stride));
-		GLCHK(glUniform3f(mProgramYuv2RgbOffset[colorConversion],
-				  yuv2RgbOffsets[yuvRange][0],
-				  yuv2RgbOffsets[yuvRange][1],
-				  yuv2RgbOffsets[yuvRange][2]));
-		GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[colorConversion],
-					 1,
-					 GL_FALSE,
-					 &yuv2RgbMats[yuvRange][0]));
+		stride[3] = 1.f / (info->resolution.height / 2);
+		maxCoords[2] =
+			(float)(crop->left + crop->width) / framePlaneStride[1];
+		maxCoords[3] = (float)(crop->top + crop->height) /
+			       info->resolution.height;
 		break;
 	}
 
+	GLCHK(glUniform2fv(
+		mProgramStride[prog], GLES2_VIDEO_TEX_UNIT_COUNT, stride));
+	GLCHK(glUniform2fv(mProgramMaxCoords[prog],
+			   GLES2_VIDEO_TEX_UNIT_COUNT,
+			   maxCoords));
+	GLCHK(glUniform3f(mProgramYuv2RgbOffset[prog],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][0],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][1],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][2]));
+	GLCHK(glUniformMatrix3fv(
+		mProgramYuv2RgbMatrix[prog],
+		1,
+		GL_FALSE,
+		&vdef_yuv_to_rgb_norm_matrix[info->matrix_coefs]
+					    [info->full_range][0]));
+
 	/* Disable overexposure zebras */
-	updateZebra(NULL, colorConversion, false, 0.f);
+	updateZebra(nullptr, prog, false, 0.f);
 
 	vertices[0] = -1.;
 	vertices[1] = -1.;
@@ -1702,59 +1580,55 @@ void Gles2Video::renderPadding(
 
 	Eigen::Matrix4f id = Eigen::Matrix4f::Identity();
 	GLCHK(glUniformMatrix4fv(
-		mProgramTransformMatrix[colorConversion], 1, false, id.data()));
-	GLCHK(glUniform1f(mProgramSatCoef[colorConversion], 1.f));
-	GLCHK(glUniform1f(mProgramLightCoef[colorConversion], 1.f));
-	GLCHK(glUniform1f(mProgramDarkCoef[colorConversion], 1.f));
+		mProgramTransformMatrix[prog], 1, false, id.data()));
+	GLCHK(glUniform1f(mProgramSatCoef[prog], 1.f));
+	GLCHK(glUniform1f(mProgramLightCoef[prog], 1.f));
+	GLCHK(glUniform1f(mProgramDarkCoef[prog], 1.f));
 
-	GLCHK(glVertexAttribPointer(mPositionHandle[colorConversion],
-				    3,
-				    GL_FLOAT,
-				    false,
-				    0,
-				    vertices));
-	GLCHK(glEnableVertexAttribArray(mPositionHandle[colorConversion]));
+	GLCHK(glVertexAttribPointer(
+		mPositionHandle[prog], 3, GL_FLOAT, false, 0, vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[prog]));
 
 	if (mirrorTexture) {
-		texCoords[0] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[1] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[2] = (float)(cropLeft + cropWidth) /
+		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[1] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[2] = (float)(crop->left + crop->width) /
 			       (float)framePlaneStride[0];
-		texCoords[3] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[4] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[5] = (float)cropTop / (float)frameHeight;
-		texCoords[6] = (float)(cropLeft + cropWidth) /
-			       (float)framePlaneStride[0];
-		texCoords[7] = (float)cropTop / (float)frameHeight;
-	} else {
-		texCoords[0] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[1] = (float)cropTop / (float)frameHeight;
-		texCoords[2] = (float)(cropLeft + cropWidth) /
-			       (float)framePlaneStride[0];
-		texCoords[3] = (float)cropTop / (float)frameHeight;
-		texCoords[4] = (float)cropLeft / (float)framePlaneStride[0];
+		texCoords[3] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[4] = (float)crop->left / (float)framePlaneStride[0];
 		texCoords[5] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[6] = (float)(cropLeft + cropWidth) /
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[6] = (float)(crop->left + crop->width) /
 			       (float)framePlaneStride[0];
 		texCoords[7] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
+			(float)crop->top / (float)info->resolution.height;
+	} else {
+		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[1] =
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[2] = (float)(crop->left + crop->width) /
+			       (float)framePlaneStride[0];
+		texCoords[3] =
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[4] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[5] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[6] = (float)(crop->left + crop->width) /
+			       (float)framePlaneStride[0];
+		texCoords[7] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
 	}
 
-	GLCHK(glVertexAttribPointer(mTexcoordHandle[colorConversion],
-				    2,
-				    GL_FLOAT,
-				    false,
-				    0,
-				    texCoords));
-	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[colorConversion]));
+	GLCHK(glVertexAttribPointer(
+		mTexcoordHandle[prog], 2, GL_FLOAT, false, 0, texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[prog]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(mPositionHandle[colorConversion]));
-	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[colorConversion]));
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[prog]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[prog]));
 
 	/* Pass 1 horizontal blur */
 	vertices[0] = -1.;
@@ -1842,26 +1716,33 @@ void Gles2Video::renderPadding(
 			 renderPos->y,
 			 renderPos->width,
 			 renderPos->height));
-	GLCHK(glUseProgram(mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glUseProgram(mProgram[PROGRAM_NOCONV]));
 	GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
 			      GLES2_VIDEO_TEX_UNIT_COUNT));
 	GLCHK(glBindTexture(GL_TEXTURE_2D, mPaddingFboTexture[2]));
-	GLCHK(glUniform1i(
-		mUniformSamplers[GLES2_VIDEO_COLOR_CONVERSION_NONE][0],
-		mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT));
-	GLCHK(glUniformMatrix4fv(
-		mProgramTransformMatrix[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		1,
-		false,
-		viewProjMat.data()));
-	GLCHK(glUniform1f(mProgramSatCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			  mSatCoef));
-	GLCHK(glUniform1f(mProgramLightCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-			  mLightCoef));
-	GLCHK(glUniform1f(mProgramDarkCoef[GLES2_VIDEO_COLOR_CONVERSION_NONE],
+	GLCHK(glUniform1i(mUniformSamplers[PROGRAM_NOCONV][0],
+			  mFirstTexUnit + GLES2_VIDEO_TEX_UNIT_COUNT));
+	GLCHK(glUniformMatrix4fv(mProgramTransformMatrix[PROGRAM_NOCONV],
+				 1,
+				 false,
+				 viewProjMat.data()));
+	GLCHK(glUniform1f(mProgramSatCoef[PROGRAM_NOCONV], mSatCoef));
+	GLCHK(glUniform1f(mProgramLightCoef[PROGRAM_NOCONV], mLightCoef));
+	GLCHK(glUniform1f(mProgramDarkCoef[PROGRAM_NOCONV],
 			  (immersive) ? mDarkCoef
 				      : PDRAW_BLURRED_PADDING_DARK_COEF *
 						mDarkCoef));
+
+	maxCoords[0] = 1.;
+	maxCoords[1] = 1.;
+	stride[0] = 0.;
+	stride[1] = 0.;
+	GLCHK(glUniform2fv(mProgramStride[PROGRAM_NOCONV],
+			   GLES2_VIDEO_TEX_UNIT_COUNT,
+			   stride));
+	GLCHK(glUniform2fv(mProgramMaxCoords[PROGRAM_NOCONV],
+			   GLES2_VIDEO_TEX_UNIT_COUNT,
+			   maxCoords));
 
 	vertices[0] = -videoW2;
 	vertices[1] = -videoH2;
@@ -1896,66 +1777,59 @@ void Gles2Video::renderPadding(
 		texCoords[7] = 1.;
 	}
 
-	GLCHK(glVertexAttribPointer(
-		mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		3,
-		GL_FLOAT,
-		false,
-		0,
-		vertices));
-	GLCHK(glEnableVertexAttribArray(
-		mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glVertexAttribPointer(mPositionHandle[PROGRAM_NOCONV],
+				    3,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[PROGRAM_NOCONV]));
 
-	GLCHK(glVertexAttribPointer(
-		mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE],
-		2,
-		GL_FLOAT,
-		false,
-		0,
-		texCoords));
-	GLCHK(glEnableVertexAttribArray(
-		mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glVertexAttribPointer(mTexcoordHandle[PROGRAM_NOCONV],
+				    2,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[PROGRAM_NOCONV]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(
-		mPositionHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
-	GLCHK(glDisableVertexAttribArray(
-		mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[PROGRAM_NOCONV]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[PROGRAM_NOCONV]));
 
-	GLCHK(glUseProgram(mProgram[colorConversion]));
+	GLCHK(glUseProgram(mProgram[prog]));
 }
 
 
-void Gles2Video::setupZebra(enum gles2_video_color_conversion colorConversion)
+void Gles2Video::setupZebra(enum program prog)
 {
 	float co = cosf(PDRAW_ZEBRA_ANGLE);
 	float si = sinf(PDRAW_ZEBRA_ANGLE);
 	const GLfloat zebra_mat[] = {co, si, -si, co};
 
-	GLCHK(glUseProgram(mProgram[colorConversion]));
+	GLCHK(glUseProgram(mProgram[prog]));
 	GLCHK(glUniformMatrix2fv(
-		glGetUniformLocation(mProgram[colorConversion], "zebra_mat"),
+		glGetUniformLocation(mProgram[prog], "zebra_mat"),
 		1,
 		GL_FALSE,
 		zebra_mat));
-	GLCHK(glUniform1fv(glGetUniformLocation(mProgram[colorConversion],
-						"zebra_avg_weights"),
-			   9,
-			   zebraAvgWeights));
+	GLCHK(glUniform1fv(
+		glGetUniformLocation(mProgram[prog], "zebra_avg_weights"),
+		9,
+		zebraAvgWeights));
 }
 
 
 void Gles2Video::updateZebra(struct pdraw_rect *contentPos,
-			     enum gles2_video_color_conversion colorConversion,
+			     enum program prog,
 			     bool enable,
 			     float threshold)
 {
-	GLCHK(glUniform1f(mProgramZebraEnable[colorConversion],
-			  enable ? 1.f : 0.f));
-	GLCHK(glUniform1f(mProgramZebraThreshold[colorConversion], threshold));
+	GLCHK(glUniform1f(mProgramZebraEnable[prog], enable ? 1.f : 0.f));
+	GLCHK(glUniform1f(mProgramZebraThreshold[prog], threshold));
 
-	if (enable && contentPos != NULL) {
+	if (enable && contentPos != nullptr) {
 		struct timespec ts;
 		uint64_t time_us;
 		if (time_get_monotonic(&ts) < 0) {
@@ -1970,12 +1844,10 @@ void Gles2Video::updateZebra(struct pdraw_rect *contentPos,
 			(uint64_t)(1000000.f / PDRAW_ZEBRA_FREQUENCY_HZ);
 		float zebra_phase =
 			(float)(time_us % zebra_period_us) / zebra_period_us;
-		GLCHK(glUniform1f(mProgramZebraPhase[colorConversion],
-				  zebra_phase));
+		GLCHK(glUniform1f(mProgramZebraPhase[prog], zebra_phase));
 		float zebra_weight =
 			PDRAW_ZEBRA_WEIGHT * contentPos->width / 1920;
-		GLCHK(glUniform1f(mProgramZebraWeight[colorConversion],
-				  zebra_weight));
+		GLCHK(glUniform1f(mProgramZebraWeight[prog], zebra_weight));
 	}
 }
 
@@ -1986,21 +1858,21 @@ int Gles2Video::setupHistograms(void)
 	GLenum gle;
 	GLint success = 0;
 	GLint vertexShaderHistogram = 0;
-	GLint fragmentShaderHistogram[GLES2_VIDEO_COLOR_CONVERSION_MAX] = {0};
+	GLint fragmentShaderHistogram[PROGRAM_MAX] = {0};
 	unsigned int i;
 
 	/* Buffers allocation */
 	mHistogramBuffer =
 		(uint8_t *)malloc(4 * GLES2_VIDEO_HISTOGRAM_FBO_TARGET_SIZE *
 				  GLES2_VIDEO_HISTOGRAM_FBO_TARGET_SIZE);
-	if (mHistogramBuffer == NULL) {
+	if (mHistogramBuffer == nullptr) {
 		ULOG_ERRNO("malloc", ENOMEM);
 		ret = -ENOMEM;
 		goto error;
 	}
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
 		mHistogram[i] = (uint32_t *)malloc(256 * sizeof(uint32_t));
-		if (mHistogram[i] == NULL) {
+		if (mHistogram[i] == nullptr) {
 			ULOG_ERRNO("malloc", ENOMEM);
 			ret = -ENOMEM;
 			goto error;
@@ -2008,7 +1880,7 @@ int Gles2Video::setupHistograms(void)
 	}
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
 		mHistogramNorm[i] = (float *)calloc(256, sizeof(float));
-		if (mHistogramNorm[i] == NULL) {
+		if (mHistogramNorm[i] == nullptr) {
 			ULOG_ERRNO("calloc", ENOMEM);
 			ret = -ENOMEM;
 			goto error;
@@ -2024,18 +1896,20 @@ int Gles2Video::setupHistograms(void)
 		goto error;
 	}
 
-	glShaderSource(vertexShaderHistogram, 1, &histogramVertexShader, NULL);
+	glShaderSource(
+		vertexShaderHistogram, 1, &histogramVertexShader, nullptr);
 	glCompileShader(vertexShaderHistogram);
 	glGetShaderiv(vertexShaderHistogram, GL_COMPILE_STATUS, &success);
 	if (!success) {
 		GLchar infoLog[512];
-		glGetShaderInfoLog(vertexShaderHistogram, 512, NULL, infoLog);
+		glGetShaderInfoLog(
+			vertexShaderHistogram, 512, nullptr, infoLog);
 		ULOGE("vertex shader compilation failed '%s'", infoLog);
 		ret = -EPROTO;
 		goto error;
 	}
 
-	for (i = 0; i < GLES2_VIDEO_COLOR_CONVERSION_MAX; i++) {
+	for (i = 0; i < PROGRAM_MAX; i++) {
 		fragmentShaderHistogram[i] = glCreateShader(GL_FRAGMENT_SHADER);
 		if ((fragmentShaderHistogram[i] == 0) ||
 		    (fragmentShaderHistogram[i] == GL_INVALID_ENUM)) {
@@ -2047,15 +1921,17 @@ int Gles2Video::setupHistograms(void)
 		glShaderSource(fragmentShaderHistogram[i],
 			       2,
 			       histogramFragmentShaders[i],
-			       NULL);
+			       nullptr);
 		glCompileShader(fragmentShaderHistogram[i]);
 		glGetShaderiv(fragmentShaderHistogram[i],
 			      GL_COMPILE_STATUS,
 			      &success);
 		if (!success) {
 			GLchar infoLog[512];
-			glGetShaderInfoLog(
-				fragmentShaderHistogram[i], 512, NULL, infoLog);
+			glGetShaderInfoLog(fragmentShaderHistogram[i],
+					   512,
+					   nullptr,
+					   infoLog);
 			ULOGE("fragment shader compilation failed '%s'",
 			      infoLog);
 			ret = -EPROTO;
@@ -2064,7 +1940,7 @@ int Gles2Video::setupHistograms(void)
 	}
 
 	/* Shaders link */
-	for (i = 0; i < GLES2_VIDEO_COLOR_CONVERSION_MAX; i++) {
+	for (i = 0; i < PROGRAM_MAX; i++) {
 		mHistogramProgram[i] = glCreateProgram();
 		glAttachShader(mHistogramProgram[i], vertexShaderHistogram);
 		glAttachShader(mHistogramProgram[i],
@@ -2074,7 +1950,7 @@ int Gles2Video::setupHistograms(void)
 		if (!success) {
 			GLchar infoLog[512];
 			glGetProgramInfoLog(
-				mHistogramProgram[i], 512, NULL, infoLog);
+				mHistogramProgram[i], 512, nullptr, infoLog);
 			ULOGE("program link failed '%s'", infoLog);
 			ret = -EPROTO;
 			goto error;
@@ -2083,13 +1959,13 @@ int Gles2Video::setupHistograms(void)
 
 	glDeleteShader(vertexShaderHistogram);
 	vertexShaderHistogram = 0;
-	for (i = 0; i < GLES2_VIDEO_COLOR_CONVERSION_MAX; i++) {
+	for (i = 0; i < PROGRAM_MAX; i++) {
 		glDeleteShader(fragmentShaderHistogram[i]);
 		fragmentShaderHistogram[i] = 0;
 	}
 
 	/* Uniforms and attribs */
-	for (i = 0; i < GLES2_VIDEO_COLOR_CONVERSION_MAX; i++) {
+	for (i = 0; i < PROGRAM_MAX; i++) {
 		mHistogramYuv2RgbMatrix[i] = glGetUniformLocation(
 			mHistogramProgram[i], "yuv2rgb_mat");
 		mHistogramYuv2RgbOffset[i] = glGetUniformLocation(
@@ -2130,7 +2006,7 @@ int Gles2Video::setupHistograms(void)
 			   0,
 			   GL_RGBA,
 			   GL_UNSIGNED_BYTE,
-			   NULL));
+			   nullptr));
 
 	GLCHK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
 	GLCHK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -2161,7 +2037,7 @@ error:
 
 	if (vertexShaderHistogram)
 		glDeleteShader(vertexShaderHistogram);
-	for (i = 0; i < GLES2_VIDEO_COLOR_CONVERSION_MAX; i++) {
+	for (i = 0; i < PROGRAM_MAX; i++) {
 		if (fragmentShaderHistogram[i])
 			glDeleteShader(fragmentShaderHistogram[i]);
 	}
@@ -2184,37 +2060,32 @@ void Gles2Video::cleanupHistograms(void)
 		GLCHK(glDeleteFramebuffers(1, &mHistogramFbo));
 		mHistogramFbo = 0;
 	}
-	for (i = 0; i < GLES2_VIDEO_COLOR_CONVERSION_MAX; i++) {
+	for (i = 0; i < PROGRAM_MAX; i++) {
 		if (mHistogramProgram[i] > 0) {
 			GLCHK(glDeleteProgram(mHistogramProgram[i]));
 			mHistogramProgram[i] = 0;
 		}
 	}
 	free(mHistogramBuffer);
-	mHistogramBuffer = NULL;
+	mHistogramBuffer = nullptr;
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
 		free(mHistogram[i]);
-		mHistogram[i] = NULL;
+		mHistogram[i] = nullptr;
 	}
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
 		free(mHistogramNorm[i]);
-		mHistogramNorm[i] = NULL;
+		mHistogramNorm[i] = nullptr;
 	}
 	mHistogramInit = false;
 }
 
 
-void Gles2Video::computeHistograms(
-	size_t framePlaneStride[3],
-	unsigned int frameHeight,
-	unsigned int cropLeft,
-	unsigned int cropTop,
-	unsigned int cropWidth,
-	unsigned int cropHeight,
-	const struct pdraw_rect *renderPos,
-	enum gles2_video_color_conversion colorConversion,
-	enum gles2_video_yuv_range yuvRange,
-	bool enable)
+void Gles2Video::computeHistograms(size_t framePlaneStride[3],
+				   const struct vdef_raw_format *format,
+				   const struct vdef_frame_info *info,
+				   const struct vdef_rect *crop,
+				   const struct pdraw_rect *renderPos,
+				   bool enable)
 {
 	float vertices[12];
 	float texCoords[8];
@@ -2248,18 +2119,20 @@ void Gles2Video::computeHistograms(
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++)
 		mHistogramValid[i] = false;
 
+	enum program prog;
+	prog = getProgram(format);
+
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mHistogramFbo));
 	GLCHK(glDisable(GL_BLEND));
 	GLCHK(glViewport(0,
 			 0,
 			 GLES2_VIDEO_HISTOGRAM_FBO_TARGET_SIZE,
 			 GLES2_VIDEO_HISTOGRAM_FBO_TARGET_SIZE));
-	GLCHK(glClear(GL_COLOR_BUFFER_BIT));
-	GLCHK(glUseProgram(mHistogramProgram[colorConversion]));
+	GLCHK(glUseProgram(mHistogramProgram[prog]));
 
-	switch (colorConversion) {
+	switch (prog) {
 	default:
-	case GLES2_VIDEO_COLOR_CONVERSION_NONE:
+	case PROGRAM_NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -2268,41 +2141,47 @@ void Gles2Video::computeHistograms(
 				    (mExtTexture > 0) ? mExtTexture
 						      : mTextures[0]));
 #	endif /* BCM_VIDEOCORE */
-		GLCHK(glUniform1i(mHistogramUniformSampler[colorConversion][0],
+		GLCHK(glUniform1i(mHistogramUniformSampler[prog][0],
 				  mFirstTexUnit));
 		break;
-	case GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB:
+	case PROGRAM_YUV_TO_RGB_PLANAR:
+	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
 		mirrorTexture = true;
 		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
-			GLCHK(glUniform1i(
-				mHistogramUniformSampler[colorConversion][i],
-				mFirstTexUnit + i));
+			GLCHK(glUniform1i(mHistogramUniformSampler[prog][i],
+					  mFirstTexUnit + i));
 		}
 		break;
-	case GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB:
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
 		mirrorTexture = true;
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-		GLCHK(glUniform1i(mHistogramUniformSampler[colorConversion][0],
+		GLCHK(glUniform1i(mHistogramUniformSampler[prog][0],
 				  mFirstTexUnit + 0));
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-		GLCHK(glUniform1i(mHistogramUniformSampler[colorConversion][1],
+		GLCHK(glUniform1i(mHistogramUniformSampler[prog][1],
 				  mFirstTexUnit + 1));
 		break;
 	}
 
-	GLCHK(glUniform3f(mHistogramYuv2RgbOffset[colorConversion],
-			  yuv2RgbOffsets[yuvRange][0],
-			  yuv2RgbOffsets[yuvRange][1],
-			  yuv2RgbOffsets[yuvRange][2]));
-	GLCHK(glUniformMatrix3fv(mHistogramYuv2RgbMatrix[colorConversion],
-				 1,
-				 GL_FALSE,
-				 &yuv2RgbMats[yuvRange][0]));
+	GLCHK(glUniform3f(mHistogramYuv2RgbOffset[prog],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][0],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][1],
+			  vdef_yuv_to_rgb_norm_offset[info->matrix_coefs]
+						     [info->full_range][2]));
+	GLCHK(glUniformMatrix3fv(
+		mHistogramYuv2RgbMatrix[prog],
+		1,
+		GL_FALSE,
+		&vdef_yuv_to_rgb_norm_matrix[info->matrix_coefs]
+					    [info->full_range][0]));
 
 	vertices[0] = -1.;
 	vertices[1] = -1.;
@@ -2317,58 +2196,58 @@ void Gles2Video::computeHistograms(
 	vertices[10] = 1.;
 	vertices[11] = 1.;
 
-	GLCHK(glVertexAttribPointer(mHistogramPositionHandle[colorConversion],
+	GLCHK(glVertexAttribPointer(mHistogramPositionHandle[prog],
 				    3,
 				    GL_FLOAT,
 				    false,
 				    0,
 				    vertices));
-	GLCHK(glEnableVertexAttribArray(
-		mHistogramPositionHandle[colorConversion]));
+	GLCHK(glEnableVertexAttribArray(mHistogramPositionHandle[prog]));
 
 	if (mirrorTexture) {
-		texCoords[0] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[1] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[2] = (float)(cropLeft + cropWidth) /
+		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[1] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[2] = (float)(crop->left + crop->width) /
 			       (float)framePlaneStride[0];
-		texCoords[3] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[4] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[5] = (float)cropTop / (float)frameHeight;
-		texCoords[6] = (float)(cropLeft + cropWidth) /
-			       (float)framePlaneStride[0];
-		texCoords[7] = (float)cropTop / (float)frameHeight;
-	} else {
-		texCoords[0] = (float)cropLeft / (float)framePlaneStride[0];
-		texCoords[1] = (float)cropTop / (float)frameHeight;
-		texCoords[2] = (float)(cropLeft + cropWidth) /
-			       (float)framePlaneStride[0];
-		texCoords[3] = (float)cropTop / (float)frameHeight;
-		texCoords[4] = (float)cropLeft / (float)framePlaneStride[0];
+		texCoords[3] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[4] = (float)crop->left / (float)framePlaneStride[0];
 		texCoords[5] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
-		texCoords[6] = (float)(cropLeft + cropWidth) /
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[6] = (float)(crop->left + crop->width) /
 			       (float)framePlaneStride[0];
 		texCoords[7] =
-			(float)(cropTop + cropHeight) / (float)frameHeight;
+			(float)crop->top / (float)info->resolution.height;
+	} else {
+		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[1] =
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[2] = (float)(crop->left + crop->width) /
+			       (float)framePlaneStride[0];
+		texCoords[3] =
+			(float)crop->top / (float)info->resolution.height;
+		texCoords[4] = (float)crop->left / (float)framePlaneStride[0];
+		texCoords[5] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
+		texCoords[6] = (float)(crop->left + crop->width) /
+			       (float)framePlaneStride[0];
+		texCoords[7] = (float)(crop->top + crop->height) /
+			       (float)info->resolution.height;
 	}
 
-	GLCHK(glVertexAttribPointer(mHistogramTexcoordHandle[colorConversion],
+	GLCHK(glVertexAttribPointer(mHistogramTexcoordHandle[prog],
 				    2,
 				    GL_FLOAT,
 				    false,
 				    0,
 				    texCoords));
-	GLCHK(glEnableVertexAttribArray(
-		mHistogramTexcoordHandle[colorConversion]));
+	GLCHK(glEnableVertexAttribArray(mHistogramTexcoordHandle[prog]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(
-		mHistogramPositionHandle[colorConversion]));
-	GLCHK(glDisableVertexAttribArray(
-		mHistogramTexcoordHandle[colorConversion]));
+	GLCHK(glDisableVertexAttribArray(mHistogramPositionHandle[prog]));
+	GLCHK(glDisableVertexAttribArray(mHistogramTexcoordHandle[prog]));
 
 	GLCHK(glFinish());
 
@@ -2432,7 +2311,7 @@ void Gles2Video::getHistograms(float *histogram[PDRAW_HISTOGRAM_CHANNEL_MAX],
 	unsigned int i;
 
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
-		if ((mHistogramValid[i]) && (mHistogramNorm[i] != NULL)) {
+		if ((mHistogramValid[i]) && (mHistogramNorm[i] != nullptr)) {
 			histogram[i] = mHistogramNorm[i];
 			histogramLen[i] = 256;
 		}
@@ -2531,6 +2410,14 @@ void Gles2Video::updateTransition(void)
 			mBlurWeights, GLES2_VIDEO_BLUR_TAP_COUNT, blurSigma);
 		mApplyBlur = mBlurInit;
 		break;
+	case GLES2_VIDEO_TRANSITION_FLASH:
+		mLightCoef = mBaseLightCoef *
+			     (powf(progress, GLES2_VIDEO_FLASH_GAMMA_COEF) *
+				      GLES2_VIDEO_FLASH_LIGHT_COEF +
+			      1. - GLES2_VIDEO_FLASH_LIGHT_COEF);
+		mSatCoef = mBaseSatCoef *
+			   powf(progress, GLES2_VIDEO_FLASH_GAMMA_COEF);
+		break;
 	default:
 		ULOGE("unsupported transition type: %d", mTransition);
 		break;
@@ -2538,26 +2425,31 @@ void Gles2Video::updateTransition(void)
 }
 
 
-int Gles2Video::loadFrame(const uint8_t *frameData,
-			  size_t framePlaneOffset[3],
+int Gles2Video::loadFrame(const uint8_t *framePlanes[3],
 			  size_t framePlaneStride[3],
-			  unsigned int frameWidth,
-			  unsigned int frameHeight,
-			  enum gles2_video_color_conversion colorConversion,
+			  const struct vdef_raw_format *format,
+			  const struct vdef_frame_info *info,
 			  struct egl_display *eglDisplay)
 {
 	unsigned int i;
 
-	if ((frameWidth == 0) || (frameHeight == 0)) {
+	if ((info == nullptr) || (format == nullptr)) {
+		ULOGE("invalid frame info");
+		return -EINVAL;
+	}
+	if ((info->resolution.width == 0) || (info->resolution.height == 0)) {
 		ULOGE("invalid dimensions");
 		return -EINVAL;
 	}
 
-	GLCHK(glUseProgram(mProgram[colorConversion]));
+	enum program prog;
+	prog = getProgram(format);
 
-	switch (colorConversion) {
+	GLCHK(glUseProgram(mProgram[prog]));
+
+	switch (prog) {
 	default:
-	case GLES2_VIDEO_COLOR_CONVERSION_NONE: {
+	case PROGRAM_NOCONV: {
 #	ifdef BCM_VIDEOCORE
 		EGLDisplay display = (EGLDisplay)eglDisplay;
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
@@ -2569,26 +2461,26 @@ int Gles2Video::loadFrame(const uint8_t *frameData,
 		mEglImage = eglCreateImageKHR(display,
 					      EGL_NO_CONTEXT,
 					      EGL_IMAGE_BRCM_MULTIMEDIA,
-					      (EGLClientBuffer)frameData,
-					      NULL);
+					      (EGLClientBuffer)framePlanes[0],
+					      nullptr);
 		if (mEglImage == EGL_NO_IMAGE_KHR) {
 			ULOGE("failed to create EGLImage");
 			return -EPROTO;
 		}
 		GLCHK(glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES,
 						   mEglImage));
-		GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
-				  mFirstTexUnit));
+		GLCHK(glUniform1i(mUniformSamplers[prog][0], mFirstTexUnit));
 #	endif /* BCM_VIDEOCORE */
 		break;
 	}
-	case GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB:
-		if ((framePlaneOffset == NULL) || (framePlaneStride == NULL)) {
+	case PROGRAM_YUV_TO_RGB_PLANAR:
+		if ((framePlanes == nullptr) || (framePlaneStride == nullptr)) {
 			ULOGE("invalid planes");
 			return -EINVAL;
 		}
 		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-			int height = frameHeight / ((i > 0) ? 2 : 1);
+			int height =
+				info->resolution.height / ((i > 0) ? 2 : 1);
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
 			GLCHK(glTexImage2D(GL_TEXTURE_2D,
@@ -2599,11 +2491,32 @@ int Gles2Video::loadFrame(const uint8_t *frameData,
 					   0,
 					   GL_LUMINANCE,
 					   GL_UNSIGNED_BYTE,
-					   frameData + framePlaneOffset[i]));
+					   framePlanes[i]));
 		}
 		break;
-	case GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB:
-		if ((framePlaneOffset == NULL) || (framePlaneStride == NULL)) {
+	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
+		if ((framePlanes == nullptr) || (framePlaneStride == nullptr)) {
+			ULOGE("invalid planes");
+			return -EINVAL;
+		}
+		for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
+			int height =
+				info->resolution.height / ((i > 0) ? 2 : 1);
+			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
+			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
+			GLCHK(glTexImage2D(GL_TEXTURE_2D,
+					   0,
+					   GL_LUMINANCE_ALPHA,
+					   framePlaneStride[i] / 2,
+					   height,
+					   0,
+					   GL_LUMINANCE_ALPHA,
+					   GL_UNSIGNED_BYTE,
+					   framePlanes[i]));
+		}
+		break;
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
+		if ((framePlanes == nullptr) || (framePlaneStride == nullptr)) {
 			ULOGE("invalid planes");
 			return -EINVAL;
 		}
@@ -2613,11 +2526,11 @@ int Gles2Video::loadFrame(const uint8_t *frameData,
 				   0,
 				   GL_LUMINANCE,
 				   framePlaneStride[0],
-				   frameHeight,
+				   info->resolution.height,
 				   0,
 				   GL_LUMINANCE,
 				   GL_UNSIGNED_BYTE,
-				   frameData + framePlaneOffset[0]));
+				   framePlanes[0]));
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
@@ -2625,11 +2538,40 @@ int Gles2Video::loadFrame(const uint8_t *frameData,
 				   0,
 				   GL_LUMINANCE_ALPHA,
 				   framePlaneStride[1] / 2,
-				   frameHeight / 2,
+				   info->resolution.height / 2,
 				   0,
 				   GL_LUMINANCE_ALPHA,
 				   GL_UNSIGNED_BYTE,
-				   frameData + framePlaneOffset[1]));
+				   framePlanes[1]));
+		break;
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
+		if ((framePlanes == nullptr) || (framePlaneStride == nullptr)) {
+			ULOGE("invalid planes");
+			return -EINVAL;
+		}
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D,
+				   0,
+				   GL_LUMINANCE_ALPHA,
+				   framePlaneStride[0] / 2,
+				   info->resolution.height,
+				   0,
+				   GL_LUMINANCE_ALPHA,
+				   GL_UNSIGNED_BYTE,
+				   framePlanes[0]));
+
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D,
+				   0,
+				   GL_RGBA,
+				   framePlaneStride[1] / 4,
+				   info->resolution.height / 2,
+				   0,
+				   GL_RGBA,
+				   GL_UNSIGNED_BYTE,
+				   framePlanes[1]));
 		break;
 	}
 
@@ -2637,69 +2579,83 @@ int Gles2Video::loadFrame(const uint8_t *frameData,
 }
 
 
-int Gles2Video::renderFrame(size_t framePlaneStride[3],
-			    unsigned int frameHeight,
-			    unsigned int cropLeft,
-			    unsigned int cropTop,
-			    unsigned int cropWidth,
-			    unsigned int cropHeight,
-			    unsigned int sarWidth,
-			    unsigned int sarHeight,
-			    const struct pdraw_rect *renderPos,
+int Gles2Video::renderFrame(const struct pdraw_rect *renderPos,
 			    struct pdraw_rect *contentPos,
 			    Eigen::Matrix4f &viewProjMat,
-			    enum gles2_video_color_conversion colorConversion,
-			    enum gles2_video_yuv_range yuvRange,
-			    const struct vmeta_frame *metadata,
+			    size_t framePlaneStride[3],
+			    const struct vdef_raw_format *format,
+			    const struct vdef_frame_info *info,
+			    const struct vdef_rect *crop,
+			    struct vmeta_frame *metadata,
 			    const struct pdraw_video_renderer_params *params)
 {
 	int ret;
 	unsigned int i;
 	float stride[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxCoords[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
 	bool mirrorTexture = false;
 	float videoAR;
 
-	if (renderPos == NULL) {
+	if ((renderPos == nullptr) || (renderPos->width == 0) ||
+	    (renderPos->height == 0)) {
 		ULOGE("invalid render position");
 		return -EINVAL;
 	}
-
-	if ((cropWidth == 0) || (cropHeight == 0) || (sarWidth == 0) ||
-	    (sarHeight == 0) || (renderPos->width == 0) ||
-	    (renderPos->height == 0) || (framePlaneStride[0] == 0)) {
+	if ((info == nullptr) || (format == nullptr)) {
+		ULOGE("invalid frame info");
+		return -EINVAL;
+	}
+	if ((info->resolution.width == 0) || (info->resolution.height == 0) ||
+	    (info->sar.width == 0) || (info->sar.height == 0) ||
+	    (framePlaneStride[0] == 0)) {
 		ULOGE("invalid dimensions");
 		return -EINVAL;
 	}
 
-	if ((mVideoWidth != cropWidth) || (mVideoHeight != cropHeight)) {
-		mVideoWidth = cropWidth;
-		mVideoHeight = cropHeight;
-		ret = setupBlurFbo(mVideoWidth, mVideoHeight);
+	struct vdef_frame_info _info = *info;
+	if (_info.matrix_coefs == VDEF_MATRIX_COEFS_UNKNOWN) {
+		/* Default to BT.709 */
+		_info.matrix_coefs = VDEF_MATRIX_COEFS_BT709;
+	}
+
+	enum program prog;
+	prog = getProgram(format);
+
+	if ((mVideoWidth != _info.resolution.width) ||
+	    (mVideoHeight != _info.resolution.height)) {
+		mVideoWidth = _info.resolution.width;
+		mVideoHeight = _info.resolution.height;
+		ret = setupBlurFbo();
 		if (ret < 0)
 			ULOG_ERRNO("setupBlurFbo", -ret);
-		ret = setupPaddingFbo(cropWidth, cropHeight, params->fill_mode);
+		ret = setupPaddingFbo(params->fill_mode);
 		if (ret < 0)
 			ULOG_ERRNO("setupPaddingFbo", -ret);
+	}
+
+	if (prog == PROGRAM_YUV_TO_RGB_PLANAR_10_16LE) {
+		framePlaneStride[0] /= 2;
+		framePlaneStride[1] /= 2;
+		framePlaneStride[2] /= 2;
+	} else if (prog == PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH) {
+		framePlaneStride[0] /= 2;
+		framePlaneStride[1] /= 2;
 	}
 
 	updateTransition();
 
 	computeHistograms(framePlaneStride,
-			  frameHeight,
-			  cropLeft,
-			  cropTop,
-			  cropWidth,
-			  cropHeight,
+			  format,
+			  &_info,
+			  crop,
 			  renderPos,
-			  colorConversion,
-			  yuvRange,
 			  params->enable_histograms);
 
 	/* Video fill mode */
 	float windowAR = (float)renderPos->width / (float)renderPos->height;
-	float sar = (float)sarWidth / (float)sarHeight;
+	float sar = (float)_info.sar.width / (float)_info.sar.height;
 	if (params->video_texture_dar_height != 0 &&
 	    params->video_texture_dar_width != 0) {
 		/* If the display aspect ratio is given,
@@ -2707,7 +2663,8 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 		videoAR = (float)params->video_texture_dar_width /
 			  (float)params->video_texture_dar_height;
 	} else {
-		videoAR = (float)cropWidth / (float)cropHeight * sar;
+		videoAR = (float)_info.resolution.width /
+			  (float)_info.resolution.height * sar;
 	}
 
 	float windowW = 1.;
@@ -2716,15 +2673,13 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 	float ratioH = 1.;
 	float ratioW2 = 1.;
 	float ratioH2 = 1.;
-	float videoW, videoH;
 	switch (params->fill_mode) {
 	default:
 	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT:
 	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_CROP:
 	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND:
-		/* Maintain video aspect ratio without crop and add
-		 * black borders if window aspect ratio and video
-		 * aspect ratio differ */
+		/* Maintain video aspect ratio without crop and add borders if
+		 * window aspect ratio and video aspect ratio differ */
 		if (videoAR >= windowAR) {
 			ratioW = 1.;
 			ratioH = windowAR / videoAR;
@@ -2738,9 +2693,8 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 		}
 		break;
 	case PDRAW_VIDEO_RENDERER_FILL_MODE_CROP:
-		/* Maintain video aspect ratio without black borders
-		 * and add video crop if window aspect ratio and video
-		 * aspect ratio differ */
+		/* Maintain video aspect ratio without borders and add video
+		 * crop if window aspect ratio and video aspect ratio differ */
 		if (videoAR >= windowAR) {
 			ratioW = videoAR / windowAR;
 			ratioH = 1.;
@@ -2750,8 +2704,8 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 		}
 		break;
 	}
-	videoW = ratioW / windowW * params->video_scale_factor;
-	videoH = ratioH / windowH * params->video_scale_factor;
+	float videoW = ratioW / windowW * params->video_scale_factor;
+	float videoH = ratioH / windowH * params->video_scale_factor;
 	float videoW2 = ratioW2 / windowW;
 	float videoH2 = ratioH2 / windowH;
 
@@ -2769,28 +2723,10 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 		contentPos->y = dh / 2;
 	}
 
-
-	float hFov = 0.;
-	float vFov = 0.;
-	if (mMedia) {
-		hFov = mMedia->hfov;
-		vFov = mMedia->vfov;
-	}
-	if (hFov == 0.)
-		hFov = PDRAW_GLES2_VIDEO_DEFAULT_HFOV;
-	if (vFov == 0.)
-		vFov = PDRAW_GLES2_VIDEO_DEFAULT_VFOV;
-	hFov = hFov * M_PI / 180.;
-	vFov = vFov * M_PI / 180.;
-
-	GLCHK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-
 	renderPadding(framePlaneStride,
-		      frameHeight,
-		      cropLeft,
-		      cropTop,
-		      cropWidth,
-		      cropHeight,
+		      format,
+		      &_info,
+		      crop,
 		      renderPos,
 		      videoW,
 		      videoH,
@@ -2799,30 +2735,24 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 		      videoAR,
 		      windowAR,
 		      params->fill_mode,
-		      colorConversion,
-		      yuvRange,
 		      false,
 		      viewProjMat);
 
 	if (mApplyBlur) {
 		renderBlur(framePlaneStride,
-			   frameHeight,
-			   cropLeft,
-			   cropTop,
-			   cropWidth,
-			   cropHeight,
+			   format,
+			   &_info,
+			   crop,
 			   renderPos,
 			   videoW,
 			   videoH,
-			   colorConversion,
-			   yuvRange,
 			   viewProjMat);
 	} else {
-		GLCHK(glUseProgram(mProgram[colorConversion]));
+		GLCHK(glUseProgram(mProgram[prog]));
 
-		switch (colorConversion) {
+		switch (prog) {
 		default:
-		case GLES2_VIDEO_COLOR_CONVERSION_NONE:
+		case PROGRAM_NOCONV:
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 			GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES,
@@ -2832,91 +2762,99 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 					    (mExtTexture > 0) ? mExtTexture
 							      : mTextures[0]));
 #	endif /* BCM_VIDEOCORE */
-			GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+			GLCHK(glUniform1i(mUniformSamplers[prog][0],
 					  mFirstTexUnit));
 			stride[0] = 1.f / framePlaneStride[0];
-			stride[1] = 1.f / frameHeight;
-			GLCHK(glUniform2fv(mProgramStride[colorConversion],
-					   GLES2_VIDEO_TEX_UNIT_COUNT,
-					   stride));
+			stride[1] = 1.f / _info.resolution.height;
+			maxCoords[0] = (float)(crop->left + crop->width) /
+				       framePlaneStride[0];
+			maxCoords[1] = (float)(crop->top + crop->height) /
+				       _info.resolution.height;
 			break;
-		case GLES2_VIDEO_COLOR_CONVERSION_I420_TO_RGB:
+		case PROGRAM_YUV_TO_RGB_PLANAR:
+		case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
 			mirrorTexture = true;
 			for (i = 0; i < GLES2_VIDEO_TEX_UNIT_COUNT; i++) {
-				int height = frameHeight / ((i > 0) ? 2 : 1);
+				int height = _info.resolution.height /
+					     ((i > 0) ? 2 : 1);
 				GLCHK(glActiveTexture(GL_TEXTURE0 +
 						      mFirstTexUnit + i));
 				GLCHK(glBindTexture(GL_TEXTURE_2D,
 						    mTextures[i]));
-				GLCHK(glUniform1i(
-					mUniformSamplers[colorConversion][i],
-					mFirstTexUnit + i));
+				GLCHK(glUniform1i(mUniformSamplers[prog][i],
+						  mFirstTexUnit + i));
 				stride[2 * i] = 1.f / framePlaneStride[i];
 				stride[2 * i + 1] = 1.f / height;
+				maxCoords[2 * i] =
+					(float)(crop->left + crop->width) /
+					(framePlaneStride[i] *
+					 ((i > 0) ? 2 : 1));
+				maxCoords[2 * i + 1] =
+					(float)(crop->top + crop->height) /
+					_info.resolution.height;
 			}
-
-			GLCHK(glUniform2fv(mProgramStride[colorConversion],
-					   GLES2_VIDEO_TEX_UNIT_COUNT,
-					   stride));
-			GLCHK(glUniform3f(
-				mProgramYuv2RgbOffset[colorConversion],
-				yuv2RgbOffsets[yuvRange][0],
-				yuv2RgbOffsets[yuvRange][1],
-				yuv2RgbOffsets[yuvRange][2]));
-			GLCHK(glUniformMatrix3fv(
-				mProgramYuv2RgbMatrix[colorConversion],
-				1,
-				GL_FALSE,
-				&yuv2RgbMats[yuvRange][0]));
 			break;
-		case GLES2_VIDEO_COLOR_CONVERSION_NV12_TO_RGB:
+		case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
+		case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
 			mirrorTexture = true;
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-			GLCHK(glUniform1i(mUniformSamplers[colorConversion][0],
+			GLCHK(glUniform1i(mUniformSamplers[prog][0],
 					  mFirstTexUnit + 0));
 			stride[0] = 1.f / framePlaneStride[0];
-			stride[1] = 1.f / frameHeight;
+			stride[1] = 1.f / _info.resolution.height;
+			maxCoords[0] = (float)(crop->left + crop->width) /
+				       framePlaneStride[0];
+			maxCoords[1] = (float)(crop->top + crop->height) /
+				       _info.resolution.height;
 
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-			GLCHK(glUniform1i(mUniformSamplers[colorConversion][1],
+			GLCHK(glUniform1i(mUniformSamplers[prog][1],
 					  mFirstTexUnit + 1));
 			stride[2] = 1.f / (framePlaneStride[1] / 2);
-			stride[3] = 1.f / (frameHeight / 2);
-
-			GLCHK(glUniform2fv(mProgramStride[colorConversion],
-					   GLES2_VIDEO_TEX_UNIT_COUNT,
-					   stride));
-			GLCHK(glUniform3f(
-				mProgramYuv2RgbOffset[colorConversion],
-				yuv2RgbOffsets[yuvRange][0],
-				yuv2RgbOffsets[yuvRange][1],
-				yuv2RgbOffsets[yuvRange][2]));
-			GLCHK(glUniformMatrix3fv(
-				mProgramYuv2RgbMatrix[colorConversion],
-				1,
-				GL_FALSE,
-				&yuv2RgbMats[yuvRange][0]));
+			stride[3] = 1.f / (_info.resolution.height / 2);
+			maxCoords[2] = (float)(crop->left + crop->width) /
+				       framePlaneStride[1];
+			maxCoords[3] = (float)(crop->top + crop->height) /
+				       _info.resolution.height;
 			break;
 		}
 
+		GLCHK(glUniform2fv(mProgramStride[prog],
+				   GLES2_VIDEO_TEX_UNIT_COUNT,
+				   stride));
+		GLCHK(glUniform2fv(mProgramMaxCoords[prog],
+				   GLES2_VIDEO_TEX_UNIT_COUNT,
+				   maxCoords));
+		GLCHK(glUniform3f(
+			mProgramYuv2RgbOffset[prog],
+			vdef_yuv_to_rgb_norm_offset[_info.matrix_coefs]
+						   [_info.full_range][0],
+			vdef_yuv_to_rgb_norm_offset[_info.matrix_coefs]
+						   [_info.full_range][1],
+			vdef_yuv_to_rgb_norm_offset[_info.matrix_coefs]
+						   [_info.full_range][2]));
+		GLCHK(glUniformMatrix3fv(
+			mProgramYuv2RgbMatrix[prog],
+			1,
+			GL_FALSE,
+			&vdef_yuv_to_rgb_norm_matrix[_info.matrix_coefs]
+						    [_info.full_range][0]));
+
 		/* Update overexposure zebras */
 		updateZebra(contentPos,
-			    colorConversion,
+			    prog,
 			    params->enable_overexposure_zebras,
 			    params->overexposure_zebras_threshold);
 
-		GLCHK(glUniformMatrix4fv(
-			mProgramTransformMatrix[colorConversion],
-			1,
-			false,
-			viewProjMat.data()));
-		GLCHK(glUniform1f(mProgramSatCoef[colorConversion], mSatCoef));
-		GLCHK(glUniform1f(mProgramLightCoef[colorConversion],
-				  mLightCoef));
-		GLCHK(glUniform1f(mProgramDarkCoef[colorConversion],
-				  mDarkCoef));
+		GLCHK(glUniformMatrix4fv(mProgramTransformMatrix[prog],
+					 1,
+					 false,
+					 viewProjMat.data()));
+		GLCHK(glUniform1f(mProgramSatCoef[prog], mSatCoef));
+		GLCHK(glUniform1f(mProgramLightCoef[prog], mLightCoef));
+		GLCHK(glUniform1f(mProgramDarkCoef[prog], mDarkCoef));
 
 		vertices[0] = -videoW;
 		vertices[1] = -videoH;
@@ -2931,71 +2869,134 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 		vertices[10] = videoH;
 		vertices[11] = 1.;
 
-		GLCHK(glVertexAttribPointer(mPositionHandle[colorConversion],
+		GLCHK(glVertexAttribPointer(mPositionHandle[prog],
 					    3,
 					    GL_FLOAT,
 					    false,
 					    0,
 					    vertices));
-		GLCHK(glEnableVertexAttribArray(
-			mPositionHandle[colorConversion]));
+		GLCHK(glEnableVertexAttribArray(mPositionHandle[prog]));
 
 		if (mirrorTexture) {
 			texCoords[0] =
-				(float)cropLeft / (float)framePlaneStride[0];
-			texCoords[1] = (float)(cropTop + cropHeight) /
-				       (float)frameHeight;
-			texCoords[2] = (float)(cropLeft + cropWidth) /
+				(float)crop->left / (float)framePlaneStride[0];
+			texCoords[1] = (float)(crop->top + crop->height) /
+				       (float)_info.resolution.height;
+			texCoords[2] = (float)(crop->left + crop->width) /
 				       (float)framePlaneStride[0];
-			texCoords[3] = (float)(cropTop + cropHeight) /
-				       (float)frameHeight;
+			texCoords[3] = (float)(crop->top + crop->height) /
+				       (float)_info.resolution.height;
 			texCoords[4] =
-				(float)cropLeft / (float)framePlaneStride[0];
-			texCoords[5] = (float)cropTop / (float)frameHeight;
-			texCoords[6] = (float)(cropLeft + cropWidth) /
+				(float)crop->left / (float)framePlaneStride[0];
+			texCoords[5] = (float)crop->top /
+				       (float)_info.resolution.height;
+			texCoords[6] = (float)(crop->left + crop->width) /
 				       (float)framePlaneStride[0];
-			texCoords[7] = (float)cropTop / (float)frameHeight;
+			texCoords[7] = (float)crop->top /
+				       (float)_info.resolution.height;
 		} else {
 			texCoords[0] =
-				(float)cropLeft / (float)framePlaneStride[0];
-			texCoords[1] = (float)cropTop / (float)frameHeight;
-			texCoords[2] = (float)(cropLeft + cropWidth) /
+				(float)crop->left / (float)framePlaneStride[0];
+			texCoords[1] = (float)crop->top /
+				       (float)_info.resolution.height;
+			texCoords[2] = (float)(crop->left + crop->width) /
 				       (float)framePlaneStride[0];
-			texCoords[3] = (float)cropTop / (float)frameHeight;
+			texCoords[3] = (float)crop->top /
+				       (float)_info.resolution.height;
 			texCoords[4] =
-				(float)cropLeft / (float)framePlaneStride[0];
-			texCoords[5] = (float)(cropTop + cropHeight) /
-				       (float)frameHeight;
-			texCoords[6] = (float)(cropLeft + cropWidth) /
+				(float)crop->left / (float)framePlaneStride[0];
+			texCoords[5] = (float)(crop->top + crop->height) /
+				       (float)_info.resolution.height;
+			texCoords[6] = (float)(crop->left + crop->width) /
 				       (float)framePlaneStride[0];
-			texCoords[7] = (float)(cropTop + cropHeight) /
-				       (float)frameHeight;
+			texCoords[7] = (float)(crop->top + crop->height) /
+				       (float)_info.resolution.height;
 		}
 
-		GLCHK(glVertexAttribPointer(mTexcoordHandle[colorConversion],
+		GLCHK(glVertexAttribPointer(mTexcoordHandle[prog],
 					    2,
 					    GL_FLOAT,
 					    false,
 					    0,
 					    texCoords));
-		GLCHK(glEnableVertexAttribArray(
-			mTexcoordHandle[colorConversion]));
+		GLCHK(glEnableVertexAttribArray(mTexcoordHandle[prog]));
 
 		GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-		GLCHK(glDisableVertexAttribArray(
-			mPositionHandle[colorConversion]));
-		GLCHK(glDisableVertexAttribArray(
-			mTexcoordHandle[colorConversion]));
+		GLCHK(glDisableVertexAttribArray(mPositionHandle[prog]));
+		GLCHK(glDisableVertexAttribArray(mTexcoordHandle[prog]));
 	}
 
 	return 0;
 }
 
 
-void Gles2Video::setVideoMedia(VideoMedia *media)
+int Gles2Video::clear(Eigen::Matrix4f &viewProjMat)
 {
-	mMedia = media;
+	float vertices[12];
+	float texCoords[8];
+
+	GLCHK(glUseProgram(mProgram[PROGRAM_NOCONV]));
+
+	GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
+#	ifdef BCM_VIDEOCORE
+	GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
+#	else /* BCM_VIDEOCORE */
+	GLCHK(glBindTexture(GL_TEXTURE_2D,
+			    (mExtTexture > 0) ? mExtTexture : mTextures[0]));
+#	endif /* BCM_VIDEOCORE */
+	GLCHK(glUniform1i(mUniformSamplers[PROGRAM_NOCONV][0], mFirstTexUnit));
+
+	GLCHK(glUniformMatrix4fv(mProgramTransformMatrix[PROGRAM_NOCONV],
+				 1,
+				 false,
+				 viewProjMat.data()));
+	GLCHK(glUniform1f(mProgramDarkCoef[PROGRAM_NOCONV], 0.));
+
+	vertices[0] = -1.;
+	vertices[1] = -1.;
+	vertices[2] = 1.;
+	vertices[3] = 1.;
+	vertices[4] = -1.;
+	vertices[5] = 1.;
+	vertices[6] = -1.;
+	vertices[7] = 1.;
+	vertices[8] = 1.;
+	vertices[9] = 1.;
+	vertices[10] = 1.;
+	vertices[11] = 1.;
+
+	GLCHK(glVertexAttribPointer(mPositionHandle[PROGRAM_NOCONV],
+				    3,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[PROGRAM_NOCONV]));
+
+	texCoords[0] = 0.;
+	texCoords[1] = 0.;
+	texCoords[2] = 1.;
+	texCoords[3] = 0.;
+	texCoords[4] = 0.;
+	texCoords[5] = 1.;
+	texCoords[6] = 1.;
+	texCoords[7] = 1.;
+
+	GLCHK(glVertexAttribPointer(mTexcoordHandle[PROGRAM_NOCONV],
+				    2,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[PROGRAM_NOCONV]));
+
+	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
+
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[PROGRAM_NOCONV]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[PROGRAM_NOCONV]));
+
+	return 0;
 }
 
 

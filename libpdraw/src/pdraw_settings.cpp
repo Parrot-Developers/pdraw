@@ -28,11 +28,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_settings.hpp"
-
 #define ULOG_TAG pdraw_settings
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_settings);
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#include "pdraw_settings.hpp"
 
 namespace Pdraw {
 
@@ -94,6 +94,63 @@ void Settings::lock(void)
 
 void Settings::unlock(void)
 {
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+void Settings::getFriendlyName(std::string *friendlyName)
+{
+	if (friendlyName == nullptr)
+		return;
+
+	pthread_mutex_lock(&mMutex);
+	*friendlyName = mFriendlyName;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+void Settings::setFriendlyName(const std::string &friendlyName)
+{
+	pthread_mutex_lock(&mMutex);
+	mFriendlyName = friendlyName;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+void Settings::getSerialNumber(std::string *serialNumber)
+{
+	if (serialNumber == nullptr)
+		return;
+
+	pthread_mutex_lock(&mMutex);
+	*serialNumber = mSerialNumber;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+void Settings::setSerialNumber(const std::string &serialNumber)
+{
+	pthread_mutex_lock(&mMutex);
+	mSerialNumber = serialNumber;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+void Settings::getSoftwareVersion(std::string *softwareVersion)
+{
+	if (softwareVersion == nullptr)
+		return;
+
+	pthread_mutex_lock(&mMutex);
+	*softwareVersion = mSoftwareVersion;
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+void Settings::setSoftwareVersion(const std::string &softwareVersion)
+{
+	pthread_mutex_lock(&mMutex);
+	mSoftwareVersion = softwareVersion;
 	pthread_mutex_unlock(&mMutex);
 }
 

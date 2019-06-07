@@ -732,7 +732,7 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 					   1.,
 					   self->aspect_ratio,
 					   &cw,
-					   NULL);
+					   nullptr);
 	cw += 0.012;
 	if (d_hrs) {
 		snprintf(str,
@@ -756,7 +756,7 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 					   1.,
 					   self->aspect_ratio,
 					   &rw,
-					   NULL);
+					   nullptr);
 	rw += 0.01;
 
 	x1 = x_offset - rw;
@@ -815,7 +815,7 @@ void pdraw_gles2hud_draw_recording_status(struct pdraw_gles2hud *self,
 						   1.,
 						   self->aspect_ratio,
 						   &w,
-						   NULL);
+						   nullptr);
 		w += 0.02;
 		pdraw_gles2hud_draw_filled_ellipse(self,
 						   x_offset - w - rec_size / 2.,
@@ -832,7 +832,7 @@ void pdraw_gles2hud_draw_recording_status(struct pdraw_gles2hud *self,
 						   1.,
 						   self->aspect_ratio,
 						   &w,
-						   NULL);
+						   nullptr);
 		w += 0.03;
 		pdraw_gles2hud_draw_ellipse(self,
 					    x_offset - w - rec_size / 2.,

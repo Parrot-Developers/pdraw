@@ -37,6 +37,30 @@ ULOG_DECLARE_TAG(pdraw_gles2hud);
 #endif
 
 
+enum drone_model {
+	/* Unknown drone model */
+	DRONE_MODEL_UNKNOWN = 0,
+
+	/* Parrot Bebop */
+	DRONE_MODEL_BEBOP,
+
+	/* Parrot Bebop 2 */
+	DRONE_MODEL_BEBOP2,
+
+	/* Parrot Disco */
+	DRONE_MODEL_DISCO,
+
+	/* Parrot Bluegrass */
+	DRONE_MODEL_BLUEGRASS,
+
+	/* Parrot Anafi */
+	DRONE_MODEL_ANAFI,
+
+	/* Parrot Anafi Thermal */
+	DRONE_MODEL_ANAFI_THERMAL,
+};
+
+
 static const int drone_model_icon_index[] = {
 	2,
 	0,
@@ -81,19 +105,59 @@ static const float color_dark_green[4] = {0.0f, 0.5f, 0.0f, 1.0f};
 static const float color_black_alpha[4] = {0.0f, 0.0f, 0.0f, 0.66f};
 
 
+static enum drone_model
+get_drone_model(const struct vmeta_session *session_meta)
+{
+	if (strcmp(session_meta->model_id, "0901") == 0)
+		return DRONE_MODEL_BEBOP;
+	else if (strcmp(session_meta->model_id, "090c") == 0)
+		return DRONE_MODEL_BEBOP2;
+	else if (strcmp(session_meta->model_id, "090e") == 0)
+		return DRONE_MODEL_DISCO;
+	else if (strcmp(session_meta->model_id, "0916") == 0)
+		return DRONE_MODEL_BLUEGRASS;
+	else if (strcmp(session_meta->model_id, "0914") == 0)
+		return DRONE_MODEL_ANAFI;
+	else if (strcmp(session_meta->model_id, "0919") == 0)
+		return DRONE_MODEL_ANAFI_THERMAL;
+	else if (strcmp(session_meta->model, "Bebop") == 0)
+		return DRONE_MODEL_BEBOP;
+	else if (strcmp(session_meta->model, "Bebop 2") == 0)
+		return DRONE_MODEL_BEBOP2;
+	else if (strcmp(session_meta->model, "Disco") == 0)
+		return DRONE_MODEL_DISCO;
+	else if (strcmp(session_meta->model, "Bluegrass") == 0)
+		return DRONE_MODEL_BLUEGRASS;
+	else if (strcmp(session_meta->model, "ANAFI") == 0)
+		return DRONE_MODEL_ANAFI;
+	else if (strcmp(session_meta->model, "Anafi") == 0)
+		return DRONE_MODEL_ANAFI;
+	else if (strcmp(session_meta->model, "AnafiThermal") == 0)
+		return DRONE_MODEL_ANAFI_THERMAL;
+	else if (strcmp(session_meta->friendly_name, "Parrot Bebop") == 0)
+		return DRONE_MODEL_BEBOP;
+	else if (strcmp(session_meta->friendly_name, "Parrot Bebop 2") == 0)
+		return DRONE_MODEL_BEBOP2;
+	else if (strcmp(session_meta->friendly_name, "Parrot Disco") == 0)
+		return DRONE_MODEL_DISCO;
+	else
+		return DRONE_MODEL_UNKNOWN;
+}
+
+
 int pdraw_gles2hud_new(const struct pdraw_gles2hud_config *config,
 		       struct pdraw_gles2hud **hud)
 {
 	int res, err;
 	struct pdraw_gles2hud *self;
 
-	if (config == NULL)
+	if (config == nullptr)
 		return -EINVAL;
-	if (hud == NULL)
+	if (hud == nullptr)
 		return -EINVAL;
 
 	self = (struct pdraw_gles2hud *)calloc(1, sizeof(*self));
-	if (self == NULL)
+	if (self == nullptr)
 		return -ENOMEM;
 
 	self->config = *config;
@@ -169,7 +233,7 @@ error:
 
 int pdraw_gles2hud_destroy(struct pdraw_gles2hud *self)
 {
-	if (self == NULL)
+	if (self == nullptr)
 		return 0;
 
 	if (self->program > 0) {
@@ -198,9 +262,9 @@ int pdraw_gles2hud_destroy(struct pdraw_gles2hud *self)
 int pdraw_gles2hud_get_config(struct pdraw_gles2hud *self,
 			      struct pdraw_gles2hud_config *config)
 {
-	if (self == NULL)
+	if (self == nullptr)
 		return -EINVAL;
-	if (config == NULL)
+	if (config == nullptr)
 		return -EINVAL;
 
 	*config = self->config;
@@ -212,9 +276,9 @@ int pdraw_gles2hud_get_config(struct pdraw_gles2hud *self,
 int pdraw_gles2hud_set_config(struct pdraw_gles2hud *self,
 			      const struct pdraw_gles2hud_config *config)
 {
-	if (self == NULL)
+	if (self == nullptr)
 		return -EINVAL;
-	if (config == NULL)
+	if (config == nullptr)
 		return -EINVAL;
 
 	self->config = *config;
@@ -271,7 +335,7 @@ int pdraw_gles2hud_set_config(struct pdraw_gles2hud *self,
 
 static void pdraw_gles2hud_get_fov(struct pdraw_gles2hud *self,
 				   const struct vmeta_session *session_meta,
-				   const struct vmeta_frame *frame_meta)
+				   struct vmeta_frame *frame_meta)
 {
 	if ((frame_meta) && (frame_meta->type == VMETA_FRAME_TYPE_V3)) {
 		self->h_fov = frame_meta->v3.base.picture_hfov;
@@ -294,9 +358,8 @@ static int pdraw_gles2hud_render_piloting(
 	const struct pdraw_rect *render_pos,
 	const struct pdraw_rect *content_pos,
 	const float view_proj_mat[16],
-	const struct pdraw_session_info *session_info,
-	const struct vmeta_session *session_meta,
-	const struct vmeta_frame *frame_meta,
+	const struct pdraw_media_info *media_info,
+	struct vmeta_frame *frame_meta,
 	const struct pdraw_video_frame_extra *frame_extra,
 	const struct pdraw_gles2hud_controller_meta *ctrl_meta,
 	const struct pdraw_gles2hud_drone_meta *drone_meta)
@@ -311,47 +374,47 @@ static int pdraw_gles2hud_render_piloting(
 			view_proj(i, j) = view_proj_mat[i * 4 + j];
 	}
 
-	if (self == NULL)
+	if (self == nullptr)
 		return -EINVAL;
-	if ((render_pos == NULL) || (render_pos->width == 0) ||
+	if ((render_pos == nullptr) || (render_pos->width == 0) ||
 	    (render_pos->height == 0))
 		return -EINVAL;
-	if ((content_pos == NULL) || (content_pos->width == 0) ||
+	if ((content_pos == nullptr) || (content_pos->width == 0) ||
 	    (content_pos->height == 0))
 		return -EINVAL;
-	if (session_info == NULL)
+	if (media_info == nullptr)
 		return -EINVAL;
-	if (session_meta == NULL)
+	if (frame_meta == nullptr)
 		return -EINVAL;
-	if (frame_meta == NULL)
+	if (frame_extra == nullptr)
 		return -EINVAL;
-	if (frame_extra == NULL)
+	if (ctrl_meta == nullptr)
 		return -EINVAL;
-	if (ctrl_meta == NULL)
-		return -EINVAL;
-	if (drone_meta == NULL)
+	if (drone_meta == nullptr)
 		return -EINVAL;
 
 	uint8_t battery_percentage;
-	vmeta_frame_get_battery_pencentage(frame_meta, &battery_percentage);
+	vmeta_frame_get_battery_percentage(frame_meta, &battery_percentage);
 	int8_t wifi_rssi;
 	vmeta_frame_get_wifi_rssi(frame_meta, &wifi_rssi);
 	enum vmeta_flying_state flying_state;
 	vmeta_frame_get_flying_state(frame_meta, &flying_state);
 	enum vmeta_piloting_mode piloting_mode;
 	vmeta_frame_get_piloting_mode(frame_meta, &piloting_mode);
-	int drone_model_icon =
-		drone_model_icon_index[session_info->drone_model];
+	enum drone_model drone_model =
+		get_drone_model(media_info->session_meta);
+	int drone_model_icon = drone_model_icon_index[drone_model];
 
 	/* Drone location and ground distance */
 	struct vmeta_location location;
 	vmeta_frame_get_location(frame_meta, &location);
 	double ground_distance;
 	vmeta_frame_get_ground_distance(frame_meta, &ground_distance);
-	if ((session_info->drone_model == PDRAW_DRONE_MODEL_DISCO) &&
-	    (location.valid) && (session_meta->takeoff_loc.valid)) {
+	if ((drone_model == DRONE_MODEL_DISCO) && (location.valid) &&
+	    (media_info->session_meta->takeoff_loc.valid)) {
 		ground_distance =
-			location.altitude - session_meta->takeoff_loc.altitude;
+			location.altitude -
+			media_info->session_meta->takeoff_loc.altitude;
 	}
 
 	/* Drone speeds */
@@ -376,23 +439,24 @@ static int pdraw_gles2hud_render_piloting(
 	int heading_int = ((int)(drone_attitude.psi * RAD_TO_DEG) + 360) % 360;
 
 	/* Picture field of view */
-	pdraw_gles2hud_get_fov(self, session_meta, frame_meta);
+	pdraw_gles2hud_get_fov(self, media_info->session_meta, frame_meta);
 
 	/* Distace to take-off */
 	double takeoff_distance = 0.;
 	double takeoff_bearing = 0.;
 	double takeoff_elevation = 0.;
-	if ((location.valid) && (session_meta->takeoff_loc.valid)) {
+	if ((location.valid) && (media_info->session_meta->takeoff_loc.valid)) {
 		pdraw_gles2hud_coords_distance_and_bearing(
 			location.latitude,
 			location.longitude,
-			session_meta->takeoff_loc.latitude,
-			session_meta->takeoff_loc.longitude,
+			media_info->session_meta->takeoff_loc.latitude,
+			media_info->session_meta->takeoff_loc.longitude,
 			&takeoff_distance,
 			&takeoff_bearing);
-		takeoff_elevation = atan2(session_meta->takeoff_loc.altitude -
-						  location.altitude,
-					  takeoff_distance);
+		takeoff_elevation =
+			atan2(media_info->session_meta->takeoff_loc.altitude -
+				      location.altitude,
+			      takeoff_distance);
 	}
 
 	/* Distace to pilot */
@@ -485,13 +549,13 @@ static int pdraw_gles2hud_render_piloting(
 						     color_green);
 	}
 #endif /* DEBUG_RADAR */
-	if ((session_info->duration > 0) &&
-	    (session_info->duration != (uint64_t)-1)) {
+	if ((media_info->duration > 0) &&
+	    (media_info->duration != (uint64_t)-1)) {
 		pdraw_gles2hud_draw_record_timeline(self,
 						    frame_extra->play_timestamp,
-						    session_info->duration,
+						    media_info->duration,
 						    color_green);
-	} else if (session_info->session_type == PDRAW_SESSION_TYPE_LIVE) {
+	} else if (media_info->playback_type == PDRAW_PLAYBACK_TYPE_LIVE) {
 		pdraw_gles2hud_draw_recording_status(
 			self, drone_meta->recording_duration, color_green);
 	}
@@ -573,7 +637,7 @@ static int pdraw_gles2hud_render_piloting(
 		self->ratio_w,
 		self->ratio_w * self->aspect_ratio,
 		color_green);
-	if (session_info->drone_model != PDRAW_DRONE_MODEL_UNKNOWN) {
+	if (drone_model != DRONE_MODEL_UNKNOWN) {
 		pdraw_gles2hud_draw_icon(self,
 					 drone_model_icon,
 					 0.0,
@@ -586,8 +650,8 @@ static int pdraw_gles2hud_render_piloting(
 	}
 	float friendly_name_x_offset =
 		(self->config.vu_meter_zone_h_offset - 0.05) * self->ratio_w;
-	if ((strlen(session_meta->friendly_name) > 0) &&
-	    (session_info->drone_model != PDRAW_DRONE_MODEL_UNKNOWN)) {
+	if ((strlen(media_info->session_meta->friendly_name) > 0) &&
+	    (drone_model != DRONE_MODEL_UNKNOWN)) {
 		pdraw_gles2hud_draw_icon(
 			self,
 			drone_model_icon,
@@ -618,7 +682,7 @@ static int pdraw_gles2hud_render_piloting(
 					 self->ratio_w,
 					 self->ratio_w * self->aspect_ratio,
 					 color_green);
-		if ((session_info->drone_model != PDRAW_DRONE_MODEL_UNKNOWN) &&
+		if ((drone_model != DRONE_MODEL_UNKNOWN) &&
 		    (takeoff_distance > 50.)) {
 #ifdef DEBUG_RADAR /* used to test the radar on records */
 			angle = M_PI / 2. + ctrl_orientation.psi -
@@ -750,13 +814,15 @@ static int pdraw_gles2hud_render_piloting(
 				 PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
 				 PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
 				 color_green);
-	if (session_info->drone_model == PDRAW_DRONE_MODEL_DISCO) {
-		if ((location.valid) && (session_meta->takeoff_loc.valid)) {
+	if (drone_model == DRONE_MODEL_DISCO) {
+		if ((location.valid) &&
+		    (media_info->session_meta->takeoff_loc.valid)) {
 			snprintf(str,
 				 sizeof(str),
 				 "DELTA: %+.1fm",
 				 location.altitude -
-					 session_meta->takeoff_loc.altitude);
+					 media_info->session_meta->takeoff_loc
+						 .altitude);
 			pdraw_gles2hud_draw_text(
 				self,
 				str,
@@ -891,7 +957,7 @@ static int pdraw_gles2hud_render_piloting(
 			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
 			color_green);
 	}
-	if (session_info->session_type == PDRAW_SESSION_TYPE_LIVE) {
+	if (media_info->playback_type == PDRAW_PLAYBACK_TYPE_LIVE) {
 		snprintf(str,
 			 sizeof(str),
 			 "CTRL LOC: %s",
@@ -908,10 +974,10 @@ static int pdraw_gles2hud_render_piloting(
 			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
 			color_green);
 	}
-	if (strlen(session_meta->friendly_name) > 0)
+	if (strlen(media_info->session_meta->friendly_name) > 0)
 		pdraw_gles2hud_draw_text(
 			self,
-			session_meta->friendly_name,
+			media_info->session_meta->friendly_name,
 			friendly_name_x_offset,
 			self->config.roll_zone_v_offset * self->ratio_h +
 				0.12 * self->ratio_w * self->aspect_ratio,
@@ -923,10 +989,10 @@ static int pdraw_gles2hud_render_piloting(
 			color_green);
 	if ((frame_extra->play_timestamp > 0) &&
 	    (frame_extra->play_timestamp != (uint64_t)-1) &&
-	    (session_info->duration > 0) &&
-	    (session_info->duration != (uint64_t)-1)) {
+	    (media_info->duration > 0) &&
+	    (media_info->duration != (uint64_t)-1)) {
 		uint64_t remaining_time =
-			session_info->duration - frame_extra->play_timestamp;
+			media_info->duration - frame_extra->play_timestamp;
 		unsigned int c_hrs = 0, c_min = 0, c_sec = 0, c_msec = 0;
 		unsigned int r_hrs = 0, r_min = 0, r_sec = 0, r_msec = 0;
 		unsigned int d_hrs = 0, d_min = 0, d_sec = 0, d_msec = 0;
@@ -938,11 +1004,8 @@ static int pdraw_gles2hud_render_piloting(
 			&c_msec);
 		pdraw_gles2hud_friendly_time_from_us(
 			remaining_time, &r_hrs, &r_min, &r_sec, &r_msec);
-		pdraw_gles2hud_friendly_time_from_us(session_info->duration,
-						     &d_hrs,
-						     &d_min,
-						     &d_sec,
-						     &d_msec);
+		pdraw_gles2hud_friendly_time_from_us(
+			media_info->duration, &d_hrs, &d_min, &d_sec, &d_msec);
 		if (d_hrs) {
 			snprintf(str,
 				 sizeof(str),
@@ -1027,7 +1090,7 @@ static int pdraw_gles2hud_render_piloting(
 			PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
 			PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
 			color_green);
-	} else if (session_info->session_type == PDRAW_SESSION_TYPE_LIVE) {
+	} else if (media_info->playback_type == PDRAW_PLAYBACK_TYPE_LIVE) {
 		if (drone_meta->recording_duration > 0) {
 			unsigned int d_hrs = 0, d_min = 0;
 			unsigned int d_sec = 0, d_msec = 0;
@@ -1242,36 +1305,33 @@ static int pdraw_gles2hud_render_imaging(
 	const struct pdraw_rect *render_pos,
 	const struct pdraw_rect *content_pos,
 	const float view_proj_mat[16],
-	const struct pdraw_session_info *session_info,
-	const struct vmeta_session *session_meta,
-	const struct vmeta_frame *frame_meta,
+	const struct pdraw_media_info *media_info,
+	struct vmeta_frame *frame_meta,
 	const struct pdraw_video_frame_extra *frame_extra,
 	const struct pdraw_gles2hud_controller_meta *ctrl_meta,
 	const struct pdraw_gles2hud_drone_meta *drone_meta)
 {
-	if (self == NULL)
+	if (self == nullptr)
 		return -EINVAL;
-	if ((render_pos == NULL) || (render_pos->width == 0) ||
+	if ((render_pos == nullptr) || (render_pos->width == 0) ||
 	    (render_pos->height == 0))
 		return -EINVAL;
-	if ((content_pos == NULL) || (content_pos->width == 0) ||
+	if ((content_pos == nullptr) || (content_pos->width == 0) ||
 	    (content_pos->height == 0))
 		return -EINVAL;
-	if (session_info == NULL)
+	if (media_info == nullptr)
 		return -EINVAL;
-	if (session_meta == NULL)
+	if (frame_meta == nullptr)
 		return -EINVAL;
-	if (frame_meta == NULL)
+	if (frame_extra == nullptr)
 		return -EINVAL;
-	if (frame_extra == NULL)
+	if (ctrl_meta == nullptr)
 		return -EINVAL;
-	if (ctrl_meta == NULL)
-		return -EINVAL;
-	if (drone_meta == NULL)
+	if (drone_meta == nullptr)
 		return -EINVAL;
 
 	/* Picture field of view */
-	pdraw_gles2hud_get_fov(self, session_meta, frame_meta);
+	pdraw_gles2hud_get_fov(self, media_info->session_meta, frame_meta);
 
 	self->ratio_w = (float)content_pos->width / render_pos->width *
 			self->config.scale;
@@ -1306,9 +1366,8 @@ int pdraw_gles2hud_render(
 	const struct pdraw_rect *render_pos,
 	const struct pdraw_rect *content_pos,
 	const float view_proj_mat[16],
-	const struct pdraw_session_info *session_info,
-	const struct vmeta_session *session_meta,
-	const struct vmeta_frame *frame_meta,
+	const struct pdraw_media_info *media_info,
+	struct vmeta_frame *frame_meta,
 	const struct pdraw_video_frame_extra *frame_extra,
 	const struct pdraw_gles2hud_controller_meta *ctrl_meta,
 	const struct pdraw_gles2hud_drone_meta *drone_meta)
@@ -1319,8 +1378,7 @@ int pdraw_gles2hud_render(
 						      render_pos,
 						      content_pos,
 						      view_proj_mat,
-						      session_info,
-						      session_meta,
+						      media_info,
 						      frame_meta,
 						      frame_extra,
 						      ctrl_meta,
@@ -1330,8 +1388,7 @@ int pdraw_gles2hud_render(
 						     render_pos,
 						     content_pos,
 						     view_proj_mat,
-						     session_info,
-						     session_meta,
+						     media_info,
 						     frame_meta,
 						     frame_extra,
 						     ctrl_meta,

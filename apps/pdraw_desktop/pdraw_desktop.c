@@ -33,39 +33,34 @@
 ULOG_DECLARE_TAG(pdraw_desktop);
 
 
-void pdraw_desktop_resize(struct pdraw_desktop *self,
-			  unsigned int width,
-			  unsigned int height)
-{
-	int res;
-	struct pdraw_rect rect;
-	memset(&rect, 0, sizeof(rect));
-	rect.width = width;
-	rect.height = height;
-	res = pdraw_be_resize_video_renderer(
-		self->pdraw, self->renderer, &rect);
-	if (res < 0)
-		ULOG_ERRNO("pdraw_be_resize_video_renderer", -res);
-}
+static const struct pdraw_backend_demuxer_cbs demuxer_cbs;
 
 
 void pdraw_desktop_open(struct pdraw_desktop *self)
 {
 	int res;
 	if (self->url != NULL) {
-		res = pdraw_be_open_url(self->pdraw, self->url);
+		res = pdraw_be_demuxer_new_from_url(self->pdraw,
+						    self->url,
+						    &demuxer_cbs,
+						    self,
+						    &self->demuxer);
 		if (res < 0)
-			ULOG_ERRNO("pdraw_be_open_url", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_new_from_url", -res);
 	} else {
-		res = pdraw_be_open_single_stream(self->pdraw,
-						  self->local_addr,
-						  self->local_stream_port,
-						  self->local_control_port,
-						  self->remote_addr,
-						  self->remote_stream_port,
-						  self->remote_control_port);
+		res = pdraw_be_demuxer_new_single_stream(
+			self->pdraw,
+			self->local_addr,
+			self->local_stream_port,
+			self->local_control_port,
+			self->remote_addr,
+			self->remote_stream_port,
+			self->remote_control_port,
+			&demuxer_cbs,
+			self,
+			&self->demuxer);
 		if (res < 0) {
-			ULOG_ERRNO("pdraw_be_open_single_stream", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_new_single_stream", -res);
 			return;
 		}
 	}
@@ -75,36 +70,44 @@ void pdraw_desktop_open(struct pdraw_desktop *self)
 void pdraw_desktop_close(struct pdraw_desktop *self)
 {
 	int res;
-	if (self->gles2hud != NULL) {
-		res = pdraw_gles2hud_destroy(self->gles2hud);
-		if (res < 0)
-			ULOG_ERRNO("pdraw_gles2hud_destroy", -res);
-		self->gles2hud = NULL;
+	for (unsigned int i = 0; i < self->renderer_count; i++) {
+		if (self->gles2hud[i] != NULL) {
+			res = pdraw_gles2hud_destroy(self->gles2hud[i]);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_gles2hud_destroy", -res);
+			self->gles2hud[i] = NULL;
+		}
+		if (self->renderer[i] != NULL) {
+			res = pdraw_be_video_renderer_destroy(
+				self->pdraw, self->renderer[i]);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_video_renderer_destroy",
+					   -res);
+			self->renderer[i] = NULL;
+		}
 	}
-	if (self->renderer != NULL) {
-		res = pdraw_be_stop_video_renderer(self->pdraw, self->renderer);
+	if (self->demuxer != NULL) {
+		res = pdraw_be_demuxer_close(self->pdraw, self->demuxer);
 		if (res < 0)
-			ULOG_ERRNO("pdraw_be_stop_video_renderer", -res);
-		self->renderer = NULL;
+			ULOG_ERRNO("pdraw_be_demuxer_close", -res);
 	}
-	res = pdraw_be_close(self->pdraw);
-	if (res < 0)
-		ULOG_ERRNO("pdraw_be_close", -res);
 }
 
 
 void pdraw_desktop_toggle_play_pause(struct pdraw_desktop *self)
 {
 	int res;
-	if (pdraw_be_is_paused(self->pdraw) != 0) {
-		res = pdraw_be_play_with_speed(self->pdraw,
-					       self->speed * self->speed_sign);
+	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) != 0) {
+		res = pdraw_be_demuxer_play_with_speed(
+			self->pdraw,
+			self->demuxer,
+			self->speed * self->speed_sign);
 		if (res < 0)
-			ULOG_ERRNO("pdraw_be_play_with_speed", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
 	} else {
-		res = pdraw_be_pause(self->pdraw);
+		res = pdraw_be_demuxer_pause(self->pdraw, self->demuxer);
 		if (res < 0)
-			ULOG_ERRNO("pdraw_be_pause", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_pause", -res);
 	}
 }
 
@@ -113,11 +116,13 @@ void pdraw_desktop_toggle_speed_sign(struct pdraw_desktop *self)
 {
 	int res;
 	self->speed_sign *= -1;
-	if (pdraw_be_is_paused(self->pdraw) == 0) {
-		res = pdraw_be_play_with_speed(self->pdraw,
-					       self->speed * self->speed_sign);
+	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) == 0) {
+		res = pdraw_be_demuxer_play_with_speed(
+			self->pdraw,
+			self->demuxer,
+			self->speed * self->speed_sign);
 		if (res < 0)
-			ULOG_ERRNO("pdraw_be_play_with_speed", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
 	}
 }
 
@@ -126,11 +131,13 @@ void pdraw_desktop_speed_down(struct pdraw_desktop *self)
 {
 	int res;
 	self->speed /= 2;
-	if (pdraw_be_is_paused(self->pdraw) == 0) {
-		res = pdraw_be_play_with_speed(self->pdraw,
-					       self->speed * self->speed_sign);
+	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) == 0) {
+		res = pdraw_be_demuxer_play_with_speed(
+			self->pdraw,
+			self->demuxer,
+			self->speed * self->speed_sign);
 		if (res < 0)
-			ULOG_ERRNO("pdraw_be_play_with_speed", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
 	}
 }
 
@@ -139,65 +146,153 @@ void pdraw_desktop_speed_up(struct pdraw_desktop *self)
 {
 	int res;
 	self->speed *= 2;
-	if (pdraw_be_is_paused(self->pdraw) == 0) {
-		res = pdraw_be_play_with_speed(self->pdraw,
-					       self->speed * self->speed_sign);
+	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) == 0) {
+		res = pdraw_be_demuxer_play_with_speed(
+			self->pdraw,
+			self->demuxer,
+			self->speed * self->speed_sign);
 		if (res < 0)
-			ULOG_ERRNO("pdraw_be_play_with_speed", -res);
+			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
 	}
 }
 
 
 void pdraw_desktop_previous_frame(struct pdraw_desktop *self)
 {
-	int res = pdraw_be_previous_frame(self->pdraw);
+	int res = pdraw_be_demuxer_previous_frame(self->pdraw, self->demuxer);
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_previous_frame", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_previous_frame", -res);
 }
 
 
 void pdraw_desktop_next_frame(struct pdraw_desktop *self)
 {
-	int res = pdraw_be_next_frame(self->pdraw);
+	int res = pdraw_be_demuxer_next_frame(self->pdraw, self->demuxer);
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_next_frame", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_next_frame", -res);
 }
 
 
 void pdraw_desktop_seek_back_10s(struct pdraw_desktop *self)
 {
-	int res = pdraw_be_seek_back(self->pdraw, 10000000, 0);
+	int res = pdraw_be_demuxer_seek_back(
+		self->pdraw, self->demuxer, 10000000, 0);
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_seek_back", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_seek_back", -res);
 }
 
 
 void pdraw_desktop_seek_forward_10s(struct pdraw_desktop *self)
 {
-	int res = pdraw_be_seek_forward(self->pdraw, 10000000, 0);
+	int res = pdraw_be_demuxer_seek_forward(
+		self->pdraw, self->demuxer, 10000000, 0);
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_seek_forward", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_seek_forward", -res);
 }
 
 
 void pdraw_desktop_goto_beginning(struct pdraw_desktop *self)
 {
-	int res = pdraw_be_seek_to(self->pdraw, 0, 1);
+	int res = pdraw_be_demuxer_seek_to(self->pdraw, self->demuxer, 0, 1);
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_seek_to", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_seek_to", -res);
 }
 
 
 void pdraw_desktop_goto_end(struct pdraw_desktop *self)
 {
-	int res = pdraw_be_seek_to(self->pdraw, (uint64_t)-1, 1);
+	int res = pdraw_be_demuxer_seek_to(
+		self->pdraw, self->demuxer, (uint64_t)-1, 1);
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_seek_to", -res);
+		ULOG_ERRNO("pdraw_be_demuxer_seek_to", -res);
+}
+
+
+void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self)
+{
+	int res;
+	uint64_t epoch_sec = 0;
+	int32_t utc_offset_sec = 0;
+	struct tm tm;
+	char *file_path = NULL;
+
+	time_local_get(&epoch_sec, &utc_offset_sec);
+	time_local_to_tm(epoch_sec, utc_offset_sec, &tm);
+
+	res = asprintf(&file_path,
+		       "pdraw_pipeline_%04d%02d%02d_%02d%02d%02d_%d.dot",
+		       tm.tm_year + 1900,
+		       tm.tm_mon + 1,
+		       tm.tm_mday,
+		       tm.tm_hour,
+		       tm.tm_min,
+		       tm.tm_sec,
+		       getpid());
+	if (res <= 0) {
+		ULOG_ERRNO("asprintf", ENOMEM);
+		return;
+	}
+
+	res = pdraw_be_dump_pipeline(self->pdraw, file_path);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_dump_pipeline", -res);
+
+	free(file_path);
 }
 
 
 static void
-open_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
+stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
+{
+	struct pdraw_desktop *self = userdata;
+
+	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
+
+	pdraw_desktop_ui_send_user_event(self,
+					 PDRAW_DESKTOP_EVENT_STOP_RESP,
+					 (void *)(intptr_t)status,
+					 NULL);
+}
+
+
+static void media_added_cb(struct pdraw_backend *pdraw,
+			   const struct pdraw_media_info *info,
+			   void *userdata)
+{
+	struct pdraw_desktop *self = userdata;
+
+	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
+
+	if ((info->type == PDRAW_MEDIA_TYPE_VIDEO) &&
+	    (info->video.format == VDEF_FRAME_TYPE_RAW)) {
+		pdraw_desktop_ui_send_user_event(
+			self,
+			PDRAW_DESKTOP_EVENT_ADD_RENDERER,
+			(void *)(intptr_t)info->id,
+			NULL);
+	}
+}
+
+
+static void media_removed_cb(struct pdraw_backend *pdraw,
+			     const struct pdraw_media_info *info,
+			     void *userdata)
+{
+	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
+}
+
+
+static void
+socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
+{
+	ULOGI("%s fd=%d", __func__, fd);
+}
+
+
+static void open_resp_cb(struct pdraw_backend *pdraw,
+			 struct pdraw_demuxer *demuxer,
+			 int status,
+			 void *userdata)
 {
 	struct pdraw_desktop *self = userdata;
 
@@ -210,21 +305,31 @@ open_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 }
 
 
-static void
-close_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
+static void close_resp_cb(struct pdraw_backend *pdraw,
+			  struct pdraw_demuxer *demuxer,
+			  int status,
+			  void *userdata)
 {
+	int res;
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 
-	pdraw_desktop_ui_send_user_event(self,
-					 PDRAW_DESKTOP_EVENT_CLOSE_RESP,
-					 (void *)(intptr_t)status,
-					 NULL);
+	if (self->demuxer != NULL) {
+		res = pdraw_be_demuxer_destroy(self->pdraw, self->demuxer);
+		if (res < 0)
+			ULOG_ERRNO("pdraw_be_demuxer_destroy", -res);
+		self->demuxer = NULL;
+	}
+	res = pdraw_be_stop(self->pdraw);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_stop", -res);
 }
 
 
-static void unrecoverable_error_cb(struct pdraw_backend *pdraw, void *userdata)
+static void unrecoverable_error_cb(struct pdraw_backend *pdraw,
+				   struct pdraw_demuxer *demuxer,
+				   void *userdata)
 {
 	struct pdraw_desktop *self = userdata;
 
@@ -235,46 +340,68 @@ static void unrecoverable_error_cb(struct pdraw_backend *pdraw, void *userdata)
 }
 
 
-static int select_demuxer_media_cb(struct pdraw_backend *pdraw,
-				   const struct pdraw_demuxer_media *medias,
-				   size_t count,
-				   void *userdata)
-{
-	int id, ret;
-	if (count == 0)
-		return -ENOENT;
-	if (count == 1)
-		return medias[0].media_id;
-
-	printf("Select demuxer media id:\n");
-	for (size_t i = 0; i < count; i++)
-		printf(" - %d: %s\n", medias[i].media_id, medias[i].name);
-	printf(" > ");
-	ret = scanf("%d", &id);
-	if (ret != 1)
-		return 0;
-	return id;
-}
-
-
-static void media_added_cb(struct pdraw_backend *pdraw,
-			   const struct pdraw_media_info *info,
+static int select_media_cb(struct pdraw_backend *pdraw,
+			   struct pdraw_demuxer *demuxer,
+			   const struct pdraw_demuxer_media *medias,
+			   size_t count,
 			   void *userdata)
 {
-	ULOGI("%s id=%d", __func__, info->id);
+	struct pdraw_desktop *self = userdata;
+	int id, ids = 0, ret;
+	char s[100];
+	char *str = s, *id_str = NULL, *temp = NULL;
+	if (count == 0)
+		return -ENOENT;
+	if (count == 1) {
+		self->demuxer_media_count = 1;
+		return 1 << medias[0].media_id;
+	}
+
+	if (self->demuxer_media_list) {
+		str = self->demuxer_media_list;
+		goto parse;
+	}
+
+	printf("Select demuxer media id(s); "
+	       "either a single media id (e.g. \"1\")\n");
+	printf("or a comma-separated list of media ids (e.g. \"1,3\"):\n");
+	for (size_t i = 0; i < count; i++) {
+		printf(" %c %d: [%s] %s\n",
+		       medias[i].is_default ? '*' : '-',
+		       medias[i].media_id,
+		       vmeta_camera_type_to_str(
+			       medias[i].session_meta.camera_type),
+		       medias[i].name);
+	}
+	printf(" > ");
+	ret = scanf("%99s", s);
+	if (ret != 1) {
+		self->demuxer_media_count = 1;
+		return 0;
+	}
+
+parse:
+	id_str = strtok_r(str, ",", &temp);
+	if (id_str == NULL) {
+		id = atoi(str);
+		ids |= (1 << id);
+		self->demuxer_media_count = 1;
+	} else {
+		while (id_str) {
+			id = atoi(id_str);
+			ids |= (1 << id);
+			self->demuxer_media_count++;
+			id_str = strtok_r(NULL, ",", &temp);
+		}
+	}
+	return ids;
 }
 
 
-static void media_removed_cb(struct pdraw_backend *pdraw,
-			     const struct pdraw_media_info *info,
+static void ready_to_play_cb(struct pdraw_backend *pdraw,
+			     struct pdraw_demuxer *demuxer,
+			     int ready,
 			     void *userdata)
-{
-	ULOGI("%s id=%d", __func__, info->id);
-}
-
-
-static void
-ready_to_play_cb(struct pdraw_backend *pdraw, int ready, void *userdata)
 {
 	struct pdraw_desktop *self = userdata;
 
@@ -287,14 +414,17 @@ ready_to_play_cb(struct pdraw_backend *pdraw, int ready, void *userdata)
 }
 
 
-static void
-end_of_range_cb(struct pdraw_backend *pdraw, uint64_t timestamp, void *userdata)
+static void end_of_range_cb(struct pdraw_backend *pdraw,
+			    struct pdraw_demuxer *demuxer,
+			    uint64_t timestamp,
+			    void *userdata)
 {
 	ULOGI("%s timestamp=%" PRIu64, __func__, timestamp);
 }
 
 
 static void play_resp_cb(struct pdraw_backend *pdraw,
+			 struct pdraw_demuxer *demuxer,
 			 int status,
 			 uint64_t timestamp,
 			 float speed,
@@ -317,6 +447,7 @@ static void play_resp_cb(struct pdraw_backend *pdraw,
 
 
 static void pause_resp_cb(struct pdraw_backend *pdraw,
+			  struct pdraw_demuxer *demuxer,
 			  int status,
 			  uint64_t timestamp,
 			  void *userdata)
@@ -337,6 +468,7 @@ static void pause_resp_cb(struct pdraw_backend *pdraw,
 
 
 static void seek_resp_cb(struct pdraw_backend *pdraw,
+			 struct pdraw_demuxer *demuxer,
 			 int status,
 			 uint64_t timestamp,
 			 float speed,
@@ -358,10 +490,19 @@ static void seek_resp_cb(struct pdraw_backend *pdraw,
 }
 
 
-static void
-socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
+static void renderer_media_removed_cb(struct pdraw_backend *pdraw,
+				      struct pdraw_video_renderer *renderer,
+				      const struct pdraw_media_info *info,
+				      void *userdata)
 {
-	ULOGI("%s fd=%d", __func__, fd);
+	struct pdraw_desktop *self = userdata;
+	for (unsigned int i = 0; i < self->renderer_count; i++) {
+		if (self->renderer_media_id[i] == info->id) {
+			self->renderer_media_id[i] = 0;
+			break;
+		}
+	}
+	return;
 }
 
 
@@ -369,9 +510,8 @@ static int load_texture_cb(struct pdraw_backend *pdraw,
 			   struct pdraw_video_renderer *renderer,
 			   unsigned int texture_width,
 			   unsigned int texture_height,
-			   const struct pdraw_session_info *session_info,
-			   const struct vmeta_session *session_meta,
-			   const struct pdraw_video_frame *frame,
+			   const struct pdraw_media_info *media_info,
+			   struct mbuf_raw_video_frame *frame,
 			   const void *frame_userdata,
 			   size_t frame_userdata_len,
 			   void *userdata)
@@ -380,8 +520,7 @@ static int load_texture_cb(struct pdraw_backend *pdraw,
 	return pdraw_desktop_ext_tex_load(self,
 					  pdraw,
 					  renderer,
-					  session_info,
-					  session_meta,
+					  media_info,
 					  frame,
 					  frame_userdata,
 					  frame_userdata_len);
@@ -394,18 +533,29 @@ static void render_overlay_cb(struct pdraw_backend *pdraw,
 			      const struct pdraw_rect *content_pos,
 			      const float *view_mat,
 			      const float *proj_mat,
-			      const struct pdraw_session_info *session_info,
-			      const struct vmeta_session *session_meta,
-			      const struct vmeta_frame *frame_meta,
+			      const struct pdraw_media_info *media_info,
+			      struct vmeta_frame *frame_meta,
 			      const struct pdraw_video_frame_extra *frame_extra,
 			      void *userdata)
 {
 	int res;
 	struct pdraw_desktop *self = userdata;
+	struct pdraw_gles2hud *gles2hud = NULL;
 	float view_proj_mat[16] = {
 		1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.};
 
-	if (self->gles2hud == NULL)
+	if ((frame_meta == NULL) || (frame_extra == NULL))
+		return;
+
+	/* Find the corresponding gles2hud instance */
+	for (unsigned int i = 0; i < self->renderer_count; i++) {
+		if (self->renderer[i] != renderer)
+			continue;
+		gles2hud = self->gles2hud[i];
+		break;
+	}
+
+	if (gles2hud == NULL)
 		return;
 
 	struct pdraw_gles2hud_controller_meta ctrl_meta;
@@ -426,13 +576,12 @@ static void render_overlay_cb(struct pdraw_backend *pdraw,
 		drone_meta.recording_duration = 0;
 	}
 
-	res = pdraw_gles2hud_render(self->gles2hud,
+	res = pdraw_gles2hud_render(gles2hud,
 				    self->hud_type,
 				    render_pos,
 				    content_pos,
 				    view_proj_mat,
-				    session_info,
-				    session_meta,
+				    media_info,
 				    frame_meta,
 				    frame_extra,
 				    &ctrl_meta,
@@ -443,22 +592,28 @@ static void render_overlay_cb(struct pdraw_backend *pdraw,
 
 
 static const struct pdraw_backend_cbs be_cbs = {
+	.stop_resp = &stop_resp_cb,
+	.media_added = &media_added_cb,
+	.media_removed = &media_removed_cb,
+	.socket_created = &socket_created_cb,
+};
+
+
+static const struct pdraw_backend_demuxer_cbs demuxer_cbs = {
 	.open_resp = &open_resp_cb,
 	.close_resp = &close_resp_cb,
 	.unrecoverable_error = &unrecoverable_error_cb,
-	.select_demuxer_media = &select_demuxer_media_cb,
-	.media_added = &media_added_cb,
-	.media_removed = &media_removed_cb,
+	.select_media = &select_media_cb,
 	.ready_to_play = &ready_to_play_cb,
 	.end_of_range = &end_of_range_cb,
 	.play_resp = &play_resp_cb,
 	.pause_resp = &pause_resp_cb,
 	.seek_resp = &seek_resp_cb,
-	.socket_created = &socket_created_cb,
 };
 
 
-static struct pdraw_backend_video_renderer_cbs render_cbs = {
+const struct pdraw_backend_video_renderer_cbs render_cbs = {
+	.media_removed = &renderer_media_removed_cb,
 	.load_texture = &load_texture_cb,
 	.render_overlay = &render_overlay_cb,
 };
@@ -490,10 +645,11 @@ enum args_id {
 	ARGS_ID_HMD = 256,
 	ARGS_ID_ZEBRAS,
 	ARGS_ID_EXT_TEX,
+	ARGS_ID_DEMUX,
 };
 
 
-static const char short_options[] = "hu:i:s:c:S:C:FH:";
+static const char short_options[] = "hu:i:s:c:S:C:FTH:";
 
 
 static const struct option long_options[] = {
@@ -504,11 +660,14 @@ static const struct option long_options[] = {
 	{"lctrlp", required_argument, NULL, 'c'},
 	{"rstrmp", required_argument, NULL, 'S'},
 	{"rctrlp", required_argument, NULL, 'C'},
+	{"demux", required_argument, NULL, ARGS_ID_DEMUX},
 	{"fullscreen", no_argument, NULL, 'F'},
+	{"always-on-top", no_argument, NULL, 'T'},
 	{"hud", required_argument, NULL, 'H'},
 	{"hmd", required_argument, NULL, ARGS_ID_HMD},
 	{"zebras", required_argument, NULL, ARGS_ID_ZEBRAS},
 	{"ext-tex", no_argument, NULL, ARGS_ID_EXT_TEX},
+	{"tex-mex", no_argument, NULL, ARGS_ID_EXT_TEX},
 	{0, 0, 0, 0},
 };
 
@@ -533,8 +692,15 @@ static void usage(char *prog_name)
 	       "Remote stream port for direct RTP/AVP reception (optional)\n\n"
 	       "  -C | --rctrlp <port>             "
 	       "Remote control port for direct RTP/AVP reception (optional)\n\n"
+	       "       --demux <list>              "
+	       "Optional demuxer media selection list (e.g. \"1\" or "
+	       "\"1,3,5\");\n"
+	       "                                   "
+	       "if not specified the user will be prompted if necessary\n\n"
 	       "  -F | --fullscreen                "
 	       "Start in full-screen mode\n\n"
+	       "  -T | --always-on-top             "
+	       "Force window to stay on top\n\n"
 	       "  -H | --hud <type>                "
 	       "Enable the HUD (type: 0=piloting, 1=imaging)\n\n"
 	       "       --hmd <model>               "
@@ -544,10 +710,9 @@ static void usage(char *prog_name)
 	       "       --zebras <threshold>        "
 	       "Enable overexposure zebras (threshold: [0.0 .. 1.0],\n"
 	       "                                   "
-	       "default: 0.95, out of range means default)\n"
+	       "default: 0.95, out of range means default)\n\n"
 	       "       --ext-tex                   "
-	       "Enable testing the external texture loading callback\n"
-	       "\n",
+	       "Enable testing the external texture loading callback\n\n",
 	       prog_name);
 }
 
@@ -641,8 +806,17 @@ int main(int argc, char **argv)
 			self->remote_control_port = atoi(optarg);
 			break;
 
+		case ARGS_ID_DEMUX:
+			free(self->demuxer_media_list);
+			self->demuxer_media_list = strdup(optarg);
+			break;
+
 		case 'F':
 			self->fullscreen = 1;
+			break;
+
+		case 'T':
+			self->always_on_top = 1;
 			break;
 
 		case 'H':
@@ -697,66 +871,20 @@ int main(int argc, char **argv)
 		status = EXIT_FAILURE;
 		goto out;
 	}
-	res = pdraw_be_set_self_friendly_name(self->pdraw, APP_NAME);
+	res = pdraw_be_set_friendly_name_setting(self->pdraw, APP_NAME);
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_set_self_friendly_name", -res);
-	res = pdraw_be_set_self_serial_number(self->pdraw,
-					      "00000000"); /* TODO */
+		ULOG_ERRNO("pdraw_be_set_friendly_name_setting", -res);
+	res = pdraw_be_set_serial_number_setting(self->pdraw,
+						 "00000000"); /* TODO */
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_set_self_serial_number", -res);
-	res = pdraw_be_set_self_software_version(self->pdraw,
-						 "0.0.0"); /* TODO */
+		ULOG_ERRNO("pdraw_be_set_serial_number_setting", -res);
+	res = pdraw_be_set_software_version_setting(self->pdraw,
+						    "0.0.0"); /* TODO */
 	if (res < 0)
-		ULOG_ERRNO("pdraw_be_set_self_software_version", -res);
+		ULOG_ERRNO("pdraw_be_set_software_version_setting", -res);
 	res = pdraw_be_set_hmd_model_setting(self->pdraw, self->hmd_model);
 	if (res < 0)
 		ULOG_ERRNO("pdraw_be_set_hmd_model_setting", -res);
-
-	/* Create the renderer */
-	struct pdraw_video_renderer_params params;
-	struct pdraw_rect rect;
-	memset(&params, 0, sizeof(params));
-	memset(&rect, 0, sizeof(rect));
-	params.fill_mode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND;
-	params.enable_transition_flags = 0xFFFFFFFF;
-	params.enable_hmd_distortion_correction = self->enable_hmd;
-	params.enable_overexposure_zebras = self->enable_zebras;
-	params.overexposure_zebras_threshold = self->zebras_threshold;
-	params.enable_histograms =
-		((self->enable_hud) &&
-		 (self->hud_type == PDRAW_GLES2HUD_TYPE_IMAGING))
-			? 1
-			: 0;
-
-	/* Test: take a 2:3 crop at the center and force a 2:3 DAR and a 1600
-	 * pixels texture width (only enabled with the '--ext-tex' option) */
-	params.video_texture_width = 1600;
-	params.video_texture_dar_width = 2;
-	params.video_texture_dar_height = 3;
-
-	rect.height = self->window_height;
-	rect.width = self->window_width;
-	res = pdraw_be_start_video_renderer(self->pdraw,
-					    &rect,
-					    &params,
-					    &render_cbs,
-					    self,
-					    &self->renderer);
-	if (res < 0) {
-		ULOG_ERRNO("pdraw_be_start_video_renderer", -res);
-		status = EXIT_FAILURE;
-		goto out;
-	}
-	if (self->enable_hud) {
-		struct pdraw_gles2hud_config hud_config;
-		memset(&hud_config, 0, sizeof(hud_config));
-		res = pdraw_gles2hud_new(&hud_config, &self->gles2hud);
-		if (res < 0)
-			ULOG_ERRNO("pdraw_gles2hud_new", -res);
-	}
-	res = pdraw_desktop_ext_tex_setup(self);
-	if (res < 0)
-		ULOG_ERRNO("pdraw_desktop_ext_tex_setup", -res);
 
 	pdraw_desktop_ui_send_user_event(
 		self, PDRAW_DESKTOP_EVENT_OPEN, NULL, NULL);
@@ -767,20 +895,16 @@ int main(int argc, char **argv)
 out:
 	if (self != NULL) {
 		pdraw_desktop_ext_tex_cleanup(self);
-		if (self->gles2hud != NULL) {
-			res = pdraw_gles2hud_destroy(self->gles2hud);
-			if (res < 0)
-				ULOG_ERRNO("pdraw_gles2hud_destroy", -res);
-		}
+		pdraw_desktop_ui_destroy(self);
 		if (self->pdraw != NULL) {
 			res = pdraw_be_destroy(self->pdraw);
 			if (res < 0)
 				ULOG_ERRNO("pdraw_be_destroy", -res);
 		}
-		pdraw_desktop_ui_destroy(self);
 		free(self->url);
 		free(self->local_addr);
 		free(self->remote_addr);
+		free(self->demuxer_media_list);
 		free(self);
 	}
 

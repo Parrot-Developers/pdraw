@@ -14,11 +14,14 @@ LOCAL_SRC_FILES := \
 	pdraw_desktop_view.cpp
 LOCAL_LIBRARIES := \
 	eigen \
+	libfutils \
+	libmedia-buffers \
 	libpdraw \
 	libpdraw-backend \
 	libpdraw-gles2hud \
 	libpomp \
 	libulog \
+	libvideo-defs \
 	libvideo-metadata \
 	sdl2
 
