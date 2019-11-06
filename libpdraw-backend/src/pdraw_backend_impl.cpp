@@ -381,13 +381,24 @@ int PdrawBackend::open(const std::string &url)
 				 ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->open(url);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_OPEN_URL;
@@ -401,16 +412,17 @@ int PdrawBackend::open(const std::string &url)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -433,13 +445,29 @@ int PdrawBackend::open(const std::string &localAddr,
 		ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->open(localAddr,
+				   localStreamPort,
+				   localControlPort,
+				   remoteAddr,
+				   remoteStreamPort,
+				   remoteControlPort);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_OPEN_SINGLE;
@@ -465,16 +493,17 @@ int PdrawBackend::open(const std::string &localAddr,
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -489,13 +518,24 @@ int PdrawBackend::open(const std::string &url, struct mux_ctx *mux)
 	ULOG_ERRNO_RETURN_ERR_IF(mux == NULL, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->open(url, mux);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_OPEN_URL_MUX;
@@ -512,16 +552,17 @@ int PdrawBackend::open(const std::string &url, struct mux_ctx *mux)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -533,13 +574,24 @@ int PdrawBackend::close(void)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->close();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CLOSE;
@@ -551,16 +603,17 @@ int PdrawBackend::close(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -573,13 +626,24 @@ uint16_t PdrawBackend::getSingleStreamLocalStreamPort(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, 0);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, 0);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getSingleStreamLocalStreamPort();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SINGLE_STREAM_LOCAL_STREAM_PORT;
@@ -591,16 +655,17 @@ uint16_t PdrawBackend::getSingleStreamLocalStreamPort(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetUint16;
 	mRetUint16 = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -613,13 +678,24 @@ uint16_t PdrawBackend::getSingleStreamLocalControlPort(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, 0);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, 0);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getSingleStreamLocalControlPort();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SINGLE_STREAM_LOCAL_CONTROL_PORT;
@@ -631,16 +707,17 @@ uint16_t PdrawBackend::getSingleStreamLocalControlPort(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetUint16;
 	mRetUint16 = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -653,13 +730,24 @@ bool PdrawBackend::isReadyToPlay(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, false);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, false);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->isReadyToPlay();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_IS_READY_TO_PLAY;
@@ -671,16 +759,17 @@ bool PdrawBackend::isReadyToPlay(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetBool;
 	mRetBool = false;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -693,13 +782,24 @@ bool PdrawBackend::isPaused(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, false);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, false);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->isPaused();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_IS_PAUSED;
@@ -711,16 +811,17 @@ bool PdrawBackend::isPaused(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetBool;
 	mRetBool = false;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -732,13 +833,24 @@ int PdrawBackend::play(float speed)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->play(speed);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_PLAY;
@@ -751,16 +863,17 @@ int PdrawBackend::play(float speed)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -778,13 +891,24 @@ int PdrawBackend::previousFrame(void)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->previousFrame();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_PREVIOUS_FRAME;
@@ -796,16 +920,17 @@ int PdrawBackend::previousFrame(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -817,13 +942,24 @@ int PdrawBackend::nextFrame(void)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->nextFrame();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_NEXT_FRAME;
@@ -835,16 +971,17 @@ int PdrawBackend::nextFrame(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -856,13 +993,24 @@ int PdrawBackend::seek(int64_t delta, bool exact)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->seek(delta, exact);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SEEK;
@@ -875,16 +1023,17 @@ int PdrawBackend::seek(int64_t delta, bool exact)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -908,13 +1057,24 @@ int PdrawBackend::seekTo(uint64_t timestamp, bool exact)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->seekTo(timestamp, exact);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SEEK_TO;
@@ -927,16 +1087,17 @@ int PdrawBackend::seekTo(uint64_t timestamp, bool exact)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -949,13 +1110,24 @@ uint64_t PdrawBackend::getDuration(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, 0);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, 0);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getDuration();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_DURATION;
@@ -967,16 +1139,17 @@ uint64_t PdrawBackend::getDuration(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetUint64;
 	mRetUint64 = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -989,13 +1162,24 @@ uint64_t PdrawBackend::getCurrentTime(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, 0);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, 0);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getCurrentTime();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_CURRENT_TIME;
@@ -1007,16 +1191,17 @@ uint64_t PdrawBackend::getCurrentTime(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetUint64;
 	mRetUint64 = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -1185,13 +1370,24 @@ int PdrawBackend::startVideoSink(unsigned int mediaId,
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == NULL, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = doStartVideoSink(mediaId, params, listener, retObj);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_START_VIDEO_SINK;
@@ -1206,6 +1402,7 @@ int PdrawBackend::startVideoSink(unsigned int mediaId,
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	*retObj = mRetVideoSink;
 	mRetStatus = 0;
@@ -1213,11 +1410,11 @@ int PdrawBackend::startVideoSink(unsigned int mediaId,
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -1229,13 +1426,24 @@ int PdrawBackend::stopVideoSink(struct pdraw_video_sink *sink)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->stopVideoSink(sink);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_STOP_VIDEO_SINK;
@@ -1248,16 +1456,17 @@ int PdrawBackend::stopVideoSink(struct pdraw_video_sink *sink)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -1269,13 +1478,24 @@ int PdrawBackend::resyncVideoSink(struct pdraw_video_sink *sink)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->resyncVideoSink(sink);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RESYNC_VIDEO_SINK;
@@ -1288,16 +1508,17 @@ int PdrawBackend::resyncVideoSink(struct pdraw_video_sink *sink)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -1311,13 +1532,24 @@ PdrawBackend::getVideoSinkQueue(struct pdraw_video_sink *sink)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, NULL);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, NULL);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getVideoSinkQueue(sink);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_VIDEO_SINK_QUEUE;
@@ -1330,16 +1562,17 @@ PdrawBackend::getVideoSinkQueue(struct pdraw_video_sink *sink)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetQueue;
 	mRetQueue = NULL;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -1351,13 +1584,24 @@ int PdrawBackend::videoSinkQueueFlushed(struct pdraw_video_sink *sink)
 
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_ERR_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mPdraw->videoSinkQueueFlushed(sink);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIDEO_SINK_QUEUE_FLUSHED;
@@ -1370,16 +1614,17 @@ int PdrawBackend::videoSinkQueueFlushed(struct pdraw_video_sink *sink)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	res = mRetStatus;
 	mRetStatus = 0;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return res;
 }
 
@@ -1392,14 +1637,24 @@ enum pdraw_session_type PdrawBackend::getSessionType(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, PDRAW_SESSION_TYPE_UNKNOWN);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(
-		cmd == NULL, ENOMEM, PDRAW_SESSION_TYPE_UNKNOWN);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getSessionType();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SESSION_TYPE;
@@ -1411,16 +1666,17 @@ enum pdraw_session_type PdrawBackend::getSessionType(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetSessionType;
 	mRetSessionType = PDRAW_SESSION_TYPE_UNKNOWN;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -1432,13 +1688,24 @@ void PdrawBackend::getSelfFriendlyName(std::string *friendlyName)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->getSelfFriendlyName(friendlyName);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SELF_FRIENDLY_NAME;
@@ -1450,15 +1717,17 @@ void PdrawBackend::getSelfFriendlyName(std::string *friendlyName)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	if (friendlyName)
 		*friendlyName = mRetString;
 	mRetString = "";
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1473,13 +1742,24 @@ void PdrawBackend::setSelfFriendlyName(const std::string &friendlyName)
 				     sizeof(cmd->generic.string) - 1,
 			     ENOBUFS);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setSelfFriendlyName(friendlyName);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_SELF_FRIENDLY_NAME;
@@ -1495,12 +1775,14 @@ void PdrawBackend::setSelfFriendlyName(const std::string &friendlyName)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1512,13 +1794,24 @@ void PdrawBackend::getSelfSerialNumber(std::string *serialNumber)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->getSelfSerialNumber(serialNumber);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SELF_SERIAL_NUMBER;
@@ -1530,15 +1823,17 @@ void PdrawBackend::getSelfSerialNumber(std::string *serialNumber)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	if (serialNumber)
 		*serialNumber = mRetString;
 	mRetString = "";
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1553,13 +1848,24 @@ void PdrawBackend::setSelfSerialNumber(const std::string &serialNumber)
 				     sizeof(cmd->generic.string) - 1,
 			     ENOBUFS);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setSelfSerialNumber(serialNumber);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_SELF_SERIAL_NUMBER;
@@ -1575,12 +1881,14 @@ void PdrawBackend::setSelfSerialNumber(const std::string &serialNumber)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1592,13 +1900,24 @@ void PdrawBackend::getSelfSoftwareVersion(std::string *softwareVersion)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->getSelfSoftwareVersion(softwareVersion);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SELF_SOFTWARE_VERSION;
@@ -1610,15 +1929,17 @@ void PdrawBackend::getSelfSoftwareVersion(std::string *softwareVersion)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	if (softwareVersion)
 		*softwareVersion = mRetString;
 	mRetString = "";
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1633,13 +1954,24 @@ void PdrawBackend::setSelfSoftwareVersion(const std::string &softwareVersion)
 				     sizeof(cmd->generic.string) - 1,
 			     ENOBUFS);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setSelfSoftwareVersion(softwareVersion);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_SELF_SOFTWARE_VERSION;
@@ -1655,12 +1987,14 @@ void PdrawBackend::setSelfSoftwareVersion(const std::string &softwareVersion)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1673,13 +2007,24 @@ bool PdrawBackend::isSelfPilot(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, false);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, false);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->isSelfPilot();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_IS_SELF_PILOT;
@@ -1691,16 +2036,17 @@ bool PdrawBackend::isSelfPilot(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetBool;
 	mRetBool = false;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -1712,13 +2058,24 @@ void PdrawBackend::setSelfPilot(bool isPilot)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setSelfPilot(isPilot);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_SELF_PILOT;
@@ -1731,12 +2088,14 @@ void PdrawBackend::setSelfPilot(bool isPilot)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1748,13 +2107,24 @@ void PdrawBackend::getPeerSessionMetadata(struct vmeta_session *session)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->getPeerSessionMetadata(session);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_PEER_DRONE_MODEL;
@@ -1766,15 +2136,17 @@ void PdrawBackend::getPeerSessionMetadata(struct vmeta_session *session)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	if (session)
 		*session = mRetSessionMeta;
 	memset(&mRetSessionMeta, 0, sizeof(mRetSessionMeta));
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1787,14 +2159,24 @@ enum pdraw_drone_model PdrawBackend::getPeerDroneModel(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, PDRAW_DRONE_MODEL_UNKNOWN);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(
-		cmd == NULL, ENOMEM, PDRAW_DRONE_MODEL_UNKNOWN);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getPeerDroneModel();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_PEER_DRONE_MODEL;
@@ -1806,16 +2188,17 @@ enum pdraw_drone_model PdrawBackend::getPeerDroneModel(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetDroneModel;
 	mRetDroneModel = PDRAW_DRONE_MODEL_UNKNOWN;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -1829,14 +2212,24 @@ enum pdraw_pipeline_mode PdrawBackend::getPipelineModeSetting(void)
 	ULOG_ERRNO_RETURN_VAL_IF(
 		!mStarted, EPROTO, PDRAW_PIPELINE_MODE_DECODE_ALL);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(
-		cmd == NULL, ENOMEM, PDRAW_PIPELINE_MODE_DECODE_ALL);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getPipelineModeSetting();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_PIPELINE_MODE_SETTING;
@@ -1848,16 +2241,17 @@ enum pdraw_pipeline_mode PdrawBackend::getPipelineModeSetting(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetPipelineMode;
 	mRetPipelineMode = PDRAW_PIPELINE_MODE_DECODE_ALL;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -1869,13 +2263,24 @@ void PdrawBackend::setPipelineModeSetting(enum pdraw_pipeline_mode mode)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setPipelineModeSetting(mode);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_PIPELINE_MODE_SETTING;
@@ -1888,12 +2293,14 @@ void PdrawBackend::setPipelineModeSetting(enum pdraw_pipeline_mode mode)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1910,13 +2317,29 @@ void PdrawBackend::getDisplayScreenSettings(float *xdpi,
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->getDisplayScreenSettings(xdpi,
+						 ydpi,
+						 deviceMarginTop,
+						 deviceMarginBottom,
+						 deviceMarginLeft,
+						 deviceMarginRight);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_DISPLAY_SCREEN_SETTINGS;
@@ -1928,6 +2351,7 @@ void PdrawBackend::getDisplayScreenSettings(float *xdpi,
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	if (xdpi)
 		*xdpi = mRetFloat[0];
 	if (ydpi)
@@ -1944,9 +2368,10 @@ void PdrawBackend::getDisplayScreenSettings(float *xdpi,
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -1963,13 +2388,29 @@ void PdrawBackend::setDisplayScreenSettings(float xdpi,
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setDisplayScreenSettings(xdpi,
+						 ydpi,
+						 deviceMarginTop,
+						 deviceMarginBottom,
+						 deviceMarginLeft,
+						 deviceMarginRight);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_DISPLAY_SCREEN_SETTINGS;
@@ -1989,12 +2430,14 @@ void PdrawBackend::setDisplayScreenSettings(float xdpi,
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -2007,13 +2450,24 @@ enum pdraw_hmd_model PdrawBackend::getHmdModelSetting(void)
 
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, ret);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_VAL_IF(cmd == NULL, ENOMEM, PDRAW_HMD_MODEL_UNKNOWN);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mPdraw->getHmdModelSetting();
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_HMD_MODEL_SETTING;
@@ -2025,16 +2479,17 @@ enum pdraw_hmd_model PdrawBackend::getHmdModelSetting(void)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	ret = mRetHmdModel;
 	mRetHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
-
 	return ret;
 }
 
@@ -2046,13 +2501,24 @@ void PdrawBackend::setHmdModelSetting(enum pdraw_hmd_model hmdModel)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setHmdModelSetting(hmdModel);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_HMD_MODEL_SETTING;
@@ -2065,12 +2531,14 @@ void PdrawBackend::setHmdModelSetting(enum pdraw_hmd_model hmdModel)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -2082,13 +2550,24 @@ void PdrawBackend::setAndroidJvm(void *jvm)
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
 
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	ULOG_ERRNO_RETURN_IF(cmd == NULL, ENOMEM);
-
 	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		mPdraw->setAndroidJvm(jvm);
+		goto out2;
+	}
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = false;
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == NULL) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_ANDROID_JVM;
@@ -2101,12 +2580,14 @@ void PdrawBackend::setAndroidJvm(void *jvm)
 
 	while (!mRetValReady)
 		pthread_cond_wait(&mCond, &mMutex);
+
 	mRetValReady = false;
 
 out:
-	pthread_mutex_unlock(&mMutex);
 	free(cmd);
+	pthread_mutex_unlock(&mMutex);
 
+out2:
 	pthread_mutex_unlock(&mApiMutex);
 }
 
@@ -2525,11 +3006,13 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 			break;
 		}
 		case CMD_TYPE_SEEK: {
-			self->internalSeek(msg->generic.int64);
+			self->internalSeek(
+				msg->generic.int64); /* TODO: exact */
 			break;
 		}
 		case CMD_TYPE_SEEK_TO: {
-			self->internalSeekTo(msg->generic.uint64);
+			self->internalSeekTo(
+				msg->generic.uint64); /* TODO: exact */
 			break;
 		}
 		case CMD_TYPE_GET_DURATION: {
@@ -2661,6 +3144,36 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 	} while (res == 0);
 
 	free(message);
+}
+
+
+int PdrawBackend::doStartVideoSink(unsigned int mediaId,
+				   const struct pdraw_video_sink_params *params,
+				   IPdrawBackend::VideoSinkListener *listener,
+				   struct pdraw_video_sink **retObj)
+{
+	int res;
+	std::pair<std::map<struct pdraw_video_sink *,
+			   IPdrawBackend::VideoSinkListener *>::iterator,
+		  bool>
+		inserted;
+
+	mPendingVideoSinkListener = listener;
+
+	res = mPdraw->startVideoSink(mediaId, params, this, retObj);
+	if (res < 0)
+		return res;
+
+	pthread_mutex_lock(&mMapsMutex);
+	inserted = mVideoSinkListenersMap.insert(
+		std::pair<struct pdraw_video_sink *,
+			  IPdrawBackend::VideoSinkListener *>(*retObj,
+							      listener));
+	if (inserted.second == false)
+		ULOGW("failed to insert the video sink listener in the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	return 0;
 }
 
 
@@ -2861,26 +3374,9 @@ void PdrawBackend::internalStartVideoSink(
 {
 	int res;
 	struct pdraw_video_sink *sink = NULL;
-	std::pair<std::map<struct pdraw_video_sink *,
-			   IPdrawBackend::VideoSinkListener *>::iterator,
-		  bool>
-		inserted;
 
-	mPendingVideoSinkListener = listener;
+	res = doStartVideoSink(mediaId, params, listener, &sink);
 
-	res = mPdraw->startVideoSink(mediaId, params, this, &sink);
-	if (res < 0)
-		goto out;
-
-	pthread_mutex_lock(&mMapsMutex);
-	inserted = mVideoSinkListenersMap.insert(
-		std::pair<struct pdraw_video_sink *,
-			  IPdrawBackend::VideoSinkListener *>(sink, listener));
-	if (inserted.second == false)
-		ULOGW("failed to insert the video sink listener in the map");
-	pthread_mutex_unlock(&mMapsMutex);
-
-out:
 	mPendingVideoSinkListener = NULL;
 	pthread_mutex_lock(&mMutex);
 	mRetStatus = res;

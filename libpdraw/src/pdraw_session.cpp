@@ -333,6 +333,7 @@ Session::~Session(void)
 		pomp_loop_idle_remove(mLoop, callPlayResponse, this);
 		pomp_loop_idle_remove(mLoop, callPauseResponse, this);
 		pomp_loop_idle_remove(mLoop, callSeekResponse, this);
+		pomp_loop_idle_remove(mLoop, callVideoSinkFlush, this);
 	}
 
 	if (mMbox != NULL) {
@@ -370,6 +371,11 @@ int Session::open(const std::string &url)
 
 	setState(OPENING);
 
+	if (url.length() < 4) {
+		ULOGE("invalid URL length");
+		ret = -EPROTO;
+		goto error_restore;
+	}
 	ext = url.substr(url.length() - 4, 4);
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
@@ -1761,12 +1767,8 @@ int Session::flushVideoSink(VideoSink *sink)
 	if (sink == NULL)
 		return -EINVAL;
 
-	struct pdraw_video_sink *s = (struct pdraw_video_sink *)sink;
-	VideoSinkListener *listener = sink->getVideoSinkListener();
-	if (listener == NULL)
-		return -ENOENT;
-
-	listener->onVideoSinkFlush(this, s);
+	mFlushVideoSinkArgs.push(sink);
+	pomp_loop_idle_add(mLoop, callVideoSinkFlush, this);
 
 	return 0;
 }
@@ -1867,6 +1869,20 @@ void Session::callSeekResponse(void *userdata)
 	self->mSeekRespTimestampArgs.pop();
 	self->mSeekRespSpeedArgs.pop();
 	self->mListener->seekResponse(self, status, timestamp, speed);
+}
+
+
+void Session::callVideoSinkFlush(void *userdata)
+{
+	Session *self = reinterpret_cast<Session *>(userdata);
+	VideoSink *sink = self->mFlushVideoSinkArgs.front();
+	self->mFlushVideoSinkArgs.pop();
+	struct pdraw_video_sink *s = (struct pdraw_video_sink *)sink;
+	VideoSinkListener *listener = sink->getVideoSinkListener();
+	if (listener == NULL)
+		self->videoSinkQueueFlushed(s);
+	else
+		listener->onVideoSinkFlush(self, s);
 }
 
 

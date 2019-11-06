@@ -188,6 +188,19 @@ int VideoSink::stop(void)
 	}
 	setState(STOPPING);
 
+	/* TODO:
+	 * Since pdraw_wrapper deletes the listener right after this function is
+	 * called, we need to remove it here to avoid any call during the
+	 * destruction process.
+	 *
+	 * A proper solution for this would be to make sure that the listener is
+	 * NOT destroyed when stop is called, but rather when setState(STOPPED);
+	 * is called, ensuring that the listener outlives this object.
+	 */
+	Element::lock();
+	mVideoSinkListener = NULL;
+	Element::unlock();
+
 	Sink::lock();
 
 	if (mInputMedia == NULL) {

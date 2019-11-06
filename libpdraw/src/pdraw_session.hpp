@@ -372,6 +372,7 @@ private:
 	static void callPlayResponse(void *userdata);
 	static void callPauseResponse(void *userdata);
 	static void callSeekResponse(void *userdata);
+	static void callVideoSinkFlush(void *userdata);
 	/* callOnSocketCreated omitted. Function has to be synchronous */
 	std::queue<int> mOpenRespStatusArgs;
 	std::queue<int> mCloseRespStatusArgs;
@@ -387,6 +388,7 @@ private:
 	std::queue<int> mSeekRespStatusArgs;
 	std::queue<uint64_t> mSeekRespTimestampArgs;
 	std::queue<float> mSeekRespSpeedArgs;
+	std::queue<VideoSink *> mFlushVideoSinkArgs;
 };
 
 } /* namespace Pdraw */

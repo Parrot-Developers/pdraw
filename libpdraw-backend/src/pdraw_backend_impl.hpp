@@ -253,6 +253,11 @@ private:
 
 	static void mboxCb(int fd, uint32_t revents, void *userdata);
 
+	int doStartVideoSink(unsigned int mediaId,
+			     const struct pdraw_video_sink_params *params,
+			     IPdrawBackend::VideoSinkListener *listener,
+			     struct pdraw_video_sink **retObj);
+
 	void internalOpen(const std::string &url);
 
 	void internalOpen(const std::string &localAddr,
