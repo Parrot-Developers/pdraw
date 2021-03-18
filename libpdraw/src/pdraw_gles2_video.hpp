@@ -41,6 +41,7 @@
 #		include <EGL/eglext.h>
 #	endif /* BCM_VIDEOCORE */
 
+#include "LFClientEngine.h"
 
 namespace Pdraw {
 
@@ -174,6 +175,7 @@ public:
 			   size_t histogramLen[PDRAW_HISTOGRAM_CHANNEL_MAX]);
 
 private:
+    LFClientEngine _lfClientEngine;
 	int setupBlur(void);
 
 	void cleanupBlur(void);

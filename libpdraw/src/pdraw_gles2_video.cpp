@@ -30,6 +30,10 @@
 
 #include "pdraw_gles2_video.hpp"
 
+//#include "LFClientEngine.h"
+
+//LFClientEngine _lfClientEngine;
+
 #ifdef USE_GLES2
 
 #	include "pdraw_session.hpp"
@@ -45,7 +49,17 @@
 #	define ULOG_TAG pdraw_gles2vid
 #	include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_gles2vid);
+//extern vmeta_frame* dgdframeMeta;
 
+#include <boost/shared_ptr.hpp>
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/thread.hpp>
+
+#include "/Users/ddvergsten/XCodeProjects/RespondAR5-14-20PostMergeKEEP/RespondAR/SampleCode/SwiftSampleCode/SmartCam/SmartCam/LFClientWrapper2.h"
+//#include "/Users/ddvergsten/XCodeProjects/ParrotDemoB2/groundsdk/packages/groundsdk-ios/demo/GroundSdkDemo/LFClientWrapper.h"
+extern boost::mutex sviewMutex;
+extern boost::shared_ptr<SViewData> _frameViewData;
+extern bool _viewDataInitialized;
 namespace Pdraw {
 
 
@@ -380,7 +394,28 @@ static const GLfloat zebraAvgWeights[9] = {0.077847f,
 					   0.123317f,
 					   0.077847f};
 
-
+boost::shared_ptr<SViewData> GetViewData(){
+    boost::shared_ptr<SViewData> viewData(new SViewData);
+    //_viewData.reset(new SViewData);
+    viewData->dfov = 45.0;
+    viewData->dFovVerticalAngle = 45.0;
+    viewData->dFovHorizontalAngle = 55.0;
+    viewData->dVehicleAltitude = 500.0;
+    //46.764594, -92.151235 Lincoln Park
+    //esko 46.685940, -92.363685
+    viewData->dVehicleLat =46.685940;
+    viewData->dVehicleLon =-92.363685;
+    viewData->dCameraPitch = -30.0;
+    viewData->dCameraHeading = 0.0;
+    viewData->dCameraRoll = 0.0;
+    viewData->dVehiclePitch = 0.0;
+    viewData->dVehicleHeading = 0.0;
+    viewData->dVehicleRoll = 0.0;
+    viewData->dVehicldAltitudeAGL = 5000.0;
+    return viewData;
+    
+}
+//#include "ClientFactory.h"
 Gles2Video::Gles2Video(Session *session,
 		       GLuint defaultFbo,
 		       unsigned int firstTexUnit)
@@ -391,6 +426,9 @@ Gles2Video::Gles2Video(Session *session,
 	GLint success = 0;
 	unsigned int i;
 
+    _lfClientEngine.InitShaders();
+
+    _lfClientEngine.Init();
 	mSession = session;
 	mMedia = NULL;
 	mVideoWidth = 0;
@@ -862,6 +900,7 @@ err:
 
 Gles2Video::~Gles2Video(void)
 {
+    _viewDataInitialized = false;
 	if (mTextures[0])
 		GLCHK(glDeleteTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
 	if (mProgram[GLES2_VIDEO_COLOR_CONVERSION_NONE] > 0) {
@@ -1751,6 +1790,7 @@ void Gles2Video::renderPadding(
 				    texCoords));
 	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[colorConversion]));
 
+    //dgd:
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
 	GLCHK(glDisableVertexAttribArray(mPositionHandle[colorConversion]));
@@ -1780,6 +1820,7 @@ void Gles2Video::renderPadding(
 	GLCHK(glUniform1fv(mBlurUniformWeights[0],
 			   GLES2_VIDEO_BLUR_TAP_COUNT,
 			   mPaddingBlurWeights));
+    //dgd
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 	GLCHK(glDisableVertexAttribArray(mBlurPositionHandle[0]));
 
@@ -1797,6 +1838,7 @@ void Gles2Video::renderPadding(
 	GLCHK(glUniform1fv(mBlurUniformWeights[1],
 			   GLES2_VIDEO_BLUR_TAP_COUNT,
 			   mPaddingBlurWeights));
+    //dgd
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 	GLCHK(glDisableVertexAttribArray(mBlurPositionHandle[1]));
 
@@ -1816,6 +1858,7 @@ void Gles2Video::renderPadding(
 	GLCHK(glUniform1fv(mBlurUniformWeights[0],
 			   GLES2_VIDEO_BLUR_TAP_COUNT,
 			   mPaddingBlurWeights));
+    //dgd
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 	GLCHK(glDisableVertexAttribArray(mBlurPositionHandle[0]));
 
@@ -1833,6 +1876,7 @@ void Gles2Video::renderPadding(
 	GLCHK(glUniform1fv(mBlurUniformWeights[1],
 			   GLES2_VIDEO_BLUR_TAP_COUNT,
 			   mPaddingBlurWeights));
+    //dgd
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 	GLCHK(glDisableVertexAttribArray(mBlurPositionHandle[1]));
 
@@ -1916,6 +1960,7 @@ void Gles2Video::renderPadding(
 	GLCHK(glEnableVertexAttribArray(
 		mTexcoordHandle[GLES2_VIDEO_COLOR_CONVERSION_NONE]));
 
+    //dgd
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
 	GLCHK(glDisableVertexAttribArray(
@@ -2363,6 +2408,7 @@ void Gles2Video::computeHistograms(
 	GLCHK(glEnableVertexAttribArray(
 		mHistogramTexcoordHandle[colorConversion]));
 
+    //dgd
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
 	GLCHK(glDisableVertexAttribArray(
@@ -2653,6 +2699,9 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 			    const struct vmeta_frame *metadata,
 			    const struct pdraw_video_renderer_params *params)
 {
+//    if(dgdframeMeta != NULL){
+//        float v_fov = dgdframeMeta->v3.base.picture_vfov;
+//    }
 	int ret;
 	unsigned int i;
 	float stride[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
@@ -2925,10 +2974,10 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 		vertices[4] = -videoH;
 		vertices[5] = 1.;
 		vertices[6] = -videoW;
-		vertices[7] = videoH;
+		vertices[7] = videoH ;
 		vertices[8] = 1.;
 		vertices[9] = videoW;
-		vertices[10] = videoH;
+		vertices[10] = videoH ;
 		vertices[11] = 1.;
 
 		GLCHK(glVertexAttribPointer(mPositionHandle[colorConversion],
@@ -2980,9 +3029,67 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 					    texCoords));
 		GLCHK(glEnableVertexAttribArray(
 			mTexcoordHandle[colorConversion]));
-
+        int val = -1;
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &val);
 		GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
+        
+        //1080, 1805 = vpport
+        //_lfClientEngine.Render(0.0, 1010.8, 0.5 * videoW * 1080, 0.5 * videoH * 1805, GetViewData());
+        //_lfClientEngine.Render(0.0, 397.1, 1080, 1407.9, GetViewData());
+        //videoW is the shader ie -1 1 loation in the viewport
+        //renderPos x/y is the size of the viewport we are rendering the video in
+        unsigned int vidWidth = mVideoWidth;
+        unsigned int vidHeight = mVideoHeight;
+        double videoAspectRatio = (double)vidWidth / (double)vidHeight;
+        double textureNormalizedWidth = videoW;
+        double textureNormalizedheight = videoH;
+        double textureAspectRation = textureNormalizedWidth / textureNormalizedheight;
+        double vidH = (1.0 / videoAspectRatio) * renderPos->width;
+        GLint m_viewport[4];
+        boost::shared_ptr<SViewData> metaData(new SViewData);//create a new one just in case the other end hasn't set the current view data yet
+        glGetIntegerv( GL_VIEWPORT, m_viewport );
+        {
+            boost::mutex::scoped_lock scoped_lock(sviewMutex);//lock so that we aren't in middle of creating the data on the other end
+            metaData = _frameViewData;
+        }
+
+        double delta = 200.0;
+        //setXY2(3.45, 5.67);
+        float fx = 0.0f;
+        float fy = 0.0f;
+        bool triggered = PDCheckGetLatLon(&fx, &fy);
+        double returnlat = 0.0;
+        double returnlon = 0.0;
+        if(triggered){
+            std::cout<<"get lat lon for screenxy triggered!! with x"<<fx<<" y"<<fy<<std::endl;
+            //dg house 43.009008947652944, -89.77785090285298
+            //PDSetLatLonReady(43.009008947652944, -89.77785090285298);//dg s house
+            //void GetLatLon(int screenX, int screenY, int screenWidth, int screenHeight, double* lat, double* lon, int vpwidth, int vpheight);
+            
+            //old method
+            //_lfClientEngine.GetLatLon( fx,  fy, renderPos->width, renderPos->height, &returnlat, &returnlon, renderPos->width ,
+             //                         vidH);
+
+            std::cout<<"videoscalefactor = "<<params->video_scale_factor;
+            double deltaY = (renderPos->height / 2.0 - (0.5 * vidH)) / 2.0 ;//off by a factor of 2?? why??
+            std::cout<<"renderpos->height = "<<renderPos->height<<std::endl;
+            std::cout<<"vidH = "<<vidH<<std::endl;
+            std::cout<<"deltay = "<<deltaY<<std::endl;
+            
+            _lfClientEngine.InsertMarker(fx, fy - deltaY, renderPos->width, vidH, "city", "marker", 1.0, &returnlat, &returnlon);
+            std::cout<<"returned lat/lon "<<returnlat<<" "<<returnlon<<std::endl;
+            PDSetLatLonReady(returnlat, returnlon);
+        }
+        //getxy2(fx, fy);
+        //std::cout<<"fx fy = "<<fx<<" "<<fy<<std::endl;
+        if(_viewDataInitialized){
+
+            //in here check to see if user clicked the screen and getxy, for now just
+            //print a message
+            _lfClientEngine.Render(renderPos->x, (renderPos->height / 2.0) - (0.5 * vidH), renderPos->width , vidH, metaData);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, val);
 		GLCHK(glDisableVertexAttribArray(
 			mPositionHandle[colorConversion]));
 		GLCHK(glDisableVertexAttribArray(
@@ -2991,6 +3098,7 @@ int Gles2Video::renderFrame(size_t framePlaneStride[3],
 
 	return 0;
 }
+
 
 
 void Gles2Video::setVideoMedia(VideoMedia *media)

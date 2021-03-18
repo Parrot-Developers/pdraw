@@ -58,8 +58,14 @@ PDRAW_STATIC_ASSERT((int)Pdraw::VideoMedia::Format::H264 ==
 		    PDRAW_VIDEO_MEDIA_FORMAT_H264);
 PDRAW_STATIC_ASSERT((int)Pdraw::VideoMedia::Format::OPAQUE ==
 		    PDRAW_VIDEO_MEDIA_FORMAT_OPAQUE);
-
-
+#include <SViewData.h>
+#include <boost/shared_ptr.hpp>
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/thread.hpp>
+boost::shared_ptr<SViewData> _frameViewData;
+boost::mutex sviewMutex;
+bool _viewDataInitialized = false;
+//vmeta_frame* dgdframeMeta;
 class PdrawListener : public Pdraw::IPdraw::Listener {
 public:
 	PdrawListener(struct pdraw *pdraw,
@@ -221,6 +227,9 @@ public:
 					    mUserdata);
 	}
 
+    static double rad2deg(float x) {
+        return (57.2958 * x);
+    }
 	int renderVideoOverlay(Pdraw::IPdraw *pdraw,
 			       struct pdraw_video_renderer *renderer,
 			       const struct pdraw_rect *renderPos,
@@ -232,6 +241,59 @@ public:
 			       const struct vmeta_frame *frameMeta,
 			       const struct pdraw_video_frame_extra *frameExtra)
 	{
+        struct vmeta_euler vme,cme;
+        //dgdframeMeta = (vmeta_frame*)frameMeta;
+        float cameraPan, cameraTilt,dronePitch, droneHeading, droneRoll;
+        struct vmeta_location location;
+        vmeta_frame_get_location(frameMeta, &location);
+        vmeta_frame_get_camera_pan(frameMeta,&cameraPan);
+        vmeta_frame_get_camera_tilt(frameMeta,&cameraTilt);
+        cameraPan = rad2deg(cameraPan);
+        cameraTilt = rad2deg(cameraTilt);
+        vmeta_frame_get_drone_euler(frameMeta,&vme);
+        vmeta_frame_get_frame_euler(frameMeta,&cme);
+        struct vmeta_fov fov;
+        float hfov,vfov;
+        vmeta_frame_get_picture_h_fov(frameMeta,&hfov);
+        vmeta_frame_get_picture_v_fov(frameMeta,&vfov);
+        double sec,lt,ln,alt,p,h,r,hf,vf,agl,az,el;
+        //hr = times / 3600.0;
+        //min = (times - hr * 3600.0) / 60.0;
+        //sec = (times - hr * 3600.0 - min * 60.0);
+        lt = location.latitude;
+        ln = location.longitude;
+        alt = location.altitude;
+        p = rad2deg(cme.pitch);
+        h = rad2deg(cme.yaw);
+        r = rad2deg(cme.roll);
+        
+        {
+            boost::mutex::scoped_lock scoped_lock(sviewMutex);
+            if(frameMeta != NULL)
+                _viewDataInitialized = true;
+            _frameViewData.reset(new SViewData);
+            _frameViewData->dfov = vfov;
+            _frameViewData->dVehicleRoll = 0.0;
+            
+            
+            _frameViewData->dfov = vfov;
+            _frameViewData->dFovVerticalAngle = vfov;
+            _frameViewData->dFovHorizontalAngle = hfov;
+            _frameViewData->dVehicleAltitude = alt;
+            //46.764594, -92.151235 Lincoln Park
+            //esko 46.685940, -92.363685
+            _frameViewData->dVehicleLat =lt;
+            _frameViewData->dVehicleLon =ln;
+            _frameViewData->dCameraPitch = p;
+            _frameViewData->dCameraHeading = h;
+            _frameViewData->dCameraRoll = r;
+            _frameViewData->dVehiclePitch = 0.0;
+            _frameViewData->dVehicleHeading = 0.0;
+            _frameViewData->dVehicleRoll = 0.0;
+            _frameViewData->dVehicldAltitudeAGL = alt;
+        }
+        
+        
 		if (mCbs.render_overlay == NULL)
 			return -ENOSYS;
 		if ((renderer == NULL) || (renderPos == NULL) ||
@@ -620,7 +682,7 @@ int pdraw_start_video_renderer(struct pdraw *pdraw,
 		pdraw, render_pos, params, cbs, userdata, NULL, ret_obj);
 }
 
-
+#include <iostream>
 int pdraw_start_video_renderer_egl(
 	struct pdraw *pdraw,
 	const struct pdraw_rect *render_pos,
@@ -649,6 +711,7 @@ int pdraw_start_video_renderer_egl(
 	ret = pdraw->pdraw->startVideoRenderer(
 		render_pos, params, l, &renderer, egl_display);
 	if (ret < 0) {
+        //std::cout<<"dgd fail"<<std::endl;
 		delete l;
 		goto error;
 	}

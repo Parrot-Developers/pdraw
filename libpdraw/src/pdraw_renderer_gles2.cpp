@@ -225,7 +225,10 @@ Gles2Renderer::~Gles2Renderer(void)
 	}
 }
 
-
+//dgd
+GLuint      renderbufferStencil;
+GLuint      renderbufferColor;
+//end dgd
 /* Called on the rendering thread */
 int Gles2Renderer::setup(const struct pdraw_rect *renderPos,
 			 const struct pdraw_video_renderer_params *params,
@@ -245,6 +248,18 @@ int Gles2Renderer::setup(const struct pdraw_rect *renderPos,
 
 	GLCHK(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &mDefaultFbo));
 
+    
+    //dgd:
+    glGenRenderbuffers(1, &renderbufferStencil);
+    glBindFramebuffer(GL_FRAMEBUFFER, mDefaultFbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, renderbufferStencil);
+    double sizedd = renderPos->width * renderPos->height;
+    GLCHK(glRenderbufferStorage(GL_RENDERBUFFER,
+                                GL_DEPTH24_STENCIL8_OES,
+                                renderPos->width ,
+                                renderPos->height ));
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_RENDERBUFFER, renderbufferStencil);
+    //end dgd
 	ret = resize(renderPos);
 	if (ret < 0) {
 		ULOG_ERRNO("resize", -ret);

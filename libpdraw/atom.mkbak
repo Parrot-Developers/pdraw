@@ -1,10 +1,6 @@
 
 LOCAL_PATH := $(call my-dir)
 
-LFINCLUDE := "/Users/ddvergsten/XCodeProjects/RespondAR5-14-20PostMergeKEEP/RespondAR/SampleCode/SwiftSampleCode/SmartCam/LFClientEngineLibrary/include"
-
-LFINCLUDEPUBLIC := "/Users/ddvergsten/XCodeProjects/RespondAR5-14-20PostMergeKEEP/RespondAR/SampleCode/SwiftSampleCode/SmartCam/LFClientEngineLibrary/include-public"
-
 include $(CLEAR_VARS)
 
 LOCAL_MODULE := libpdraw
@@ -12,17 +8,12 @@ LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer library
 LOCAL_CATEGORY_PATH := libs
 
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
-
-#/Users/ddvergsten/XCodeProjects/RespondAR5-14-20PostMergeKEEP/RespondAR/SampleCode/SwiftSampleCode/SmartCam/LFClientEngineLibrary/include
-
 # Public API headers - top level headers first
 # This header list is currently used to generate a python binding
 LOCAL_EXPORT_CUSTOM_VARIABLES := LIBPDRAW_HEADERS=$\
 	$(LOCAL_PATH)/include/pdraw/pdraw.h:$\
 	$(LOCAL_PATH)/include/pdraw/pdraw_defs.h;
-
-LOCAL_EXPORT_CXXFLAGS := -std=c++11 -I/$(LFINCLUDE) -I/$(LFINCLUDE) -I/Users/ddvergsten/XCodeProjects/ofxiOSBoost/libs/boost/include -I/$(LFINCLUDEPUBLIC) -I/Users/ddvergsten/XCodeProjects/RespondAR5-14-20PostMergeKEEP/RespondAR/SampleCode/SwiftSampleCode/SmartCam/LFClientEngineLibrary/LFClientEngine -I//Users/ddvergsten/XCodeProjects/RespondAR5-14-20PostMergeKEEP/RespondAR/SampleCode/SwiftSampleCode/SmartCam/libkml/src -I//Users/ddvergsten/XCodeProjects/RespondAR5-14-20PostMergeKEEP/RespondAR/SampleCode/SwiftSampleCode/SmartCam/thirdparty
-
+LOCAL_EXPORT_CXXFLAGS := -std=c++11
 LOCAL_CFLAGS := -DPDRAW_API_EXPORTS -fvisibility=hidden -D_USE_MATH_DEFINES
 
 LOCAL_SRC_FILES := \
