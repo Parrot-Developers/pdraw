@@ -14,7 +14,7 @@ LOCAL_EXPORT_CUSTOM_VARIABLES := LIBPDRAW_HEADERS=$\
 	$(LOCAL_PATH)/include/pdraw/pdraw.h:$\
 	$(LOCAL_PATH)/include/pdraw/pdraw_defs.h;
 LOCAL_EXPORT_CXXFLAGS := -std=c++11
-LOCAL_CFLAGS := -DPDRAW_API_EXPORTS -fvisibility=hidden -D_USE_MATH_DEFINES
+LOCAL_CFLAGS := -DPDRAW_API_EXPORTS -fvisibility=hidden -D_USE_MATH_DEFINES -D_GNU_SOURCE
 
 LOCAL_SRC_FILES := \
 	src/pdraw_channel_coded_video.cpp \
@@ -66,7 +66,6 @@ LOCAL_LIBRARIES := \
 	libmedia-buffers-memory-generic \
 	libmp4 \
 	libpomp \
-	librtmp \
 	librtp \
 	librtsp \
 	libsdp \
@@ -81,7 +80,8 @@ LOCAL_LIBRARIES := \
 	libvideo-streaming
 LOCAL_CONDITIONAL_LIBRARIES := \
 	OPTIONAL:json \
-	OPTIONAL:libmux
+	OPTIONAL:libmux \
+	OPTIONAL:librtmp
 
 ifeq ($(TARGET_CPU),$(filter %$(TARGET_CPU),s905d3 s905x3))
   LOCAL_CFLAGS += -DUSE_GLES2
@@ -107,7 +107,7 @@ else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-iphoneos")
   LOCAL_LDLIBS += \
 	-framework OpenGLES
 else ifeq ("$(TARGET_OS)","windows")
-  LOCAL_CFLAGS += -DUSE_GLES2 -D_WIN32_WINNT=0x0600
+  LOCAL_CFLAGS += -DUSE_GLES2 -D_WIN32_WINNT=0x0600 -DEPOXY_SHARED
   LOCAL_LDLIBS += -lws2_32 -lepoxy
 endif
 

@@ -34,6 +34,10 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
+
+Q_DECLARE_METATYPE(struct pdraw_demuxer_media);
+
+
 namespace QPdraw {
 namespace Internal {
 
@@ -286,11 +290,8 @@ int QPdrawDemuxerPriv::demuxerSelectMedia(
 	Q_UNUSED(pdraw);
 	Q_UNUSED(demuxer);
 
-	struct pdraw_demuxer_media medias_copy[count];
-	memcpy(medias_copy, medias, count * sizeof(*medias));
-	emit mParent->selectMedia(medias_copy, (unsigned int)count, &ret);
-	/* TODO: the return value is acutually not updated as the signal is
-	 * processed on the main thread */
+	emit mParent->selectMedia(medias, (unsigned int)count, &ret);
+
 	return ret;
 }
 

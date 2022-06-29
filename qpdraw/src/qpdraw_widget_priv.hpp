@@ -40,7 +40,9 @@ namespace QPdraw {
 namespace Internal {
 
 
-class QPdrawWidgetPriv : public IPdraw::IVideoRenderer::Listener {
+class QPdrawWidgetPriv : public QObject,
+			 public IPdraw::IVideoRenderer::Listener {
+	Q_OBJECT
 
 public:
 	explicit QPdrawWidgetPriv(QPdrawWidget *parent);
@@ -86,6 +88,22 @@ private:
 			   struct vmeta_frame *frameMeta,
 			   const struct pdraw_video_frame_extra *frameExtra);
 
+signals:
+	/**
+	 * Render ready signal, called by onVideoRenderReady() method,
+	 * internally connected to the renderReady() slot, as the widget
+	 * update must be done from the Qt GUI thread.
+	 */
+	void onRenderReady();
+
+private slots:
+	/**
+	 * Render ready slot, connected to the onRenderReady() signal,
+	 * used to trigger the widget update in the Qt GUI thread.
+	 */
+	void renderReady();
+
+private:
 	QPdrawWidget *mParent;
 	QPdraw *mPdraw;
 	IPdraw::IVideoRenderer *mRenderer;

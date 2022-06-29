@@ -47,6 +47,7 @@ else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-iphoneos")
   LOCAL_LDLIBS += \
 	-framework OpenGLES
 else ifeq ("$(TARGET_OS)","windows")
+  LOCAL_CFLAGS += -D_WIN32_WINNT=0x0600 -DEPOXY_SHARED
   LOCAL_LDLIBS += -lepoxy
 endif
 

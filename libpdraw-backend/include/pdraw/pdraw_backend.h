@@ -71,9 +71,9 @@ struct pdraw_backend_cbs {
 			  void *userdata);
 
 	/* Media added callback function, called when a media has been added
-	 * internally in the PDrAW pipeline. Medias are for example YUV or H.264
+	 * internally in the PDrAW pipeline. Medias are for example raw or coded
 	 * video medias. The info structure gives the media identifier that can
-	 * be used to create a video sink on this media.
+	 * be used for example to create a video sink on this media.
 	 * @param pdraw: PDrAW back-end instance handle
 	 * @param info: pointer on the media information
 	 * @param userdata: user data pointer */
@@ -82,8 +82,8 @@ struct pdraw_backend_cbs {
 			    void *userdata);
 
 	/* Media removed callback function, called when a media has been removed
-	 * internally from the PDrAW pipeline. Medias are for example YUV or
-	 * H.264 video medias. When a media is removed, any video sink created
+	 * internally from the PDrAW pipeline. Medias are for example raw or
+	 * coded video medias. When a media is removed, any video sink created
 	 * on this media must then be stopped.
 	 * @param pdraw: PDrAW back-end instance handle
 	 * @param info: pointer on the media information
@@ -154,9 +154,9 @@ struct pdraw_backend_demuxer_cbs {
 	 * video medias found from which the application must choose one or more
 	 * to process in the pipeline. The return value of the callback function
 	 * must be a bitfield of the identifiers of the chosen medias (from the
-	 * pdraw_demuxer_media structure), or 0 to choose the default media. If
+	 * pdraw_demuxer_media structure), or 0 to choose the default medias. If
 	 * the return value is -ENOSYS, the callback is considered not
-	 * implemented and the default media is chosen. If the return value is
+	 * implemented and the default medias are chosen. If the return value is
 	 * -ECANCELED no media is chosen and the open operation is aborted. If
 	 * the return value is another negative errno or an invalid bitfield the
 	 * open_resp callback function will be called if an open operation is in
@@ -167,7 +167,7 @@ struct pdraw_backend_demuxer_cbs {
 	 * @param count: demuxer media array element count
 	 * @param userdata: user data pointer
 	 * @return a bitfield of the identifiers of the chosen medias,
-	 *         0 or -ENOSYS to choose the default media,
+	 *         0 or -ENOSYS to choose the default medias,
 	 *         -ECANCELED to choose no media and abort the open operation,
 	 *         or another negative errno value in case of error */
 	int (*select_media)(struct pdraw_backend *pdraw,
@@ -1491,7 +1491,7 @@ pdraw_be_set_software_version_setting(struct pdraw_backend *self,
  * This function returns the pipeline mode of a PDrAW instance. The pipeline
  * mode controls whether to decode the selected video media (for full processing
  * up to the rendering), or to disable video decoding (e.g. when no rendering
- * is required, only an H.264 video sink).
+ * is required, only a coded video sink).
  * @param pdraw: PDrAW back-end instance handle
  * @return the pipeline mode, or PDRAW_PIPELINE_MODE_DECODE_ALL in case of error
  */
@@ -1505,7 +1505,7 @@ pdraw_be_get_pipeline_mode_setting(struct pdraw_backend *self);
  * be called only prior to any open operation. The pipeline mode controls
  * whether to decode the selected video media (for full processing up to the
  * rendering), or to disable video decoding (e.g. when no rendering is required,
- * only an H.264 video sink).
+ * only a coded video sink).
  * @param pdraw: PDrAW back-end instance handle
  * @param mode: pipeline mode
  * @return 0 on success, negative errno value in case of error

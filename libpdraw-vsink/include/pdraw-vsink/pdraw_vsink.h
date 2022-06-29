@@ -60,10 +60,13 @@ struct pdraw_vsink;
  * When no longer needed, the instance must be freed using the
  * pdraw_vsink_stop() function.
  * @param url: URL to open (network URL or local file)
+ * @param media_info: media info pointer to fill if not NULL.
+ * Note: mdeia_info will be freed in pdraw_vsink_stop().
  * @param ret_obj: pdraw_vsink instance handle (output)
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_VSINK_API int pdraw_vsink_start(const char *url,
+				      struct pdraw_media_info **media_info,
 				      struct pdraw_vsink **ret_obj);
 
 

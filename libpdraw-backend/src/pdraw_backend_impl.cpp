@@ -1843,7 +1843,9 @@ int PdrawBackend::createCodedVideoSink(
 		pthread_cond_wait(&mCond, &mMutex);
 
 	res = mRetStatus;
+	*retObj = mRetCodedVideoSink;
 	mRetStatus = 0;
+	mRetCodedVideoSink = nullptr;
 	mRetValReady = false;
 
 out:
@@ -2129,7 +2131,9 @@ int PdrawBackend::createRawVideoSink(
 		pthread_cond_wait(&mCond, &mMutex);
 
 	res = mRetStatus;
+	*retObj = mRetRawVideoSink;
 	mRetStatus = 0;
+	mRetRawVideoSink = nullptr;
 	mRetValReady = false;
 
 out:

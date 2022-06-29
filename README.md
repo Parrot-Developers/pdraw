@@ -1,20 +1,21 @@
 # PDrAW - Parrot Drones Awesome Video Viewer
 
-PDrAW (pronounced like the name Pedro) is a viewer for videos produced by
-Parrot drones (Anafi). It supports both streamed (RTP/RTSP) and recorded
-(MP4) videos.
+_PDrAW_ (pronounced like the name "Pedro") is a video player for medias created
+by Parrot drones such as _Anafi_ or _Anafi Ai_. The player supports both
+streamed (RTP/RTSP) and recorded (MP4) videos.
 
 PDrAW was originally written by Aurélien Barre as a personal project and is
-now officially maintained by Parrot Drones SAS. It is used in Parrot's
-_GroundSDK_ as its video pipeline implementation for Android and iOS, and thus
-also in Parrot's _FreeFlight6_ application.
+now officially maintained by Parrot Drones SAS. _PDrAW_ is the main video
+pipeline implementation of _GroundSDK_. We are using it in our _FreeFlight6_
+and _FreeFlight7_ applications, both on iOS and Android. It is also usable on
+desktop platforms.
 
 ## Supported platforms
 
 * Linux PC
 * macOS
-* Android (4.2 minimum) (note: no sample code, see _GroundSDK_)
-* iOS (8.0 minimum) (note: no sample code, see _GroundSDK_)
+* Android (5.0 minimum) (note: for sample code, see _GroundSDK Android_)
+* iOS (8.0 minimum) (note: for sample code, see _GroundSDK iOS_)
 
 ## Features
 
@@ -41,6 +42,8 @@ also in Parrot's _FreeFlight6_ application.
 * Decoding
   * H.264 video decoding (ITU-T H.264 / ISO/IEC 14496-10), baseline, main
   and high profiles
+  * H.265 video decoding (ITU-T H.265 / ISO/IEC 23008-2), main and main 10
+  profiles
   * Frame output API for application-side processing on the video (either
   H.264 frames before decoding or YUV frames after decoding)
 * Rendering

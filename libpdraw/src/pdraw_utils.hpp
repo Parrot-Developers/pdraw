@@ -147,6 +147,11 @@ uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_coded_video_frame *frame,
 
 uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_raw_video_frame *frame,
 					 const char *key);
+
+struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src);
+
+void pdraw_mediaInfoFree(struct pdraw_media_info *media_info);
+
 /* */
 
 

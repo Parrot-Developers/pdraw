@@ -163,6 +163,9 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 		case SDLK_d:
 			pdraw_desktop_dump_pipeline(self);
 			break;
+		case SDLK_f:
+			pdraw_desktop_change_fill_mode(self);
+			break;
 		}
 		break;
 	default:
@@ -352,8 +355,9 @@ void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
 
 	/* Create the renderer */
 	struct pdraw_video_renderer_params params = {0};
-	params.fill_mode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND;
-	params.enable_transition_flags = 0xFFFFFFFF;
+	params.fill_mode = self->default_fill_mode;
+	params.enable_transition_flags =
+		PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_ALL;
 	params.enable_hmd_distortion_correction = self->enable_hmd;
 	params.enable_overexposure_zebras = self->enable_zebras;
 	params.overexposure_zebras_threshold = self->zebras_threshold;

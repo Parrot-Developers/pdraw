@@ -530,7 +530,6 @@ void Gles2Renderer::onChannelEos(RawChannel *channel)
 	RawSink::lock();
 
 	RawSink::onChannelEos(channel);
-	mFrameLoaded = false;
 	int ret = pomp_timer_clear(mWatchdogTimer);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);

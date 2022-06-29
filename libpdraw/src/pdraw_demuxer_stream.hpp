@@ -304,6 +304,8 @@ private:
 
 	void completeTeardown(void);
 
+	static void completeTeardownAsync(void *userdata);
+
 	void onChannelFlushed(CodedChannel *channel);
 
 	void onChannelUnlink(CodedChannel *channel);
@@ -402,12 +404,12 @@ private:
 				   void *userdata);
 
 	static void idleRtspDisconnect(void *userdata);
+	static void idleEndOfRangeNotification(void *userdata);
 
 	struct vmeta_session mSessionMetaFromSdp;
 	bool mChannelsReadyForStop;
 	bool mNetworkReadyForStop;
 	RtspState mRtspState;
-	bool mTearingDown;
 	struct rtsp_client *mRtspClient;
 	const char *mRtspSessionId;
 	bool mRunning;
@@ -416,6 +418,8 @@ private:
 	unsigned int mFlushChannelCount;
 	uint64_t mStartTime;
 	uint64_t mDuration;
+	uint64_t mTrackDuration;
+	bool mUpdateTrackDuration;
 	uint64_t mCurrentTime;
 	uint64_t mPausePoint;
 	int64_t mNtpToNptOffset;

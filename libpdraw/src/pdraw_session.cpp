@@ -143,6 +143,18 @@ int pdrawVideoFrameToJson(const struct pdraw_video_frame *frame,
 }
 
 
+struct pdraw_media_info *pdrawMediaInfoDup(const struct pdraw_media_info *src)
+{
+	return pdraw_mediaInfoDup(src);
+}
+
+
+void pdrawMediaInfoFree(struct pdraw_media_info *media_info)
+{
+	return pdraw_mediaInfoFree(media_info);
+}
+
+
 Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener) :
 		mFactory(this), mListener(listener), mState(STOPPED),
 		mLoop(loop), mAndroidJvm(nullptr)
@@ -907,6 +919,7 @@ Session::Muxer::Muxer(Session *session, const std::string &url)
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
 	if (url.substr(0, 7) == "rtmp://") {
+#ifdef BUILD_LIBRTMP
 		RtmpStreamMuxer *muxer;
 		muxer = new Pdraw::RtmpStreamMuxer(session, session, url);
 		if (muxer == nullptr) {
@@ -915,6 +928,9 @@ Session::Muxer::Muxer(Session *session, const std::string &url)
 			return;
 		}
 		mMuxer = muxer;
+#else
+		ULOGE("%s: librtmp is not supported", __func__);
+#endif
 	} else if (ext == ".mp4") {
 		RecordMuxer *muxer;
 		muxer = new Pdraw::RecordMuxer(session, session, url);

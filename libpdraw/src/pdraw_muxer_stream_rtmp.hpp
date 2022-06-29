@@ -31,11 +31,13 @@
 #ifndef _PDRAW_MUXER_STREAM_RTMP_HPP_
 #define _PDRAW_MUXER_STREAM_RTMP_HPP_
 
-#include "pdraw_muxer.hpp"
+#ifdef BUILD_LIBRTMP
 
-#include <vector>
+#	include "pdraw_muxer.hpp"
 
-#include <rtmp.h>
+#	include <vector>
+
+#	include <rtmp.h>
 
 namespace Pdraw {
 
@@ -101,5 +103,7 @@ private:
 };
 
 } /* namespace Pdraw */
+
+#endif /* BUILD_LIBRTMP */
 
 #endif /* !_PDRAW_MUXER_STREAM_RTMP_HPP_ */

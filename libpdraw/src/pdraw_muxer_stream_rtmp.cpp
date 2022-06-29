@@ -35,15 +35,17 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include "pdraw_muxer_stream_rtmp.hpp"
 #include "pdraw_session.hpp"
 
-#include <time.h>
+#ifdef BUILD_LIBRTMP
 
-#include <libmp4.h>
-#include <media-buffers/mbuf_mem_generic.h>
+#	include <time.h>
+
+#	include <libmp4.h>
+#	include <media-buffers/mbuf_mem_generic.h>
 
 namespace Pdraw {
 
 
-#define NB_SUPPORTED_FORMATS 1
+#	define NB_SUPPORTED_FORMATS 1
 static struct vdef_coded_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
 static void initializeSupportedFormats(void)
@@ -519,3 +521,5 @@ void RtmpStreamMuxer::dataUnrefCb(uint8_t *data,
 }
 
 } /* namespace Pdraw */
+
+#endif /* BUILD_LIBRTMP */

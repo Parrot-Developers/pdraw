@@ -55,6 +55,7 @@ struct pdraw_vsink {
 	struct pdraw_demuxer *demuxer;
 	struct pdraw_raw_video_sink *sink;
 	struct mbuf_raw_video_frame_queue *queue;
+	struct pdraw_media_info *media_info;
 	char *url;
 	int result;
 };
@@ -253,6 +254,13 @@ static void media_added_cb(struct pdraw *pdraw,
 		self->sink = NULL;
 	}
 
+	self->media_info = pdraw_media_info_dup(info);
+	if (self->media_info == NULL) {
+		ULOG_ERRNO("pdraw_media_info_dup", ENOMEM);
+		goto out;
+	}
+
+
 	struct pdraw_video_sink_params params;
 	memset(&params, 0, sizeof(params));
 	params.queue_max_count = 1;
@@ -393,7 +401,9 @@ error:
 }
 
 
-int pdraw_vsink_start(const char *url, struct pdraw_vsink **ret_obj)
+int pdraw_vsink_start(const char *url,
+		      struct pdraw_media_info **media_info,
+		      struct pdraw_vsink **ret_obj)
 {
 	int res, err;
 
@@ -456,6 +466,9 @@ int pdraw_vsink_start(const char *url, struct pdraw_vsink **ret_obj)
 		goto error;
 	}
 
+	if (media_info != NULL)
+		*media_info = self->media_info;
+
 	*ret_obj = self;
 	return 0;
 
@@ -504,6 +517,7 @@ int pdraw_vsink_stop(struct pdraw_vsink *self)
 	if (res != 0)
 		ULOG_ERRNO("pthread_cond_destroy", res);
 
+	pdraw_media_info_free(self->media_info);
 	free(self->url);
 	free(self);
 

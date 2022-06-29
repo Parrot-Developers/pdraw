@@ -61,7 +61,7 @@ struct _GstPdrawSrc
   /* media added condition */
   GMutex media_lock;
   GCond media_cond;
-  const struct pdraw_media_info *media_info;
+  struct pdraw_media_info *media_info;
 
   /* setup condition, i.e. vsink started */
   GMutex setup_lock;
@@ -340,7 +340,7 @@ media_added (struct pdraw_backend *pdraw, const struct pdraw_media_info *info,
 
   /* save media info for caps negotiation */
   g_mutex_lock (&pdrawsrc->media_lock);
-  pdrawsrc->media_info = g_slice_dup (struct pdraw_media_info, info);
+  pdrawsrc->media_info = pdraw_media_info_dup (info);
   g_cond_signal (&pdrawsrc->media_cond);
   g_mutex_unlock (&pdrawsrc->media_lock);
 
@@ -379,7 +379,7 @@ media_removed (struct pdraw_backend * pdraw,
     LOG_ERRNO_OBJECT (pdrawsrc, "pdraw_be_coded_video_sink_destroy", -res);
   pdrawsrc->sink = NULL;
   pdrawsrc->queue = NULL;
-  g_slice_free (struct pdraw_media_info, (void *) pdrawsrc->media_info);
+  pdraw_media_info_free (pdrawsrc->media_info);
   pdrawsrc->media_info = NULL;
 
 out:

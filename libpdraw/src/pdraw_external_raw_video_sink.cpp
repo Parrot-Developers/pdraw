@@ -40,13 +40,15 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-#define NB_SUPPORTED_FORMATS 2
+#define NB_SUPPORTED_FORMATS 4
 static struct vdef_raw_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
 static void initializeSupportedFormats(void)
 {
 	supportedFormats[0] = vdef_i420;
 	supportedFormats[1] = vdef_nv12;
+	supportedFormats[2] = vdef_i420_10_16le;
+	supportedFormats[3] = vdef_nv12_10_16le_high;
 }
 
 

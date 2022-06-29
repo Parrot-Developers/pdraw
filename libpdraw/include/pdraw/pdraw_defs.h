@@ -166,6 +166,9 @@ enum pdraw_video_renderer_fill_mode {
 	/* Fit fill mode with blurred extension padding (the padding fills
 	 * the render zone, extending the video sides) */
 	PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND,
+
+	/* Enum values count (invalid value) */
+	PDRAW_VIDEO_RENDERER_FILL_MODE_MAX,
 };
 
 
@@ -542,10 +545,9 @@ struct pdraw_demuxer_media {
 	 * demuxer media selection callback function */
 	int media_id;
 
-	/* 1 for default media, 0 otherwise; the default media will be
+	/* 1 for default media, 0 otherwise; the default medias will be
 	 * selected if the demuxer media selection callback function returns
-	 * either 0 or -ENOSYS; note: if multiple medias are marked as
-	 * default, the first one will be chosen */
+	 * either 0 or -ENOSYS */
 	int is_default;
 
 	/* Session metadata */

@@ -373,13 +373,11 @@ void RecordMuxer::mergeSessionMetadata(void)
 	}
 
 	if (fileSessionMeta.media_date == 0) {
-		struct tm tm;
 		uint64_t mediaDate = 0;
 		int32_t mediaDateGmtoff = 0;
-		localtime_r(&mMediaDate, &tm);
-		err = time_local_from_tm(&tm, &mediaDate, &mediaDateGmtoff);
+		err = time_local_get(&mediaDate, &mediaDateGmtoff);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("time_local_from_tm", -err);
+			PDRAW_LOG_ERRNO("time_local_get", -err);
 		fileSessionMeta.media_date = mediaDate;
 		fileSessionMeta.media_date_gmtoff = mediaDateGmtoff;
 	}

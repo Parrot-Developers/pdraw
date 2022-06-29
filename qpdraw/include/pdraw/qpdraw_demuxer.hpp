@@ -386,6 +386,9 @@ signals:
 	 * negative errno or an invalid media identifier the openResponse()
 	 * signal will be emitted if an open operation is in progress, or the
 	 * onUnrecoverableError() signal otherwise.
+	 * Note: this signal must be connected using a Qt::DirectConnection,
+	 * to ensure that the slot is executed synchronously and that the
+	 * retVal parameter is set before this function returns.
 	 * @param medias: array of demuxer media
 	 * @param count: demuxer media array element count
 	 * @param retVal: a bitfield of the identifiers of the chosen chosen

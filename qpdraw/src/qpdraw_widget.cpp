@@ -41,6 +41,11 @@ namespace Internal {
 QPdrawWidgetPriv::QPdrawWidgetPriv(QPdrawWidget *parent) :
 		mParent(parent), mPdraw(nullptr), mRenderer(nullptr)
 {
+	connect(this,
+		&QPdrawWidgetPriv::onRenderReady,
+		this,
+		&QPdrawWidgetPriv::renderReady,
+		Qt::QueuedConnection);
 }
 
 
@@ -81,7 +86,9 @@ void QPdrawWidgetPriv::stop()
 
 bool QPdrawWidgetPriv::resizeGL(const struct pdraw_rect *renderPos)
 {
-	ULOG_ERRNO_RETURN_VAL_IF(mPdraw == nullptr, EINVAL, false);
+	if (mPdraw == nullptr)
+		return false;
+
 	ULOG_ERRNO_RETURN_VAL_IF(mRenderer == nullptr, EINVAL, false);
 
 	int res = mRenderer->resize(renderPos);
@@ -96,7 +103,9 @@ bool QPdrawWidgetPriv::resizeGL(const struct pdraw_rect *renderPos)
 
 bool QPdrawWidgetPriv::paintGL()
 {
-	ULOG_ERRNO_RETURN_VAL_IF(mPdraw == nullptr, EINVAL, false);
+	if (mPdraw == nullptr)
+		return false;
+
 	ULOG_ERRNO_RETURN_VAL_IF(mRenderer == nullptr, EINVAL, false);
 
 	int res = mRenderer->render(nullptr);
@@ -141,7 +150,7 @@ void QPdrawWidgetPriv::onVideoRenderReady(IPdraw *pdraw,
 	Q_UNUSED(pdraw);
 	Q_UNUSED(renderer);
 
-	mParent->update();
+	emit onRenderReady();
 }
 
 
@@ -196,6 +205,13 @@ int QPdrawWidgetPriv::renderVideoOverlay(
 					 &ret);
 	return ret;
 }
+
+
+void QPdrawWidgetPriv::renderReady()
+{
+	mParent->update();
+}
+
 
 } /* namespace Internal */
 

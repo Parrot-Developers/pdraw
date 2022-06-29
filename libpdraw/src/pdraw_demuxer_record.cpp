@@ -196,9 +196,8 @@ int RecordDemuxer::start(void)
 	struct mp4_track_info tk;
 	struct pdraw_demuxer_media *medias = nullptr;
 	std::vector<struct pdraw_demuxer_media *> selectedMedias;
-	std::vector<struct pdraw_demuxer_media *>::iterator p;
-	size_t mediasCount = 0;
-	int defaultMediaIndex = -1;
+	std::vector<struct pdraw_demuxer_media *>::iterator m;
+	size_t mediasCount = 0, mediaIndex = 0;
 	unsigned int hrs = 0, min = 0, sec = 0;
 	bool ready = true;
 
@@ -230,50 +229,67 @@ int RecordDemuxer::start(void)
 	pdraw_friendlyTimeFromUs(info.duration, &hrs, &min, &sec, nullptr);
 	PDRAW_LOGD("duration: %02d:%02d:%02d", hrs, min, sec);
 
-	/* List all tracks */
+	/* Count the number of video tracks */
 	for (i = 0; i < tkCount; i++) {
 		ret = mp4_demux_get_track_info(mDemux, i, &tk);
 		if (ret != 0 || tk.type != MP4_TRACK_TYPE_VIDEO)
 			continue;
-		struct pdraw_demuxer_media *tmp =
-			(struct pdraw_demuxer_media *)realloc(
-				medias, (mediasCount + 1) * sizeof(*medias));
-		if (!tmp) {
-			ret = -ENOMEM;
-			goto exit;
-		}
 		mediasCount++;
-		medias = tmp;
-		struct pdraw_demuxer_media *current = &medias[mediasCount - 1];
-		memset(current, 0, sizeof(*current));
-		current->media_id = tk.id;
-		current->idx = i;
-		current->name = strdup(tk.name);
-		current->is_default = tk.enabled;
-		if (current->is_default && defaultMediaIndex == -1)
-			defaultMediaIndex = mediasCount - 1;
-		(void)fetchSessionMetadata(tk.id, &current->session_meta);
 	}
 	if (mediasCount == 0) {
 		PDRAW_LOGE("no video track");
 		ret = -ENOENT;
 		goto exit;
 	}
+	medias = (struct pdraw_demuxer_media *)calloc(mediasCount,
+						      sizeof(*medias));
+	if (medias == nullptr) {
+		ret = -ENOMEM;
+		goto exit;
+	}
+
+	/* List all tracks */
+	for (i = 0; i < tkCount; i++) {
+		ret = mp4_demux_get_track_info(mDemux, i, &tk);
+		if (ret != 0 || tk.type != MP4_TRACK_TYPE_VIDEO)
+			continue;
+		struct pdraw_demuxer_media *current = &medias[mediaIndex];
+		memset(current, 0, sizeof(*current));
+		current->media_id = tk.id;
+		current->idx = i;
+		current->name = strdup(tk.name);
+		current->is_default = tk.enabled;
+		mediaIndex++;
+		if (current->is_default)
+			selectedMedias.push_back(current);
+		(void)fetchSessionMetadata(tk.id, &current->session_meta);
+	}
 
 	/* Ask which media(s) to use from the application */
 	ret = selectMedia(medias, mediasCount);
 	if (ret == 0 || ret == -ENOSYS) {
-		if (defaultMediaIndex == -1) {
+		if (selectedMedias.empty()) {
 			PDRAW_LOGE(
 				"application requested default media, "
 				"but no default media found");
 			ret = -ENOENT;
 			goto exit;
 		}
-		selectedMedias.push_back(&medias[defaultMediaIndex]);
-		PDRAW_LOGI("auto-selecting media %d (%s)",
-			   selectedMedias.back()->media_id,
-			   selectedMedias.back()->name);
+		if (selectedMedias.size() == 1) {
+			PDRAW_LOGI("auto-selecting media %d (%s)",
+				   selectedMedias.back()->media_id,
+				   selectedMedias.back()->name);
+		} else {
+			PDRAW_LOGI("audo-selecting medias {");
+			m = selectedMedias.begin();
+			while (m != selectedMedias.end()) {
+				PDRAW_LOGI(" - %d (%s)",
+					   (*m)->media_id,
+					   (*m)->name);
+				m++;
+			}
+			PDRAW_LOGI("}");
+		}
 	} else if (ret == -ECANCELED) {
 		PDRAW_LOGI("application cancelled the media selection");
 		ready = false;
@@ -284,6 +300,7 @@ int RecordDemuxer::start(void)
 		ret = -EPROTO;
 		goto exit;
 	} else {
+		selectedMedias.clear();
 		for (size_t j = 0; j < mediasCount; j++) {
 			if (!(ret & (1 << medias[j].media_id)))
 				continue;
@@ -300,9 +317,9 @@ int RecordDemuxer::start(void)
 	}
 
 	/* Create the output ports for the selected medias */
-	p = selectedMedias.begin();
-	while (p != selectedMedias.end()) {
-		ret = mp4_demux_get_track_info(mDemux, (*p)->idx, &tk);
+	m = selectedMedias.begin();
+	while (m != selectedMedias.end()) {
+		ret = mp4_demux_get_track_info(mDemux, (*m)->idx, &tk);
 		if (ret != 0) {
 			PDRAW_LOG_ERRNO("mp4_demux_get_track_info", -ret);
 			goto exit;
@@ -316,13 +333,15 @@ int RecordDemuxer::start(void)
 			goto exit;
 		}
 		mVideoMedias.push_back(videoMedia);
-		p++;
+		m++;
 	}
 
 exit:
 	/* Cleanup track list */
-	for (size_t j = 0; j < mediasCount; j++) {
-		free((void *)medias[j].name);
+	if (medias != nullptr) {
+		for (size_t j = 0; j < mediasCount; j++) {
+			free((void *)medias[j].name);
+		}
 	}
 	free(medias);
 

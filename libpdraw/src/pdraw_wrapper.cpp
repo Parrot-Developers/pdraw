@@ -571,10 +571,10 @@ int pdraw_destroy(struct pdraw *pdraw)
 		delete pdraw->listener;
 
 
-	if (pdraw->codedVideoSinkListeners != nullptr) {
-		std::vector<PdrawCodedVideoSinkListener *>::iterator l =
-			pdraw->codedVideoSinkListeners->begin();
-		while (l != pdraw->codedVideoSinkListeners->end()) {
+	if (pdraw->demuxerListeners != nullptr) {
+		std::vector<PdrawDemuxerListener *>::iterator l =
+			pdraw->demuxerListeners->begin();
+		while (l != pdraw->demuxerListeners->end()) {
 			if (*l != nullptr)
 				delete (*l);
 			l++;
@@ -1763,4 +1763,17 @@ int pdraw_video_frame_to_json(const struct pdraw_video_frame *frame,
 			      struct json_object *jobj)
 {
 	return pdraw_frameMetadataToJson(frame, metadata, jobj);
+}
+
+
+struct pdraw_media_info *
+pdraw_media_info_dup(const struct pdraw_media_info *src)
+{
+	return pdraw_mediaInfoDup(src);
+}
+
+
+void pdraw_media_info_free(struct pdraw_media_info *media_info)
+{
+	return pdraw_mediaInfoFree(media_info);
 }

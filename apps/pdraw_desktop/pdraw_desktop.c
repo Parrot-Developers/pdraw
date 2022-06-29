@@ -241,6 +241,39 @@ void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self)
 }
 
 
+void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self)
+{
+	int ret;
+	unsigned int i;
+	struct pdraw_video_renderer_params params;
+
+	for (i = 0; i < self->renderer_count; i++) {
+		ret = pdraw_be_video_renderer_get_params(
+			self->pdraw, self->renderer[i], &params);
+		if (ret < 0) {
+			ULOG_ERRNO("pdraw_be_video_renderer_get_params(%u)",
+				   -ret,
+				   i);
+			return;
+		}
+		params.fill_mode++;
+		if (params.fill_mode >= PDRAW_VIDEO_RENDERER_FILL_MODE_MAX)
+			params.fill_mode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT;
+		ret = pdraw_be_video_renderer_set_params(
+			self->pdraw, self->renderer[i], &params);
+		if (ret < 0) {
+			ULOG_ERRNO("pdraw_be_video_renderer_set_params(%u)",
+				   -ret,
+				   i);
+			return;
+		}
+		ULOGI("set renderer %u mode to %s",
+		      i,
+		      pdraw_video_renderer_fill_mode_str(params.fill_mode));
+	}
+}
+
+
 static void
 stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
@@ -347,9 +380,11 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 			   void *userdata)
 {
 	struct pdraw_desktop *self = userdata;
-	int id, ids = 0, ret;
+	int id, ids = 0;
 	char s[100];
 	char *str = s, *id_str = NULL, *temp = NULL;
+	unsigned int default_media_count = 0;
+	size_t slen;
 	if (count == 0)
 		return -ENOENT;
 	if (count == 1) {
@@ -357,14 +392,20 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 		return 1 << medias[0].media_id;
 	}
 
+	for (size_t i = 0; i < count; i++) {
+		if (medias[i].is_default)
+			default_media_count++;
+	}
+
 	if (self->demuxer_media_list) {
 		str = self->demuxer_media_list;
 		goto parse;
 	}
 
-	printf("Select demuxer media id(s); "
-	       "either a single media id (e.g. \"1\")\n");
-	printf("or a comma-separated list of media ids (e.g. \"1,3\"):\n");
+	printf("Select demuxer media id(s);\n"
+	       "either emtpy/zero for the default media set,"
+	       "a single media id (e.g. \"1\")\n"
+	       "or a comma-separated list of media ids (e.g. \"1,3\"):\n");
 	for (size_t i = 0; i < count; i++) {
 		printf(" %c %d: [%s] %s\n",
 		       medias[i].is_default ? '*' : '-',
@@ -374,24 +415,47 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 		       medias[i].name);
 	}
 	printf(" > ");
-	ret = scanf("%99s", s);
-	if (ret != 1) {
-		self->demuxer_media_count = 1;
+	if (!fgets(s, sizeof(s), stdin)) {
+		printf("Unable to read input, using default media\n");
+		self->demuxer_media_count = default_media_count;
+		return 0;
+	}
+	slen = strlen(s);
+	if (slen > 0 && s[slen - 1] == '\n')
+		s[slen - 1] = '\0';
+	slen = strlen(s);
+	if (slen == 0) {
+		self->demuxer_media_count = default_media_count;
 		return 0;
 	}
 
 parse:
-	id_str = strtok_r(str, ",", &temp);
-	if (id_str == NULL) {
-		id = atoi(str);
-		ids |= (1 << id);
-		self->demuxer_media_count = 1;
+	if (strchr(str, ',')) {
+		/* The string has multiple parts */
+		id_str = strtok_r(str, ",", &temp);
+		if (id_str == NULL) {
+			/* strtok_r returning NULL means that the string is
+			 * empty */
+			printf("Unable to read input, using default media\n");
+			self->demuxer_media_count = default_media_count;
+			return 0;
+		} else {
+			while (id_str) {
+				id = atoi(id_str);
+				ids |= (1 << id);
+				self->demuxer_media_count++;
+				id_str = strtok_r(NULL, ",", &temp);
+			}
+		}
 	} else {
-		while (id_str) {
-			id = atoi(id_str);
-			ids |= (1 << id);
-			self->demuxer_media_count++;
-			id_str = strtok_r(NULL, ",", &temp);
+		/* Only a single number */
+		id = atoi(str);
+		if (id == 0) {
+			ids = 0;
+			self->demuxer_media_count = default_media_count;
+		} else {
+			ids = (1 << id);
+			self->demuxer_media_count = 1;
 		}
 	}
 	return ids;
@@ -646,6 +710,7 @@ enum args_id {
 	ARGS_ID_ZEBRAS,
 	ARGS_ID_EXT_TEX,
 	ARGS_ID_DEMUX,
+	ARGS_ID_FILLMODE,
 };
 
 
@@ -668,6 +733,7 @@ static const struct option long_options[] = {
 	{"zebras", required_argument, NULL, ARGS_ID_ZEBRAS},
 	{"ext-tex", no_argument, NULL, ARGS_ID_EXT_TEX},
 	{"tex-mex", no_argument, NULL, ARGS_ID_EXT_TEX},
+	{"fill-mode", required_argument, NULL, ARGS_ID_FILLMODE},
 	{0, 0, 0, 0},
 };
 
@@ -693,8 +759,8 @@ static void usage(char *prog_name)
 	       "  -C | --rctrlp <port>             "
 	       "Remote control port for direct RTP/AVP reception (optional)\n\n"
 	       "       --demux <list>              "
-	       "Optional demuxer media selection list (e.g. \"1\" or "
-	       "\"1,3,5\");\n"
+	       "Optional demuxer media selection list, 0 for default "
+	       "(e.g. \"0\" or \"1,3,5\");\n"
 	       "                                   "
 	       "if not specified the user will be prompted if necessary\n\n"
 	       "  -F | --fullscreen                "
@@ -712,7 +778,10 @@ static void usage(char *prog_name)
 	       "                                   "
 	       "default: 0.95, out of range means default)\n\n"
 	       "       --ext-tex                   "
-	       "Enable testing the external texture loading callback\n\n",
+	       "Enable testing the external texture loading callback\n\n"
+	       "       --fill-mode                 "
+	       "Set default rendere fill-mode (FIT, CROP, FIT_PAD_BLUR_CROP,"
+	       "FIT_PAD_BLUR_EXTEND)\n\n",
 	       prog_name);
 }
 
@@ -741,6 +810,22 @@ static int summary(struct pdraw_desktop *self)
 }
 
 
+static enum pdraw_video_renderer_fill_mode parse_fill_mode(const char *value)
+{
+	enum pdraw_video_renderer_fill_mode fm;
+	for (fm = 0; fm < PDRAW_VIDEO_RENDERER_FILL_MODE_MAX; fm++) {
+		if (strcasecmp(value, pdraw_video_renderer_fill_mode_str(fm)) ==
+		    0)
+			return fm;
+	}
+	fm = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND;
+	printf("Invalid fill mode value '%s', using '%s' instead",
+	       value,
+	       pdraw_video_renderer_fill_mode_str(fm));
+	return fm;
+}
+
+
 int main(int argc, char **argv)
 {
 	int res, status = EXIT_SUCCESS;
@@ -764,6 +849,8 @@ int main(int argc, char **argv)
 	self->speed = 1.0;
 	self->speed_sign = 1;
 	self->skyctrl_battery_percentage = 255;
+	self->default_fill_mode =
+		PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND;
 
 	/* Command-line parameters */
 	while ((c = getopt_long(
@@ -839,6 +926,10 @@ int main(int argc, char **argv)
 
 		case ARGS_ID_EXT_TEX:
 			self->ext_tex = 1;
+			break;
+
+		case ARGS_ID_FILLMODE:
+			self->default_fill_mode = parse_fill_mode(optarg);
 			break;
 
 		default:

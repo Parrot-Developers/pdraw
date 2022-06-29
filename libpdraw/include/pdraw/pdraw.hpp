@@ -65,9 +65,9 @@ public:
 		/**
 		 * Media added function, called when a media has been added
 		 * internally in the PDrAW pipeline. Medias are for example
-		 * YUV or H.264 video medias. The info structure gives the
-		 * media identifier that can be used to create a video sink
-		 * on this media.
+		 * raw or coded video medias. The info structure gives the
+		 * media identifier that can be used for example to create a
+		 * video sink on this media.
 		 * @param pdraw: PDrAW instance handle
 		 * @param info: pointer on the media information
 		 */
@@ -78,7 +78,7 @@ public:
 		/**
 		 * Media removed function, called when a media has been removed
 		 * internally from the PDrAW pipeline. Medias are for example
-		 * YUV or H.264 video medias. When a media is removed, any
+		 * raw or coded video medias. When a media is removed, any
 		 * video sink created on this media must then be stopped.
 		 * @param pdraw: PDrAW instance handle
 		 * @param info: pointer on the media information
@@ -195,9 +195,9 @@ public:
 			 * return value of the function must be a bitfield of
 			 * the identifiers of the chosen medias (from the
 			 * pdraw_demuxer_media structure), or 0 to choose the
-			 * default media. If the return value is -ENOSYS, the
+			 * default medias. If the return value is -ENOSYS, the
 			 * callback is considered not implemented and the
-			 * default media is chosen. If the return value is
+			 * default medias are chosen. If the return value is
 			 * -ECANCELED no media is chosen and the open operation
 			 * is aborted. If the return value is another negative
 			 * errno or an invalid bitfield the
@@ -210,7 +210,7 @@ public:
 			 * @param count: demuxer media array element count
 			 * @return a bitfield of the identifiers of the chosen
 			 *         medias, 0 or -ENOSYS to choose the default
-			 *         media, -ECANCELED to choose no media and
+			 *         medias, -ECANCELED to choose no media and
 			 *         abort the open operation, or another negative
 			 *         errno value in case of error
 			 */
@@ -1287,7 +1287,7 @@ public:
 	 * This function returns the pipeline mode of a PDrAW instance. The
 	 * pipeline mode controls whether to decode the selected video media
 	 * (for full processing up to the rendering), or to disable video
-	 * decoding (e.g. when no rendering is required, only an H.264 video
+	 * decoding (e.g. when no rendering is required, only a coded video
 	 * sink).
 	 * @return the pipeline mode, or PDRAW_PIPELINE_MODE_DECODE_ALL
 	 *         in case of error
@@ -1300,7 +1300,7 @@ public:
 	 * function can be called only prior to any open operation. The pipeline
 	 * mode controls whether to decode the selected video media (for full
 	 * processing up to the rendering), or to disable video decoding (e.g.
-	 * when no rendering is required, only an H.264 video sink).
+	 * when no rendering is required, only a coded video sink).
 	 * @param mode: pipeline mode
 	 */
 	virtual void setPipelineModeSetting(enum pdraw_pipeline_mode mode) = 0;
@@ -1515,6 +1515,23 @@ PDRAW_API int pdrawVideoFrameToJsonStr(const struct pdraw_video_frame *frame,
 				       struct vmeta_frame *metadata,
 				       char *str,
 				       unsigned int len);
+
+
+/**
+ * Duplicate a media_info structure.
+ * @param src: pointer to the media_info structure to duplicate
+ * @return a pointer to the newly allocated structure or NULL on error.
+ */
+PDRAW_API struct pdraw_media_info *
+pdrawMediaInfoDup(const struct pdraw_media_info *src);
+
+
+/**
+ * Free a media_info structure.
+ * @param media_info: pointer to the media_info structure to free
+ */
+PDRAW_API void pdrawMediaInfoFree(struct pdraw_media_info *media_info);
+
 
 } /* namespace Pdraw */
 

@@ -198,7 +198,6 @@ const char *
 pdraw_videoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val)
 {
 	switch (val) {
-	default:
 	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT:
 		return "FIT";
 	case PDRAW_VIDEO_RENDERER_FILL_MODE_CROP:
@@ -207,6 +206,9 @@ pdraw_videoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val)
 		return "FIT_PAD_BLUR_CROP";
 	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND:
 		return "FIT_PAD_BLUR_EXTEND";
+	case PDRAW_VIDEO_RENDERER_FILL_MODE_MAX:
+	default:
+		return "UNKNOWN";
 	}
 }
 
@@ -573,6 +575,55 @@ out:
 	mbuf_ancillary_data_unref(data);
 	return ts;
 }
+
+
+struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src)
+{
+	struct pdraw_media_info *dst;
+
+	ULOG_ERRNO_RETURN_VAL_IF(src == NULL, EINVAL, NULL);
+
+	dst = (pdraw_media_info *)malloc(sizeof(*src));
+	if (dst == NULL) {
+		ULOG_ERRNO("calloc", ENOMEM);
+		return NULL;
+	}
+	*dst = *src;
+
+	dst->name = NULL;
+	dst->path = NULL;
+
+	dst->name = strdup(src->name);
+	if (dst->name == NULL) {
+		ULOG_ERRNO("strdup", ENOMEM);
+		goto failure;
+	}
+	dst->path = strdup(src->path);
+	if (dst->path == NULL) {
+		ULOG_ERRNO("strdup", ENOMEM);
+		goto failure;
+	}
+
+	return dst;
+
+failure:
+	free((void *)dst->name);
+	free((void *)dst->path);
+	free(dst);
+	return NULL;
+}
+
+
+void pdraw_mediaInfoFree(struct pdraw_media_info *media_info)
+{
+	if (media_info == NULL)
+		return;
+
+	free((void *)media_info->name);
+	free((void *)media_info->path);
+	free(media_info);
+}
+
 
 namespace Pdraw {
 

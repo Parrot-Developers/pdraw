@@ -31,9 +31,6 @@
 #ifndef _PDRAW_DESKTOP_H_
 #define _PDRAW_DESKTOP_H_
 
-#ifndef _GNU_SOURCE
-#	define _GNU_SOURCE
-#endif /* _GNU_SOURCE */
 #include <errno.h>
 #include <getopt.h>
 #include <pthread.h>
@@ -143,6 +140,8 @@ struct pdraw_desktop {
 	GLint ext_tex_uniform_samplers[3];
 	GLint ext_tex_position_handle;
 	GLint ext_tex_texcoord_handle;
+
+	enum pdraw_video_renderer_fill_mode default_fill_mode;
 };
 
 
@@ -186,6 +185,9 @@ void pdraw_desktop_goto_end(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self);
+
+
+void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self);
 
 
 int pdraw_desktop_ui_init(struct pdraw_desktop *self);
