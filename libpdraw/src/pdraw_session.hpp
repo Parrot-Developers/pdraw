@@ -496,6 +496,7 @@ private:
 	void *mAndroidJvm;
 
 	/* Calls from idle functions */
+	pthread_mutex_t mAsyncMutex;
 	static void idleElementStateChange(void *userdata);
 	std::queue<Element *> mElementStateChangeElementArgs;
 	std::queue<Element::State> mElementStateChangeStateArgs;

@@ -160,62 +160,31 @@ Gles2Renderer::Gles2Renderer(Session *session,
 			mRenderVideoOverlay = true;
 	}
 
-	/* Create the notification timer */
-	mTimer = pomp_timer_new(mSession->getLoop(), timerCb, this);
-	if (mTimer == nullptr) {
-		PDRAW_LOGE("pomp_timer_new failed");
-		goto err;
-	}
-
-	mWatchdogTimer =
-		pomp_timer_new(mSession->getLoop(), watchdogTimerCb, this);
-	if (mWatchdogTimer == nullptr) {
-		PDRAW_LOGE("pomp_timer_new failed");
-		goto err;
-	}
-
 	if (renderPos != nullptr && params != nullptr) {
 		ret = setup(renderPos, params, eglDisplay);
 		if (ret != 0)
-			goto err;
+			return;
 	}
 
 	/* Post a message on the loop thread */
 	setStateAsyncNotify(CREATED);
 	return;
-
-err:
-	if (mTimer != nullptr) {
-		ret = pomp_timer_clear(mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
-		mTimer = nullptr;
-	}
-	if (mWatchdogTimer != nullptr) {
-		ret = pomp_timer_clear(mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
-		mWatchdogTimer = nullptr;
-	}
 }
 
 
 /* Must be called on the loop thread */
 Gles2Renderer::~Gles2Renderer(void)
 {
+	int ret;
+
 	if (mState == STARTED)
 		PDRAW_LOGW("renderer is still running");
 
 	/* Remove any leftover idle callbacks */
-	pomp_loop_idle_remove(mSession->getLoop(), idleRenewMedia, this);
+	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
 
-	int ret;
 	unsigned int count = getInputMediaCount();
 	if (count > 0) {
 		PDRAW_LOGW("not all input media have been removed");
@@ -331,17 +300,68 @@ int Gles2Renderer::start(void)
 	setStateAsyncNotify(STARTING);
 
 	mRunning = true;
-	if (mRendererListener != nullptr) {
-		int ret =
-			pomp_timer_set(mTimer, GLES2_RENDERER_DEFAULT_DELAY_MS);
+
+	int ret = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), idleStart, this, this);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+
+	return ret;
+}
+
+/* Called on the loop thread by start() */
+void Gles2Renderer::idleStart(void *renderer)
+{
+	Gles2Renderer *self = reinterpret_cast<Gles2Renderer *>(renderer);
+	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int ret;
+	if (self->mTimer == nullptr) {
+		self->mTimer = pomp_timer_new(
+			self->mSession->getLoop(), timerCb, self);
+		if (self->mTimer == nullptr) {
+			PDRAW_LOGE("pomp_timer_new failed");
+			goto err;
+		}
+	}
+	if (self->mWatchdogTimer == nullptr) {
+		self->mWatchdogTimer = pomp_timer_new(
+			self->mSession->getLoop(), watchdogTimerCb, self);
+		if (self->mWatchdogTimer == nullptr) {
+			PDRAW_LOGE("pomp_timer_new failed");
+			goto err;
+		}
+	}
+
+	if (self->mRendererListener != nullptr) {
+		ret = pomp_timer_set(self->mTimer,
+				     GLES2_RENDERER_DEFAULT_DELAY_MS);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_set", -ret);
 	}
 
 	/* Post a message on the loop thread */
-	setStateAsyncNotify(STARTED);
+	self->setState(STARTED);
+	return;
 
-	return 0;
+err:
+	if (self->mTimer != nullptr) {
+		ret = pomp_timer_clear(self->mTimer);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
+		ret = pomp_timer_destroy(self->mTimer);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
+		self->mTimer = nullptr;
+	}
+	if (self->mWatchdogTimer != nullptr) {
+		ret = pomp_timer_clear(self->mWatchdogTimer);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
+		ret = pomp_timer_destroy(self->mWatchdogTimer);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
+		self->mWatchdogTimer = nullptr;
+	}
 }
 
 
@@ -362,9 +382,6 @@ int Gles2Renderer::stop(void)
 	/* Post a message on the loop thread */
 	setStateAsyncNotify(STOPPING);
 
-	ret = pomp_timer_clear(mTimer);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
 	mRunning = false;
 
 	if (mGles2Video != nullptr) {
@@ -1832,7 +1849,10 @@ int Gles2Renderer::setMediaId(unsigned int mediaId)
 		return 0;
 
 	mMediaId = mediaId;
-	pomp_loop_idle_add(mSession->getLoop(), idleRenewMedia, this);
+	int ret = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), idleRenewMedia, this, this);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
 
 	return 0;
 }

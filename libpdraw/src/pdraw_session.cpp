@@ -163,6 +163,7 @@ Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener) :
 	int res;
 	pthread_mutexattr_t attr;
 	bool attr_created = false;
+	bool mutex_created = false;
 
 	mLoopThread = pthread_self();
 
@@ -181,16 +182,25 @@ Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener) :
 
 	res = pthread_mutex_init(&mMutex, &attr);
 	if (res != 0) {
-		ULOG_ERRNO("pthread_mutex_init", res);
+		ULOG_ERRNO("pthread_mutex_init(mMutex)", res);
+		goto error;
+	}
+	pthread_mutexattr_destroy(&attr);
+	mutex_created = true;
+
+	res = pthread_mutex_init(&mAsyncMutex, NULL);
+	if (res != 0) {
+		ULOG_ERRNO("pthread_mutex_init(mAsyncMutex)", res);
 		goto error;
 	}
 
-	pthread_mutexattr_destroy(&attr);
 	setState(READY);
 	return;
 
 error:
-	if (attr_created)
+	if (mutex_created)
+		pthread_mutex_destroy(&mMutex);
+	else if (attr_created)
 		pthread_mutexattr_destroy(&attr);
 }
 
@@ -219,6 +229,7 @@ Session::~Session(void)
 	mElements.clear();
 	pthread_mutex_unlock(&mMutex);
 
+	pthread_mutex_lock(&mAsyncMutex);
 	while (!mMediaAddedInfoArgs.empty()) {
 		struct pdraw_media_info info = mMediaAddedInfoArgs.front();
 		mMediaAddedInfoArgs.pop();
@@ -229,8 +240,10 @@ Session::~Session(void)
 		mMediaRemovedInfoArgs.pop();
 		Media::cleanupMediaInfo(&info);
 	}
+	pthread_mutex_unlock(&mAsyncMutex);
 
 	pthread_mutex_destroy(&mMutex);
+	pthread_mutex_destroy(&mAsyncMutex);
 }
 
 
@@ -1469,9 +1482,11 @@ int Session::dumpPipeline(const std::string &fileName)
 
 void Session::asyncElementStateChange(Element *element, Element::State state)
 {
+	pthread_mutex_lock(&mAsyncMutex);
 	mElementStateChangeElementArgs.push(element);
 	mElementStateChangeStateArgs.push(state);
 	pomp_loop_idle_add(mLoop, idleElementStateChange, this);
+	pthread_mutex_unlock(&mAsyncMutex);
 }
 
 
@@ -1483,8 +1498,10 @@ int Session::addMediaToRenderer(unsigned int mediaId, Renderer *renderer)
 
 void Session::asyncElementDelete(Element *element)
 {
+	pthread_mutex_lock(&mAsyncMutex);
 	mElementDeleteElementArgs.push(element);
 	pomp_loop_idle_add(mLoop, idleElementDelete, this);
+	pthread_mutex_unlock(&mAsyncMutex);
 }
 
 
@@ -1516,10 +1533,12 @@ void Session::socketCreated(int fd)
 void Session::idleElementStateChange(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
+	pthread_mutex_lock(&self->mAsyncMutex);
 	Element *element = self->mElementStateChangeElementArgs.front();
 	Element::State state = self->mElementStateChangeStateArgs.front();
 	self->mElementStateChangeElementArgs.pop();
 	self->mElementStateChangeStateArgs.pop();
+	pthread_mutex_unlock(&self->mAsyncMutex);
 	ULOG_ERRNO_RETURN_IF(element == nullptr, EINVAL);
 	self->onElementStateChanged(element, state);
 }
@@ -1528,8 +1547,10 @@ void Session::idleElementStateChange(void *userdata)
 void Session::idleElementDelete(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
+	pthread_mutex_lock(&self->mAsyncMutex);
 	Element *element = self->mElementDeleteElementArgs.front();
 	self->mElementDeleteElementArgs.pop();
+	pthread_mutex_unlock(&self->mAsyncMutex);
 	ULOG_ERRNO_RETURN_IF(element == nullptr, EINVAL);
 
 	pthread_mutex_lock(&self->mMutex);
@@ -1550,8 +1571,10 @@ void Session::idleElementDelete(void *userdata)
 void Session::idleRendererCompleteStop(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
+	pthread_mutex_lock(&self->mAsyncMutex);
 	Renderer *renderer = self->mRendererCompleteStopRendererArgs.front();
 	self->mRendererCompleteStopRendererArgs.pop();
+	pthread_mutex_unlock(&self->mAsyncMutex);
 	ULOG_ERRNO_RETURN_IF(renderer == nullptr, EINVAL);
 	renderer->completeStop();
 }
@@ -1560,8 +1583,10 @@ void Session::idleRendererCompleteStop(void *userdata)
 void Session::callStopResponse(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
+	pthread_mutex_lock(&self->mAsyncMutex);
 	int status = self->mStopRespStatusArgs.front();
 	self->mStopRespStatusArgs.pop();
+	pthread_mutex_unlock(&self->mAsyncMutex);
 	if (self->mListener == nullptr)
 		return;
 	self->mListener->stopResponse(self, status);
@@ -1571,8 +1596,10 @@ void Session::callStopResponse(void *userdata)
 void Session::callOnMediaAdded(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
+	pthread_mutex_lock(&self->mAsyncMutex);
 	struct pdraw_media_info info = self->mMediaAddedInfoArgs.front();
 	self->mMediaAddedInfoArgs.pop();
+	pthread_mutex_unlock(&self->mAsyncMutex);
 	self->mListener->onMediaAdded(self, &info);
 	Media::cleanupMediaInfo(&info);
 }
@@ -1581,8 +1608,10 @@ void Session::callOnMediaAdded(void *userdata)
 void Session::callOnMediaRemoved(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
+	pthread_mutex_lock(&self->mAsyncMutex);
 	struct pdraw_media_info info = self->mMediaRemovedInfoArgs.front();
 	self->mMediaRemovedInfoArgs.pop();
+	pthread_mutex_unlock(&self->mAsyncMutex);
 	self->mListener->onMediaRemoved(self, &info);
 	Media::cleanupMediaInfo(&info);
 }
@@ -1638,8 +1667,10 @@ void Session::onOutputMediaAdded(CodedSource *source, CodedVideoMedia *media)
 			mListener->onMediaAdded(this, &info);
 			Media::cleanupMediaInfo(&info);
 		} else {
+			pthread_mutex_lock(&mAsyncMutex);
 			mMediaAddedInfoArgs.push(info);
 			pomp_loop_idle_add(mLoop, callOnMediaAdded, this);
+			pthread_mutex_unlock(&mAsyncMutex);
 		}
 	}
 }
@@ -1655,8 +1686,10 @@ void Session::onOutputMediaRemoved(CodedSource *source, CodedVideoMedia *media)
 	if (mListener != nullptr) {
 		struct pdraw_media_info info;
 		media->fillMediaInfo(&info);
+		pthread_mutex_lock(&mAsyncMutex);
 		mMediaRemovedInfoArgs.push(info);
 		pomp_loop_idle_add(mLoop, callOnMediaRemoved, this);
+		pthread_mutex_unlock(&mAsyncMutex);
 	}
 }
 
@@ -1675,8 +1708,10 @@ void Session::onOutputMediaAdded(RawSource *source, RawVideoMedia *media)
 			mListener->onMediaAdded(this, &info);
 			Media::cleanupMediaInfo(&info);
 		} else {
+			pthread_mutex_lock(&mAsyncMutex);
 			mMediaAddedInfoArgs.push(info);
 			pomp_loop_idle_add(mLoop, callOnMediaAdded, this);
+			pthread_mutex_unlock(&mAsyncMutex);
 		}
 	}
 }
@@ -1692,16 +1727,20 @@ void Session::onOutputMediaRemoved(RawSource *source, RawVideoMedia *media)
 	if (mListener != nullptr) {
 		struct pdraw_media_info info;
 		media->fillMediaInfo(&info);
+		pthread_mutex_lock(&mAsyncMutex);
 		mMediaRemovedInfoArgs.push(info);
 		pomp_loop_idle_add(mLoop, callOnMediaRemoved, this);
+		pthread_mutex_unlock(&mAsyncMutex);
 	}
 }
 
 
 void Session::stopResp(int status)
 {
+	pthread_mutex_lock(&mAsyncMutex);
 	mStopRespStatusArgs.push(status);
 	pomp_loop_idle_add(mLoop, callStopResponse, this);
+	pthread_mutex_unlock(&mAsyncMutex);
 }
 
 

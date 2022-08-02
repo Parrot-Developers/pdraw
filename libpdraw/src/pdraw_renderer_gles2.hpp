@@ -201,6 +201,7 @@ private:
 			    const RawVideoMedia::Frame *frame);
 
 	static void idleRenewMedia(void *userdata);
+	static void idleStart(void *renderer);
 };
 
 } /* namespace Pdraw */
