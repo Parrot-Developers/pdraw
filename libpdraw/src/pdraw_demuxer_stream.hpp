@@ -131,6 +131,17 @@ protected:
 			return mSdpMedia->control_url;
 		}
 
+		virtual const struct rtsp_header_ext *getHeaderExt(void)
+		{
+			return NULL;
+		}
+
+		virtual size_t getHeaderExtCount(void)
+		{
+			return 0;
+		}
+
+
 		virtual void setLocalStreamPort(uint16_t port) = 0;
 
 		virtual void setLocalControlPort(uint16_t port) = 0;
@@ -264,6 +275,8 @@ protected:
 		enum rtsp_lower_transport lowerTransport;
 		uint16_t localStreamPort;
 		uint16_t localControlPort;
+		const struct rtsp_header_ext *headerExt;
+		size_t headerExtCount;
 	};
 
 	int startRtsp(const std::string &url);

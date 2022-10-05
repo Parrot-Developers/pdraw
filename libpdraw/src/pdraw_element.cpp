@@ -82,6 +82,7 @@ Element::~Element(void)
 {
 	mState = INVALID;
 	pthread_mutex_destroy(&mMutex);
+	PDRAW_LOGI("element DESTROYED");
 }
 
 

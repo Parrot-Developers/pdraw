@@ -828,6 +828,11 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 			PDRAW_LOG_ERRNO("createOutputMedia", -ret);
 			return;
 		}
+	} else {
+		/* TODO: This should be generic for every filter element */
+		/* Update the output media metadata */
+		self->mOutputMedia->sessionMeta =
+			self->mInputMedia->sessionMeta;
 	}
 
 	ret = mbuf_raw_video_frame_add_ancillary_buffer(

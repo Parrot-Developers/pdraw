@@ -48,6 +48,15 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
+const size_t StreamDemuxerMux::VideoMediaMux::mHeaderExtCount = 1;
+
+
+const struct rtsp_header_ext StreamDemuxerMux::VideoMediaMux::mHeaderExt = {
+	.key = RTSP_HEADER_EXT_PARROT_LINK_TYPE,
+	.value = "mux",
+};
+
+
 StreamDemuxerMux::StreamDemuxerMux(Session *session,
 				   Element::Listener *elementListener,
 				   CodedSource::Listener *sourceListener,
@@ -284,6 +293,19 @@ uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteStreamPort(void)
 uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteControlPort(void)
 {
 	return mux_ip_proxy_get_remote_port(mControlProxy);
+}
+
+
+const struct rtsp_header_ext *
+StreamDemuxerMux::VideoMediaMux::getHeaderExt(void)
+{
+	return &mHeaderExt;
+}
+
+
+size_t StreamDemuxerMux::VideoMediaMux::getHeaderExtCount(void)
+{
+	return mHeaderExtCount;
 }
 
 

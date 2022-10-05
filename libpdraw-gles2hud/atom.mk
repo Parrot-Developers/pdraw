@@ -11,6 +11,7 @@ LOCAL_CFLAGS := \
 	-fvisibility=hidden \
 	-std=gnu99 \
 	-D_USE_MATH_DEFINES
+LOCAL_CXXFLAGS := -std=c++11
 LOCAL_SRC_FILES := \
 	src/pdraw_gles2hud.cpp \
 	src/pdraw_gles2hud_icons.cpp \

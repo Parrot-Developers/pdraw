@@ -40,6 +40,8 @@
 #include <ulog.h>
 #include <video-metadata/vmeta.h>
 
+#include <cmath>
+
 #include <Eigen/Eigen>
 
 

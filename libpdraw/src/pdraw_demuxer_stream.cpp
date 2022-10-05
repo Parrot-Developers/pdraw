@@ -239,8 +239,8 @@ int StreamDemuxer::processSetupRequests(void)
 				req.lowerTransport,
 				req.localStreamPort,
 				req.localControlPort,
-				nullptr,
-				0,
+				req.headerExt,
+				req.headerExtCount,
 				req.media,
 				RTSP_CLIENT_DEFAULT_RESP_TIMEOUT_MS);
 	if (res == -EBUSY) {
@@ -2167,6 +2167,8 @@ void StreamDemuxer::VideoMedia::finishSetup(void)
 			.lowerTransport = getLowerTransport(),
 			.localStreamPort = getLocalStreamPort(),
 			.localControlPort = getLocalControlPort(),
+			.headerExt = getHeaderExt(),
+			.headerExtCount = getHeaderExtCount(),
 		};
 		mDemuxer->mSetupRequests.push(req);
 
@@ -2243,7 +2245,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 			PDRAW_LOG_ERRNO("media->setPs", -ret);
 			return ret;
 		}
-		mVideoMedias[i]->sessionMeta = mDemuxer->mSessionMetaFromSdp;
+		mVideoMedias[i]->sessionMeta = mSessionMetaFromSdp;
 		mVideoMedias[i]->playbackType =
 			PDRAW_PLAYBACK_TYPE_LIVE; /* TODO: live/replay */
 		mVideoMedias[i]->duration = mDemuxer->mDuration;

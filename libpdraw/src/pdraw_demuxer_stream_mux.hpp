@@ -86,6 +86,10 @@ private:
 
 		uint16_t getRemoteControlPort(void);
 
+		const struct rtsp_header_ext *getHeaderExt(void);
+
+		size_t getHeaderExtCount(void);
+
 		void setLocalStreamPort(uint16_t port);
 
 		void setLocalControlPort(uint16_t port);
@@ -142,6 +146,8 @@ private:
 		bool mControlProxyOpened;
 		struct tpkt_packet *mRxPkt;
 		size_t mRxBufLen;
+		static const struct rtsp_header_ext mHeaderExt;
+		static const size_t mHeaderExtCount;
 	};
 
 	bool setMux(struct mux_ctx *mux);

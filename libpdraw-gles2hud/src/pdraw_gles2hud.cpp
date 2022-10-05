@@ -412,9 +412,9 @@ static int pdraw_gles2hud_render_piloting(
 	vmeta_frame_get_ground_distance(frame_meta, &ground_distance);
 	if ((drone_model == DRONE_MODEL_DISCO) && (location.valid) &&
 	    (media_info->session_meta->takeoff_loc.valid)) {
-		ground_distance =
-			location.altitude -
-			media_info->session_meta->takeoff_loc.altitude;
+		ground_distance = location.altitude_egm96amsl -
+				  media_info->session_meta->takeoff_loc
+					  .altitude_egm96amsl;
 	}
 
 	/* Drone speeds */
@@ -453,10 +453,21 @@ static int pdraw_gles2hud_render_piloting(
 			media_info->session_meta->takeoff_loc.longitude,
 			&takeoff_distance,
 			&takeoff_bearing);
-		takeoff_elevation =
-			atan2(media_info->session_meta->takeoff_loc.altitude -
-				      location.altitude,
-			      takeoff_distance);
+		double alt_diff = 0.;
+		if (!std::isnan(media_info->session_meta->takeoff_loc
+					.altitude_wgs84ellipsoid) &&
+		    !std::isnan(location.altitude_wgs84ellipsoid != NAN)) {
+			alt_diff = media_info->session_meta->takeoff_loc
+					   .altitude_wgs84ellipsoid -
+				   location.altitude_wgs84ellipsoid;
+		} else if (!std::isnan(media_info->session_meta->takeoff_loc
+					       .altitude_egm96amsl) &&
+			   !std::isnan(location.altitude_egm96amsl)) {
+			alt_diff = media_info->session_meta->takeoff_loc
+					   .altitude_egm96amsl -
+				   location.altitude_egm96amsl;
+		}
+		takeoff_elevation = atan2(alt_diff, takeoff_distance);
 	}
 
 	/* Distace to pilot */
@@ -471,9 +482,18 @@ static int pdraw_gles2hud_render_piloting(
 			ctrl_meta->location.longitude,
 			&self_distance,
 			&self_bearing);
-		self_elevation =
-			atan2(ctrl_meta->location.altitude - location.altitude,
-			      self_distance);
+		double alt_diff = 0.;
+		if (!std::isnan(ctrl_meta->location.altitude_wgs84ellipsoid) &&
+		    !std::isnan(location.altitude_wgs84ellipsoid)) {
+			alt_diff = ctrl_meta->location.altitude_wgs84ellipsoid -
+				   location.altitude_wgs84ellipsoid;
+		} else if (!std::isnan(
+				   ctrl_meta->location.altitude_egm96amsl) &&
+			   !std::isnan(location.altitude_egm96amsl)) {
+			alt_diff = ctrl_meta->location.altitude_egm96amsl -
+				   location.altitude_egm96amsl;
+		}
+		self_elevation = atan2(alt_diff, self_distance);
 	}
 
 	/* Controller orientation */
@@ -518,11 +538,13 @@ static int pdraw_gles2hud_render_piloting(
 				    horizontal_speed,
 				    speed_psi,
 				    color_green);
-	pdraw_gles2hud_draw_altitude(self,
-				     location.altitude,
-				     ground_distance,
-				     speed.down,
-				     color_green);
+	double altitude = 0.;
+	if (!std::isnan(location.altitude_wgs84ellipsoid))
+		altitude = location.altitude_wgs84ellipsoid;
+	else if (!std::isnan(location.altitude_egm96amsl))
+		altitude = location.altitude_egm96amsl;
+	pdraw_gles2hud_draw_altitude(
+		self, altitude, ground_distance, speed.down, color_green);
 	pdraw_gles2hud_draw_speed(self, horizontal_speed, color_green);
 #ifdef DEBUG_RADAR /* used to test the radar on records */
 	if ((location.valid) && (session_meta->takeoff_loc.valid) &&
@@ -802,7 +824,7 @@ static int pdraw_gles2hud_render_piloting(
 				 PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
 				 PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM,
 				 color_green);
-	snprintf(str, sizeof(str), "%.1fm", location.altitude);
+	snprintf(str, sizeof(str), "%.1fm", altitude);
 	pdraw_gles2hud_draw_text(self,
 				 str,
 				 (self->config.central_zone_size + 0.04) *
@@ -817,12 +839,22 @@ static int pdraw_gles2hud_render_piloting(
 	if (drone_model == DRONE_MODEL_DISCO) {
 		if ((location.valid) &&
 		    (media_info->session_meta->takeoff_loc.valid)) {
-			snprintf(str,
-				 sizeof(str),
-				 "DELTA: %+.1fm",
-				 location.altitude -
-					 media_info->session_meta->takeoff_loc
-						 .altitude);
+			double alt_diff = 0.;
+			if (!std::isnan(media_info->session_meta->takeoff_loc
+						.altitude_wgs84ellipsoid) &&
+			    !std::isnan(location.altitude_wgs84ellipsoid)) {
+				alt_diff = location.altitude_wgs84ellipsoid -
+					   media_info->session_meta->takeoff_loc
+						   .altitude_wgs84ellipsoid;
+			} else if (!std::isnan(
+					   media_info->session_meta->takeoff_loc
+						   .altitude_egm96amsl) &&
+				   !std::isnan(location.altitude_egm96amsl)) {
+				alt_diff = location.altitude_egm96amsl -
+					   media_info->session_meta->takeoff_loc
+						   .altitude_egm96amsl;
+			}
+			snprintf(str, sizeof(str), "DELTA: %+.1fm", alt_diff);
 			pdraw_gles2hud_draw_text(
 				self,
 				str,
