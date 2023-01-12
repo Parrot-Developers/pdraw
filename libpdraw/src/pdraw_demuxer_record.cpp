@@ -1569,6 +1569,8 @@ void RecordDemuxer::VideoMedia::timerCb(struct pomp_timer *timer,
 	if (sample.next_dts > 0) {
 		self->mDecodingTsInc = mp4_sample_time_to_usec(
 			sample.next_dts - sample.dts, self->mTimescale);
+		if (speed != 0.)
+			self->mDecodingTsInc /= fabs(speed);
 	}
 	self->mDecodingTs += self->mDecodingTsInc;
 	/* TODO: auSyncType */
@@ -1605,7 +1607,11 @@ void RecordDemuxer::VideoMedia::timerCb(struct pomp_timer *timer,
 	data.playTimestamp =
 		mp4_sample_time_to_usec(sample.dts, self->mTimescale);
 	data.captureTimestamp = self->mCurrentFrameCaptureTs;
-	data.localTimestamp = data.demuxOutputTimestamp;
+	data.localTimestamp = curTime;
+	data.localTimestampPrecision =
+		1; /* no estimation here, the precision is 1 microsecond */
+	data.recvStartTimestamp = curTime;
+	data.recvEndTimestamp = curTime;
 	demuxer->mCurrentTime = data.playTimestamp;
 
 	frameInfo.info.capture_timestamp = self->mCurrentFrameCaptureTs;
@@ -1831,9 +1837,9 @@ out:
 							      sample.dts,
 							      self->mTimescale);
 					if (speed != 0.) {
-						newDuration = (int64_t)(
+						newDuration =
 							(float)newDuration /
-							speed);
+							speed;
 					}
 				} else {
 					break;
@@ -1884,9 +1890,9 @@ out:
 							      sample.dts,
 							      self->mTimescale);
 					if (speed != 0.) {
-						newDuration = (int64_t)(
+						newDuration =
 							(float)newDuration /
-							speed);
+							speed;
 					}
 				} else {
 					break;

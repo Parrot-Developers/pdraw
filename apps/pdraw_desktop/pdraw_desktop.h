@@ -141,6 +141,7 @@ struct pdraw_desktop {
 	GLint ext_tex_position_handle;
 	GLint ext_tex_texcoord_handle;
 
+	enum pdraw_video_renderer_scheduling_mode default_scheduling_mode;
 	enum pdraw_video_renderer_fill_mode default_fill_mode;
 };
 
@@ -185,6 +186,9 @@ void pdraw_desktop_goto_end(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self);
+
+
+void pdraw_desktop_change_scheduling_mode(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self);

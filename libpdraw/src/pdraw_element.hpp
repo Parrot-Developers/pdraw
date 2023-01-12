@@ -249,6 +249,9 @@ protected:
 	virtual void onChannelTimeout(CodedChannel *channel);
 
 	virtual void onChannelPhotoTrigger(CodedChannel *channel);
+
+	virtual void onChannelVideoPresStats(RawChannel *channel,
+					     VideoPresStats *stats);
 };
 
 
@@ -291,6 +294,9 @@ protected:
 	virtual void onChannelTimeout(RawChannel *channel);
 
 	virtual void onChannelPhotoTrigger(RawChannel *channel);
+
+	virtual void onChannelVideoPresStats(CodedChannel *channel,
+					     VideoPresStats *stats);
 };
 
 
@@ -331,6 +337,9 @@ protected:
 	virtual void onChannelTimeout(RawChannel *channel);
 
 	virtual void onChannelPhotoTrigger(RawChannel *channel);
+
+	virtual void onChannelVideoPresStats(RawChannel *channel,
+					     VideoPresStats *stats);
 };
 
 } /* namespace Pdraw */

@@ -72,6 +72,26 @@ public:
 	void start(QPdraw *pdraw, unsigned int mediaId);
 
 	/**
+	 * Start a QPdraw widget with rendering position and params.
+	 * This function creates a QPdraw widget on a media of the given media
+	 * id; if the media id is zero the first raw media encountered is used.
+	 * The rendering position and rendering parameters are also provided.
+	 * This function must be called after the object creation prior to
+	 * calling any other function.
+	 * @param pdraw: information on the media
+	 * @param mediaId: identifier of the raw media to render (from a
+	 *                 pdraw_media_info structure); if zero the first
+	 *                 raw media found is used for rendering
+	 * @param renderPos: rendering position and size
+	 * @param params: renderer parameters
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	void start(QPdraw *pdraw,
+		   unsigned int mediaId,
+		   const struct pdraw_rect *renderPos,
+		   const struct pdraw_video_renderer_params *params);
+
+	/**
 	 * Stop a QPdraw widget.
 	 * This function must be called prior to destroying the instance.
 	 * @return 0 on success, negative errno value in case of error

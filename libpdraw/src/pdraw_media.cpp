@@ -323,10 +323,13 @@ int CodedVideoMedia::setPs(const uint8_t *vps,
 	return 0;
 
 error:
+	free(mVps);
 	free(mSps);
 	free(mPps);
+	mVps = nullptr;
 	mSps = nullptr;
 	mPps = nullptr;
+	mVpsSize = 0;
 	mSpsSize = 0;
 	mPpsSize = 0;
 	return ret;

@@ -241,29 +241,66 @@ void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self)
 }
 
 
-void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self)
+void pdraw_desktop_change_scheduling_mode(struct pdraw_desktop *self)
 {
-	int ret;
+	int err;
 	unsigned int i;
 	struct pdraw_video_renderer_params params;
 
 	for (i = 0; i < self->renderer_count; i++) {
-		ret = pdraw_be_video_renderer_get_params(
+		err = pdraw_be_video_renderer_get_params(
 			self->pdraw, self->renderer[i], &params);
-		if (ret < 0) {
+		if (err < 0) {
 			ULOG_ERRNO("pdraw_be_video_renderer_get_params(%u)",
-				   -ret,
+				   -err,
+				   i);
+			return;
+		}
+		params.scheduling_mode++;
+		if (params.scheduling_mode >=
+		    PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_MAX) {
+			params.scheduling_mode =
+				PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP;
+		}
+		err = pdraw_be_video_renderer_set_params(
+			self->pdraw, self->renderer[i], &params);
+		if (err < 0) {
+			ULOG_ERRNO("pdraw_be_video_renderer_set_params(%u)",
+				   -err,
+				   i);
+			return;
+		}
+		ULOGI("set renderer %u mode to %s",
+		      i,
+		      pdraw_video_renderer_scheduling_mode_str(
+			      params.scheduling_mode));
+	}
+}
+
+
+void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self)
+{
+	int err;
+	unsigned int i;
+	struct pdraw_video_renderer_params params;
+
+	for (i = 0; i < self->renderer_count; i++) {
+		err = pdraw_be_video_renderer_get_params(
+			self->pdraw, self->renderer[i], &params);
+		if (err < 0) {
+			ULOG_ERRNO("pdraw_be_video_renderer_get_params(%u)",
+				   -err,
 				   i);
 			return;
 		}
 		params.fill_mode++;
 		if (params.fill_mode >= PDRAW_VIDEO_RENDERER_FILL_MODE_MAX)
 			params.fill_mode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT;
-		ret = pdraw_be_video_renderer_set_params(
+		err = pdraw_be_video_renderer_set_params(
 			self->pdraw, self->renderer[i], &params);
-		if (ret < 0) {
+		if (err < 0) {
 			ULOG_ERRNO("pdraw_be_video_renderer_set_params(%u)",
-				   -ret,
+				   -err,
 				   i);
 			return;
 		}
@@ -710,6 +747,7 @@ enum args_id {
 	ARGS_ID_ZEBRAS,
 	ARGS_ID_EXT_TEX,
 	ARGS_ID_DEMUX,
+	ARGS_ID_SCHEDMODE,
 	ARGS_ID_FILLMODE,
 };
 
@@ -733,6 +771,7 @@ static const struct option long_options[] = {
 	{"zebras", required_argument, NULL, ARGS_ID_ZEBRAS},
 	{"ext-tex", no_argument, NULL, ARGS_ID_EXT_TEX},
 	{"tex-mex", no_argument, NULL, ARGS_ID_EXT_TEX},
+	{"sched-mode", required_argument, NULL, ARGS_ID_SCHEDMODE},
 	{"fill-mode", required_argument, NULL, ARGS_ID_FILLMODE},
 	{0, 0, 0, 0},
 };
@@ -779,8 +818,10 @@ static void usage(char *prog_name)
 	       "default: 0.95, out of range means default)\n\n"
 	       "       --ext-tex                   "
 	       "Enable testing the external texture loading callback\n\n"
+	       "       --sched-mode                "
+	       "Set default renderer scheduling mode (ASAP, ADAPTIVE)\n\n"
 	       "       --fill-mode                 "
-	       "Set default rendere fill-mode (FIT, CROP, FIT_PAD_BLUR_CROP,"
+	       "Set default renderer fill-mode (FIT, CROP, FIT_PAD_BLUR_CROP,"
 	       "FIT_PAD_BLUR_EXTEND)\n\n",
 	       prog_name);
 }
@@ -807,6 +848,24 @@ static int summary(struct pdraw_desktop *self)
 		return -EINVAL;
 	}
 	return 0;
+}
+
+
+static enum pdraw_video_renderer_scheduling_mode
+parse_scheduling_mode(const char *value)
+{
+	enum pdraw_video_renderer_scheduling_mode fm;
+	for (fm = 0; fm < PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_MAX; fm++) {
+		if (strcasecmp(value,
+			       pdraw_video_renderer_scheduling_mode_str(fm)) ==
+		    0)
+			return fm;
+	}
+	fm = PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP;
+	printf("Invalid fill mode value '%s', using '%s' instead",
+	       value,
+	       pdraw_video_renderer_scheduling_mode_str(fm));
+	return fm;
 }
 
 
@@ -849,6 +908,8 @@ int main(int argc, char **argv)
 	self->speed = 1.0;
 	self->speed_sign = 1;
 	self->skyctrl_battery_percentage = 255;
+	self->default_scheduling_mode =
+		PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP;
 	self->default_fill_mode =
 		PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND;
 
@@ -926,6 +987,11 @@ int main(int argc, char **argv)
 
 		case ARGS_ID_EXT_TEX:
 			self->ext_tex = 1;
+			break;
+
+		case ARGS_ID_SCHEDMODE:
+			self->default_scheduling_mode =
+				parse_scheduling_mode(optarg);
 			break;
 
 		case ARGS_ID_FILLMODE:

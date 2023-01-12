@@ -1622,6 +1622,15 @@ pdraw_histogram_channel_str(enum pdraw_histogram_channel val);
 
 
 /**
+ * ToString function for enum pdraw_video_renderer_scheduling_mode.
+ * @param val: video renderer scheduling mode value to convert
+ * @return a string description of the video renderer scheduling mode
+ */
+PDRAW_API const char *pdraw_video_renderer_scheduling_mode_str(
+	enum pdraw_video_renderer_scheduling_mode val);
+
+
+/**
  * ToString function for enum pdraw_video_renderer_fill_mode.
  * @param val: video renderer fill mode value to convert
  * @return a string description of the video renderer fill mode

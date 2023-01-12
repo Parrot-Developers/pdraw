@@ -166,6 +166,9 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 		case SDLK_f:
 			pdraw_desktop_change_fill_mode(self);
 			break;
+		case SDLK_s:
+			pdraw_desktop_change_scheduling_mode(self);
+			break;
 		}
 		break;
 	default:
@@ -355,6 +358,7 @@ void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
 
 	/* Create the renderer */
 	struct pdraw_video_renderer_params params = {0};
+	params.scheduling_mode = self->default_scheduling_mode;
 	params.fill_mode = self->default_fill_mode;
 	params.enable_transition_flags =
 		PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_ALL;

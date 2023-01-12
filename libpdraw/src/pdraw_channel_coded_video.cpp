@@ -217,6 +217,36 @@ int CodedChannel::unlink(void)
 }
 
 
+int CodedChannel::sendVideoPresStats(VideoPresStats *stats)
+{
+	int res;
+
+	if (mSourceListener == nullptr)
+		return 0;
+
+	struct pomp_msg *event = pomp_msg_new();
+	if (event == nullptr) {
+		ULOG_ERRNO("pomp_msg_new", ENOMEM);
+		return -ENOMEM;
+	}
+
+	res = stats->writeMsg(event, UpstreamEvent::VIDEO_PRES_STATS);
+	if (res < 0) {
+		ULOG_ERRNO("stats->writeMsg", -res);
+		goto out;
+	}
+
+	mSourceListener->onChannelUpstreamEvent(this, event);
+
+out:
+	int err = pomp_msg_destroy(event);
+	if (err < 0)
+		ULOG_ERRNO("pomp_msg_destroy", -err);
+
+	return res;
+}
+
+
 int CodedChannel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
 {
 	int res;
@@ -285,6 +315,8 @@ const char *CodedChannel::getUpstreamEventStr(UpstreamEvent val)
 		return "FLUSHED";
 	case RESYNC:
 		return "RESYNC";
+	case VIDEO_PRES_STATS:
+		return "VIDEO_PRES_STATS";
 	default:
 		return nullptr;
 	}

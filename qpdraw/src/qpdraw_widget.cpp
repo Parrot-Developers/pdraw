@@ -239,8 +239,6 @@ QPdrawWidget::~QPdrawWidget()
 
 void QPdrawWidget::start(QPdraw *pdraw, unsigned int mediaId)
 {
-	makeCurrent();
-
 	struct pdraw_rect renderPos = {
 		.x = 0,
 		.y = 0,
@@ -249,6 +247,8 @@ void QPdrawWidget::start(QPdraw *pdraw, unsigned int mediaId)
 	};
 
 	struct pdraw_video_renderer_params params = {
+		.scheduling_mode =
+			PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE,
 		.fill_mode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND,
 		.enable_transition_flags = 0xFFFFFFFF,
 		.enable_hmd_distortion_correction = 0,
@@ -264,7 +264,18 @@ void QPdrawWidget::start(QPdraw *pdraw, unsigned int mediaId)
 		.video_texture_dar_height = 0,
 	};
 
-	mPriv->start(pdraw, mediaId, &renderPos, &params);
+	QPdrawWidget::start(pdraw, mediaId, &renderPos, &params);
+}
+
+
+void QPdrawWidget::start(QPdraw *pdraw,
+			 unsigned int mediaId,
+			 const struct pdraw_rect *renderPos,
+			 const struct pdraw_video_renderer_params *params)
+{
+	makeCurrent();
+
+	mPriv->start(pdraw, mediaId, renderPos, params);
 
 	doneCurrent();
 }

@@ -151,6 +151,20 @@ enum pdraw_histogram_channel {
 };
 
 
+/* Video renderer scheduling mode */
+enum pdraw_video_renderer_scheduling_mode {
+	/* Render frames as soon as possible (minimize the latency) */
+	PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP = 0,
+
+	/* Adaptive jitter buffer mode (trade-off between smooth playback
+	 * and minimizing the latency) */
+	PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE,
+
+	/* Enum values count (invalid value) */
+	PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_MAX,
+};
+
+
 /* Video renderer fill mode */
 enum pdraw_video_renderer_fill_mode {
 	/* Fit fill mode (the video fits in the render zone) */
@@ -415,6 +429,9 @@ struct pdraw_rect {
 
 /* Video renderer parameters */
 struct pdraw_video_renderer_params {
+	/* Renderer frame scheduling mode */
+	enum pdraw_video_renderer_scheduling_mode scheduling_mode;
+
 	/* Renderer fill mode */
 	enum pdraw_video_renderer_fill_mode fill_mode;
 

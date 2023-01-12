@@ -121,13 +121,16 @@ protected:
 				CodedChannel::DownstreamEvent event);
 
 	virtual void onChannelUpstreamEvent(CodedChannel *channel,
-					    struct pomp_msg *event);
+					    const struct pomp_msg *event);
 
 	virtual void onChannelUnlink(CodedChannel *channel);
 
 	virtual void onChannelFlushed(CodedChannel *channel);
 
 	virtual void onChannelResync(CodedChannel *channel);
+
+	virtual void onChannelVideoPresStats(CodedChannel *channel,
+					     VideoPresStats *stats);
 
 	pthread_mutex_t mMutex;
 	unsigned int mMaxOutputMedias;

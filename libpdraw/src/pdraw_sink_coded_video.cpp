@@ -575,7 +575,7 @@ void CodedSink::onChannelPhotoTrigger(CodedChannel *channel)
 
 
 void CodedSink::onChannelDownstreamEvent(CodedChannel *channel,
-					 struct pomp_msg *event)
+					 const struct pomp_msg *event)
 {
 	ULOGD("%s: channel downstream event %s",
 	      getName().c_str(),

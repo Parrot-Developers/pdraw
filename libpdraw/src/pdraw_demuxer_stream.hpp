@@ -169,10 +169,14 @@ protected:
 
 		int processFrame(struct vstrm_frame *frame);
 
+		void channelSendVideoPresStats(CodedChannel *channel,
+					       VideoPresStats *stats);
+
 		static void
 		sessionMetadataFromSdp(const struct sdp_media *media,
 				       const struct vmeta_session *sessionMeta,
 				       struct vmeta_session *meta);
+
 
 	protected:
 		StreamDemuxer *mDemuxer;
@@ -324,6 +328,9 @@ private:
 	void onChannelUnlink(CodedChannel *channel);
 
 	void onChannelResync(CodedChannel *channel);
+
+	void onChannelVideoPresStats(CodedChannel *channel,
+				     VideoPresStats *stats);
 
 	void onNewSdp(const char *content_base, const char *sdp);
 

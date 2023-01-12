@@ -110,9 +110,13 @@ public:
 		uint64_t playTimestamp;
 		uint64_t captureTimestamp;
 		uint64_t localTimestamp;
+		uint32_t localTimestampPrecision;
+		uint64_t recvStartTimestamp;
+		uint64_t recvEndTimestamp;
 		uint64_t demuxOutputTimestamp;
 		uint64_t decoderOutputTimestamp;
 		uint64_t scalerOutputTimestamp;
+		uint64_t renderTimestamp;
 	};
 
 	RawVideoMedia(Session *session);
@@ -141,6 +145,9 @@ public:
 		uint64_t playTimestamp;
 		uint64_t captureTimestamp;
 		uint64_t localTimestamp;
+		uint32_t localTimestampPrecision;
+		uint64_t recvStartTimestamp;
+		uint64_t recvEndTimestamp;
 		uint64_t demuxOutputTimestamp;
 		uint64_t encoderOutputTimestamp;
 	};

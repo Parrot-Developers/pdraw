@@ -124,6 +124,10 @@ const char *pdraw_videoTypeStr(enum pdraw_video_type val);
 const char *pdraw_histogramChannelStr(enum pdraw_histogram_channel val);
 
 
+const char *pdraw_videoRendererSchedulingModeStr(
+	enum pdraw_video_renderer_scheduling_mode val);
+
+
 const char *
 pdraw_videoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val);
 

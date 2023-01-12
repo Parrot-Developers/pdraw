@@ -110,13 +110,16 @@ protected:
 				RawChannel::DownstreamEvent event);
 
 	virtual void onChannelUpstreamEvent(RawChannel *channel,
-					    struct pomp_msg *event);
+					    const struct pomp_msg *event);
 
 	virtual void onChannelUnlink(RawChannel *channel);
 
 	virtual void onChannelFlushed(RawChannel *channel);
 
 	virtual void onChannelResync(RawChannel *channel);
+
+	virtual void onChannelVideoPresStats(RawChannel *channel,
+					     VideoPresStats *stats);
 
 	pthread_mutex_t mMutex;
 	unsigned int mMaxOutputMedias;

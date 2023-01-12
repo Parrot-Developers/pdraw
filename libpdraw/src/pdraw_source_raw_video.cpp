@@ -654,9 +654,35 @@ void RawSource::onChannelResync(RawChannel *channel)
 }
 
 
-void RawSource::onChannelUpstreamEvent(RawChannel *channel,
-				       struct pomp_msg *event)
+void RawSource::onChannelVideoPresStats(RawChannel *channel,
+					VideoPresStats *stats)
 {
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	if (media == nullptr) {
+		ULOGE("media not found");
+		return;
+	}
+	ULOGD("%s: channel video stats media name=%s (channel key=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getKey());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+}
+
+
+void RawSource::onChannelUpstreamEvent(RawChannel *channel,
+				       const struct pomp_msg *event)
+{
+	VideoPresStats stats;
+	int err;
+
 	ULOGD("%s: channel upstream event %s",
 	      getName().c_str(),
 	      RawChannel::getUpstreamEventStr(
@@ -671,6 +697,13 @@ void RawSource::onChannelUpstreamEvent(RawChannel *channel,
 		break;
 	case RawChannel::UpstreamEvent::RESYNC:
 		onChannelResync(channel);
+		break;
+	case RawChannel::UpstreamEvent::VIDEO_PRES_STATS:
+		err = stats.readMsg(event);
+		if (err < 0)
+			ULOG_ERRNO("stats.readMsg", -err);
+		else
+			onChannelVideoPresStats(channel, &stats);
 		break;
 	default:
 		ULOG_ERRNO("event id %d", ENOSYS, pomp_msg_get_id(event));

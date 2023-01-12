@@ -93,7 +93,7 @@ protected:
 				    struct mbuf_raw_video_frame *frame);
 
 	virtual void onChannelDownstreamEvent(RawChannel *channel,
-					      struct pomp_msg *event);
+					      const struct pomp_msg *event);
 
 	virtual void onChannelFlush(RawChannel *channel);
 

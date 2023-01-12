@@ -146,6 +146,9 @@ protected:
 
 	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
 
+	static void videoPresStatsTimerCb(struct pomp_timer *timer,
+					  void *userdata);
+
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
 	int removeQueueFdFromPomp(struct mbuf_raw_video_frame_queue *queue);
@@ -187,6 +190,13 @@ protected:
 	bool mRenderVideoOverlay;
 	bool mFirstFrame;
 	bool mFrameLoaded;
+	uint64_t mLastRenderTimestamp;
+	uint64_t mLastFrameTimestamp;
+	VideoPresStats mVideoPresStats;
+	struct pomp_timer *mVideoPresStatsTimer;
+	uint64_t mSchedLastInputTimestamp;
+	uint64_t mSchedLastOutputTimestamp;
+	bool mRenderReadyScheduled;
 
 	/* Logging-related variables */
 	/* previous mFrameLoaded value logged */
@@ -200,7 +210,29 @@ private:
 	int setupExtTexture(const struct vdef_raw_frame *frameInfo,
 			    const RawVideoMedia::Frame *frame);
 
+	static bool queueFilter(struct mbuf_raw_video_frame *frame,
+				void *userdata);
+
+	static uint64_t getFrameU64(struct mbuf_raw_video_frame *frame,
+				    const char *key);
+
+	struct mbuf_raw_video_frame_queue *getLastAddedMediaQueue(void);
+
+	int getNextFrameDelay(mbuf_raw_video_frame_queue *queue,
+			      uint64_t curTime,
+			      bool allowDrop,
+			      bool *shouldBreak,
+			      uint64_t *delayUs,
+			      int64_t *compensationUs,
+			      int64_t *timingErrorUs,
+			      uint64_t *frameTsUs,
+			      int logLevel);
+
+	int
+	scheduleFrame(uint64_t curTime, bool *load, int64_t *compensationUs);
+
 	static void idleRenewMedia(void *userdata);
+
 	static void idleStart(void *renderer);
 };
 

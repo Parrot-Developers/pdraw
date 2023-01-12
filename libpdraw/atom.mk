@@ -54,6 +54,7 @@ LOCAL_SRC_FILES := \
 	src/pdraw_source_coded_video.cpp \
 	src/pdraw_source_raw_video.cpp \
 	src/pdraw_utils.cpp \
+	src/pdraw_video_pres_stats.cpp \
 	src/pdraw_wrapper.cpp
 
 LOCAL_LIBRARIES := \

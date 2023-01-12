@@ -194,6 +194,21 @@ const char *pdraw_histogramChannelStr(enum pdraw_histogram_channel val)
 }
 
 
+const char *pdraw_videoRendererSchedulingModeStr(
+	enum pdraw_video_renderer_scheduling_mode val)
+{
+	switch (val) {
+	case PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP:
+		return "ASAP";
+	case PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE:
+		return "ADAPTIVE";
+	case PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_MAX:
+	default:
+		return "UNKNOWN";
+	}
+}
+
+
 const char *
 pdraw_videoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val)
 {

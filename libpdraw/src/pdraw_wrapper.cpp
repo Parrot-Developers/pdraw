@@ -1735,6 +1735,13 @@ const char *pdraw_histogram_channel_str(enum pdraw_histogram_channel val)
 }
 
 
+const char *pdraw_video_renderer_scheduling_mode_str(
+	enum pdraw_video_renderer_scheduling_mode val)
+{
+	return pdraw_videoRendererSchedulingModeStr(val);
+}
+
+
 const char *
 pdraw_video_renderer_fill_mode_str(enum pdraw_video_renderer_fill_mode val)
 {

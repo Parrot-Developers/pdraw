@@ -37,6 +37,8 @@
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <video-defs/vdefs.h>
 
+#include "pdraw_video_pres_stats.hpp"
+
 namespace Pdraw {
 
 class CodedChannel {
@@ -84,6 +86,9 @@ public:
 
 		/* resynchronization required */
 		RESYNC,
+
+		/* video presentation statistics */
+		VIDEO_PRES_STATS,
 	};
 
 	class SinkListener {
@@ -95,15 +100,16 @@ public:
 
 		virtual void
 		onChannelDownstreamEvent(CodedChannel *channel,
-					 struct pomp_msg *event) = 0;
+					 const struct pomp_msg *event) = 0;
 	};
 
 	class SourceListener {
 	public:
 		virtual ~SourceListener(void) {}
 
-		virtual void onChannelUpstreamEvent(CodedChannel *channel,
-						    struct pomp_msg *event) = 0;
+		virtual void
+		onChannelUpstreamEvent(CodedChannel *channel,
+				       const struct pomp_msg *event) = 0;
 	};
 
 	static const char *getDownstreamEventStr(DownstreamEvent val);
@@ -130,6 +136,8 @@ public:
 	int unlink(void);
 
 	int teardown(void);
+
+	int sendVideoPresStats(VideoPresStats *stats);
 
 	int sendDownstreamEvent(DownstreamEvent downstreamEvent);
 

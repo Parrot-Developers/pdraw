@@ -25,4 +25,4 @@ Language: Cpp
 MaxEmptyLinesToKeep: 2
 SortIncludes: true
 SpaceAfterCStyleCast: false
-UseTab: Always
+UseTab: ForContinuationAndIndentation

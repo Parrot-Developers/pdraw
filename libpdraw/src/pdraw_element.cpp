@@ -303,6 +303,35 @@ void CodedToRawFilterElement::onChannelPhotoTrigger(CodedChannel *channel)
 }
 
 
+void CodedToRawFilterElement::onChannelVideoPresStats(RawChannel *channel,
+						      VideoPresStats *stats)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSource::onChannelVideoPresStats(channel, stats);
+
+	/* Propagate the video prenstation statistics to all
+	 * input media channels */
+	CodedSink::lock();
+	unsigned int count = CodedSink::getInputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		CodedVideoMedia *media = getInputMedia(i);
+		if (media == nullptr)
+			continue;
+		CodedChannel *inChannel = getInputChannel(media);
+		if (inChannel == nullptr)
+			continue;
+		int ret = inChannel->sendVideoPresStats(stats);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendVideoPresStats", -ret);
+	}
+	CodedSink::unlock();
+}
+
+
 void RawToCodedFilterElement::onChannelSos(RawChannel *channel)
 {
 	if (channel == nullptr) {
@@ -423,6 +452,35 @@ void RawToCodedFilterElement::onChannelPhotoTrigger(RawChannel *channel)
 }
 
 
+void RawToCodedFilterElement::onChannelVideoPresStats(CodedChannel *channel,
+						      VideoPresStats *stats)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	CodedSource::onChannelVideoPresStats(channel, stats);
+
+	/* Propagate the video prenstation statistics to all
+	 * input media channels */
+	RawSink::lock();
+	unsigned int count = RawSink::getInputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getInputMedia(i);
+		if (media == nullptr)
+			continue;
+		RawChannel *inChannel = getInputChannel(media);
+		if (inChannel == nullptr)
+			continue;
+		int ret = inChannel->sendVideoPresStats(stats);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendVideoPresStats", -ret);
+	}
+	RawSink::unlock();
+}
+
+
 void RawToRawFilterElement::onChannelSos(RawChannel *channel)
 {
 	if (channel == nullptr) {
@@ -540,6 +598,35 @@ void RawToRawFilterElement::onChannelPhotoTrigger(RawChannel *channel)
 			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
 	}
 	RawSource::unlock();
+}
+
+
+void RawToRawFilterElement::onChannelVideoPresStats(RawChannel *channel,
+						    VideoPresStats *stats)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	RawSource::onChannelVideoPresStats(channel, stats);
+
+	/* Propagate the video prenstation statistics to all
+	 * input media channels */
+	RawSink::lock();
+	unsigned int count = RawSink::getInputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		RawVideoMedia *media = getInputMedia(i);
+		if (media == nullptr)
+			continue;
+		RawChannel *inChannel = getInputChannel(media);
+		if (inChannel == nullptr)
+			continue;
+		int ret = inChannel->sendVideoPresStats(stats);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendVideoPresStats", -ret);
+	}
+	RawSink::unlock();
 }
 
 } /* namespace Pdraw */

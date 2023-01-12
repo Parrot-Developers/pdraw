@@ -803,6 +803,9 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 	out_meta.playTimestamp = in_meta->playTimestamp;
 	out_meta.captureTimestamp = in_meta->captureTimestamp;
 	out_meta.localTimestamp = in_meta->localTimestamp;
+	out_meta.localTimestampPrecision = in_meta->localTimestampPrecision;
+	out_meta.recvStartTimestamp = in_meta->recvStartTimestamp;
+	out_meta.recvEndTimestamp = in_meta->recvEndTimestamp;
 	out_meta.demuxOutputTimestamp = in_meta->demuxOutputTimestamp;
 	out_meta.decoderOutputTimestamp = pdraw_getTimestampFromMbufFrame(
 		out_frame, VDEC_ANCILLARY_KEY_OUTPUT_TIME);

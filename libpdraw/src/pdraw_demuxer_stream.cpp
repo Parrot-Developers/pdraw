@@ -289,9 +289,10 @@ void StreamDemuxer::onRtspConnectionState(struct rtsp_client *client,
 	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
 	int res = 0;
 
+	PDRAW_LOGI("RTSP client %s", rtsp_client_conn_state_str(state));
+
 	switch (state) {
 	case RTSP_CLIENT_CONN_STATE_DISCONNECTED:
-		PDRAW_LOGI("RTSP disconnected");
 		self->mRtspState = DISCONNECTED;
 		PDRAW_LOGD("RTSP state change to %s",
 			   getRtspStateStr(self->mRtspState));
@@ -308,7 +309,10 @@ void StreamDemuxer::onRtspConnectionState(struct rtsp_client *client,
 		}
 		break;
 	case RTSP_CLIENT_CONN_STATE_CONNECTED:
-		PDRAW_LOGI("RTSP connected");
+		/* If previous RTSP state is not DISCONNECTED, do not
+		 * send OPTIONS request */
+		if (self->mRtspState != DISCONNECTED)
+			break;
 		self->mRtspState = CONNECTED;
 		PDRAW_LOGD("RTSP state change to %s",
 			   getRtspStateStr(self->mRtspState));
@@ -322,8 +326,13 @@ void StreamDemuxer::onRtspConnectionState(struct rtsp_client *client,
 			PDRAW_LOG_ERRNO("rtsp_client_options", -res);
 		}
 		break;
+	case RTSP_CLIENT_CONN_STATE_CONNECTING:
+	case RTSP_CLIENT_CONN_STATE_DISCONNECTING:
+		break;
 	default:
-		PDRAW_LOGW("unhandled RTSP connection state (%d)", state);
+		PDRAW_LOGW("unhandled RTSP connection state: (%d: %s)",
+			   state,
+			   rtsp_client_conn_state_str(state));
 		break;
 	}
 }
@@ -793,6 +802,15 @@ void StreamDemuxer::onRtspPlayResp(struct rtsp_client *client,
 	if ((rtptime_valid) && (self->mRtpClockRate != 0)) {
 		ntptime = rtp_timestamp_to_us(rtptime, self->mRtpClockRate);
 	}
+	self->mNtpToNptOffset =
+		(int64_t)(ntptime * self->mSpeed) - (int64_t)start;
+	self->mPausePoint = stop;
+	if (self->mSeeking)
+		self->seekResponse(0, start, self->mSpeed);
+	else
+		self->playResponse(0, start, self->mSpeed);
+	self->mSeeking = false;
+
 	if ((start == stop) && start && stop) {
 		/* The end of range is reached */
 		int res = pomp_loop_idle_add_with_cookie(
@@ -803,16 +821,7 @@ void StreamDemuxer::onRtspPlayResp(struct rtsp_client *client,
 		if (res < 0)
 			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -res);
 		self->mSeeking = false;
-		return;
 	}
-	self->mNtpToNptOffset =
-		(int64_t)(ntptime * self->mSpeed) - (int64_t)start;
-	self->mPausePoint = stop;
-	if (self->mSeeking)
-		self->seekResponse(0, start, self->mSpeed);
-	else
-		self->playResponse(0, start, self->mSpeed);
-	self->mSeeking = false;
 }
 
 
@@ -1424,6 +1433,42 @@ void StreamDemuxer::onChannelResync(CodedChannel *channel)
 }
 
 
+void StreamDemuxer::onChannelVideoPresStats(CodedChannel *channel,
+					    VideoPresStats *stats)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+	if (stats == nullptr) {
+		PDRAW_LOG_ERRNO("stats", EINVAL);
+		return;
+	}
+
+	CodedSource::lock();
+
+	CodedSource::onChannelVideoPresStats(channel, stats);
+
+	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	if (media == nullptr) {
+		PDRAW_LOGE("media not found");
+		CodedSource::unlock();
+		return;
+	}
+
+	auto p = mVideoMedias.begin();
+	while (p != mVideoMedias.end()) {
+		if ((*p)->hasMedia(media)) {
+			(*p)->channelSendVideoPresStats(channel, stats);
+			break;
+		}
+		p++;
+	}
+
+	CodedSource::unlock();
+}
+
+
 void StreamDemuxer::onNewSdp(const char *content_base, const char *sdp)
 {
 	int res = 0;
@@ -1637,7 +1682,8 @@ void StreamDemuxer::onNewSdp(const char *content_base, const char *sdp)
 		}
 		if (!found) {
 			PDRAW_LOGE(
-				"failed to find the selected media in the list");
+				"failed to find the selected "
+				"media in the list");
 			goto stop;
 		}
 		StreamDemuxer::VideoMedia *videoMedia = createVideoMedia();
@@ -2550,7 +2596,7 @@ void StreamDemuxer::VideoMedia::sendDownstreamEvent(
 
 int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 {
-	int ret = 0;
+	int ret = 0, err;
 	unsigned int outputChannelCount = 0;
 	CodedChannel *channel;
 	CodedVideoMedia::Frame data = {};
@@ -2566,6 +2612,8 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 	struct vdef_coded_frame frameInfo;
 	struct mbuf_coded_video_frame *outputFrame = nullptr;
 	unsigned int sliceCount = 0;
+	int64_t clock_delta = 0;
+	uint32_t precision = UINT32_MAX;
 
 	mDemuxer->CodedSource::lock();
 
@@ -2720,7 +2768,17 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 	data.ntpRawTimestamp = frame->timestamps.ntp_raw;
 	data.ntpRawUnskewedTimestamp = frame->timestamps.ntp_raw_unskewed;
 	data.captureTimestamp = mCurrentFrameCaptureTs;
-	data.localTimestamp = frame->timestamps.local;
+	err = vstrm_receiver_get_clock_delta(
+		mReceiver, &clock_delta, &precision);
+	if (err < 0) {
+		if (err != -EAGAIN)
+			PDRAW_LOG_ERRNO("vstrm_receiver_get_clock_delta", -err);
+	} else {
+		data.localTimestamp = data.captureTimestamp - clock_delta;
+		data.localTimestampPrecision = precision;
+	}
+	data.recvStartTimestamp = frame->timestamps.recv_start;
+	data.recvEndTimestamp = frame->timestamps.recv_end;
 
 	frameInfo.info.capture_timestamp = mCurrentFrameCaptureTs;
 
@@ -2881,6 +2939,38 @@ out:
 
 	mDemuxer->CodedSource::unlock();
 	return ret;
+}
+
+
+void StreamDemuxer::VideoMedia::channelSendVideoPresStats(CodedChannel *channel,
+							  VideoPresStats *stats)
+{
+	vstrm_video_stats vstrm_stats = {};
+
+	vstrm_stats.version = VSTRM_VIDEO_STATS_VERSION_2;
+	vstrm_stats.timestamp = stats->timestamp;
+	vstrm_stats.v2.presentation_frame_count = stats->presentationFrameCount;
+	vstrm_stats.v2.presentation_timestamp_delta_integral =
+		stats->presentationTimestampDeltaIntegral;
+	vstrm_stats.v2.presentation_timestamp_delta_integral_sq =
+		stats->presentationTimestampDeltaIntegralSq;
+	vstrm_stats.v2.presentation_timing_error_integral =
+		stats->presentationTimingErrorIntegral;
+	vstrm_stats.v2.presentation_timing_error_integral_sq =
+		stats->presentationTimingErrorIntegralSq;
+	vstrm_stats.v2.presentation_estimated_latency_integral =
+		stats->presentationEstimatedLatencyIntegral;
+	vstrm_stats.v2.presentation_estimated_latency_integral_sq =
+		stats->presentationEstimatedLatencyIntegralSq;
+	vstrm_stats.v2.player_latency_integral = stats->playerLatencyIntegral;
+	vstrm_stats.v2.player_latency_integral_sq =
+		stats->playerLatencyIntegralSq;
+	vstrm_stats.v2.estimated_latency_precision_integral =
+		stats->estimatedLatencyPrecisionIntegral;
+
+	int err = vstrm_receiver_set_video_stats(mReceiver, &vstrm_stats);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("vstrm_receiver_set_video_stats", -err);
 }
 
 
@@ -3073,7 +3163,8 @@ void StreamDemuxer::VideoMedia::codecInfoChangedCb(
 					self->mVideoMedias[i], j);
 				if (channel == nullptr) {
 					PDRAW_LOGW(
-						"failed to get channel at index %d",
+						"failed to get channel "
+						"at index %d",
 						j);
 					continue;
 				}
