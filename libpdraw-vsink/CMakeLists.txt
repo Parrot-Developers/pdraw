@@ -12,11 +12,11 @@ target_compile_options(pdraw-vsink PRIVATE "-fvisibility=hidden")
 target_compile_options(pdraw-vsink PRIVATE "-std=gnu99")
 
 target_link_libraries(pdraw-vsink
-                        futils 
-                        media-buffers 
+                        futils
+                        media-buffers
                         media-buffers-memory
-                        media-buffers-generic
+                        media-buffers-memory-generic
+                        pdraw
                         pomp
                         ulog
-                        pdraw
 )

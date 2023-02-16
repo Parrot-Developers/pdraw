@@ -52,7 +52,9 @@ target_include_directories(pdraw PUBLIC
                             $<INSTALL_INTERFACE:include>
 )
 
-target_compile_definitions(pdraw PRIVATE "PDRAW_VSINK_API_EXPORTS")
+target_compile_definitions(pdraw PRIVATE "PDRAW_API_EXPORTS")
+target_compile_definitions(pdraw PRIVATE "_USE_MATH_DEFINES")
+target_compile_definitions(pdraw PRIVATE "_GNU_SOURCE")
 target_compile_options(pdraw PRIVATE "-fvisibility=hidden")
 
 find_package(Eigen3 CONFIG REQUIRED)
