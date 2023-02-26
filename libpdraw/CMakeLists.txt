@@ -46,7 +46,9 @@ add_library(pdraw-metadata_compiler_flags INTERFACE)
 target_compile_features(pdraw-metadata_compiler_flags INTERFACE cxx_std_11)
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
-
+set_target_properties(pdraw PROPERTIES
+                    POSITION_INDEPENDENT_CODE ${BUILD_SHARED_LIBS}
+)
 target_include_directories(pdraw PUBLIC
                             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                             $<INSTALL_INTERFACE:include>

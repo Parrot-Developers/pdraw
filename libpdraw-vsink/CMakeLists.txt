@@ -1,6 +1,9 @@
 add_library(pdraw-vsink src/pdraw_vsink.c)
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
+set_target_properties(pdraw-vsink PROPERTIES
+                    POSITION_INDEPENDENT_CODE ${BUILD_SHARED_LIBS}
+)
 
 target_include_directories(pdraw-vsink PUBLIC
                             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
