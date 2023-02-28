@@ -41,7 +41,7 @@ set(LIB_SOURCES
 )
 
 
-add_library(pdraw ${LIB_SOURCES})
+add_library(pdraw STATIC ${LIB_SOURCES})
 add_library(pdraw-metadata_compiler_flags INTERFACE)
 target_compile_features(pdraw-metadata_compiler_flags INTERFACE cxx_std_11)
 

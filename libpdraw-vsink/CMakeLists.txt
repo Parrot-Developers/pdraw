@@ -1,4 +1,4 @@
-add_library(pdraw-vsink src/pdraw_vsink.c)
+add_library(pdraw-vsink STATIC src/pdraw_vsink.c)
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 set_target_properties(pdraw-vsink PROPERTIES
