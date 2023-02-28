@@ -1,3 +1,30 @@
+cmake_minimum_required(VERSION 3.15)
+project(pdraw VERSION 1.0)
+
+
+if (APPLE)
+  set(rbase "@loader_path")
+else ()
+  set(rbase "$ORIGIN")
+endif ()
+
+set(CMAKE_SKIP_BUILD_RPATH FALSE)
+
+# when building, don't use the install RPATH already
+# (but later on when installing)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
+
+file(RELATIVE_PATH lib_dir
+    "${CMAKE_INSTALL_PREFIX}/bin"
+    "${CMAKE_INSTALL_PREFIX}/lib")
+
+set(CMAKE_INSTALL_RPATH "${rbase};${rbase}/${lib_dir}"
+    CACHE STRING "Install RPATH")
+
+ 
+# add the automatically determined parts of the RPATH
+# which point to directories outside the build tree to the install RPATH
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(LIB_SOURCES
         src/pdraw_channel_coded_video.cpp
         src/pdraw_channel_raw_video.cpp
@@ -40,46 +67,59 @@ set(LIB_SOURCES
         src/pdraw_wrapper.cpp
 )
 
-
-add_library(pdraw ${LIB_SOURCES})
-add_library(pdraw-metadata_compiler_flags INTERFACE)
-target_compile_features(pdraw-metadata_compiler_flags INTERFACE cxx_std_11)
+add_library(${PROJECT_NAME} ${LIB_SOURCES})
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_11)
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
-target_include_directories(pdraw PUBLIC
+target_include_directories(${PROJECT_NAME} PUBLIC
                             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                             $<INSTALL_INTERFACE:include>
 )
 
-target_compile_definitions(pdraw PRIVATE "PDRAW_API_EXPORTS")
-target_compile_definitions(pdraw PRIVATE "_USE_MATH_DEFINES")
-target_compile_definitions(pdraw PRIVATE "_GNU_SOURCE")
-target_compile_options(pdraw PRIVATE "-fvisibility=hidden")
+target_compile_definitions(${PROJECT_NAME} PRIVATE "PDRAW_API_EXPORTS")
+target_compile_definitions(${PROJECT_NAME} PRIVATE "_USE_MATH_DEFINES")
+target_compile_definitions(${PROJECT_NAME} PRIVATE "_GNU_SOURCE")
+target_compile_options(${PROJECT_NAME} PRIVATE "-fvisibility=hidden")
 
 find_package(Eigen3 CONFIG REQUIRED)
-target_link_libraries(pdraw Eigen3::Eigen)
+target_link_libraries(${PROJECT_NAME} Eigen3::Eigen)
+target_link_libraries(${PROJECT_NAME}
+                      futils
+                      h264
+                      h265
+                      media-buffers
+                      media-buffers-memory
+                      media-buffers-memory-generic
+                      mp4
+                      pomp
+                      rtp
+                      rtsp
+                      sdp
+                      transport-packet
+                      transport-socket
+                      ulog
+                      video-decode
+                      video-defs
+                      video-encode
+                      video-metadata
+                      video-scale
+                      video-streaming
 
-target_link_libraries(pdraw
-                        futils
-                        h264
-                        h265
-                        media-buffers
-                        media-buffers-memory
-                        media-buffers-memory-generic
-                        mp4
-                        pomp
-                        rtp
-                        rtsp
-                        sdp
-                        transport-packet
-                        transport-socket
-                        ulog
-                        video-decode
-                        video-defs
-                        video-encode
-                        video-metadata
-                        video-scale
-                        video-streaming
-                        pdraw-metadata_compiler_flags
+)
+
+set(${PROJECT_NAME}-headers
+    ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/
+)
+
+install(TARGETS ${PROJECT_NAME}
+    EXPORT ${PROJECT_NAME}-targets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
+
+# to get all header files correctly
+install(
+    DIRECTORY ${${PROJECT_NAME}-headers} DESTINATION include/${PROJECT_NAME}
 )
