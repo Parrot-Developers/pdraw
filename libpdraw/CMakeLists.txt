@@ -2,29 +2,14 @@ cmake_minimum_required(VERSION 3.15)
 project(pdraw VERSION 1.0)
 
 
-if (APPLE)
-  set(rbase "@loader_path")
-else ()
-  set(rbase "$ORIGIN")
-endif ()
+# checks if set up rpath exists for install
+if(COMMAND set_up_rpath)
+    set_up_rpath()
+else()
+    message("Set up rpath not defined!")
+endif()
 
-set(CMAKE_SKIP_BUILD_RPATH FALSE)
 
-# when building, don't use the install RPATH already
-# (but later on when installing)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
-
-file(RELATIVE_PATH lib_dir
-    "${CMAKE_INSTALL_PREFIX}/bin"
-    "${CMAKE_INSTALL_PREFIX}/lib")
-
-set(CMAKE_INSTALL_RPATH "${rbase};${rbase}/${lib_dir}"
-    CACHE STRING "Install RPATH")
-
- 
-# add the automatically determined parts of the RPATH
-# which point to directories outside the build tree to the install RPATH
-set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(LIB_SOURCES
         src/pdraw_channel_coded_video.cpp
         src/pdraw_channel_raw_video.cpp
@@ -83,14 +68,19 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE "_GNU_SOURCE")
 target_compile_options(${PROJECT_NAME} PRIVATE "-fvisibility=hidden")
 
 find_package(Eigen3 CONFIG REQUIRED)
-target_link_libraries(${PROJECT_NAME} Eigen3::Eigen)
+
 target_link_libraries(${PROJECT_NAME}
+
+                     PRIVATE
+                      Eigen3::Eigen
                       futils
                       h264
                       h265
+
                       media-buffers
                       media-buffers-memory
                       media-buffers-memory-generic
+
                       mp4
                       pomp
                       rtp
@@ -99,11 +89,17 @@ target_link_libraries(${PROJECT_NAME}
                       transport-packet
                       transport-socket
                       ulog
+
                       video-decode
+                      video-decode-core
                       video-defs
+
                       video-encode
+                      video-encode-core
+
                       video-metadata
                       video-scale
+                      video-scale-core
                       video-streaming
 
 )

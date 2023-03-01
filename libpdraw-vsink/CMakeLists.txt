@@ -1,31 +1,14 @@
 cmake_minimum_required(VERSION 3.15)
 project(pdraw-vsink VERSION 1.0)
 
-if (APPLE)
-  set(rbase "@loader_path")
-else ()
-  set(rbase "$ORIGIN")
-endif ()
-
-
-
-set(CMAKE_SKIP_BUILD_RPATH FALSE)
-
-
-# when building, don't use the install RPATH already
-# (but later on when installing)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH FALSE)
-
-file(RELATIVE_PATH lib_dir
-    "${CMAKE_INSTALL_PREFIX}/bin"
-    "${CMAKE_INSTALL_PREFIX}/lib")
-
-set(CMAKE_INSTALL_RPATH "${rbase};${rbase}/${lib_dir}"
-    CACHE STRING "Install RPATH")
+# checks if set up rpath exists for install
+if(COMMAND set_up_rpath)
+    set_up_rpath()
+else()
+    message("Set up rpath not defined!")
+endif()
 
 add_library(${PROJECT_NAME} src/pdraw_vsink.c)
-
-# add_executable(${PROJECT_NAME}-test src/pdraw_vsink.c)
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
@@ -39,13 +22,16 @@ target_compile_options(${PROJECT_NAME} PRIVATE "-fvisibility=hidden")
 target_compile_options(${PROJECT_NAME} PRIVATE "-std=gnu99")
 
 target_link_libraries(${PROJECT_NAME}
+
+                     PRIVATE
                       futils
-                      media-buffers
                       media-buffers-memory
-                      media-buffers-memory-generic
-                      pdraw
                       pomp
                       ulog
+                      pdraw
+                      media-buffers
+                      media-buffers-memory-generic
+                      # PUBLIC
 )
 
 set(${PROJECT_NAME}-headers
