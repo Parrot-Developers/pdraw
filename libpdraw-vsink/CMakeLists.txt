@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.15)
 project(pdraw-vsink VERSION 1.0)
 
+add_library(${PROJECT_NAME} src/pdraw_vsink.c)
+
 # checks if set up rpath exists for install
 if(COMMAND set_up_rpath)
     set_up_rpath()
 else()
     message("Set up rpath not defined!")
 endif()
-
-add_library(${PROJECT_NAME} src/pdraw_vsink.c)
 
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 set_target_properties(pdraw-vsink PROPERTIES
