@@ -45,7 +45,7 @@ set(LIB_SOURCES
         src/pdraw_wrapper.cpp
 )
 
-add_library(${PROJECT_NAME} ${LIB_SOURCES})
+add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES})
 
 # checks if set up rpath exists for install
 if(COMMAND set_up_rpath)
