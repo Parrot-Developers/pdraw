@@ -45,7 +45,10 @@ set(LIB_SOURCES
         src/pdraw_wrapper.cpp
 )
 
-add_library(${PROJECT_NAME} STATIC ${LIB_SOURCES})
+add_library(${PROJECT_NAME} SHARED ${LIB_SOURCES})
+set_target_properties(${PROJECT_NAME} PROPERTIES
+                    POSITION_INDEPENDENT_CODE ${BUILD_SHARED_LIBS}
+)
 
 # checks if set up rpath exists for install
 if(COMMAND set_up_rpath)
@@ -67,6 +70,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE "PDRAW_API_EXPORTS")
 target_compile_definitions(${PROJECT_NAME} PRIVATE "_USE_MATH_DEFINES")
 target_compile_definitions(${PROJECT_NAME} PRIVATE "_GNU_SOURCE")
 target_compile_options(${PROJECT_NAME} PRIVATE "-fvisibility=hidden")
+target_compile_options(${PROJECT_NAME} PRIVATE "-std=c++11")
 
 find_package(Eigen3 CONFIG REQUIRED)
 
