@@ -50,51 +50,9 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-const struct h264_ctx_cbs RecordDemuxer::VideoMedia::mH264ReaderCbs = {
-	.au_end = nullptr,
-	.nalu_begin = nullptr,
-	.nalu_end = nullptr,
-	.slice = nullptr,
-	.slice_data_begin = nullptr,
-	.slice_data_end = nullptr,
-	.slice_data_mb = nullptr,
-	.sps = nullptr,
-	.pps = nullptr,
-	.aud = nullptr,
-	.sei = nullptr,
-	.sei_buffering_period = nullptr,
-	.sei_pic_timing = &RecordDemuxer::VideoMedia::h264PicTimingSeiCb,
-	.sei_pan_scan_rect = nullptr,
-	.sei_filler_payload = nullptr,
-	.sei_user_data_registered = nullptr,
-	.sei_user_data_unregistered =
-		&RecordDemuxer::VideoMedia::h264UserDataSeiCb,
-	.sei_recovery_point = nullptr,
-};
-
-
-const struct h265_ctx_cbs RecordDemuxer::VideoMedia::mH265ReaderCbs = {
-	.nalu_begin = nullptr,
-	.nalu_end = nullptr,
-	.au_end = nullptr,
-	.vps = nullptr,
-	.sps = nullptr,
-	.pps = nullptr,
-	.aud = nullptr,
-	.sei = nullptr,
-	.sei_user_data_unregistered =
-		&RecordDemuxer::VideoMedia::h265UserDataSeiCb,
-	.sei_recovery_point = nullptr,
-	.sei_time_code = &RecordDemuxer::VideoMedia::h265TimeCodeSeiCb,
-	.sei_mastering_display_colour_volume =
-		&RecordDemuxer::VideoMedia::h265MdcvSeiCb,
-	.sei_content_light_level = &RecordDemuxer::VideoMedia::h265CllSeiCb,
-};
-
-
 RecordDemuxer::RecordDemuxer(Session *session,
 			     Element::Listener *elementListener,
-			     CodedSource::Listener *sourceListener,
+			     Source::Listener *sourceListener,
 			     IPdraw::IDemuxer *demuxer,
 			     IPdraw::IDemuxer::Listener *demuxerListener,
 			     const std::string &fileName) :
@@ -120,8 +78,8 @@ RecordDemuxer::~RecordDemuxer(void)
 	if (mState != STOPPED && mState != CREATED)
 		PDRAW_LOGW("demuxer is still running");
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		delete *p;
 		p++;
 	}
@@ -188,6 +146,37 @@ int RecordDemuxer::fetchSessionMetadata(unsigned int trackId,
 }
 
 
+bool RecordDemuxer::isMediaTrack(struct mp4_track_info *tkinfo,
+				 char **keys,
+				 char **values,
+				 int count)
+{
+	int i, c = 0;
+
+	if (tkinfo->type == MP4_TRACK_TYPE_VIDEO)
+		return true;
+
+	/* "video/raw" track with full format as MIME type parameters */
+	if ((tkinfo->mime_format != nullptr) &&
+	    (strncmp(tkinfo->mime_format,
+		     VDEF_RAW_MIME_TYPE ";",
+		     strlen(VDEF_RAW_MIME_TYPE ";")) == 0))
+		return true;
+
+	/* Old regis-specific raw video track */
+	for (i = 0; i < count; i++) {
+		if (strcmp(keys[i], "com.parrot.regis.format") == 0)
+			c++;
+		else if (strcmp(keys[i], "com.parrot.regis.resolution") == 0)
+			c++;
+	}
+	if (c == 2)
+		return true;
+
+	return false;
+}
+
+
 int RecordDemuxer::start(void)
 {
 	int ret;
@@ -205,7 +194,7 @@ int RecordDemuxer::start(void)
 		return 0;
 	}
 	if (mState != CREATED) {
-		PDRAW_LOGE("demuxer is not created");
+		PDRAW_LOGE("%s: demuxer is not created", __func__);
 		return -EPROTO;
 	}
 	setState(STARTING);
@@ -229,15 +218,28 @@ int RecordDemuxer::start(void)
 	pdraw_friendlyTimeFromUs(info.duration, &hrs, &min, &sec, nullptr);
 	PDRAW_LOGD("duration: %02d:%02d:%02d", hrs, min, sec);
 
-	/* Count the number of video tracks */
+	/* Count the number of media tracks */
 	for (i = 0; i < tkCount; i++) {
+		unsigned int count = 0;
+		char **keys = nullptr, **values = nullptr;
 		ret = mp4_demux_get_track_info(mDemux, i, &tk);
-		if (ret != 0 || tk.type != MP4_TRACK_TYPE_VIDEO)
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mp4_demux_get_track_info", -ret);
+			continue;
+		}
+		ret = mp4_demux_get_track_metadata_strings(
+			mDemux, tk.id, &count, &keys, &values);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mp4_demux_get_track_metadata_strings",
+					-ret);
+			continue;
+		}
+		if (!isMediaTrack(&tk, keys, values, count))
 			continue;
 		mediasCount++;
 	}
 	if (mediasCount == 0) {
-		PDRAW_LOGE("no video track");
+		PDRAW_LOGE("no media track");
 		ret = -ENOENT;
 		goto exit;
 	}
@@ -295,8 +297,7 @@ int RecordDemuxer::start(void)
 		ready = false;
 		goto exit;
 	} else if (ret < 0) {
-		PDRAW_LOG_ERRNO("application failed to select a video media",
-				-ret);
+		PDRAW_LOG_ERRNO("application failed to select a media", -ret);
 		ret = -EPROTO;
 		goto exit;
 	} else {
@@ -324,15 +325,26 @@ int RecordDemuxer::start(void)
 			PDRAW_LOG_ERRNO("mp4_demux_get_track_info", -ret);
 			goto exit;
 		}
-		RecordDemuxer::VideoMedia *videoMedia =
-			new RecordDemuxer::VideoMedia(this);
-		ret = videoMedia->setup(&tk);
-		if (ret != 0) {
-			PDRAW_LOG_ERRNO("VideoMedia::setup", -ret);
-			delete videoMedia;
+		RecordDemuxer::DemuxerMedia *media;
+		switch (tk.type) {
+		case MP4_TRACK_TYPE_VIDEO:
+			media = new RecordDemuxer::DemuxerCodedVideoMedia(this);
+			break;
+		case MP4_TRACK_TYPE_METADATA:
+			media = new RecordDemuxer::DemuxerRawVideoMedia(this);
+			break;
+		default:
+			ret = -EPROTO;
+			PDRAW_LOGE("unsupported track type");
 			goto exit;
 		}
-		mVideoMedias.push_back(videoMedia);
+		ret = media->setup(&tk);
+		if (ret != 0) {
+			PDRAW_LOG_ERRNO("VideoMedia::setup", -ret);
+			delete media;
+			goto exit;
+		}
+		mMedias.push_back(media);
 		m++;
 	}
 
@@ -368,7 +380,7 @@ int RecordDemuxer::stop(void)
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
 	if (mState != STARTED && mState != STARTING) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
@@ -377,10 +389,10 @@ int RecordDemuxer::stop(void)
 
 	mRunning = false;
 
-	CodedSource::lock();
+	Source::lock();
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		(*p)->stop();
 		p++;
 	}
@@ -389,7 +401,7 @@ int RecordDemuxer::stop(void)
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("flush", -ret);
 
-	CodedSource::unlock();
+	Source::unlock();
 
 	return 0;
 }
@@ -398,21 +410,21 @@ int RecordDemuxer::stop(void)
 int RecordDemuxer::flush(void)
 {
 	if ((mState != STARTED) && (mState != STOPPING)) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
-	CodedSource::lock();
+	Source::lock();
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		(*p)->stop();
 		p++;
 	}
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
-		CodedVideoMedia *media = getOutputMedia(i);
+		Media *media = getOutputMedia(i);
 		if (media == nullptr) {
 			PDRAW_LOGW("failed to get media at index %d", i);
 			continue;
@@ -422,7 +434,7 @@ int RecordDemuxer::flush(void)
 
 		/* Flush the output channels */
 		for (unsigned int j = 0; j < outputChannelCount; j++) {
-			CodedChannel *channel = getOutputChannel(media, j);
+			Channel *channel = getOutputChannel(media, j);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   j);
@@ -435,7 +447,7 @@ int RecordDemuxer::flush(void)
 		}
 	}
 
-	CodedSource::unlock();
+	Source::unlock();
 
 	if (mChannelsFlushing == 0)
 		completeFlush();
@@ -444,21 +456,21 @@ int RecordDemuxer::flush(void)
 }
 
 
-void RecordDemuxer::onChannelFlushed(CodedChannel *channel)
+void RecordDemuxer::onChannelFlushed(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
 		return;
 	}
-	PDRAW_LOGD("channel flushed media name=%s (channel key=%p)",
+	PDRAW_LOGD("channel flushed media name=%s (channel owner=%p)",
 		   media->getName().c_str(),
-		   channel->getKey());
+		   channel->getOwner());
 
 	if (mState == STOPPING) {
 		int ret = channel->teardown();
@@ -477,8 +489,8 @@ void RecordDemuxer::completeFlush(void)
 {
 	if (mRunning) {
 		/* restart playing */
-		auto p = mVideoMedias.begin();
-		while (p != mVideoMedias.end()) {
+		auto p = mMedias.begin();
+		while (p != mMedias.end()) {
 			(*p)->play();
 			p++;
 		}
@@ -488,20 +500,20 @@ void RecordDemuxer::completeFlush(void)
 }
 
 
-void RecordDemuxer::onChannelUnlink(CodedChannel *channel)
+void RecordDemuxer::onChannelUnlink(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
 		return;
 	}
 
-	int ret = removeOutputChannel(media, channel->getKey());
+	int ret = removeOutputChannel(media, channel);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("removeOutputChannel", -ret);
 
@@ -511,25 +523,25 @@ void RecordDemuxer::onChannelUnlink(CodedChannel *channel)
 
 void RecordDemuxer::completeTeardown(void)
 {
-	CodedSource::lock();
+	Source::lock();
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
-		CodedVideoMedia *media = getOutputMedia(i);
+		Media *media = getOutputMedia(i);
 		if (media && getOutputChannelCount(media) > 0) {
-			CodedSource::unlock();
+			Source::unlock();
 			return;
 		}
 	}
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		delete *p;
 		p++;
 	}
-	mVideoMedias.clear();
+	mMedias.clear();
 
-	CodedSource::unlock();
+	Source::unlock();
 
 	if (mState == STOPPING) {
 		closeResponse(0);
@@ -541,7 +553,7 @@ void RecordDemuxer::completeTeardown(void)
 int RecordDemuxer::play(float speed)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
@@ -554,8 +566,8 @@ int RecordDemuxer::play(float speed)
 		mRunning = true;
 		mFrameByFrame = false;
 		mSpeed = speed;
-		auto p = mVideoMedias.begin();
-		while (p != mVideoMedias.end()) {
+		auto p = mMedias.begin();
+		while (p != mMedias.end()) {
 			(*p)->play();
 			p++;
 		}
@@ -569,7 +581,7 @@ int RecordDemuxer::play(float speed)
 bool RecordDemuxer::isReadyToPlay(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return false;
 	}
 
@@ -580,7 +592,7 @@ bool RecordDemuxer::isReadyToPlay(void)
 bool RecordDemuxer::isPaused(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return false;
 	}
 
@@ -593,17 +605,17 @@ bool RecordDemuxer::isPaused(void)
 int RecordDemuxer::previous(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
 	if (!mFrameByFrame) {
-		PDRAW_LOGE("demuxer is not paused");
+		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
 	}
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		(*p)->previous();
 		p++;
 	}
@@ -616,17 +628,17 @@ int RecordDemuxer::previous(void)
 int RecordDemuxer::next(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not configured");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
 	if (!mFrameByFrame) {
-		PDRAW_LOGE("demuxer is not paused");
+		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
 	}
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		(*p)->next();
 		p++;
 	}
@@ -639,12 +651,12 @@ int RecordDemuxer::next(void)
 int RecordDemuxer::seek(int64_t delta, bool exact)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		(*p)->seek(delta, exact);
 		p++;
 	}
@@ -656,14 +668,14 @@ int RecordDemuxer::seek(int64_t delta, bool exact)
 int RecordDemuxer::seekTo(uint64_t timestamp, bool exact)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
 	if (timestamp > mDuration)
 		timestamp = mDuration;
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	auto p = mMedias.begin();
+	while (p != mMedias.end()) {
 		(*p)->seekTo(timestamp, exact);
 		p++;
 	}
@@ -673,40 +685,25 @@ int RecordDemuxer::seekTo(uint64_t timestamp, bool exact)
 }
 
 
-RecordDemuxer::VideoMedia::VideoMedia(RecordDemuxer *demuxer) :
-		mDemuxer(demuxer), mFirstFrame(true), mTimer(nullptr),
-		mH264Reader(nullptr), mH265Reader(nullptr),
-		mVideoMedias(nullptr), mNbVideoMedias(0), mVideoTrackId(0),
-		mMetadataMimeType(nullptr), mMetadataBufferSize(0),
-		mMetadataBuffer(nullptr), mTimescale(0), mAvgOutputInterval(0),
-		mLastFrameOutputTime(0), mLastFrameDuration(0),
-		mLastOutputError(0), mPendingSeekTs(-1),
+RecordDemuxer::DemuxerMedia::DemuxerMedia(RecordDemuxer *demuxer) :
+		mDemuxer(demuxer), mTrackId(0),
+		mMediaType(Media::Type::UNKNOWN), mFirstSample(true),
+		mSampleIndex(0), mMetadataMimeType(nullptr),
+		mMetadataBufferSize(0), mMetadataBuffer(nullptr), mTimescale(0),
+		mAvgOutputInterval(0), mLastSampleOutputTime(0),
+		mLastSampleDuration(0), mLastOutputError(0), mPendingSeekTs(-1),
 		mPendingSeekExact(false), mPendingSeekToPrevSample(false),
 		mPendingSeekToNextSample(false), mSeekResponse(0),
-		mCurrentFrame(nullptr), mCurrentMem(nullptr),
-		mCurrentFrameCaptureTs(0), mDecodingTs(0), mDecodingTsInc(0),
-		mFrameIndex(0)
+		mTimer(nullptr)
 {
-	std::string name = demuxer->getName() + "#VideoMedia";
+	std::string name = demuxer->getName() + "#DemuxerMedia";
 	Loggable::setName(name);
 }
 
 
-RecordDemuxer::VideoMedia::~VideoMedia(void)
+RecordDemuxer::DemuxerMedia::~DemuxerMedia(void)
 {
 	int ret;
-
-	if (mCurrentFrame != nullptr) {
-		ret = mbuf_coded_video_frame_unref(mCurrentFrame);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -ret);
-	}
-
-	if (mCurrentMem != nullptr) {
-		ret = mbuf_mem_unref(mCurrentMem);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
-	}
 
 	if (mTimer != nullptr) {
 		ret = pomp_timer_clear(mTimer);
@@ -717,47 +714,21 @@ RecordDemuxer::VideoMedia::~VideoMedia(void)
 			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
 	}
 
-	if (mH264Reader != nullptr) {
-		ret = h264_reader_destroy(mH264Reader);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("h264_reader_destroy", -ret);
-	}
-	if (mH265Reader != nullptr) {
-		ret = h265_reader_destroy(mH265Reader);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("h265_reader_destroy", -ret);
-	}
-
-	/* Remove the output ports */
-	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-		if (mDemuxer->CodedSource::mListener) {
-			mDemuxer->CodedSource::mListener->onOutputMediaRemoved(
-				mDemuxer, mVideoMedias[i]);
-		}
-		ret = mDemuxer->removeOutputPort(mVideoMedias[i]);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("removeOutputPort", -ret);
-		} else {
-			delete mVideoMedias[i];
-		}
-	}
-
-	free(mVideoMedias);
 	free(mMetadataBuffer);
 	free(mMetadataMimeType);
 }
 
 
-int RecordDemuxer::VideoMedia::setup(struct mp4_track_info *tkinfo)
+int RecordDemuxer::DemuxerMedia::setup(struct mp4_track_info *tkinfo)
 {
 	int ret, err;
-	struct mp4_video_decoder_config vdc = {};
-	CodedSource::OutputPort *basePort, *mediaPort;
 
 	std::string name =
 		mDemuxer->getName() + "#track#" + std::to_string(tkinfo->id);
 	Loggable::setName(name);
 
+	mTrackId = tkinfo->id;
+	mTimescale = tkinfo->timescale;
 	mMetadataBufferSize = 1024;
 	mMetadataBuffer = (uint8_t *)malloc(mMetadataBufferSize);
 	if (mMetadataBuffer == nullptr) {
@@ -774,232 +745,11 @@ int RecordDemuxer::VideoMedia::setup(struct mp4_track_info *tkinfo)
 		goto error;
 	}
 
-	/* Create the H.264 and H.265 readers */
-	ret = h264_reader_new(&mH264ReaderCbs, this, &mH264Reader);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("h264_reader_new", -ret);
+	ret = setupMedia(tkinfo);
+	if (ret < 0)
 		goto error;
-	}
-	ret = h265_reader_new(&mH265ReaderCbs, this, &mH265Reader);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("h265_reader_new", -ret);
-		goto error;
-	}
 
-	mDemuxer->CodedSource::lock();
-
-	if (mNbVideoMedias != 0) {
-		ret = -EEXIST;
-		mDemuxer->CodedSource::unlock();
-		PDRAW_LOGE("video track already defined");
-		goto error;
-	}
-
-	mVideoTrackId = tkinfo->id;
-	mTimescale = tkinfo->timescale;
-	ret = mp4_demux_get_track_video_decoder_config(
-		mDemuxer->mDemux, mVideoTrackId, &vdc);
-	if (ret < 0) {
-		mDemuxer->CodedSource::unlock();
-		PDRAW_LOG_ERRNO("mp4_demux_get_track_video_decoder_config",
-				-ret);
-		goto error;
-	}
-
-	switch (vdc.codec) {
-	case MP4_VIDEO_CODEC_AVC:
-		if ((vdc.avc.sps == nullptr) || (vdc.avc.sps_size == 0)) {
-			ret = -EPROTO;
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOGE("invalid SPS");
-			goto error;
-		}
-		if ((vdc.avc.pps == nullptr) || (vdc.avc.pps_size == 0)) {
-			ret = -EPROTO;
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOGE("invalid PPS");
-			goto error;
-		}
-		break;
-	case MP4_VIDEO_CODEC_HEVC:
-		if ((vdc.hevc.vps == nullptr) || (vdc.hevc.vps_size == 0)) {
-			ret = -EPROTO;
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOGE("invalid VPS");
-			goto error;
-		}
-		if ((vdc.hevc.sps == nullptr) || (vdc.hevc.sps_size == 0)) {
-			ret = -EPROTO;
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOGE("invalid SPS");
-			goto error;
-		}
-		if ((vdc.hevc.pps == nullptr) || (vdc.hevc.pps_size == 0)) {
-			ret = -EPROTO;
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOGE("invalid PPS");
-			goto error;
-		}
-		break;
-	default:
-		ret = -EPROTO;
-		mDemuxer->CodedSource::unlock();
-		PDRAW_LOGE("invalid video codec");
-		goto error;
-	}
-
-	/* Create the output port */
-	mNbVideoMedias = 2;
-	mVideoMedias = (CodedVideoMedia **)calloc(mNbVideoMedias,
-						  sizeof(*mVideoMedias));
-	if (mVideoMedias == nullptr) {
-		ret = -ENOMEM;
-		mDemuxer->CodedSource::unlock();
-		PDRAW_LOGE("media allocation failed");
-		goto error;
-	}
-	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-		mVideoMedias[i] = new CodedVideoMedia(mDemuxer->mSession);
-		if (mVideoMedias[i] == nullptr) {
-			ret = -ENOMEM;
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOGE("media allocation failed");
-			goto error;
-		}
-		ret = mDemuxer->addOutputPort(mVideoMedias[i]);
-		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOG_ERRNO("addOutputPort", -ret);
-			goto error;
-		}
-		std::string path = mDemuxer->Element::getName() + "$" +
-				   mVideoMedias[i]->getName();
-		mVideoMedias[i]->setPath(path);
-	}
-
-	/* Set the output media info */
-	switch (tkinfo->video_codec) {
-	case MP4_VIDEO_CODEC_AVC:
-		mVideoMedias[0]->format = vdef_h264_avcc;
-		mVideoMedias[1]->format = vdef_h264_byte_stream;
-		for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-			ret = mVideoMedias[i]->setPs(nullptr,
-						     0,
-						     vdc.avc.sps,
-						     vdc.avc.sps_size,
-						     vdc.avc.pps,
-						     vdc.avc.pps_size);
-			if (ret < 0) {
-				mDemuxer->CodedSource::unlock();
-				PDRAW_LOG_ERRNO("media->setPs", -ret);
-				goto error;
-			}
-		}
-		/* Initialize the H.264 parsing */
-		ret = h264_reader_parse_nalu(
-			mH264Reader, 0, vdc.avc.sps, vdc.avc.sps_size);
-		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOG_ERRNO("h264_reader_parse_nalu", -ret);
-			goto error;
-		}
-		ret = h264_reader_parse_nalu(
-			mH264Reader, 0, vdc.avc.pps, vdc.avc.pps_size);
-		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOG_ERRNO("h264_reader_parse_nalu", -ret);
-			goto error;
-		}
-		break;
-	case MP4_VIDEO_CODEC_HEVC:
-		mVideoMedias[0]->format = vdef_h265_hvcc;
-		mVideoMedias[1]->format = vdef_h265_byte_stream;
-		for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-			ret = mVideoMedias[i]->setPs(vdc.hevc.vps,
-						     vdc.hevc.vps_size,
-						     vdc.hevc.sps,
-						     vdc.hevc.sps_size,
-						     vdc.hevc.pps,
-						     vdc.hevc.pps_size);
-			if (ret < 0) {
-				mDemuxer->CodedSource::unlock();
-				PDRAW_LOG_ERRNO("media->setPs", -ret);
-				goto error;
-			}
-		}
-		/* Initialize the H.265 parsing */
-		ret = h265_reader_parse_nalu(
-			mH265Reader, 0, vdc.hevc.vps, vdc.hevc.vps_size);
-		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOG_ERRNO("h265_reader_parse_nalu", -ret);
-			goto error;
-		}
-		ret = h265_reader_parse_nalu(
-			mH265Reader, 0, vdc.hevc.sps, vdc.hevc.sps_size);
-		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOG_ERRNO("h265_reader_parse_nalu", -ret);
-			goto error;
-		}
-		ret = h265_reader_parse_nalu(
-			mH265Reader, 0, vdc.hevc.pps, vdc.hevc.pps_size);
-		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
-			PDRAW_LOG_ERRNO("h265_reader_parse_nalu", -ret);
-			goto error;
-		}
-		break;
-	default:
-		mVideoMedias[0]->format = (struct vdef_coded_format){
-			.encoding = VDEF_ENCODING_UNKNOWN,
-			.data_format = VDEF_CODED_DATA_FORMAT_UNKNOWN,
-		};
-		mVideoMedias[1]->format = (struct vdef_coded_format){
-			.encoding = VDEF_ENCODING_UNKNOWN,
-			.data_format = VDEF_CODED_DATA_FORMAT_UNKNOWN,
-		};
-		break;
-	}
-
-	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-		(void)mDemuxer->fetchSessionMetadata(
-			mVideoTrackId, &mVideoMedias[i]->sessionMeta);
-		mVideoMedias[i]->playbackType = PDRAW_PLAYBACK_TYPE_REPLAY;
-		mVideoMedias[i]->duration = mDemuxer->mDuration;
-	}
-	if (tkinfo->has_metadata)
-		mMetadataMimeType = strdup(tkinfo->metadata_mime_format);
-
-	/* Create the output buffers pool on the last media. As the medias will
-	 * be destroyed in creation order, this ensures that the media which
-	 * owns the buffers pool will be the last destroyed */
-	ret = mDemuxer->createOutputPortMemoryPool(
-		mVideoMedias[1],
-		DEMUXER_OUTPUT_BUFFER_COUNT,
-		mVideoMedias[1]->info.resolution.width *
-			mVideoMedias[1]->info.resolution.height * 3 / 4);
-	if (ret < 0) {
-		mDemuxer->CodedSource::unlock();
-		PDRAW_LOG_ERRNO("createOutputPortMemoryPool", -ret);
-		goto error;
-	}
-	/* Make the pool shared between all medias */
-	basePort = mDemuxer->getOutputPort(mVideoMedias[1]);
-	mediaPort = mDemuxer->getOutputPort(mVideoMedias[0]);
-	if (basePort == nullptr || mediaPort == nullptr) {
-		PDRAW_LOGW("unable to share memory pool between medias");
-	} else {
-		mediaPort->pool = basePort->pool;
-		mediaPort->sharedPool = true;
-	}
-	mDemuxer->CodedSource::unlock();
-
-	if (mDemuxer->CodedSource::mListener) {
-		for (unsigned int i = 0; i < mNbVideoMedias; i++)
-			mDemuxer->CodedSource::mListener->onOutputMediaAdded(
-				mDemuxer, mVideoMedias[i]);
-	}
+	mMediaType = Media::Type::RAW_VIDEO;
 
 	return 0;
 
@@ -1013,25 +763,13 @@ error:
 			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
 		mTimer = nullptr;
 	}
-	if (mH264Reader != nullptr) {
-		err = h264_reader_destroy(mH264Reader);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("h264_reader_destroy", -err);
-		mH264Reader = nullptr;
-	}
-	if (mH265Reader != nullptr) {
-		err = h265_reader_destroy(mH265Reader);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("h265_reader_destroy", -err);
-		mH265Reader = nullptr;
-	}
 	free(mMetadataBuffer);
 	mMetadataBuffer = nullptr;
 	return ret;
 }
 
 
-void RecordDemuxer::VideoMedia::play(void)
+void RecordDemuxer::DemuxerMedia::play(void)
 {
 	mPendingSeekToPrevSample = false;
 	mPendingSeekToNextSample = false;
@@ -1039,7 +777,7 @@ void RecordDemuxer::VideoMedia::play(void)
 }
 
 
-void RecordDemuxer::VideoMedia::previous(void)
+void RecordDemuxer::DemuxerMedia::previous(void)
 {
 	if (!mPendingSeekExact) {
 		/* Avoid seeking back too much if a seek to a
@@ -1052,7 +790,7 @@ void RecordDemuxer::VideoMedia::previous(void)
 }
 
 
-void RecordDemuxer::VideoMedia::next(void)
+void RecordDemuxer::DemuxerMedia::next(void)
 {
 	mPendingSeekToNextSample = true;
 	mPendingSeekToPrevSample = false;
@@ -1060,7 +798,7 @@ void RecordDemuxer::VideoMedia::next(void)
 }
 
 
-void RecordDemuxer::VideoMedia::seek(int64_t delta, bool exact)
+void RecordDemuxer::DemuxerMedia::seek(int64_t delta, bool exact)
 {
 	int64_t ts = (int64_t)mDemuxer->mCurrentTime + delta;
 	if (ts < 0)
@@ -1071,7 +809,7 @@ void RecordDemuxer::VideoMedia::seek(int64_t delta, bool exact)
 }
 
 
-void RecordDemuxer::VideoMedia::seekTo(uint64_t timestamp, bool exact)
+void RecordDemuxer::DemuxerMedia::seekTo(uint64_t timestamp, bool exact)
 {
 	if (timestamp > mDemuxer->mDuration)
 		timestamp = mDemuxer->mDuration;
@@ -1083,241 +821,25 @@ void RecordDemuxer::VideoMedia::seekTo(uint64_t timestamp, bool exact)
 }
 
 
-void RecordDemuxer::VideoMedia::stop(void)
+void RecordDemuxer::DemuxerMedia::stop(void)
 {
+	(void)pomp_timer_clear(mTimer);
+}
+
+
+void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
+					  void *userdata)
+{
+	DemuxerMedia *self = (DemuxerMedia *)userdata;
 	int ret;
-
-	pomp_timer_clear(mTimer);
-
-	if (mCurrentFrame != nullptr) {
-		ret = mbuf_coded_video_frame_unref(mCurrentFrame);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -ret);
-		mCurrentFrame = nullptr;
-	}
-	if (mCurrentMem != nullptr) {
-		ret = mbuf_mem_unref(mCurrentMem);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
-		mCurrentMem = nullptr;
-	}
-}
-
-
-void RecordDemuxer::VideoMedia::sendDownstreamEvent(
-	CodedChannel::DownstreamEvent event)
-{
-	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-		int res = mDemuxer->CodedSource::sendDownstreamEvent(
-			mVideoMedias[i], event);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("CodedSource::sendDownstreamEvent",
-					-res);
-	}
-}
-
-
-void RecordDemuxer::VideoMedia::h264UserDataSeiCb(
-	struct h264_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
-	const struct h264_sei_user_data_unregistered *sei,
-	void *userdata)
-{
-	int ret = 0;
-	VideoMedia *self = (VideoMedia *)userdata;
-
-	if (self == nullptr)
-		return;
-	if ((buf == nullptr) || (len == 0))
-		return;
-	if (sei == nullptr)
-		return;
-	if (self->mCurrentFrame == nullptr)
-		return;
-
-	/* Ignore "Parrot Streaming" user data SEI */
-	if (vstrm_h264_is_sei_streaming(sei->uuid))
-		return;
-
-	ret = mbuf_coded_video_frame_add_ancillary_buffer(
-		self->mCurrentFrame, MBUF_ANCILLARY_KEY_USERDATA_SEI, buf, len);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
-				-ret);
-		return;
-	}
-}
-
-
-void RecordDemuxer::VideoMedia::h264PicTimingSeiCb(
-	struct h264_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
-	const struct h264_sei_pic_timing *sei,
-	void *userdata)
-{
-	VideoMedia *self = (VideoMedia *)userdata;
-
-	if (self == nullptr)
-		return;
-	if (ctx == nullptr)
-		return;
-	if (sei == nullptr)
-		return;
-	if (self->mCurrentFrame == nullptr)
-		return;
-
-	self->mCurrentFrameCaptureTs = h264_ctx_sei_pic_timing_to_us(ctx, sei);
-}
-
-
-void RecordDemuxer::VideoMedia::h265UserDataSeiCb(
-	struct h265_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
-	const struct h265_sei_user_data_unregistered *sei,
-	void *userdata)
-{
-	VideoMedia *self = (VideoMedia *)userdata;
-	int ret = 0;
-
-	if (self == nullptr)
-		return;
-	if ((buf == nullptr) || (len == 0))
-		return;
-	if (sei == nullptr)
-		return;
-	if (self->mCurrentFrame == nullptr)
-		return;
-	ret = mbuf_coded_video_frame_add_ancillary_buffer(
-		self->mCurrentFrame, MBUF_ANCILLARY_KEY_USERDATA_SEI, buf, len);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
-				-ret);
-		return;
-	}
-}
-
-
-void RecordDemuxer::VideoMedia::h265TimeCodeSeiCb(
-	struct h265_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
-	const struct h265_sei_time_code *sei,
-	void *userdata)
-{
-	VideoMedia *self = (VideoMedia *)userdata;
-
-	if (self == nullptr)
-		return;
-	if (ctx == nullptr)
-		return;
-	if (sei == nullptr)
-		return;
-	if (self->mCurrentFrame == nullptr)
-		return;
-
-	self->mCurrentFrameCaptureTs = h265_ctx_sei_time_code_to_us(ctx, sei);
-}
-
-
-void RecordDemuxer::VideoMedia::h265MdcvSeiCb(
-	struct h265_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
-	const struct h265_sei_mastering_display_colour_volume *sei,
-	void *userdata)
-{
-	VideoMedia *self = (VideoMedia *)userdata;
-
-	if (self == nullptr)
-		return;
-	if (ctx == nullptr)
-		return;
-	if (sei == nullptr)
-		return;
-
-	for (unsigned int i = 0; i < self->mNbVideoMedias; i++) {
-		for (unsigned int k = 0; k < 3; k++) {
-			self->mVideoMedias[i]
-				->info.mdcv.display_primaries_val
-				.color_primaries[k]
-				.x =
-				(float)sei->display_primaries_x[k] / 50000.;
-			self->mVideoMedias[i]
-				->info.mdcv.display_primaries_val
-				.color_primaries[k]
-				.y =
-				(float)sei->display_primaries_y[k] / 50000.;
-		}
-		self->mVideoMedias[i]
-			->info.mdcv.display_primaries_val.white_point.x =
-			(float)sei->white_point_x / 50000.;
-		self->mVideoMedias[i]
-			->info.mdcv.display_primaries_val.white_point.y =
-			(float)sei->white_point_y / 50000.;
-		self->mVideoMedias[i]->info.mdcv.display_primaries =
-			vdef_color_primaries_from_values(
-				&self->mVideoMedias[i]
-					 ->info.mdcv.display_primaries_val);
-		self->mVideoMedias[i]
-			->info.mdcv.max_display_mastering_luminance =
-			(float)sei->max_display_mastering_luminance / 10000.;
-		self->mVideoMedias[i]
-			->info.mdcv.min_display_mastering_luminance =
-			(float)sei->min_display_mastering_luminance / 10000.;
-	}
-}
-
-
-void RecordDemuxer::VideoMedia::h265CllSeiCb(
-	struct h265_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
-	const struct h265_sei_content_light_level *sei,
-	void *userdata)
-{
-	VideoMedia *self = (VideoMedia *)userdata;
-
-	if (self == nullptr)
-		return;
-	if (ctx == nullptr)
-		return;
-	if (sei == nullptr)
-		return;
-
-	for (unsigned int i = 0; i < self->mNbVideoMedias; i++) {
-		self->mVideoMedias[i]->info.cll.max_cll =
-			sei->max_content_light_level;
-		self->mVideoMedias[i]->info.cll.max_fall =
-			sei->max_pic_average_light_level;
-	}
-}
-
-
-void RecordDemuxer::VideoMedia::timerCb(struct pomp_timer *timer,
-					void *userdata)
-{
-	VideoMedia *self = (VideoMedia *)userdata;
-	bool silent = false;
+	bool retry = false, silent = false;
 	float speed = 1.0;
-	struct mp4_track_sample sample;
-	CodedVideoMedia::Frame data = {};
-	uint8_t *buf = nullptr, *tmp, *sei = nullptr;
-	size_t bufSize = 0, offset, naluSize, seiSize = 0;
-	struct timespec ts = {0, 0};
-	uint64_t curTime = 0;
 	int64_t error, duration, wait = 0;
 	uint32_t waitMs = 0;
-	int ret, retry = 0, waitFlush = 0;
-	unsigned int outputChannelCount = 0;
-	CodedChannel *channel;
-	int didSeek = 0;
-	unsigned int requiredMediaIndex;
-	CodedVideoMedia *requiredMedia;
-	struct vdef_coded_frame frameInfo;
-	struct mbuf_coded_video_frame *outputFrame = nullptr;
+	bool didSeek = false, waitFlush = false;
+	struct timespec ts = {0, 0};
+	uint64_t curTime = 0;
+	struct mp4_track_sample sample = {};
 
 	if (self == nullptr)
 		return;
@@ -1325,21 +847,20 @@ void RecordDemuxer::VideoMedia::timerCb(struct pomp_timer *timer,
 	RecordDemuxer *demuxer = self->mDemuxer;
 
 	if (demuxer->mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return;
 	}
 
 	speed = demuxer->mSpeed;
 
 	if (!demuxer->mRunning) {
-		self->mLastFrameDuration = 0;
+		self->mLastSampleDuration = 0;
 		self->mLastOutputError = 0;
 		return;
 	}
 
 	time_get_monotonic(&ts);
 	time_timespec_to_us(&ts, &curTime);
-	memset(&sample, 0, sizeof(sample));
 
 	/* Seeking */
 	if (self->mPendingSeekTs >= 0) {
@@ -1349,402 +870,38 @@ void RecordDemuxer::VideoMedia::timerCb(struct pomp_timer *timer,
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("mp4_demux_seek", -ret);
 		} else {
-			self->mLastFrameDuration = 0;
+			self->mLastSampleDuration = 0;
 			self->mLastOutputError = 0;
 		}
 		self->mSeekResponse = ret;
-		didSeek = 1;
+		didSeek = true;
 	} else if (self->mPendingSeekToPrevSample) {
 		ret = mp4_demux_seek_to_track_prev_sample(demuxer->mDemux,
-							  self->mVideoTrackId);
+							  self->mTrackId);
 		if (ret != 0) {
 			PDRAW_LOG_ERRNO("mp4_demux_seek_to_track_prev_sample",
 					-ret);
 		} else {
-			self->mLastFrameDuration = 0;
+			self->mLastSampleDuration = 0;
 			self->mLastOutputError = 0;
 		}
 		self->mSeekResponse = ret;
 		/* If not error, seek to prev sample only finishes when
 		 * mPendingSeekExact goes back to false */
 		if (ret != 0)
-			didSeek = 1;
+			didSeek = true;
 	} else if (self->mPendingSeekToNextSample) {
 		/* Cannot fail, as there is nothing to do */
 		self->mSeekResponse = 0;
-		didSeek = 1;
+		didSeek = true;
 	}
 
-	demuxer->CodedSource::lock();
+	demuxer->Source::lock();
 
-	/* Get an output buffer */
-	if (self->mCurrentFrame != nullptr) {
-		ret = mbuf_coded_video_frame_unref(self->mCurrentFrame);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -ret);
-		self->mCurrentFrame = nullptr;
-	}
-	if (self->mCurrentMem != nullptr) {
-		ret = mbuf_mem_unref(self->mCurrentMem);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
-		self->mCurrentMem = nullptr;
-	}
-	ret = demuxer->getOutputMemory(self->mVideoMedias,
-				       self->mNbVideoMedias,
-				       &self->mCurrentMem,
-				       &requiredMediaIndex);
-	if ((ret < 0) || (self->mCurrentMem == nullptr)) {
-		PDRAW_LOGW("failed to get an input buffer (%d)", ret);
-		waitFlush = 1;
+	ret = self->processSample(
+		&sample, &silent, &retry, &didSeek, &waitFlush);
+	if (ret < 0)
 		goto out;
-	}
-	requiredMedia = self->mVideoMedias[requiredMediaIndex];
-	ret = mbuf_mem_get_data(self->mCurrentMem, (void **)&buf, &bufSize);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
-		goto out;
-	}
-	self->mCurrentFrameCaptureTs = 0;
-
-	/* Get a sample */
-	ret = mp4_demux_get_track_sample(demuxer->mDemux,
-					 self->mVideoTrackId,
-					 1,
-					 buf,
-					 bufSize,
-					 self->mMetadataBuffer,
-					 self->mMetadataBufferSize,
-					 &sample);
-	if (ret != 0) {
-		PDRAW_LOG_ERRNO("mp4_demux_get_track_sample", -ret);
-		/* Go to the next sample */
-		ret = mp4_demux_get_track_sample(demuxer->mDemux,
-						 self->mVideoTrackId,
-						 1,
-						 nullptr,
-						 0,
-						 nullptr,
-						 0,
-						 &sample);
-		if (ret != 0)
-			PDRAW_LOG_ERRNO("mp4_demux_get_track_sample", -ret);
-		retry = 1;
-		goto out;
-	}
-	if (sample.size == 0) {
-		if (demuxer->mFrameByFrame)
-			demuxer->mRunning = false;
-		goto out;
-	}
-	silent = ((sample.silent) && (self->mPendingSeekExact)) ? true : false;
-
-	self->mPendingSeekTs = -1;
-	self->mPendingSeekToPrevSample = false;
-	self->mPendingSeekToNextSample = false;
-	/* Previous frame seek end on the first non-silent frame */
-	if (self->mPendingSeekExact && !silent)
-		didSeek = 1;
-	self->mPendingSeekExact = (silent) ? self->mPendingSeekExact : false;
-
-	frameInfo.format = requiredMedia->format;
-	vdef_format_to_frame_info(&requiredMedia->info, &frameInfo.info);
-	frameInfo.info.timestamp = self->mDecodingTs;
-	frameInfo.info.timescale = 1000000;
-	frameInfo.info.index = self->mFrameIndex++;
-	ret = mbuf_coded_video_frame_new(&frameInfo, &self->mCurrentFrame);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_new", -ret);
-		goto out;
-	}
-	if (silent || (self->mFirstFrame && !sample.sync))
-		frameInfo.info.flags |= VDEF_FRAME_FLAG_SILENT;
-
-	frameInfo.type = VDEF_CODED_FRAME_TYPE_I;
-	switch (requiredMedia->format.encoding) {
-	case VDEF_ENCODING_H264:
-		/* Parse the H.264 SEI to find user data SEI */
-		tmp = buf;
-		offset = 0;
-		while (offset < sample.size) {
-			enum h264_nalu_type naluType;
-			enum h264_slice_type sliceType =
-				H264_SLICE_TYPE_UNKNOWN;
-			memcpy(&naluSize, tmp, sizeof(uint32_t));
-			naluSize = ntohl(naluSize);
-			naluType = (enum h264_nalu_type)(*(tmp + 4) & 0x1F);
-			if (naluType == H264_NALU_TYPE_SEI) {
-				sei = tmp + 4;
-				seiSize = naluSize;
-			} else if (naluType == H264_NALU_TYPE_SLICE_IDR) {
-				frameInfo.type = VDEF_CODED_FRAME_TYPE_IDR;
-
-			} else if (naluType == H264_NALU_TYPE_SLICE) {
-				sliceType = /* TODO */ H264_SLICE_TYPE_UNKNOWN;
-				/* TODO (coverity complains that the code can
-				 * never be reached)
-				 * if (sliceType == H264_SLICE_TYPE_P)
-				 *   frameInfo.type = VDEF_CODED_FRAME_TYPE_P;*/
-			}
-			/* add nalu to frame */
-			struct vdef_nalu nalu = {};
-			nalu.size = naluSize + 4;
-			nalu.h264.type = naluType;
-			nalu.h264.slice_type = sliceType;
-			/* TODO: h264.slice_mb_count */
-			ret = mbuf_coded_video_frame_add_nalu(
-				self->mCurrentFrame,
-				self->mCurrentMem,
-				offset,
-				&nalu);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO(
-					"mbuf_coded_video_frame_add_nalu",
-					-ret);
-				goto out;
-			}
-			tmp += 4 + naluSize;
-			offset += 4 + naluSize;
-		}
-		if ((sei != nullptr) && (seiSize != 0)) {
-			ret = h264_reader_parse_nalu(
-				self->mH264Reader, 0, sei, seiSize);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("h264_reader_parse_nalu", -ret);
-			}
-		}
-		break;
-	case VDEF_ENCODING_H265:
-		/* Parse the H.265 SEI to find user data SEI */
-		tmp = buf;
-		offset = 0;
-		while (offset < sample.size) {
-			enum h265_nalu_type naluType;
-			memcpy(&naluSize, tmp, sizeof(uint32_t));
-			naluSize = ntohl(naluSize);
-			naluType =
-				(enum h265_nalu_type)((*(tmp + 4) >> 1) & 0x3F);
-			if ((naluType == H265_NALU_TYPE_PREFIX_SEI_NUT) ||
-			    (naluType == H265_NALU_TYPE_SUFFIX_SEI_NUT)) {
-				sei = tmp + 4;
-				seiSize = naluSize;
-			}
-			/* TODO find I/P/IDR frames from nalu type ??? */
-			/* add nalu to frame */
-			struct vdef_nalu nalu = {};
-			nalu.size = naluSize + 4;
-			nalu.h265.type = naluType;
-			ret = mbuf_coded_video_frame_add_nalu(
-				self->mCurrentFrame,
-				self->mCurrentMem,
-				offset,
-				&nalu);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO(
-					"mbuf_coded_video_frame_add_nalu",
-					-ret);
-				goto out;
-			}
-			tmp += 4 + naluSize;
-			offset += 4 + naluSize;
-		}
-		if ((sei != nullptr) && (seiSize != 0)) {
-			ret = h265_reader_parse_nalu(
-				self->mH265Reader, 0, sei, seiSize);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("h265_reader_parse_nalu", -ret);
-			}
-		}
-		break;
-	default:
-		break;
-	}
-
-	data.isSync = sample.sync;
-	data.isRef = true; /* TODO? */
-	data.ntpTimestamp = self->mDecodingTs;
-	data.ntpUnskewedTimestamp = self->mDecodingTs;
-	data.ntpRawTimestamp = self->mDecodingTs;
-	data.ntpRawUnskewedTimestamp = self->mDecodingTs;
-	if (sample.next_dts > 0) {
-		self->mDecodingTsInc = mp4_sample_time_to_usec(
-			sample.next_dts - sample.dts, self->mTimescale);
-		if (speed != 0.)
-			self->mDecodingTsInc /= fabs(speed);
-	}
-	self->mDecodingTs += self->mDecodingTsInc;
-	/* TODO: auSyncType */
-
-	/* Frame metadata */
-	if (sample.metadata_size > 0) {
-		/* Set the metadata */
-		struct vmeta_frame *meta = nullptr;
-		struct vmeta_buffer meta_buf;
-		vmeta_buffer_set_cdata(&meta_buf,
-				       self->mMetadataBuffer,
-				       sample.metadata_size,
-				       0);
-		ret = vmeta_frame_read(
-			&meta_buf, self->mMetadataMimeType, &meta);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("vmeta_frame_read", -ret);
-			goto out;
-		}
-
-		ret = mbuf_coded_video_frame_set_metadata(self->mCurrentFrame,
-							  meta);
-		vmeta_frame_unref(meta);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_set_metadata",
-					-ret);
-			goto out;
-		}
-	}
-
-	time_get_monotonic(&ts);
-	time_timespec_to_us(&ts, &curTime);
-	data.demuxOutputTimestamp = curTime;
-	data.playTimestamp =
-		mp4_sample_time_to_usec(sample.dts, self->mTimescale);
-	data.captureTimestamp = self->mCurrentFrameCaptureTs;
-	data.localTimestamp = curTime;
-	data.localTimestampPrecision =
-		1; /* no estimation here, the precision is 1 microsecond */
-	data.recvStartTimestamp = curTime;
-	data.recvEndTimestamp = curTime;
-	demuxer->mCurrentTime = data.playTimestamp;
-
-	frameInfo.info.capture_timestamp = self->mCurrentFrameCaptureTs;
-
-	/* update the frame info */
-	ret = mbuf_coded_video_frame_set_frame_info(self->mCurrentFrame,
-						    &frameInfo);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_set_frame_info", -ret);
-		goto out;
-	}
-
-	ret = mbuf_coded_video_frame_add_ancillary_buffer(
-		self->mCurrentFrame,
-		PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME,
-		&data,
-		sizeof(data));
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
-				-ret);
-		goto out;
-	}
-
-	if (didSeek) {
-		/* TODO: signal once, not for all medias */
-		demuxer->seekResponse(self->mSeekResponse,
-				      demuxer->mCurrentTime,
-				      demuxer->mSpeed);
-	}
-
-	/* Convert to byte stream if required */
-	if (requiredMedia->format.data_format ==
-	    VDEF_CODED_DATA_FORMAT_BYTE_STREAM) {
-		switch (requiredMedia->format.encoding) {
-		case VDEF_ENCODING_H264:
-			ret = h264_avcc_to_byte_stream(buf, sample.size);
-			if (ret < 0)
-				PDRAW_LOG_ERRNO("h264_avcc_to_byte_stream",
-						-ret);
-			break;
-		case VDEF_ENCODING_H265:
-			ret = h265_hvcc_to_byte_stream(buf, sample.size);
-			if (ret < 0)
-				PDRAW_LOG_ERRNO("h265_hvcc_to_byte_stream",
-						-ret);
-			break;
-		default:
-			break;
-		}
-	}
-
-	ret = mbuf_coded_video_frame_finalize(self->mCurrentFrame);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_finalize", -ret);
-		goto out;
-	}
-
-	/* Queue the buffer in the output channels */
-	for (unsigned int i = 0; i < self->mNbVideoMedias; i++) {
-		outputChannelCount =
-			demuxer->getOutputChannelCount(self->mVideoMedias[i]);
-		if (outputChannelCount == 0)
-			continue;
-		if (outputFrame != nullptr)
-			mbuf_coded_video_frame_unref(outputFrame);
-		outputFrame = self->mCurrentFrame;
-		if (!vdef_coded_format_cmp(&requiredMedia->format,
-					   &self->mVideoMedias[i]->format)) {
-			/* The format is different, we need to pick another
-			 * frame */
-			ret = demuxer->copyOutputFrame(requiredMedia,
-						       self->mCurrentFrame,
-						       self->mVideoMedias[i],
-						       &outputFrame);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("copyOutputFrame", -ret);
-				outputFrame = nullptr;
-				continue;
-			}
-		} else {
-			mbuf_coded_video_frame_ref(outputFrame);
-		}
-		ret = mbuf_coded_video_frame_get_frame_info(outputFrame,
-							    &frameInfo);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_frame_info",
-					-ret);
-			goto out;
-		}
-		for (unsigned int j = 0; j < outputChannelCount; j++) {
-			const struct vdef_coded_format *caps;
-			int capsCount;
-
-			channel = demuxer->getOutputChannel(
-				self->mVideoMedias[i], j);
-			if (channel == nullptr) {
-				PDRAW_LOGW("invalid channel");
-				continue;
-			}
-
-			capsCount =
-				channel->getCodedVideoMediaFormatCaps(&caps);
-			if (capsCount < 0) {
-				PDRAW_LOGW("invalid channel (no caps)");
-				continue;
-			}
-
-			if (!vdef_coded_format_intersect(
-				    &frameInfo.format, caps, capsCount)) {
-				PDRAW_LOGW(
-					"incompatible coded video format "
-					"on channel");
-				continue;
-			}
-
-			ret = channel->queue(outputFrame);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("channel->queue", -ret);
-			}
-		}
-	}
-	if (outputFrame != nullptr)
-		mbuf_coded_video_frame_unref(outputFrame);
-	if ((self->mFirstFrame) &&
-	    (!(frameInfo.info.flags & VDEF_FRAME_FLAG_SILENT))) {
-		self->sendDownstreamEvent(CodedChannel::DownstreamEvent::SOS);
-		self->mFirstFrame = false;
-	}
-
-	mbuf_mem_unref(self->mCurrentMem);
-	self->mCurrentMem = nullptr;
-	mbuf_coded_video_frame_unref(self->mCurrentFrame);
-	self->mCurrentFrame = nullptr;
 
 	if ((demuxer->mFrameByFrame) && (!silent))
 		demuxer->mRunning = false;
@@ -1758,11 +915,11 @@ out:
 		demuxer->flush();
 		/* Seek to next sync sample */
 		ret = mp4_demux_get_track_next_sample_time(
-			demuxer->mDemux, self->mVideoTrackId, &nextSampleTime);
+			demuxer->mDemux, self->mTrackId, &nextSampleTime);
 		if (ret != 0) {
 			PDRAW_LOG_ERRNO("mp4_demux_get_track_next_sample_time",
 					-ret);
-			demuxer->CodedSource::unlock();
+			demuxer->Source::unlock();
 			return;
 		}
 		ret = mp4_demux_seek(demuxer->mDemux,
@@ -1780,19 +937,19 @@ out:
 			sample.next_dts, self->mTimescale);
 
 		/* If error > 0 we are late, if error < 0 we are early */
-		error = ((self->mLastFrameOutputTime == 0) ||
-			 (self->mLastFrameDuration == 0) || (speed == 0.) ||
+		error = ((self->mLastSampleOutputTime == 0) ||
+			 (self->mLastSampleDuration == 0) || (speed == 0.) ||
 			 (speed >= PDRAW_PLAY_SPEED_MAX) || (silent))
 				? 0
-				: curTime - self->mLastFrameOutputTime -
-					  self->mLastFrameDuration +
+				: curTime - self->mLastSampleOutputTime -
+					  self->mLastSampleDuration +
 					  self->mLastOutputError;
-		if (self->mLastFrameOutputTime) {
+		if (self->mLastSampleOutputTime) {
 			/* Average frame output rate
 			 * (sliding average, alpha = 1/2) */
 			self->mAvgOutputInterval +=
 				((int64_t)(curTime -
-					   self->mLastFrameOutputTime) -
+					   self->mLastSampleOutputTime) -
 				 self->mAvgOutputInterval) >>
 				1;
 		}
@@ -1816,11 +973,12 @@ out:
 			int64_t newDuration = duration;
 			while (newDuration - error < 0) {
 				wantedSampleDts = nextSyncSampleDts;
-				/* We can't keep up => seek to the next sync
-				 * sample that gives a positive wait time */
+				/* We can't keep up => seek to the next
+				 * sync sample that gives a positive
+				 * wait time */
 				ret = PREV_SAMPLE_TIME_BEFORE(
 					demuxer->mDemux,
-					self->mVideoTrackId,
+					self->mTrackId,
 					wantedSampleDts,
 					1,
 					&nextSyncSampleDts);
@@ -1869,11 +1027,12 @@ out:
 			int64_t newDuration = duration;
 			while (newDuration - error < 0) {
 				wantedSampleDts = nextSyncSampleDts;
-				/* We can't keep up => seek to the next sync
-				 * sample that gives a positive wait time */
+				/* We can't keep up => seek to the next
+				 * sync sample that gives a positive
+				 * wait time */
 				ret = NEXT_SAMPLE_TIME_AFTER(
 					demuxer->mDemux,
-					self->mVideoTrackId,
+					self->mTrackId,
 					wantedSampleDts,
 					1,
 					&nextSyncSampleDts);
@@ -1901,8 +1060,9 @@ out:
 			if ((pendingSeekTs > 0) &&
 			    (newDuration - error <
 			     2 * self->mAvgOutputInterval)) {
-				/* Only seek if the resulting wait time is less
-				 * than twice the average frame output rate */
+				/* Only seek if the resulting wait time
+				 * is less than twice the average frame
+				 * output rate */
 				PDRAW_LOGD(
 					"unable to keep up with playback "
 					"timings, seek forward %.2f ms",
@@ -1943,14 +1103,14 @@ out:
 				waitMs = 1;
 		} else if (demuxer->mRunning) {
 			self->sendDownstreamEvent(
-				CodedChannel::DownstreamEvent::EOS);
+				Channel::DownstreamEvent::EOS);
 
 			/* Notify of the end of range */
 			/* TODO: signal once, not for all medias */
 			demuxer->onEndOfRange(demuxer->mCurrentTime);
 		}
-		self->mLastFrameOutputTime = curTime;
-		self->mLastFrameDuration = duration;
+		self->mLastSampleOutputTime = curTime;
+		self->mLastSampleDuration = duration;
 		self->mLastOutputError = error;
 
 #if 0
@@ -1962,12 +1122,12 @@ out:
 			   (silent) ? " (silent)" : "");
 #endif
 	} else {
-		self->mLastFrameOutputTime = curTime;
-		self->mLastFrameDuration = 0;
+		self->mLastSampleOutputTime = curTime;
+		self->mLastSampleDuration = 0;
 		self->mLastOutputError = 0;
 	}
 
-	demuxer->CodedSource::unlock();
+	demuxer->Source::unlock();
 
 	if (waitMs > 0) {
 		ret = pomp_timer_set(timer, waitMs);

@@ -58,7 +58,7 @@ ExternalCodedVideoSink::ExternalCodedVideoSink(
 	IPdraw::ICodedVideoSink::Listener *listener,
 	IPdraw::ICodedVideoSink *sink,
 	const struct pdraw_video_sink_params *params) :
-		CodedSinkElement(session, elementListener, 1, nullptr, 0)
+		SinkElement(session, elementListener, 1, nullptr, 0, nullptr, 0)
 {
 	Element::setClassName(__func__);
 	mVideoSinkListener = listener;
@@ -234,29 +234,29 @@ int ExternalCodedVideoSink::start(void)
 		return 0;
 	}
 	if (mState != CREATED) {
-		PDRAW_LOGE("video sink is not started");
+		PDRAW_LOGE("%s: video sink is not created", __func__);
 		return -EPROTO;
 	}
 	setState(STARTING);
 
 	/* Get the input media and port */
-	CodedSink::lock();
+	Sink::lock();
 	unsigned int inputMediaCount = getInputMediaCount();
 	if (inputMediaCount != 1) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media count");
 		return -EPROTO;
 	}
-	mInputMedia = getInputMedia(0);
+	mInputMedia = dynamic_cast<CodedVideoMedia *>(getInputMedia(0));
 	if (mInputMedia == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
 		return -EPROTO;
 	}
 	InputPort *port;
 	port = getInputPort(mInputMedia);
 	if (port == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input port");
 		return -EPROTO;
 	}
@@ -267,7 +267,7 @@ int ExternalCodedVideoSink::start(void)
 	int res = mbuf_coded_video_frame_queue_new_with_args(&queueArgs,
 							     &mInputFrameQueue);
 	if (res < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_new_with_args",
 				-res);
 		return res;
@@ -275,16 +275,22 @@ int ExternalCodedVideoSink::start(void)
 
 	res = h264_reader_new(&mH264ReaderCbs, this, &mH264Reader);
 	if (res < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("h264_reader_new", -res);
 		return res;
 	}
 
 	/* Setup the input port */
-	port->channel->setKey(this);
-	port->channel->setQueue(mInputFrameQueue);
+	Channel *c = port->channel;
+	CodedVideoChannel *channel = dynamic_cast<CodedVideoChannel *>(c);
+	if (channel == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("invalid input channel");
+		return -EPROTO;
+	}
+	channel->setQueue(this, mInputFrameQueue);
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	setState(STARTED);
 
@@ -295,12 +301,12 @@ int ExternalCodedVideoSink::start(void)
 int ExternalCodedVideoSink::stop(void)
 {
 	int ret;
-	CodedChannel *channel = nullptr;
+	CodedVideoChannel *channel = nullptr;
 
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
 	if (mState != STARTED) {
-		PDRAW_LOGE("video sink is not started");
+		PDRAW_LOGE("%s: video sink is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
@@ -318,22 +324,23 @@ int ExternalCodedVideoSink::stop(void)
 	mVideoSinkListener = nullptr;
 	Element::unlock();
 
-	CodedSink::lock();
+	Sink::lock();
 
 	if (mInputMedia == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		setState(STOPPED);
 		return 0;
 	}
 
-	channel = getInputChannel(mInputMedia);
+	channel =
+		dynamic_cast<CodedVideoChannel *>(getInputChannel(mInputMedia));
 	if (channel == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	ret = channelTeardown(channel);
 	if (ret < 0)
@@ -346,25 +353,25 @@ int ExternalCodedVideoSink::stop(void)
 int ExternalCodedVideoSink::resync(void)
 {
 	int ret;
-	CodedChannel *channel = nullptr;
+	Channel *channel = nullptr;
 
 	if (mState != STARTED) {
-		PDRAW_LOGE("video sink is not started");
+		PDRAW_LOGE("%s: video sink is not started", __func__);
 		return -EPROTO;
 	}
 
-	CodedSink::lock();
+	Sink::lock();
 
 	ret = flush();
 	if (ret < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("flush", -ret);
 		return ret;
 	}
 
 	channel = getInputChannel(mInputMedia);
 	if (channel == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
@@ -374,7 +381,7 @@ int ExternalCodedVideoSink::resync(void)
 		PDRAW_LOG_ERRNO("channel->resync", -ret);
 
 	mNeedSync = true;
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return ret;
 }
@@ -399,13 +406,13 @@ int ExternalCodedVideoSink::flushDone(void)
 {
 	int ret;
 
-	CodedSink::lock();
+	Sink::lock();
 
 	if (mInputMedia == nullptr)
 		goto exit;
 
 	if (mInputChannelFlushPending) {
-		CodedChannel *channel = getInputChannel(mInputMedia);
+		Channel *channel = getInputChannel(mInputMedia);
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
 		} else {
@@ -418,7 +425,7 @@ int ExternalCodedVideoSink::flushDone(void)
 	}
 
 exit:
-	CodedSink::unlock();
+	Sink::unlock();
 
 	if (mState == STOPPING)
 		setState(STOPPED);
@@ -428,15 +435,15 @@ exit:
 
 
 int ExternalCodedVideoSink::prepareCodedVideoFrame(
-	CodedChannel *channel,
+	CodedVideoChannel *channel,
 	struct mbuf_coded_video_frame *frame)
 {
 	int ret;
 	CodedVideoMedia::Frame *in_meta;
-	struct pdraw_video_frame out_meta;
+	struct pdraw_video_frame out_meta = {};
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
 
-	struct mbuf_coded_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
 		PDRAW_LOGE("invalid queue");
 		return -ENOENT;
@@ -507,7 +514,7 @@ out:
 }
 
 
-int ExternalCodedVideoSink::writeGreyIdr(CodedChannel *channel,
+int ExternalCodedVideoSink::writeGreyIdr(CodedVideoChannel *channel,
 					 struct CodedVideoMedia::Frame *inFrame,
 					 struct vdef_coded_frame *inInfo,
 					 uint64_t *ntpDelta,
@@ -527,7 +534,7 @@ int ExternalCodedVideoSink::writeGreyIdr(CodedChannel *channel,
 	size_t len, spsSize, ppsSize;
 	struct h264_nalu_header nh = {};
 	struct vdef_coded_frame idr_info;
-	struct pdraw_video_frame out_meta;
+	struct pdraw_video_frame out_meta = {};
 	struct vdef_nalu nalu = {};
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(channel == nullptr, EINVAL);
@@ -721,7 +728,7 @@ int ExternalCodedVideoSink::writeGreyIdr(CodedChannel *channel,
 		goto out;
 	}
 
-	CodedSink::onChannelQueue(channel, idr_frame);
+	Sink::onCodedVideoChannelQueue(channel, idr_frame);
 	mIsFlushed = false;
 out:
 	free(sh);
@@ -733,8 +740,8 @@ out:
 }
 
 
-void ExternalCodedVideoSink::onChannelQueue(
-	CodedChannel *channel,
+void ExternalCodedVideoSink::onCodedVideoChannelQueue(
+	CodedVideoChannel *channel,
 	struct mbuf_coded_video_frame *frame)
 {
 	int ret;
@@ -752,14 +759,14 @@ void ExternalCodedVideoSink::onChannelQueue(
 		return;
 	}
 	if (mState != STARTED) {
-		PDRAW_LOGE("video sink is not started");
+		PDRAW_LOGE("%s: video sink is not started", __func__);
 		return;
 	}
 	if (mInputChannelFlushPending) {
 		PDRAW_LOGI("frame input: flush pending, discard frame");
 		return;
 	}
-	CodedSink::lock();
+	Sink::lock();
 
 	if (mInputMedia->format.encoding == VDEF_ENCODING_H264) {
 		struct vdef_coded_frame frame_info;
@@ -898,17 +905,17 @@ void ExternalCodedVideoSink::onChannelQueue(
 
 end:
 	if (ret < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		return;
 	}
 
-	CodedSink::onChannelQueue(channel, frame);
+	Sink::onCodedVideoChannelQueue(channel, frame);
 	mIsFlushed = false;
-	CodedSink::unlock();
+	Sink::unlock();
 }
 
 
-void ExternalCodedVideoSink::onChannelFlush(CodedChannel *channel)
+void ExternalCodedVideoSink::onChannelFlush(Channel *channel)
 {
 	int ret;
 
@@ -926,33 +933,34 @@ void ExternalCodedVideoSink::onChannelFlush(CodedChannel *channel)
 }
 
 
-void ExternalCodedVideoSink::onChannelTeardown(CodedChannel *channel)
+void ExternalCodedVideoSink::onChannelTeardown(Channel *channel)
 {
-	if (channel == nullptr) {
+	CodedVideoChannel *c = dynamic_cast<CodedVideoChannel *>(channel);
+	if (c == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	PDRAW_LOGD("tearing down input channel");
 
-	int ret = channelTeardown(channel);
+	int ret = channelTeardown(c);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("channelTeardown", -ret);
 }
 
 
-int ExternalCodedVideoSink::channelTeardown(CodedChannel *channel)
+int ExternalCodedVideoSink::channelTeardown(CodedVideoChannel *channel)
 {
 	int ret;
 
 	if (channel == nullptr)
 		return -EINVAL;
 
-	CodedSink::lock();
+	Sink::lock();
 
 	if (mInputMedia == nullptr) {
 		/* The channel is already torn down, nothing more to do */
-		CodedSink::unlock();
+		Sink::unlock();
 		return 0;
 	}
 
@@ -962,13 +970,13 @@ int ExternalCodedVideoSink::channelTeardown(CodedChannel *channel)
 		 * Eg. removeInputMedia() utimately calls the app's
 		 * mediaRemoved() callback, which can call the VideoSink
 		 * stop() function, which calls channelTeardown() again. */
-		CodedSink::unlock();
+		Sink::unlock();
 		return 0;
 	}
 	mTearingDown = true;
 
 	/* Remove the input port */
-	channel->setQueue(nullptr);
+	channel->setQueue(this, nullptr);
 
 	ret = removeInputMedia(mInputMedia);
 	if (ret < 0)
@@ -977,7 +985,7 @@ int ExternalCodedVideoSink::channelTeardown(CodedChannel *channel)
 		mInputMedia = nullptr;
 
 	mTearingDown = false;
-	CodedSink::unlock();
+	Sink::unlock();
 
 	ret = flush();
 	if (ret < 0)

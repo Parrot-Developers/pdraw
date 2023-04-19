@@ -31,6 +31,8 @@
 #ifndef _QPDRAW_WIDGET_PRIV_HPP_
 #define _QPDRAW_WIDGET_PRIV_HPP_
 
+#include <QTimer>
+
 #include <pdraw/pdraw_backend.hpp>
 #include <pdraw/qpdraw_widget.hpp>
 
@@ -53,6 +55,7 @@ public:
 		   const struct pdraw_rect *renderPos,
 		   const struct pdraw_video_renderer_params *params);
 	void stop();
+	void setFramerate(float framerate);
 	bool resizeGL(const struct pdraw_rect *renderPos);
 	bool paintGL();
 
@@ -88,25 +91,23 @@ private:
 			   struct vmeta_frame *frameMeta,
 			   const struct pdraw_video_frame_extra *frameExtra);
 
-signals:
-	/**
-	 * Render ready signal, called by onVideoRenderReady() method,
-	 * internally connected to the renderReady() slot, as the widget
-	 * update must be done from the Qt GUI thread.
-	 */
-	void onRenderReady();
-
 private slots:
-	/**
-	 * Render ready slot, connected to the onRenderReady() signal,
-	 * used to trigger the widget update in the Qt GUI thread.
-	 */
-	void renderReady();
+	/* Update slot, connected to the rendering timer timeout signal,
+	 * used to trigger the widget update in the Qt GUI thread. */
+	void update();
 
 private:
 	QPdrawWidget *mParent;
 	QPdraw *mPdraw;
 	IPdraw::IVideoRenderer *mRenderer;
+	/* Rendering timer */
+	QTimer *mTimer;
+	/* Rendering framerate (sec) */
+	float mFramerate;
+	/* Timestamp of the previous rendering (usec) */
+	uint64_t mPrevRenderTs;
+	/* Expected timestamp of the next rendering (usec) */
+	uint64_t mNextRenderExpectedTs;
 };
 
 } /* namespace Internal */

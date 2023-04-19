@@ -47,7 +47,7 @@ class RecordDemuxer : public Demuxer {
 public:
 	RecordDemuxer(Session *session,
 		      Element::Listener *elementListener,
-		      CodedSource::Listener *sourceListener,
+		      Source::Listener *sourceListener,
 		      IPdraw::IDemuxer *demuxer,
 		      IPdraw::IDemuxer::Listener *demuxerListener,
 		      const std::string &fileName);
@@ -83,11 +83,11 @@ public:
 	}
 
 private:
-	class VideoMedia : public Loggable {
+	class DemuxerMedia : public Loggable {
 	public:
-		VideoMedia(RecordDemuxer *demuxer);
+		DemuxerMedia(RecordDemuxer *demuxer);
 
-		~VideoMedia(void);
+		virtual ~DemuxerMedia(void);
 
 		int setup(struct mp4_track_info *tkinfo);
 
@@ -101,10 +101,66 @@ private:
 
 		void seekTo(uint64_t timestamp, bool exact);
 
-		void stop(void);
+		virtual void stop(void);
+
+	protected:
+		virtual int setupMedia(struct mp4_track_info *tkinfo) = 0;
+
+
+		virtual int processSample(struct mp4_track_sample *sample,
+					  bool *silent,
+					  bool *retry,
+					  bool *didSeek,
+					  bool *waitFlush) = 0;
+
+		virtual void
+		sendDownstreamEvent(Channel::DownstreamEvent event) = 0;
+
+		RecordDemuxer *mDemuxer;
+		unsigned int mTrackId;
+		Pdraw::Media::Type mMediaType;
+		bool mFirstSample;
+		unsigned int mSampleIndex;
+		char *mMetadataMimeType;
+		size_t mMetadataBufferSize;
+		uint8_t *mMetadataBuffer;
+		uint32_t mTimescale;
+		int64_t mAvgOutputInterval;
+		uint64_t mLastSampleOutputTime;
+		int64_t mLastSampleDuration;
+		int64_t mLastOutputError;
+		int64_t mPendingSeekTs;
+		bool mPendingSeekExact;
+		bool mPendingSeekToPrevSample;
+		bool mPendingSeekToNextSample;
+		int mSeekResponse;
 
 	private:
-		void sendDownstreamEvent(CodedChannel::DownstreamEvent event);
+		static void timerCb(struct pomp_timer *timer, void *userdata);
+
+		struct pomp_timer *mTimer;
+	};
+
+	class DemuxerCodedVideoMedia : public DemuxerMedia {
+	public:
+		DemuxerCodedVideoMedia(RecordDemuxer *demuxer);
+
+		~DemuxerCodedVideoMedia(void);
+
+		void stop(void) override;
+
+	private:
+		int setupMedia(struct mp4_track_info *tkinfo) override;
+
+
+		int processSample(struct mp4_track_sample *sample,
+				  bool *silent,
+				  bool *retry,
+				  bool *didSeek,
+				  bool *waitFlush) override;
+
+		void
+		sendDownstreamEvent(Channel::DownstreamEvent event) override;
 
 		static void h264UserDataSeiCb(
 			struct h264_ctx *ctx,
@@ -149,37 +205,48 @@ private:
 			     const struct h265_sei_content_light_level *sei,
 			     void *userdata);
 
-		static void timerCb(struct pomp_timer *timer, void *userdata);
-
-		RecordDemuxer *mDemuxer;
-		bool mFirstFrame;
-		struct pomp_timer *mTimer;
 		struct h264_reader *mH264Reader;
 		struct h265_reader *mH265Reader;
-		CodedVideoMedia **mVideoMedias;
-		unsigned int mNbVideoMedias;
-		unsigned int mVideoTrackId;
-		char *mMetadataMimeType;
-		size_t mMetadataBufferSize;
-		uint8_t *mMetadataBuffer;
-		uint32_t mTimescale;
-		int64_t mAvgOutputInterval;
-		uint64_t mLastFrameOutputTime;
-		int64_t mLastFrameDuration;
-		int64_t mLastOutputError;
-		int64_t mPendingSeekTs;
-		bool mPendingSeekExact;
-		bool mPendingSeekToPrevSample;
-		bool mPendingSeekToNextSample;
-		int mSeekResponse;
+		CodedVideoMedia **mCodedVideoMedias;
+		unsigned int mNbCodedVideoMedias;
 		struct mbuf_coded_video_frame *mCurrentFrame;
 		struct mbuf_mem *mCurrentMem;
 		uint64_t mCurrentFrameCaptureTs;
 		uint64_t mDecodingTs;
 		uint64_t mDecodingTsInc;
-		unsigned int mFrameIndex;
+		uint64_t mFirstTs;
 		static const struct h264_ctx_cbs mH264ReaderCbs;
 		static const struct h265_ctx_cbs mH265ReaderCbs;
+	};
+
+	class DemuxerRawVideoMedia : public DemuxerMedia {
+	public:
+		DemuxerRawVideoMedia(RecordDemuxer *demuxer);
+
+		~DemuxerRawVideoMedia(void);
+
+		void stop(void) override;
+
+	private:
+		int setupMedia(struct mp4_track_info *tkinfo) override;
+
+
+		int processSample(struct mp4_track_sample *sample,
+				  bool *silent,
+				  bool *retry,
+				  bool *didSeek,
+				  bool *waitFlush) override;
+
+		void
+		sendDownstreamEvent(Channel::DownstreamEvent event) override;
+
+		RawVideoMedia *mRawVideoMedia;
+		struct mbuf_raw_video_frame *mCurrentFrame;
+		struct mbuf_mem *mCurrentMem;
+		uint64_t mCurrentFrameCaptureTs;
+		uint64_t mDecodingTs;
+		uint64_t mDecodingTsInc;
+		uint64_t mFirstTs;
 	};
 
 	int fetchSessionMetadata(unsigned int trackId,
@@ -191,15 +258,20 @@ private:
 
 	void completeTeardown(void);
 
-	void onChannelFlushed(CodedChannel *channel);
+	void onChannelFlushed(Channel *channel);
 
-	void onChannelUnlink(CodedChannel *channel);
+	void onChannelUnlink(Channel *channel);
+
+	static bool isMediaTrack(struct mp4_track_info *tkinfo,
+				 char **keys,
+				 char **values,
+				 int count);
 
 	std::string mFileName;
 	bool mRunning;
 	bool mFrameByFrame;
 	struct mp4_demux *mDemux;
-	std::vector<RecordDemuxer::VideoMedia *> mVideoMedias;
+	std::vector<RecordDemuxer::DemuxerMedia *> mMedias;
 	uint64_t mDuration;
 	uint64_t mCurrentTime;
 	float mSpeed;

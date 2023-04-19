@@ -757,6 +757,9 @@ int pdraw_demuxer_destroy(struct pdraw *pdraw, struct pdraw_demuxer *demuxer)
 	if (demuxer == nullptr)
 		return -EINVAL;
 
+	/* The object must be destroyed before the listener */
+	delete d;
+
 	l = pdraw->demuxerListeners->begin();
 	while (l != pdraw->demuxerListeners->end()) {
 		if ((*l)->getDemuxer() != d) {
@@ -767,8 +770,6 @@ int pdraw_demuxer_destroy(struct pdraw *pdraw, struct pdraw_demuxer *demuxer)
 		pdraw->demuxerListeners->erase(l);
 		break;
 	}
-
-	delete d;
 
 	return 0;
 }
@@ -827,9 +828,9 @@ int pdraw_demuxer_is_ready_to_play(struct pdraw *pdraw,
 		reinterpret_cast<Pdraw::IPdraw::IDemuxer *>(demuxer);
 
 	if (pdraw == nullptr)
-		return -EINVAL;
+		return 0;
 	if (demuxer == nullptr)
-		return -EINVAL;
+		return 0;
 
 	return (d->isReadyToPlay()) ? 1 : 0;
 }
@@ -841,9 +842,9 @@ int pdraw_demuxer_is_paused(struct pdraw *pdraw, struct pdraw_demuxer *demuxer)
 		reinterpret_cast<Pdraw::IPdraw::IDemuxer *>(demuxer);
 
 	if (pdraw == nullptr)
-		return -EINVAL;
+		return 0;
 	if (demuxer == nullptr)
-		return -EINVAL;
+		return 0;
 
 	return (d->isPaused()) ? 1 : 0;
 }
@@ -1159,6 +1160,9 @@ int pdraw_video_renderer_destroy(struct pdraw *pdraw,
 	if (renderer == nullptr)
 		return -EINVAL;
 
+	/* The object must be destroyed before the listener */
+	delete rnd;
+
 	pthread_mutex_lock(&pdraw->mutex);
 	l = pdraw->videoRendererListeners->begin();
 	while (l != pdraw->videoRendererListeners->end()) {
@@ -1172,8 +1176,6 @@ int pdraw_video_renderer_destroy(struct pdraw *pdraw,
 		break;
 	}
 	pthread_mutex_unlock(&pdraw->mutex);
-
-	delete rnd;
 
 	return 0;
 }
@@ -1347,6 +1349,9 @@ int pdraw_coded_video_sink_destroy(struct pdraw *pdraw,
 	if (sink == nullptr)
 		return -EINVAL;
 
+	/* The object must be destroyed before the listener */
+	delete s;
+
 	l = pdraw->codedVideoSinkListeners->begin();
 	while (l != pdraw->codedVideoSinkListeners->end()) {
 		if ((*l)->getCodedVideoSink() != s) {
@@ -1357,8 +1362,6 @@ int pdraw_coded_video_sink_destroy(struct pdraw *pdraw,
 		pdraw->codedVideoSinkListeners->erase(l);
 		break;
 	}
-
-	delete s;
 
 	return 0;
 }
@@ -1463,6 +1466,9 @@ int pdraw_raw_video_sink_destroy(struct pdraw *pdraw,
 	if (sink == nullptr)
 		return -EINVAL;
 
+	/* The object must be destroyed before the listener */
+	delete s;
+
 	l = pdraw->rawVideoSinkListeners->begin();
 	while (l != pdraw->rawVideoSinkListeners->end()) {
 		if ((*l)->getRawVideoSink() != s) {
@@ -1473,8 +1479,6 @@ int pdraw_raw_video_sink_destroy(struct pdraw *pdraw,
 		pdraw->rawVideoSinkListeners->erase(l);
 		break;
 	}
-
-	delete s;
 
 	return 0;
 }

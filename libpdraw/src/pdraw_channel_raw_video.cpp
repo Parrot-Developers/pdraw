@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Pipeline source to sink channel
+ * Pipeline source to sink channel for raw video
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -40,286 +40,74 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-RawChannel::RawChannel(SinkListener *sinkListener) :
-		mSinkListener(sinkListener), mSourceListener(nullptr),
-		mKey(nullptr), mRawVideoMediaFormatCaps(nullptr),
-		mRawVideoMediaFormatCapsCount(0), mQueue(nullptr),
-		mPool(nullptr), mFlushPending(false)
+RawVideoChannel::RawVideoChannel(Sink *owner,
+				 SinkListener *sinkListener,
+				 RawVideoSinkListener *rawVideoSinkListener) :
+		Channel(owner, sinkListener),
+		mRawVideoSinkListener(rawVideoSinkListener),
+		mRawVideoMediaFormatCaps(nullptr),
+		mRawVideoMediaFormatCapsCount(0), mQueue(nullptr)
 {
 }
 
 
-int RawChannel::queue(mbuf_raw_video_frame *frame)
+int RawVideoChannel::getRawVideoMediaFormatCaps(
+	const struct vdef_raw_format **caps)
+{
+	if (caps == nullptr)
+		return -EINVAL;
+	*caps = mRawVideoMediaFormatCaps;
+	return mRawVideoMediaFormatCapsCount;
+}
+
+
+void RawVideoChannel::setRawVideoMediaFormatCaps(
+	Sink *owner,
+	const struct vdef_raw_format *caps,
+	int count)
+{
+	if (owner != mOwner) {
+		ULOGE("RawVideoChannel::setRawVideoMediaFormatCaps: "
+		      "wrong owner");
+		return;
+	}
+	mRawVideoMediaFormatCaps = caps;
+	mRawVideoMediaFormatCapsCount = count;
+}
+
+
+struct mbuf_raw_video_frame_queue *RawVideoChannel::getQueue(Sink *owner)
+{
+	if (owner != mOwner) {
+		ULOGE("RawVideoChannel::getQueue: wrong owner");
+		return nullptr;
+	}
+	return mQueue;
+}
+
+
+void RawVideoChannel::setQueue(Sink *owner,
+			       struct mbuf_raw_video_frame_queue *queue)
+{
+	if (owner != mOwner) {
+		ULOGE("RawVideoChannel::setQueue: wrong owner");
+		return;
+	}
+	mQueue = queue;
+}
+
+
+int RawVideoChannel::queue(mbuf_raw_video_frame *frame)
 {
 	if (frame == nullptr)
 		return -EINVAL;
-	if (mSinkListener == nullptr) {
+	if (mRawVideoSinkListener == nullptr) {
 		ULOGE("invalid sink listener");
 		return -EPROTO;
 	}
 
-	mSinkListener->onChannelQueue(this, frame);
+	mRawVideoSinkListener->onRawVideoChannelQueue(this, frame);
 	return 0;
-}
-
-
-int RawChannel::flush(void)
-{
-	int res;
-
-	if (mSinkListener == nullptr) {
-		ULOGE("invalid sink listener");
-		return -EPROTO;
-	}
-
-	struct pomp_msg *event = pomp_msg_new();
-	if (event == nullptr) {
-		ULOG_ERRNO("pomp_msg_new", ENOMEM);
-		return -ENOMEM;
-	}
-
-	res = pomp_msg_write(event, DownstreamEvent::FLUSH, nullptr);
-	if (res < 0) {
-		ULOG_ERRNO("pomp_msg_write", -res);
-		return res;
-	}
-
-	mFlushPending = true;
-	mSinkListener->onChannelDownstreamEvent(this, event);
-
-	res = pomp_msg_destroy(event);
-	if (res < 0)
-		ULOG_ERRNO("pomp_msg_destroy", -res);
-
-	return 0;
-}
-
-
-int RawChannel::flushDone(void)
-{
-	int res;
-
-	if (!mFlushPending)
-		return 0;
-
-	mFlushPending = false;
-	if (mSourceListener == nullptr)
-		return 0;
-
-	struct pomp_msg *event = pomp_msg_new();
-	if (event == nullptr) {
-		ULOG_ERRNO("pomp_msg_new", ENOMEM);
-		return -ENOMEM;
-	}
-
-	res = pomp_msg_write(event, UpstreamEvent::FLUSHED, nullptr);
-	if (res < 0) {
-		ULOG_ERRNO("pomp_msg_write", -res);
-		return res;
-	}
-
-	mSourceListener->onChannelUpstreamEvent(this, event);
-
-	res = pomp_msg_destroy(event);
-	if (res < 0)
-		ULOG_ERRNO("pomp_msg_destroy", -res);
-
-	return 0;
-}
-
-
-int RawChannel::resync(void)
-{
-	int res;
-
-	if (mSourceListener == nullptr)
-		return 0;
-
-	struct pomp_msg *event = pomp_msg_new();
-	if (event == nullptr) {
-		ULOG_ERRNO("pomp_msg_new", ENOMEM);
-		return -ENOMEM;
-	}
-
-	res = pomp_msg_write(event, UpstreamEvent::RESYNC, nullptr);
-	if (res < 0) {
-		ULOG_ERRNO("pomp_msg_write", -res);
-		return res;
-	}
-
-	mSourceListener->onChannelUpstreamEvent(this, event);
-
-	res = pomp_msg_destroy(event);
-	if (res < 0)
-		ULOG_ERRNO("pomp_msg_destroy", -res);
-
-	return 0;
-}
-
-
-int RawChannel::teardown(void)
-{
-	int res;
-
-	if (mSinkListener == nullptr) {
-		ULOGE("invalid sink listener");
-		return -EPROTO;
-	}
-
-	struct pomp_msg *event = pomp_msg_new();
-	if (event == nullptr) {
-		ULOG_ERRNO("pomp_msg_new", ENOMEM);
-		return -ENOMEM;
-	}
-
-	res = pomp_msg_write(event, DownstreamEvent::TEARDOWN, nullptr);
-	if (res < 0) {
-		ULOG_ERRNO("pomp_msg_write", -res);
-		return res;
-	}
-
-	mSinkListener->onChannelDownstreamEvent(this, event);
-
-	res = pomp_msg_destroy(event);
-	if (res < 0)
-		ULOG_ERRNO("pomp_msg_destroy", -res);
-
-	return 0;
-}
-
-
-int RawChannel::unlink(void)
-{
-	int res;
-
-	if (mSourceListener == nullptr)
-		return 0;
-
-	struct pomp_msg *event = pomp_msg_new();
-	if (event == nullptr) {
-		ULOG_ERRNO("pomp_msg_new", ENOMEM);
-		return -ENOMEM;
-	}
-
-	res = pomp_msg_write(event, UpstreamEvent::UNLINK, nullptr);
-	if (res < 0) {
-		ULOG_ERRNO("pomp_msg_write", -res);
-		return res;
-	}
-
-	mSourceListener->onChannelUpstreamEvent(this, event);
-
-	res = pomp_msg_destroy(event);
-	if (res < 0)
-		ULOG_ERRNO("pomp_msg_destroy", -res);
-
-	return 0;
-}
-
-
-int RawChannel::sendVideoPresStats(VideoPresStats *stats)
-{
-	int res;
-
-	if (mSourceListener == nullptr)
-		return 0;
-
-	struct pomp_msg *event = pomp_msg_new();
-	if (event == nullptr) {
-		ULOG_ERRNO("pomp_msg_new", ENOMEM);
-		return -ENOMEM;
-	}
-
-	res = stats->writeMsg(event, UpstreamEvent::VIDEO_PRES_STATS);
-	if (res < 0) {
-		ULOG_ERRNO("stats->writeMsg", -res);
-		goto out;
-	}
-
-	mSourceListener->onChannelUpstreamEvent(this, event);
-
-out:
-	int err = pomp_msg_destroy(event);
-	if (err < 0)
-		ULOG_ERRNO("pomp_msg_destroy", -err);
-
-	return res;
-}
-
-
-int RawChannel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
-{
-	int res;
-
-	if ((downstreamEvent == DownstreamEvent::FLUSH) ||
-	    (downstreamEvent == DownstreamEvent::TEARDOWN)) {
-		ULOGE("invalid event");
-		return -EPROTO;
-	}
-	if (mSinkListener == nullptr) {
-		ULOGE("invalid sink listener");
-		return -EPROTO;
-	}
-
-	struct pomp_msg *event = pomp_msg_new();
-	if (event == nullptr) {
-		ULOG_ERRNO("pomp_msg_new", ENOMEM);
-		return -ENOMEM;
-	}
-
-	res = pomp_msg_write(event, downstreamEvent, nullptr);
-	if (res < 0) {
-		ULOG_ERRNO("pomp_msg_write", -res);
-		return res;
-	}
-
-	mSinkListener->onChannelDownstreamEvent(this, event);
-
-	res = pomp_msg_destroy(event);
-	if (res < 0)
-		ULOG_ERRNO("pomp_msg_destroy", -res);
-
-	return 0;
-}
-
-
-const char *RawChannel::getDownstreamEventStr(DownstreamEvent val)
-{
-	switch (val) {
-	case FLUSH:
-		return "FLUSH";
-	case TEARDOWN:
-		return "TEARDOWN";
-	case SOS:
-		return "SOS";
-	case EOS:
-		return "EOS";
-	case RECONFIGURE:
-		return "RECONFIGURE";
-	case TIMEOUT:
-		return "TIMEOUT";
-	case PHOTO_TRIGGER:
-		return "PHOTO_TRIGGER";
-	default:
-		return nullptr;
-	}
-}
-
-
-const char *RawChannel::getUpstreamEventStr(UpstreamEvent val)
-{
-	switch (val) {
-	case UNLINK:
-		return "UNLINK";
-	case FLUSHED:
-		return "FLUSHED";
-	case RESYNC:
-		return "RESYNC";
-	case VIDEO_PRES_STATS:
-		return "VIDEO_PRES_STATS";
-	default:
-		return nullptr;
-	}
 }
 
 } /* namespace Pdraw */

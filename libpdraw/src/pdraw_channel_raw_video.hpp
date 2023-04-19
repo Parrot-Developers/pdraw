@@ -31,179 +31,50 @@
 #ifndef _PDRAW_CHANNEL_RAW_VIDEO_HPP_
 #define _PDRAW_CHANNEL_RAW_VIDEO_HPP_
 
+#include "pdraw_channel.hpp"
+
 #include <inttypes.h>
 
 #include <libpomp.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <video-defs/vdefs.h>
 
-#include "pdraw_video_pres_stats.hpp"
-
 namespace Pdraw {
 
-class RawChannel {
+class RawVideoChannel : public Channel {
 public:
-	friend class RawSource;
-	friend class RawSink;
-	friend class VideoDecoder;
-	friend class VideoEncoder;
-	friend class VideoScaler;
-	friend class Gles2Renderer;
-	friend class ExternalRawVideoSink;
-
-	enum DownstreamEvent {
-		/* flush required */
-		FLUSH,
-
-		/* teardown required */
-		TEARDOWN,
-
-		/* start of stream */
-		SOS,
-
-		/* end of stream */
-		EOS,
-
-		/* reconfiguration in progress */
-		RECONFIGURE,
-
-		/* reception timeout */
-		TIMEOUT,
-
-		/* photo trigger */
-		PHOTO_TRIGGER,
-	};
-
-	enum UpstreamEvent {
-		/* unlink required */
-		UNLINK,
-
-		/* flush completed */
-		FLUSHED,
-
-		/* resynchronization required */
-		RESYNC,
-
-		/* video presentation statistics */
-		VIDEO_PRES_STATS,
-	};
-
-	class SinkListener {
+	class RawVideoSinkListener {
 	public:
-		virtual ~SinkListener(void) {}
+		virtual ~RawVideoSinkListener(void) {}
 
 		virtual void
-		onChannelQueue(RawChannel *channel,
-			       struct mbuf_raw_video_frame *frame) = 0;
-
-		virtual void
-		onChannelDownstreamEvent(RawChannel *channel,
-					 const struct pomp_msg *event) = 0;
+		onRawVideoChannelQueue(RawVideoChannel *channel,
+				       struct mbuf_raw_video_frame *frame) = 0;
 	};
 
-	class SourceListener {
-	public:
-		virtual ~SourceListener(void) {}
+	RawVideoChannel(Sink *owner,
+			SinkListener *sinkListener,
+			RawVideoSinkListener *rawVideoSinkListener);
 
-		virtual void
-		onChannelUpstreamEvent(RawChannel *channel,
-				       const struct pomp_msg *event) = 0;
-	};
-
-	static const char *getDownstreamEventStr(DownstreamEvent val);
-
-	static const char *getUpstreamEventStr(UpstreamEvent val);
-
-	RawChannel(SinkListener *sinkListener);
-
-	~RawChannel(void) {}
+	~RawVideoChannel(void) {}
 
 	int queue(mbuf_raw_video_frame *frame);
 
-	int flush(void);
+	int getRawVideoMediaFormatCaps(const struct vdef_raw_format **caps);
 
-	bool isFlushPending(void)
-	{
-		return mFlushPending;
-	}
+	void setRawVideoMediaFormatCaps(Sink *owner,
+					const struct vdef_raw_format *caps,
+					int count);
 
-	int flushDone(void);
+	struct mbuf_raw_video_frame_queue *getQueue(Sink *owner);
 
-	int resync(void);
-
-	int unlink(void);
-
-	int teardown(void);
-
-	int sendVideoPresStats(VideoPresStats *stats);
-
-	int sendDownstreamEvent(DownstreamEvent downstreamEvent);
-
-	SourceListener *getSourceListener(void)
-	{
-		return mSourceListener;
-	}
-
-	void setSourceListener(SourceListener *sourceListener)
-	{
-		mSourceListener = sourceListener;
-	}
-
-	void *getKey(void)
-	{
-		return mKey;
-	}
-
-	int getRawVideoMediaFormatCaps(const struct vdef_raw_format **caps)
-	{
-		if (!caps)
-			return -EINVAL;
-		*caps = mRawVideoMediaFormatCaps;
-		return mRawVideoMediaFormatCapsCount;
-	}
-
-protected:
-	void setKey(void *key)
-	{
-		mKey = key;
-	}
-
-	void setRawVideoMediaFormatCaps(const struct vdef_raw_format *caps,
-					int count)
-	{
-		mRawVideoMediaFormatCaps = caps;
-		mRawVideoMediaFormatCapsCount = count;
-	}
-
-	struct mbuf_raw_video_frame_queue *getQueue(void)
-	{
-		return mQueue;
-	}
-
-	void setQueue(struct mbuf_raw_video_frame_queue *queue)
-	{
-		mQueue = queue;
-	}
-
-	struct mbuf_pool *getPool(void)
-	{
-		return mPool;
-	}
-
-	void setPool(struct mbuf_pool *pool)
-	{
-		mPool = pool;
-	}
+	void setQueue(Sink *owner, struct mbuf_raw_video_frame_queue *queue);
 
 private:
-	SinkListener *mSinkListener;
-	SourceListener *mSourceListener;
-	void *mKey;
+	RawVideoSinkListener *mRawVideoSinkListener;
 	const struct vdef_raw_format *mRawVideoMediaFormatCaps;
 	int mRawVideoMediaFormatCapsCount;
 	struct mbuf_raw_video_frame_queue *mQueue;
-	struct mbuf_pool *mPool;
-	bool mFlushPending;
 };
 
 } /* namespace Pdraw */

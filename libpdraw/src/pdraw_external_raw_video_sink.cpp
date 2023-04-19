@@ -58,7 +58,7 @@ ExternalRawVideoSink::ExternalRawVideoSink(
 	IPdraw::IRawVideoSink::Listener *listener,
 	IPdraw::IRawVideoSink *sink,
 	const struct pdraw_video_sink_params *params) :
-		RawSinkElement(session, elementListener, 1, nullptr, 0)
+		SinkElement(session, elementListener, 1, nullptr, 0, nullptr, 0)
 {
 	Element::setClassName(__func__);
 	mVideoSinkListener = listener;
@@ -108,29 +108,29 @@ int ExternalRawVideoSink::start(void)
 		return 0;
 	}
 	if (mState != CREATED) {
-		PDRAW_LOGE("video sink is not started");
+		PDRAW_LOGE("%s: video sink is not created", __func__);
 		return -EPROTO;
 	}
 	setState(STARTING);
 
 	/* Get the input media and port */
-	RawSink::lock();
+	Sink::lock();
 	unsigned int inputMediaCount = getInputMediaCount();
 	if (inputMediaCount != 1) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media count");
 		return -EPROTO;
 	}
-	mInputMedia = getInputMedia(0);
+	mInputMedia = dynamic_cast<RawVideoMedia *>(getInputMedia(0));
 	if (mInputMedia == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
 		return -EPROTO;
 	}
 	InputPort *port;
 	port = getInputPort(mInputMedia);
 	if (port == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input port");
 		return -EPROTO;
 	}
@@ -141,17 +141,23 @@ int ExternalRawVideoSink::start(void)
 	int res = mbuf_raw_video_frame_queue_new_with_args(&queueArgs,
 							   &mInputFrameQueue);
 	if (res < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_new_with_args",
 				-res);
 		return res;
 	}
 
 	/* Setup the input port */
-	port->channel->setKey(this);
-	port->channel->setQueue(mInputFrameQueue);
+	Channel *c = port->channel;
+	RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(c);
+	if (channel == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("invalid input channel");
+		return -EPROTO;
+	}
+	channel->setQueue(this, mInputFrameQueue);
 
-	RawSink::unlock();
+	Sink::unlock();
 
 	setState(STARTED);
 
@@ -162,12 +168,12 @@ int ExternalRawVideoSink::start(void)
 int ExternalRawVideoSink::stop(void)
 {
 	int ret;
-	RawChannel *channel = nullptr;
+	RawVideoChannel *channel = nullptr;
 
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
 	if (mState != STARTED) {
-		PDRAW_LOGE("video sink is not started");
+		PDRAW_LOGE("%s: video sink is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
@@ -185,22 +191,22 @@ int ExternalRawVideoSink::stop(void)
 	mVideoSinkListener = nullptr;
 	Element::unlock();
 
-	RawSink::lock();
+	Sink::lock();
 
 	if (mInputMedia == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		setState(STOPPED);
 		return 0;
 	}
 
-	channel = getInputChannel(mInputMedia);
+	channel = dynamic_cast<RawVideoChannel *>(getInputChannel(mInputMedia));
 	if (channel == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
 
-	RawSink::unlock();
+	Sink::unlock();
 
 	ret = channelTeardown(channel);
 	if (ret < 0)
@@ -229,13 +235,14 @@ int ExternalRawVideoSink::flushDone(void)
 {
 	int ret;
 
-	RawSink::lock();
+	Sink::lock();
 
 	if (mInputMedia == nullptr)
 		goto exit;
 
 	if (mInputChannelFlushPending) {
-		RawChannel *channel = getInputChannel(mInputMedia);
+		RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(
+			getInputChannel(mInputMedia));
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
 		} else {
@@ -248,7 +255,7 @@ int ExternalRawVideoSink::flushDone(void)
 	}
 
 exit:
-	RawSink::unlock();
+	Sink::unlock();
 
 	if (mState == STOPPING)
 		setState(STOPPED);
@@ -258,19 +265,19 @@ exit:
 
 
 int ExternalRawVideoSink::prepareRawVideoFrame(
-	RawChannel *channel,
+	RawVideoChannel *channel,
 	struct mbuf_raw_video_frame *frame)
 {
 	int ret;
 	RawVideoMedia::Frame *in_meta;
-	struct pdraw_video_frame out_meta;
+	struct pdraw_video_frame out_meta = {};
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
 
 	if (mInputMedia == nullptr) {
 		PDRAW_LOGE("invalid input media");
 		return -ENOENT;
 	}
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
 		PDRAW_LOGE("invalid queue");
 		return -ENOENT;
@@ -335,8 +342,9 @@ out:
 }
 
 
-void ExternalRawVideoSink::onChannelQueue(RawChannel *channel,
-					  struct mbuf_raw_video_frame *frame)
+void ExternalRawVideoSink::onRawVideoChannelQueue(
+	RawVideoChannel *channel,
+	struct mbuf_raw_video_frame *frame)
 {
 	int ret;
 
@@ -349,28 +357,28 @@ void ExternalRawVideoSink::onChannelQueue(RawChannel *channel,
 		return;
 	}
 	if (mState != STARTED) {
-		PDRAW_LOGE("video sink is not started");
+		PDRAW_LOGE("%s: video sink is not started", __func__);
 		return;
 	}
 	if (mInputChannelFlushPending) {
 		PDRAW_LOGI("frame input: flush pending, discard frame");
 		return;
 	}
-	RawSink::lock();
+	Sink::lock();
 
 	ret = prepareRawVideoFrame(channel, frame);
 	if (ret < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		return;
 	}
 
-	RawSink::onChannelQueue(channel, frame);
+	Sink::onRawVideoChannelQueue(channel, frame);
 	mIsFlushed = false;
-	RawSink::unlock();
+	Sink::unlock();
 }
 
 
-void ExternalRawVideoSink::onChannelFlush(RawChannel *channel)
+void ExternalRawVideoSink::onChannelFlush(Channel *channel)
 {
 	int ret;
 
@@ -388,33 +396,34 @@ void ExternalRawVideoSink::onChannelFlush(RawChannel *channel)
 }
 
 
-void ExternalRawVideoSink::onChannelTeardown(RawChannel *channel)
+void ExternalRawVideoSink::onChannelTeardown(Channel *channel)
 {
-	if (channel == nullptr) {
+	RawVideoChannel *c = dynamic_cast<RawVideoChannel *>(channel);
+	if (c == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	PDRAW_LOGD("tearing down input channel");
 
-	int ret = channelTeardown(channel);
+	int ret = channelTeardown(c);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("channelTeardown", -ret);
 }
 
 
-int ExternalRawVideoSink::channelTeardown(RawChannel *channel)
+int ExternalRawVideoSink::channelTeardown(RawVideoChannel *channel)
 {
 	int ret;
 
 	if (channel == nullptr)
 		return -EINVAL;
 
-	RawSink::lock();
+	Sink::lock();
 
 	if (mInputMedia == nullptr) {
 		/* The channel is already torn down, nothing more to do */
-		RawSink::unlock();
+		Sink::unlock();
 		return 0;
 	}
 
@@ -424,13 +433,13 @@ int ExternalRawVideoSink::channelTeardown(RawChannel *channel)
 		 * Eg. removeInputMedia() utimately calls the app's
 		 * mediaRemoved() callback, which can call the VideoSink
 		 * stop() function, which calls channelTeardown() again. */
-		RawSink::unlock();
+		Sink::unlock();
 		return 0;
 	}
 	mTearingDown = true;
 
 	/* Remove the input port */
-	channel->setQueue(nullptr);
+	channel->setQueue(this, nullptr);
 
 	ret = removeInputMedia(mInputMedia);
 	if (ret < 0)
@@ -439,7 +448,7 @@ int ExternalRawVideoSink::channelTeardown(RawChannel *channel)
 		mInputMedia = nullptr;
 
 	mTearingDown = false;
-	RawSink::unlock();
+	Sink::unlock();
 
 	ret = flush();
 	if (ret < 0)

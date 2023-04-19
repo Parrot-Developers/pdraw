@@ -46,6 +46,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <futils/futils.h>
 
 #define DEFAULT_RX_BUFFER_SIZE 1500
+#define PDRAW_RTP_RXBUF_SIZE (8 * 1024 * 1024)
 
 
 namespace Pdraw {
@@ -53,7 +54,7 @@ namespace Pdraw {
 
 StreamDemuxerNet::StreamDemuxerNet(Session *session,
 				   Element::Listener *elementListener,
-				   CodedSource::Listener *sourceListener,
+				   Source::Listener *sourceListener,
 				   IPdraw::IDemuxer *demuxer,
 				   IPdraw::IDemuxer::Listener *demuxerListener,
 				   const std::string &url) :
@@ -75,7 +76,7 @@ StreamDemuxerNet::StreamDemuxerNet(Session *session,
 
 StreamDemuxerNet::StreamDemuxerNet(Session *session,
 				   Element::Listener *elementListener,
-				   CodedSource::Listener *sourceListener,
+				   Source::Listener *sourceListener,
 				   IPdraw::IDemuxer *demuxer,
 				   IPdraw::IDemuxer::Listener *demuxerListener,
 				   const std::string &localAddr,
@@ -351,6 +352,7 @@ void StreamDemuxerNet::VideoMediaNet::setRemoteControlPort(uint16_t port)
 int StreamDemuxerNet::VideoMediaNet::createSockets(void)
 {
 	int res, err;
+	int rxBufSize;
 	if (mLocalStreamPort == 0)
 		mLocalStreamPort = DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
 	if (mLocalControlPort == 0)
@@ -379,6 +381,20 @@ int StreamDemuxerNet::VideoMediaNet::createSockets(void)
 		PDRAW_LOG_ERRNO("tskt_socket_new:stream", -res);
 		goto error;
 	}
+
+	rxBufSize = PDRAW_RTP_RXBUF_SIZE;
+	res = tskt_socket_set_rxbuf_size(mStreamSock, rxBufSize);
+	if (res < 0)
+		PDRAW_LOGW("tskt_socket_set_rxbuf_size");
+
+	res = tskt_socket_get_rxbuf_size(mStreamSock);
+	if (res < 0)
+		PDRAW_LOGW("tskt_socket_get_rxbuf_size");
+	else if (res != 2 * rxBufSize)
+		PDRAW_LOGW("failed to set rx buffer size: got %d, expecting %d",
+			   res / 2,
+			   rxBufSize);
+
 	res = tskt_socket_set_class_selector(mStreamSock,
 					     IPTOS_PREC_FLASHOVERRIDE);
 	if (res < 0)

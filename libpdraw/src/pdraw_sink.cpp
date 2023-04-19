@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Pipeline sink element
+ * Pipeline media sink for elements
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,21 +28,25 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define ULOG_TAG pdraw_sink_raw_video
+#define ULOG_TAG pdraw_sink
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
-#include "pdraw_sink_raw_video.hpp"
+#include "pdraw_sink.hpp"
 
 #include <errno.h>
 
 namespace Pdraw {
 
 
-RawSink::RawSink(unsigned int maxInputMedias,
-		 const struct vdef_raw_format *rawVideoMediaFormatCaps,
-		 int rawVideoMediaFormatCapsCount) :
+Sink::Sink(unsigned int maxInputMedias,
+	   const struct vdef_coded_format *codedVideoMediaFormatCaps,
+	   int codedVideoMediaFormatCapsCount,
+	   const struct vdef_raw_format *rawVideoMediaFormatCaps,
+	   int rawVideoMediaFormatCapsCount) :
 		mMaxInputMedias(maxInputMedias),
+		mCodedVideoMediaFormatCaps(codedVideoMediaFormatCaps),
+		mCodedVideoMediaFormatCapsCount(codedVideoMediaFormatCapsCount),
 		mRawVideoMediaFormatCaps(rawVideoMediaFormatCaps),
 		mRawVideoMediaFormatCapsCount(rawVideoMediaFormatCapsCount)
 {
@@ -78,7 +82,7 @@ error:
 }
 
 
-RawSink::~RawSink(void)
+Sink::~Sink(void)
 {
 	int ret = removeInputMedias();
 	if (ret < 0)
@@ -94,19 +98,19 @@ RawSink::~RawSink(void)
 }
 
 
-void RawSink::lock(void)
+void Sink::lock(void)
 {
 	pthread_mutex_lock(&mMutex);
 }
 
 
-void RawSink::unlock(void)
+void Sink::unlock(void)
 {
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-unsigned int RawSink::getInputMediaCount(void)
+unsigned int Sink::getInputMediaCount(void)
 {
 	pthread_mutex_lock(&mMutex);
 	unsigned int ret = mInputPorts.size();
@@ -115,21 +119,20 @@ unsigned int RawSink::getInputMediaCount(void)
 }
 
 
-RawVideoMedia *RawSink::getInputMedia(unsigned int index)
+Media *Sink::getInputMedia(unsigned int index)
 {
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *ret = (index < mInputPorts.size())
-				     ? mInputPorts.at(index).media
-				     : nullptr;
+	Media *ret = (index < mInputPorts.size()) ? mInputPorts.at(index).media
+						  : nullptr;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-RawVideoMedia *RawSink::findInputMedia(RawVideoMedia *media)
+Media *Sink::findInputMedia(Media *media)
 {
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *ret = nullptr;
+	Media *ret = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -145,7 +148,7 @@ RawVideoMedia *RawSink::findInputMedia(RawVideoMedia *media)
 }
 
 
-RawSink::InputPort *RawSink::getInputPort(RawVideoMedia *media)
+Sink::InputPort *Sink::getInputPort(Media *media)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
@@ -170,8 +173,10 @@ RawSink::InputPort *RawSink::getInputPort(RawVideoMedia *media)
 }
 
 
-int RawSink::addInputMedia(RawVideoMedia *media)
+int Sink::addInputMedia(Media *media)
 {
+	InputPort port = {};
+
 	if (media == nullptr)
 		return -EINVAL;
 
@@ -184,27 +189,69 @@ int RawSink::addInputMedia(RawVideoMedia *media)
 		pthread_mutex_unlock(&mMutex);
 		return -ENOBUFS;
 	}
-	if (!vdef_raw_format_intersect(&media->format,
-				       mRawVideoMediaFormatCaps,
-				       mRawVideoMediaFormatCapsCount)) {
+
+	CodedVideoMedia *cvmedia = dynamic_cast<CodedVideoMedia *>(media);
+	RawVideoMedia *rvmedia = dynamic_cast<RawVideoMedia *>(media);
+
+	if (cvmedia != nullptr) {
+		/* Coded video media */
+		if (!vdef_coded_format_intersect(
+			    &cvmedia->format,
+			    mCodedVideoMediaFormatCaps,
+			    mCodedVideoMediaFormatCapsCount)) {
+			pthread_mutex_unlock(&mMutex);
+			ULOGE("%s: coded video media"
+			      " format " VDEF_CODED_FORMAT_TO_STR_FMT
+			      " not supported",
+			      getName().c_str(),
+			      VDEF_CODED_FORMAT_TO_STR_ARG(&cvmedia->format));
+			return -ENOSYS;
+		}
+
+		port.media = cvmedia;
+		CodedVideoChannel *channel =
+			new CodedVideoChannel(this, this, this);
+		if (channel == nullptr) {
+			pthread_mutex_unlock(&mMutex);
+			ULOGE("failed to create channel");
+			return -ENOMEM;
+		}
+		channel->setCodedVideoMediaFormatCaps(
+			this,
+			mCodedVideoMediaFormatCaps,
+			mCodedVideoMediaFormatCapsCount);
+		port.channel = channel;
+	} else if (rvmedia != nullptr) {
+		/* Raw video media */
+		if (!vdef_raw_format_intersect(&rvmedia->format,
+					       mRawVideoMediaFormatCaps,
+					       mRawVideoMediaFormatCapsCount)) {
+			pthread_mutex_unlock(&mMutex);
+			ULOGE("raw video media"
+			      " format " VDEF_RAW_FORMAT_TO_STR_FMT
+			      " not supported",
+			      VDEF_RAW_FORMAT_TO_STR_ARG(&rvmedia->format));
+			return -ENOSYS;
+		}
+
+		port.media = rvmedia;
+		RawVideoChannel *channel =
+			new RawVideoChannel(this, this, this);
+		if (channel == nullptr) {
+			pthread_mutex_unlock(&mMutex);
+			ULOGE("failed to create channel");
+			return -ENOMEM;
+		}
+		channel->setRawVideoMediaFormatCaps(
+			this,
+			mRawVideoMediaFormatCaps,
+			mRawVideoMediaFormatCapsCount);
+		port.channel = channel;
+	} else {
 		pthread_mutex_unlock(&mMutex);
-		ULOGE("raw video media"
-		      " format " VDEF_RAW_FORMAT_TO_STR_FMT " not supported",
-		      VDEF_RAW_FORMAT_TO_STR_ARG(&media->format));
+		ULOGE("unsupported media type");
 		return -ENOSYS;
 	}
-
-	InputPort port;
-	memset(&port, 0, sizeof(port));
-	port.media = media;
-	port.channel = new RawChannel(this);
-	if (port.channel == nullptr) {
-		pthread_mutex_unlock(&mMutex);
-		ULOGE("failed to create channel");
-		return -ENOMEM;
-	}
-	port.channel->setRawVideoMediaFormatCaps(mRawVideoMediaFormatCaps,
-						 mRawVideoMediaFormatCapsCount);
 
 	mInputPorts.push_back(port);
 	pthread_mutex_unlock(&mMutex);
@@ -216,7 +263,7 @@ int RawSink::addInputMedia(RawVideoMedia *media)
 }
 
 
-int RawSink::removeInputMedia(RawVideoMedia *media)
+int Sink::removeInputMedia(Media *media)
 {
 	if (media == nullptr)
 		return -EINVAL;
@@ -251,7 +298,7 @@ int RawSink::removeInputMedia(RawVideoMedia *media)
 }
 
 
-int RawSink::removeInputMedias(void)
+int Sink::removeInputMedias(void)
 {
 	pthread_mutex_lock(&mMutex);
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
@@ -275,7 +322,7 @@ int RawSink::removeInputMedias(void)
 }
 
 
-RawChannel *RawSink::getInputChannel(RawVideoMedia *media)
+Channel *Sink::getInputChannel(Media *media)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
@@ -290,14 +337,14 @@ RawChannel *RawSink::getInputChannel(RawVideoMedia *media)
 		return nullptr;
 	}
 
-	RawChannel *ret = port->channel;
+	Channel *ret = port->channel;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-void RawSink::onChannelQueue(RawChannel *channel,
-			     struct mbuf_raw_video_frame *frame)
+void Sink::onCodedVideoChannelQueue(CodedVideoChannel *channel,
+				    struct mbuf_coded_video_frame *frame)
 {
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
@@ -307,7 +354,32 @@ void RawSink::onChannelQueue(RawChannel *channel,
 		ULOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue(this);
+	if (queue == nullptr) {
+		ULOGE("invalid queue");
+		return;
+	}
+
+	int ret = mbuf_coded_video_frame_queue_push(queue, frame);
+	if (ret < 0) {
+		ULOG_ERRNO("mbuf_coded_video_frame_queue_push", -ret);
+		return;
+	}
+}
+
+
+void Sink::onRawVideoChannelQueue(RawVideoChannel *channel,
+				  struct mbuf_raw_video_frame *frame)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+	if (frame == nullptr) {
+		ULOG_ERRNO("frame", EINVAL);
+		return;
+	}
+	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
 		ULOGE("invalid queue");
 		return;
@@ -321,22 +393,45 @@ void RawSink::onChannelQueue(RawChannel *channel,
 }
 
 
-void RawSink::onChannelFlush(RawChannel *channel)
+void Sink::onChannelFlush(Channel *channel)
 {
+	int ret;
+
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
 		return;
 	}
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue();
-	if (queue == nullptr) {
-		ULOGE("invalid queue");
-		return;
-	}
 
-	int ret = mbuf_raw_video_frame_queue_flush(queue);
-	if (ret < 0) {
-		ULOG_ERRNO("mbuf_raw_video_frame_queue_flush", -ret);
-		return;
+	CodedVideoChannel *cvchannel =
+		dynamic_cast<CodedVideoChannel *>(channel);
+	RawVideoChannel *rvchannel = dynamic_cast<RawVideoChannel *>(channel);
+
+	if (cvchannel != nullptr) {
+		struct mbuf_coded_video_frame_queue *queue =
+			cvchannel->getQueue(this);
+		if (queue == nullptr) {
+			ULOGE("invalid queue");
+			return;
+		}
+
+		ret = mbuf_coded_video_frame_queue_flush(queue);
+		if (ret < 0) {
+			ULOG_ERRNO("mbuf_coded_video_frame_queue_flush", -ret);
+			return;
+		}
+	} else if (rvchannel != nullptr) {
+		struct mbuf_raw_video_frame_queue *queue =
+			rvchannel->getQueue(this);
+		if (queue == nullptr) {
+			ULOGE("invalid queue");
+			return;
+		}
+
+		ret = mbuf_raw_video_frame_queue_flush(queue);
+		if (ret < 0) {
+			ULOG_ERRNO("mbuf_raw_video_frame_queue_flush", -ret);
+			return;
+		}
 	}
 
 	ret = channel->flushDone();
@@ -345,7 +440,7 @@ void RawSink::onChannelFlush(RawChannel *channel)
 }
 
 
-void RawSink::onChannelTeardown(RawChannel *channel)
+void Sink::onChannelTeardown(Channel *channel)
 {
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
@@ -353,7 +448,7 @@ void RawSink::onChannelTeardown(RawChannel *channel)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *media = nullptr;
+	Media *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -382,7 +477,7 @@ void RawSink::onChannelTeardown(RawChannel *channel)
 }
 
 
-void RawSink::onChannelSos(RawChannel *channel)
+void Sink::onChannelSos(Channel *channel)
 {
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
@@ -390,7 +485,7 @@ void RawSink::onChannelSos(RawChannel *channel)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *media = nullptr;
+	Media *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -408,10 +503,10 @@ void RawSink::onChannelSos(RawChannel *channel)
 		return;
 	}
 
-	ULOGD("%s: channel SOS media name=%s (channel key=%p)",
+	ULOGD("%s: channel SOS media name=%s (channel owner=%p)",
 	      getName().c_str(),
 	      media->getName().c_str(),
-	      channel->getKey());
+	      channel->getOwner());
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
@@ -420,7 +515,7 @@ void RawSink::onChannelSos(RawChannel *channel)
 }
 
 
-void RawSink::onChannelEos(RawChannel *channel)
+void Sink::onChannelEos(Channel *channel)
 {
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
@@ -428,7 +523,7 @@ void RawSink::onChannelEos(RawChannel *channel)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *media = nullptr;
+	Media *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -446,10 +541,10 @@ void RawSink::onChannelEos(RawChannel *channel)
 		return;
 	}
 
-	ULOGD("%s: channel EOS media name=%s (channel key=%p)",
+	ULOGD("%s: channel EOS media name=%s (channel owner=%p)",
 	      getName().c_str(),
 	      media->getName().c_str(),
-	      channel->getKey());
+	      channel->getOwner());
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
@@ -458,7 +553,7 @@ void RawSink::onChannelEos(RawChannel *channel)
 }
 
 
-void RawSink::onChannelReconfigure(RawChannel *channel)
+void Sink::onChannelReconfigure(Channel *channel)
 {
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
@@ -466,7 +561,7 @@ void RawSink::onChannelReconfigure(RawChannel *channel)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *media = nullptr;
+	Media *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -484,10 +579,10 @@ void RawSink::onChannelReconfigure(RawChannel *channel)
 		return;
 	}
 
-	ULOGD("%s: channel reconfigure media name=%s (channel key=%p)",
+	ULOGD("%s: channel reconfigure media name=%s (channel owner=%p)",
 	      getName().c_str(),
 	      media->getName().c_str(),
-	      channel->getKey());
+	      channel->getOwner());
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
@@ -496,7 +591,7 @@ void RawSink::onChannelReconfigure(RawChannel *channel)
 }
 
 
-void RawSink::onChannelTimeout(RawChannel *channel)
+void Sink::onChannelTimeout(Channel *channel)
 {
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
@@ -504,7 +599,7 @@ void RawSink::onChannelTimeout(RawChannel *channel)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *media = nullptr;
+	Media *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -522,10 +617,10 @@ void RawSink::onChannelTimeout(RawChannel *channel)
 		return;
 	}
 
-	ULOGD("%s: channel timeout media name=%s (channel key=%p)",
+	ULOGD("%s: channel timeout media name=%s (channel owner=%p)",
 	      getName().c_str(),
 	      media->getName().c_str(),
-	      channel->getKey());
+	      channel->getOwner());
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
@@ -534,7 +629,7 @@ void RawSink::onChannelTimeout(RawChannel *channel)
 }
 
 
-void RawSink::onChannelPhotoTrigger(RawChannel *channel)
+void Sink::onChannelPhotoTrigger(Channel *channel)
 {
 	if (channel == nullptr) {
 		ULOG_ERRNO("channel", EINVAL);
@@ -542,7 +637,7 @@ void RawSink::onChannelPhotoTrigger(RawChannel *channel)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	RawVideoMedia *media = nullptr;
+	Media *media = nullptr;
 	std::vector<InputPort>::iterator p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
@@ -561,10 +656,10 @@ void RawSink::onChannelPhotoTrigger(RawChannel *channel)
 	}
 
 	ULOGD("%s: channel photo_trigger "
-	      "media name=%s (channel key=%p)",
+	      "media name=%s (channel owner=%p)",
 	      getName().c_str(),
 	      media->getName().c_str(),
-	      channel->getKey());
+	      channel->getOwner());
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
@@ -573,34 +668,34 @@ void RawSink::onChannelPhotoTrigger(RawChannel *channel)
 }
 
 
-void RawSink::onChannelDownstreamEvent(RawChannel *channel,
-				       const struct pomp_msg *event)
+void Sink::onChannelDownstreamEvent(Channel *channel,
+				    const struct pomp_msg *event)
 {
 	ULOGD("%s: channel downstream event %s",
 	      getName().c_str(),
-	      RawChannel::getDownstreamEventStr(
-		      (RawChannel::DownstreamEvent)pomp_msg_get_id(event)));
+	      Channel::getDownstreamEventStr(
+		      (Channel::DownstreamEvent)pomp_msg_get_id(event)));
 
 	switch (pomp_msg_get_id(event)) {
-	case RawChannel::DownstreamEvent::FLUSH:
+	case Channel::DownstreamEvent::FLUSH:
 		onChannelFlush(channel);
 		break;
-	case RawChannel::DownstreamEvent::TEARDOWN:
+	case Channel::DownstreamEvent::TEARDOWN:
 		onChannelTeardown(channel);
 		break;
-	case RawChannel::DownstreamEvent::SOS:
+	case Channel::DownstreamEvent::SOS:
 		onChannelSos(channel);
 		break;
-	case RawChannel::DownstreamEvent::EOS:
+	case Channel::DownstreamEvent::EOS:
 		onChannelEos(channel);
 		break;
-	case RawChannel::DownstreamEvent::RECONFIGURE:
+	case Channel::DownstreamEvent::RECONFIGURE:
 		onChannelReconfigure(channel);
 		break;
-	case RawChannel::DownstreamEvent::TIMEOUT:
+	case Channel::DownstreamEvent::TIMEOUT:
 		onChannelTimeout(channel);
 		break;
-	case RawChannel::DownstreamEvent::PHOTO_TRIGGER:
+	case Channel::DownstreamEvent::PHOTO_TRIGGER:
 		onChannelPhotoTrigger(channel);
 		break;
 	default:

@@ -37,8 +37,9 @@
 #include "pdraw_external_raw_video_sink.hpp"
 #include "pdraw_media.hpp"
 #include "pdraw_muxer.hpp"
-#include "pdraw_renderer.hpp"
+#include "pdraw_renderer_video.hpp"
 #include "pdraw_settings.hpp"
+#include "pdraw_source.hpp"
 
 #include <inttypes.h>
 
@@ -74,8 +75,7 @@ class Settings;
 
 class Session : public IPdraw,
 		public Element::Listener,
-		public CodedSource::Listener,
-		public RawSource::Listener {
+		public Source::Listener {
 public:
 	enum State {
 		STOPPED = 0,
@@ -93,39 +93,30 @@ public:
 		void onElementStateChanged(Element *element,
 					   Element::State state);
 
-		void onOutputMediaAdded(CodedSource *source,
-					CodedVideoMedia *media);
+		void onOutputMediaAdded(Source *source, Media *media);
 
-		void onOutputMediaAdded(RawSource *source,
-					RawVideoMedia *media);
-
-		void onOutputMediaRemoved(CodedSource *source,
-					  CodedVideoMedia *media);
-
-		void onOutputMediaRemoved(RawSource *source,
-					  RawVideoMedia *media);
+		void onOutputMediaRemoved(Source *source, Media *media);
 
 		int dumpPipeline(const std::string &fileName);
 
 		int addMediaToRenderer(unsigned int mediaId,
-				       Renderer *renderer);
+				       Pdraw::VideoRenderer *renderer);
 
 	private:
-		int addDecoderForMedia(CodedSource *source,
-				       CodedVideoMedia *media);
+		int addDecoderForMedia(Source *source, CodedVideoMedia *media);
 
-		int addEncoderForMedia(RawSource *source, RawVideoMedia *media);
+		int addEncoderForMedia(Source *source, RawVideoMedia *media);
 
-		int addScalerForMedia(RawSource *source, RawVideoMedia *media);
+		int addScalerForMedia(Source *source, RawVideoMedia *media);
 
-		int addMediaToRenderer(RawSource *source,
+		int addMediaToRenderer(Source *source,
 				       RawVideoMedia *media,
-				       Renderer *renderer);
+				       Pdraw::VideoRenderer *renderer);
 
-		int addMediaToAllRenderers(RawSource *source,
+		int addMediaToAllRenderers(Source *source,
 					   RawVideoMedia *media);
 
-		int addAllMediaToRenderer(Renderer *renderer);
+		int addAllMediaToRenderer(Pdraw::VideoRenderer *renderer);
 
 		Session *mSession;
 	};
@@ -260,7 +251,7 @@ public:
 		}
 
 	private:
-		Pdraw::Renderer *mRenderer;
+		Pdraw::VideoRenderer *mRenderer;
 	};
 
 
@@ -283,7 +274,7 @@ public:
 			return mSink;
 		}
 
-		CodedSink *getSink()
+		Sink *getSink()
 		{
 			return mSink;
 		}
@@ -317,7 +308,7 @@ public:
 			return mSink;
 		}
 
-		RawSink *getSink()
+		Sink *getSink()
 		{
 			return mSink;
 		}
@@ -443,7 +434,8 @@ public:
 		return mLoop;
 	}
 
-	int addMediaToRenderer(unsigned int mediaId, Renderer *renderer);
+	int addMediaToRenderer(unsigned int mediaId,
+			       Pdraw::VideoRenderer *renderer);
 
 	void asyncElementDelete(Element *element);
 
@@ -452,14 +444,14 @@ public:
 
 private:
 	int internalCreateCodedVideoSink(
-		CodedSource *source,
+		Source *source,
 		CodedVideoMedia *media,
 		const struct pdraw_video_sink_params *params,
 		ICodedVideoSink::Listener *listener,
 		ICodedVideoSink **retObj);
 
 	int
-	internalCreateRawVideoSink(RawSource *source,
+	internalCreateRawVideoSink(Source *source,
 				   RawVideoMedia *media,
 				   const struct pdraw_video_sink_params *params,
 				   IRawVideoSink::Listener *listener,
@@ -473,13 +465,9 @@ private:
 
 	void asyncElementStateChange(Element *element, Element::State state);
 
-	void onOutputMediaAdded(CodedSource *source, CodedVideoMedia *media);
+	void onOutputMediaAdded(Source *source, Media *media);
 
-	void onOutputMediaAdded(RawSource *source, RawVideoMedia *media);
-
-	void onOutputMediaRemoved(CodedSource *source, CodedVideoMedia *media);
-
-	void onOutputMediaRemoved(RawSource *source, RawVideoMedia *media);
+	void onOutputMediaRemoved(Source *source, Media *media);
 
 	void stopResp(int status);
 
@@ -503,7 +491,7 @@ private:
 	static void idleElementDelete(void *userdata);
 	std::queue<Element *> mElementDeleteElementArgs;
 	static void idleRendererCompleteStop(void *userdata);
-	std::queue<Renderer *> mRendererCompleteStopRendererArgs;
+	std::queue<Pdraw::VideoRenderer *> mRendererCompleteStopRendererArgs;
 	static void callStopResponse(void *userdata);
 	std::queue<int> mStopRespStatusArgs;
 	static void callOnMediaAdded(void *userdata);

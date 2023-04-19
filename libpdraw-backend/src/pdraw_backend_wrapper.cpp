@@ -759,6 +759,9 @@ int pdraw_be_demuxer_destroy(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(demuxer == nullptr, EINVAL);
 
+	/* The object must be destroyed before the listener */
+	delete d;
+
 	l = self->demuxerListeners->begin();
 	while (l != self->demuxerListeners->end()) {
 		if ((*l)->getDemuxer() != d) {
@@ -769,8 +772,6 @@ int pdraw_be_demuxer_destroy(struct pdraw_backend *self,
 		self->demuxerListeners->erase(l);
 		break;
 	}
-
-	delete d;
 
 	return 0;
 }
@@ -1119,6 +1120,9 @@ int pdraw_be_video_renderer_destroy(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(renderer == nullptr, EINVAL);
 
+	/* The object must be destroyed before the listener */
+	delete rnd;
+
 	std::vector<PdrawBackendVideoRendererListener *>::iterator l =
 		self->videoRendererListeners->begin();
 	while (l != self->videoRendererListeners->end()) {
@@ -1130,8 +1134,6 @@ int pdraw_be_video_renderer_destroy(struct pdraw_backend *self,
 		self->videoRendererListeners->erase(l);
 		break;
 	}
-
-	delete rnd;
 
 	return 0;
 }
@@ -1287,6 +1289,9 @@ int pdraw_be_coded_video_sink_destroy(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
 
+	/* The object must be destroyed before the listener */
+	delete s;
+
 	l = self->codedVideoSinkListeners->begin();
 	while (l != self->codedVideoSinkListeners->end()) {
 		if ((*l)->getCodedVideoSink() != s) {
@@ -1297,8 +1302,6 @@ int pdraw_be_coded_video_sink_destroy(struct pdraw_backend *self,
 		self->codedVideoSinkListeners->erase(l);
 		break;
 	}
-
-	delete s;
 
 	return 0;
 }
@@ -1392,6 +1395,9 @@ int pdraw_be_raw_video_sink_destroy(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
 
+	/* The object must be destroyed before the listener */
+	delete s;
+
 	l = self->rawVideoSinkListeners->begin();
 	while (l != self->rawVideoSinkListeners->end()) {
 		if ((*l)->getRawVideoSink() != s) {
@@ -1402,8 +1408,6 @@ int pdraw_be_raw_video_sink_destroy(struct pdraw_backend *self,
 		self->rawVideoSinkListeners->erase(l);
 		break;
 	}
-
-	delete s;
 
 	return 0;
 }

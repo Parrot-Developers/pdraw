@@ -110,12 +110,19 @@ RtmpStreamMuxer::~RtmpStreamMuxer(void)
 
 
 /* Must be called on the loop thread */
-int RtmpStreamMuxer::addInputMedia(CodedVideoMedia *media)
+int RtmpStreamMuxer::addInputMedia(Media *media)
 {
 	int res;
 	const uint8_t *sps = nullptr, *pps = nullptr;
 	size_t spsSize = 0, ppsSize = 0;
 	unsigned int len = 0;
+
+	/* Only accept coded video media */
+	CodedVideoMedia *m = dynamic_cast<CodedVideoMedia *>(media);
+	if (m == nullptr) {
+		PDRAW_LOGE("%s: unsupported input media", __func__);
+		return -ENOSYS;
+	}
 
 	/* Only accept the first video media */
 	if (mVideoMedia != nullptr) {
@@ -124,21 +131,21 @@ int RtmpStreamMuxer::addInputMedia(CodedVideoMedia *media)
 		return -EALREADY;
 	}
 
-	res = Muxer::addInputMedia(media);
+	res = Muxer::addInputMedia(m);
 	if (res < 0)
 		return res;
 
-	mVideoMedia = media;
+	mVideoMedia = m;
 	mDuration = 0.; /* TODO */
-	mWidth = media->info.resolution.width;
-	mHeight = media->info.resolution.height;
-	mFramerate = ((media->info.framerate.num != 0) &&
-		      (media->info.framerate.den != 0))
-			     ? (double)media->info.framerate.num /
-				       (double)media->info.framerate.den
-			     : 30.; /* TODO */
+	mWidth = m->info.resolution.width;
+	mHeight = m->info.resolution.height;
+	mFramerate =
+		((m->info.framerate.num != 0) && (m->info.framerate.den != 0))
+			? (double)m->info.framerate.num /
+				  (double)m->info.framerate.den
+			: 30.; /* TODO */
 
-	res = media->getPs(nullptr, nullptr, &sps, &spsSize, &pps, &ppsSize);
+	res = m->getPs(nullptr, nullptr, &sps, &spsSize, &pps, &ppsSize);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("CodedVideoMedia::getPs", -res);
 		return res;
@@ -277,12 +284,13 @@ int RtmpStreamMuxer::process(void)
 	if (mState != STARTED)
 		return 0;
 
-	CodedSink::lock();
+	Sink::lock();
 
 	inputMediaCount = getInputMediaCount();
 
 	for (i = 0; i < inputMediaCount; i++) {
-		CodedVideoMedia *media = getInputMedia(i);
+		CodedVideoMedia *media =
+			dynamic_cast<CodedVideoMedia *>(getInputMedia(i));
 		if (media == nullptr) {
 			res = -ENOENT;
 			PDRAW_LOG_ERRNO("getInputMedia", -res);
@@ -293,7 +301,7 @@ int RtmpStreamMuxer::process(void)
 		processMedia(media);
 	}
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return 0;
 }
@@ -304,13 +312,14 @@ int RtmpStreamMuxer::processMedia(CodedVideoMedia *media)
 	int res, err;
 	struct mbuf_coded_video_frame *frame;
 
-	CodedChannel *channel = getInputChannel(media);
+	CodedVideoChannel *channel =
+		dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
 		res = -ENODEV;
 		PDRAW_LOG_ERRNO("Sink::getInputChannel", -res);
 		return res;
 	}
-	struct mbuf_coded_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
 		res = -ENODEV;
 		PDRAW_LOG_ERRNO("Channel::getQueue", -res);

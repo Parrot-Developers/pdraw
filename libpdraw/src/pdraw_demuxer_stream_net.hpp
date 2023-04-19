@@ -44,14 +44,14 @@ class StreamDemuxerNet : public StreamDemuxer {
 public:
 	StreamDemuxerNet(Session *session,
 			 Element::Listener *elementListener,
-			 CodedSource::Listener *sourceListener,
+			 Source::Listener *sourceListener,
 			 IPdraw::IDemuxer *demuxer,
 			 IPdraw::IDemuxer::Listener *demuxerListener,
 			 const std::string &url);
 
 	StreamDemuxerNet(Session *session,
 			 Element::Listener *elementListener,
-			 CodedSource::Listener *sourceListener,
+			 Source::Listener *sourceListener,
 			 IPdraw::IDemuxer *demuxer,
 			 IPdraw::IDemuxer::Listener *demuxerListener,
 			 const std::string &localAddr,

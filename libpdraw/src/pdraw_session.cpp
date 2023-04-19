@@ -378,14 +378,14 @@ Session::VideoRenderer::VideoRenderer(
 	IPdraw::IVideoRenderer::Listener *listener,
 	struct egl_display *eglDisplay)
 {
-	mRenderer = Renderer::create(session,
-				     session,
-				     this,
-				     listener,
-				     mediaId,
-				     renderPos,
-				     params,
-				     eglDisplay);
+	mRenderer = Pdraw::VideoRenderer::create(session,
+						 session,
+						 this,
+						 listener,
+						 mediaId,
+						 renderPos,
+						 params,
+						 eglDisplay);
 	if (mRenderer == nullptr) {
 		ULOGE("%s: failed to create the video renderer", __func__);
 		return;
@@ -982,9 +982,10 @@ int Session::Muxer::addMedia(
 	const struct pdraw_muxer_video_media_params *params)
 {
 	int res = 0;
-	CodedSource *source = nullptr;
+	Source *source = nullptr;
+	Media *m = nullptr;
 	CodedVideoMedia *media = nullptr;
-	CodedChannel *channel = nullptr;
+	Channel *channel = nullptr;
 	bool found = false;
 
 	if (mMuxer == nullptr)
@@ -994,14 +995,15 @@ int Session::Muxer::addMedia(
 
 	std::vector<Element *>::iterator e = mSession->mElements.begin();
 	while (e != mSession->mElements.end()) {
-		source = dynamic_cast<CodedSource *>(*e);
+		source = dynamic_cast<Source *>(*e);
 		if (source == nullptr) {
 			e++;
 			continue;
 		}
 		unsigned int mediaCount = source->getOutputMediaCount();
 		for (unsigned int i = 0; i < mediaCount; i++) {
-			media = source->getOutputMedia(i);
+			m = source->getOutputMedia(i);
+			media = dynamic_cast<CodedVideoMedia *>(m);
 			if ((media != nullptr) && (media->id == mediaId)) {
 				found = true;
 				break;
@@ -1133,7 +1135,7 @@ int Session::RawVideoSink::queueFlushed(void)
 
 
 int Session::internalCreateCodedVideoSink(
-	CodedSource *source,
+	Source *source,
 	CodedVideoMedia *media,
 	const struct pdraw_video_sink_params *params,
 	IPdraw::ICodedVideoSink::Listener *listener,
@@ -1142,7 +1144,7 @@ int Session::internalCreateCodedVideoSink(
 	/* Note: mMutex is held while this function is called */
 	int res;
 	Session::CodedVideoSink *sink = nullptr;
-	CodedChannel *channel = nullptr;
+	Channel *channel = nullptr;
 
 	sink = new CodedVideoSink(this, params, listener);
 	if (sink == nullptr) {
@@ -1195,7 +1197,7 @@ error:
 			/* removeOutputChannel must be called without mMutex
 			 * being held, so release it here */
 			pthread_mutex_unlock(&mMutex);
-			source->removeOutputChannel(media, channel->getKey());
+			source->removeOutputChannel(media, channel);
 			pthread_mutex_lock(&mMutex);
 		}
 		std::vector<Element *>::iterator e = mElements.begin();
@@ -1214,7 +1216,7 @@ error:
 
 
 int Session::internalCreateRawVideoSink(
-	RawSource *source,
+	Source *source,
 	RawVideoMedia *media,
 	const struct pdraw_video_sink_params *params,
 	IPdraw::IRawVideoSink::Listener *listener,
@@ -1223,7 +1225,7 @@ int Session::internalCreateRawVideoSink(
 	/* Note: mMutex is held while this function is called */
 	int res;
 	Session::RawVideoSink *sink = nullptr;
-	RawChannel *channel = nullptr;
+	Channel *channel = nullptr;
 
 	sink = new RawVideoSink(this, params, listener);
 	if (sink == nullptr) {
@@ -1268,7 +1270,7 @@ error:
 			/* removeOutputChannel must be called without mMutex
 			 * being held, so release it here */
 			pthread_mutex_unlock(&mMutex);
-			source->removeOutputChannel(media, channel->getKey());
+			source->removeOutputChannel(media, channel);
 			pthread_mutex_lock(&mMutex);
 		}
 		std::vector<Element *>::iterator e = mElements.begin();
@@ -1305,8 +1307,9 @@ int Session::createCodedVideoSink(unsigned int mediaId,
 
 	std::vector<Element *>::iterator e = mElements.begin();
 	while (e != mElements.end()) {
-		CodedVideoMedia *media;
-		CodedSource *source = dynamic_cast<CodedSource *>(*e);
+		Media *media;
+		CodedVideoMedia *codedMedia = nullptr;
+		Source *source = dynamic_cast<Source *>(*e);
 		if (source == nullptr) {
 			e++;
 			continue;
@@ -1315,13 +1318,15 @@ int Session::createCodedVideoSink(unsigned int mediaId,
 		for (unsigned int i = 0; i < mediaCount; i++) {
 			media = source->getOutputMedia(i);
 			if ((media != nullptr) && (media->id == mediaId)) {
+				codedMedia =
+					dynamic_cast<CodedVideoMedia *>(media);
 				found = true;
 				break;
 			}
 		}
-		if (found) {
+		if (found && codedMedia != nullptr) {
 			ret = internalCreateCodedVideoSink(
-				source, media, params, listener, retObj);
+				source, codedMedia, params, listener, retObj);
 			goto exit;
 		}
 		e++;
@@ -1352,8 +1357,9 @@ int Session::createRawVideoSink(unsigned int mediaId,
 
 	std::vector<Element *>::iterator e = mElements.begin();
 	while (e != mElements.end()) {
-		RawVideoMedia *media;
-		RawSource *source = dynamic_cast<RawSource *>(*e);
+		Media *media;
+		RawVideoMedia *rawMedia = nullptr;
+		Source *source = dynamic_cast<Source *>(*e);
 		if (source == nullptr) {
 			e++;
 			continue;
@@ -1362,13 +1368,14 @@ int Session::createRawVideoSink(unsigned int mediaId,
 		for (unsigned int i = 0; i < mediaCount; i++) {
 			media = source->getOutputMedia(i);
 			if ((media != nullptr) && (media->id == mediaId)) {
+				rawMedia = dynamic_cast<RawVideoMedia *>(media);
 				found = true;
 				break;
 			}
 		}
-		if (found) {
+		if (found && rawMedia != nullptr) {
 			ret = internalCreateRawVideoSink(
-				source, media, params, listener, retObj);
+				source, rawMedia, params, listener, retObj);
 			goto exit;
 		}
 		e++;
@@ -1497,7 +1504,8 @@ void Session::asyncElementStateChange(Element *element, Element::State state)
 }
 
 
-int Session::addMediaToRenderer(unsigned int mediaId, Renderer *renderer)
+int Session::addMediaToRenderer(unsigned int mediaId,
+				Pdraw::VideoRenderer *renderer)
 {
 	return mFactory.addMediaToRenderer(mediaId, renderer);
 }
@@ -1579,7 +1587,8 @@ void Session::idleRendererCompleteStop(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
 	pthread_mutex_lock(&self->mAsyncMutex);
-	Renderer *renderer = self->mRendererCompleteStopRendererArgs.front();
+	Pdraw::VideoRenderer *renderer =
+		self->mRendererCompleteStopRendererArgs.front();
 	self->mRendererCompleteStopRendererArgs.pop();
 	pthread_mutex_unlock(&self->mAsyncMutex);
 	ULOG_ERRNO_RETURN_IF(renderer == nullptr, EINVAL);
@@ -1661,48 +1670,7 @@ void Session::onElementStateChanged(Element *element, Element::State state)
 
 
 /* Must be called on the loop thread */
-void Session::onOutputMediaAdded(CodedSource *source, CodedVideoMedia *media)
-{
-	ULOGD("onOutputMediaAdded name=%s", media->getName().c_str());
-
-	mFactory.onOutputMediaAdded(source, media);
-
-	if (mListener != nullptr) {
-		struct pdraw_media_info info;
-		media->fillMediaInfo(&info);
-		if (pthread_self() == mLoopThread) {
-			mListener->onMediaAdded(this, &info);
-			Media::cleanupMediaInfo(&info);
-		} else {
-			pthread_mutex_lock(&mAsyncMutex);
-			mMediaAddedInfoArgs.push(info);
-			pomp_loop_idle_add(mLoop, callOnMediaAdded, this);
-			pthread_mutex_unlock(&mAsyncMutex);
-		}
-	}
-}
-
-
-/* Must be called on the loop thread */
-void Session::onOutputMediaRemoved(CodedSource *source, CodedVideoMedia *media)
-{
-	ULOGD("onOutputMediaRemoved(coded) name=%s", media->getName().c_str());
-
-	mFactory.onOutputMediaRemoved(source, media);
-
-	if (mListener != nullptr) {
-		struct pdraw_media_info info;
-		media->fillMediaInfo(&info);
-		pthread_mutex_lock(&mAsyncMutex);
-		mMediaRemovedInfoArgs.push(info);
-		pomp_loop_idle_add(mLoop, callOnMediaRemoved, this);
-		pthread_mutex_unlock(&mAsyncMutex);
-	}
-}
-
-
-/* Must be called on the loop thread */
-void Session::onOutputMediaAdded(RawSource *source, RawVideoMedia *media)
+void Session::onOutputMediaAdded(Source *source, Media *media)
 {
 	ULOGD("onOutputMediaAdded(raw) name=%s", media->getName().c_str());
 
@@ -1725,9 +1693,9 @@ void Session::onOutputMediaAdded(RawSource *source, RawVideoMedia *media)
 
 
 /* Must be called on the loop thread */
-void Session::onOutputMediaRemoved(RawSource *source, RawVideoMedia *media)
+void Session::onOutputMediaRemoved(Source *source, Media *media)
 {
-	ULOGD("onOutputMediaRemoved(raw) name=%s", media->getName().c_str());
+	ULOGD("onOutputMediaRemoved name=%s", media->getName().c_str());
 
 	mFactory.onOutputMediaRemoved(source, media);
 
@@ -1782,7 +1750,8 @@ void Session::PipelineFactory::onElementStateChanged(Element *element,
 						     Element::State state)
 {
 	if (state == Element::State::STARTED) {
-		Renderer *r = dynamic_cast<Renderer *>(element);
+		Pdraw::VideoRenderer *r =
+			dynamic_cast<Pdraw::VideoRenderer *>(element);
 		if (r != nullptr) {
 			int ret = addAllMediaToRenderer(r);
 			if (ret < 0)
@@ -1792,42 +1761,29 @@ void Session::PipelineFactory::onElementStateChanged(Element *element,
 }
 
 
-void Session::PipelineFactory::onOutputMediaAdded(CodedSource *source,
-						  CodedVideoMedia *media)
+void Session::PipelineFactory::onOutputMediaAdded(Source *source, Media *media)
 {
 	Pdraw::Demuxer *demuxer = dynamic_cast<Pdraw::Demuxer *>(source);
-	if (demuxer != nullptr) {
+	VideoDecoder *decoder = dynamic_cast<VideoDecoder *>(source);
+	CodedVideoMedia *codedMedia = dynamic_cast<CodedVideoMedia *>(media);
+	RawVideoMedia *rawMedia = dynamic_cast<RawVideoMedia *>(media);
+	if ((demuxer != nullptr) && (codedMedia != nullptr)) {
 		if (mSession->mSettings.getPipelineMode() ==
 		    PDRAW_PIPELINE_MODE_DECODE_ALL) {
-			int ret = addDecoderForMedia(source, media);
+			int ret = addDecoderForMedia(source, codedMedia);
 			if (ret < 0)
 				ULOG_ERRNO("addDecoderForMedia", -ret);
 		}
-	}
-}
-
-
-void Session::PipelineFactory::onOutputMediaAdded(RawSource *source,
-						  RawVideoMedia *media)
-{
-	VideoDecoder *decoder = dynamic_cast<VideoDecoder *>(source);
-	if ((decoder != nullptr)) {
-		int ret = addMediaToAllRenderers(source, media);
+	} else if ((decoder != nullptr) && (rawMedia != nullptr)) {
+		int ret = addMediaToAllRenderers(source, rawMedia);
 		if (ret < 0)
 			ULOG_ERRNO("addMediaToAllRenderers", -ret);
 	}
 }
 
 
-void Session::PipelineFactory::onOutputMediaRemoved(CodedSource *source,
-						    CodedVideoMedia *media)
-{
-	return;
-}
-
-
-void Session::PipelineFactory::onOutputMediaRemoved(RawSource *source,
-						    RawVideoMedia *media)
+void Session::PipelineFactory::onOutputMediaRemoved(Source *source,
+						    Media *media)
 {
 	return;
 }
@@ -1858,33 +1814,13 @@ int Session::PipelineFactory::dumpPipeline(const std::string &fileName)
 		fprintf(f, "\te%u [shape=record,label=\"", elmId);
 
 		/* Element input medias */
-		CodedSink *csink = dynamic_cast<CodedSink *>(*e);
-		if (csink != nullptr) {
-			unsigned int count = csink->getInputMediaCount();
+		Sink *sink = dynamic_cast<Sink *>(*e);
+		if (sink != nullptr) {
+			unsigned int count = sink->getInputMediaCount();
 			if (count > 0)
 				fprintf(f, "{ ");
 			for (unsigned int i = 0; i < count; i++) {
-				CodedVideoMedia *media =
-					csink->getInputMedia(i);
-				if (media == nullptr)
-					continue;
-				fprintf(f,
-					"%s<e%um%u> %s",
-					(i > 0) ? " | " : "",
-					elmId,
-					media->id,
-					media->getName().c_str());
-			}
-			if (count > 0)
-				fprintf(f, " } | ");
-		}
-		RawSink *rsink = dynamic_cast<RawSink *>(*e);
-		if (rsink != nullptr) {
-			unsigned int count = rsink->getInputMediaCount();
-			if (count > 0)
-				fprintf(f, "{ ");
-			for (unsigned int i = 0; i < count; i++) {
-				RawVideoMedia *media = rsink->getInputMedia(i);
+				Media *media = sink->getInputMedia(i);
 				if (media == nullptr)
 					continue;
 				fprintf(f,
@@ -1902,34 +1838,13 @@ int Session::PipelineFactory::dumpPipeline(const std::string &fileName)
 		fprintf(f, "<e%u> %s", elmId, elmName);
 
 		/* Element output medias */
-		CodedSource *csource = dynamic_cast<CodedSource *>(*e);
-		if (csource != nullptr) {
-			unsigned int count = csource->getOutputMediaCount();
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source != nullptr) {
+			unsigned int count = source->getOutputMediaCount();
 			if (count > 0)
 				fprintf(f, " | { ");
 			for (unsigned int i = 0; i < count; i++) {
-				CodedVideoMedia *media =
-					csource->getOutputMedia(i);
-				if (media == nullptr)
-					continue;
-				fprintf(f,
-					"%s<e%um%u> %s",
-					(i > 0) ? " | " : "",
-					elmId,
-					media->id,
-					media->getName().c_str());
-			}
-			if (count > 0)
-				fprintf(f, " }");
-		}
-		RawSource *rsource = dynamic_cast<RawSource *>(*e);
-		if (rsource != nullptr) {
-			unsigned int count = rsource->getOutputMediaCount();
-			if (count > 0)
-				fprintf(f, " | { ");
-			for (unsigned int i = 0; i < count; i++) {
-				RawVideoMedia *media =
-					rsource->getOutputMedia(i);
+				Media *media = source->getOutputMedia(i);
 				if (media == nullptr)
 					continue;
 				fprintf(f,
@@ -1953,51 +1868,16 @@ int Session::PipelineFactory::dumpPipeline(const std::string &fileName)
 		unsigned int dstElmId = (*e)->getId();
 
 		/* Element input medias */
-		CodedSink *csink = dynamic_cast<CodedSink *>(*e);
-		if (csink != nullptr) {
-			unsigned int count = csink->getInputMediaCount();
+		Sink *sink = dynamic_cast<Sink *>(*e);
+		if (sink != nullptr) {
+			unsigned int count = sink->getInputMediaCount();
 			for (unsigned int i = 0; i < count; i++) {
-				CodedVideoMedia *media =
-					csink->getInputMedia(i);
+				Media *media = sink->getInputMedia(i);
 				std::vector<Element *>::iterator e2 =
 					mSession->mElements.begin();
 				while (e2 != mSession->mElements.end()) {
-					CodedSource *source =
-						dynamic_cast<CodedSource *>(
-							*e2);
-					if (source != nullptr) {
-						if (source->findOutputMedia(
-							    media) == nullptr) {
-							e2++;
-							continue;
-						}
-						unsigned int srcElmId =
-							(*e2)->getId();
-						fprintf(f,
-							"\te%u:e%um%u -> "
-							"e%u:e%um%u;\n",
-							srcElmId,
-							srcElmId,
-							media->id,
-							dstElmId,
-							dstElmId,
-							media->id);
-						break;
-					}
-					e2++;
-				}
-			}
-		}
-		RawSink *rsink = dynamic_cast<RawSink *>(*e);
-		if (rsink != nullptr) {
-			unsigned int count = rsink->getInputMediaCount();
-			for (unsigned int i = 0; i < count; i++) {
-				RawVideoMedia *media = rsink->getInputMedia(i);
-				std::vector<Element *>::iterator e2 =
-					mSession->mElements.begin();
-				while (e2 != mSession->mElements.end()) {
-					RawSource *source =
-						dynamic_cast<RawSource *>(*e2);
+					Source *source =
+						dynamic_cast<Source *>(*e2);
 					if (source != nullptr) {
 						if (source->findOutputMedia(
 							    media) == nullptr) {
@@ -2036,7 +1916,7 @@ int Session::PipelineFactory::dumpPipeline(const std::string &fileName)
 }
 
 
-int Session::PipelineFactory::addDecoderForMedia(CodedSource *source,
+int Session::PipelineFactory::addDecoderForMedia(Source *source,
 						 CodedVideoMedia *media)
 {
 	int ret;
@@ -2063,7 +1943,7 @@ int Session::PipelineFactory::addDecoderForMedia(CodedSource *source,
 		ULOG_ERRNO("decoder->start", -ret);
 		return ret;
 	}
-	CodedChannel *channel = decoder->getInputChannel(media);
+	Channel *channel = decoder->getInputChannel(media);
 	if (channel == nullptr) {
 		ULOGE("failed to get decoder input channel");
 		return -EPROTO;
@@ -2081,7 +1961,7 @@ int Session::PipelineFactory::addDecoderForMedia(CodedSource *source,
 }
 
 
-int Session::PipelineFactory::addEncoderForMedia(RawSource *source,
+int Session::PipelineFactory::addEncoderForMedia(Source *source,
 						 RawVideoMedia *media)
 {
 	int ret;
@@ -2104,7 +1984,7 @@ int Session::PipelineFactory::addEncoderForMedia(RawSource *source,
 		ULOG_ERRNO("encoder->start", -ret);
 		return ret;
 	}
-	RawChannel *channel = encoder->getInputChannel(media);
+	Channel *channel = encoder->getInputChannel(media);
 	if (channel == nullptr) {
 		ULOGE("failed to get encoder input channel");
 		return -EPROTO;
@@ -2118,7 +1998,7 @@ int Session::PipelineFactory::addEncoderForMedia(RawSource *source,
 	return 0;
 }
 
-int Session::PipelineFactory::addScalerForMedia(RawSource *source,
+int Session::PipelineFactory::addScalerForMedia(Source *source,
 						RawVideoMedia *media)
 {
 	int ret;
@@ -2141,7 +2021,7 @@ int Session::PipelineFactory::addScalerForMedia(RawSource *source,
 		ULOG_ERRNO("scaler->start", -ret);
 		return ret;
 	}
-	RawChannel *channel = scaler->getInputChannel(media);
+	Channel *channel = scaler->getInputChannel(media);
 	if (channel == nullptr) {
 		ULOGE("failed to get scaler input channel");
 		return -EPROTO;
@@ -2156,9 +2036,9 @@ int Session::PipelineFactory::addScalerForMedia(RawSource *source,
 }
 
 
-int Session::PipelineFactory::addMediaToRenderer(RawSource *source,
+int Session::PipelineFactory::addMediaToRenderer(Source *source,
 						 RawVideoMedia *media,
-						 Renderer *renderer)
+						 Pdraw::VideoRenderer *renderer)
 {
 	int ret;
 
@@ -2169,7 +2049,7 @@ int Session::PipelineFactory::addMediaToRenderer(RawSource *source,
 		ULOG_ERRNO("renderer->addInputMedia", -ret);
 		return ret;
 	}
-	RawChannel *channel = renderer->getInputChannel(media);
+	Channel *channel = renderer->getInputChannel(media);
 	if (channel == nullptr) {
 		ULOGE("failed to get renderer input channel");
 		return -EPROTO;
@@ -2184,32 +2064,36 @@ int Session::PipelineFactory::addMediaToRenderer(RawSource *source,
 
 
 int Session::PipelineFactory::addMediaToRenderer(unsigned int mediaId,
-						 Renderer *renderer)
+						 Pdraw::VideoRenderer *renderer)
 {
 	int ret;
+	bool found = false;
 
 	pthread_mutex_lock(&mSession->mMutex);
 	std::vector<Element *>::iterator e = mSession->mElements.begin();
 	while (e != mSession->mElements.end()) {
-		VideoDecoder *decoder = dynamic_cast<VideoDecoder *>(*e);
-		if (decoder == nullptr) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
 			e++;
 			continue;
 		}
-		RawVideoMedia *media = decoder->getOutputMedia(0);
-		if (media == nullptr) {
-			ULOGE("invalid media");
-			e++;
-			continue;
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			RawVideoMedia *media = dynamic_cast<RawVideoMedia *>(m);
+			if (media == nullptr)
+				continue;
+			if (media->id != mediaId)
+				continue;
+			ret = addMediaToRenderer(source, media, renderer);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToRenderer", -ret);
+			found = true;
+			break;
 		}
-		if (media->id != mediaId) {
-			e++;
-			continue;
-		}
-		ret = addMediaToRenderer(decoder, media, renderer);
-		if (ret < 0)
-			ULOG_ERRNO("addMediaToRenderer", -ret);
-		break;
+		if (found)
+			break;
+		e++;
 	}
 	pthread_mutex_unlock(&mSession->mMutex);
 
@@ -2217,7 +2101,7 @@ int Session::PipelineFactory::addMediaToRenderer(unsigned int mediaId,
 }
 
 
-int Session::PipelineFactory::addMediaToAllRenderers(RawSource *source,
+int Session::PipelineFactory::addMediaToAllRenderers(Source *source,
 						     RawVideoMedia *media)
 {
 	int ret = 0;
@@ -2225,7 +2109,8 @@ int Session::PipelineFactory::addMediaToAllRenderers(RawSource *source,
 	pthread_mutex_lock(&mSession->mMutex);
 	std::vector<Element *>::iterator e = mSession->mElements.begin();
 	while (e != mSession->mElements.end() && ret == 0) {
-		Renderer *r = dynamic_cast<Renderer *>(*e);
+		Pdraw::VideoRenderer *r =
+			dynamic_cast<Pdraw::VideoRenderer *>(*e);
 		e++;
 		if (r == nullptr)
 			continue;
@@ -2237,27 +2122,29 @@ int Session::PipelineFactory::addMediaToAllRenderers(RawSource *source,
 }
 
 
-int Session::PipelineFactory::addAllMediaToRenderer(Renderer *renderer)
+int Session::PipelineFactory::addAllMediaToRenderer(
+	Pdraw::VideoRenderer *renderer)
 {
 	int ret;
 
 	pthread_mutex_lock(&mSession->mMutex);
 	std::vector<Element *>::iterator e = mSession->mElements.begin();
 	while (e != mSession->mElements.end()) {
-		VideoDecoder *decoder = dynamic_cast<VideoDecoder *>(*e);
-		if (decoder == nullptr) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
 			e++;
 			continue;
 		}
-		RawVideoMedia *media = decoder->getOutputMedia(0);
-		if (media == nullptr) {
-			ULOGE("invalid media");
-			e++;
-			continue;
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			RawVideoMedia *media = dynamic_cast<RawVideoMedia *>(m);
+			if (media == nullptr)
+				continue;
+			ret = addMediaToRenderer(source, media, renderer);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToRenderer", -ret);
 		}
-		ret = addMediaToRenderer(decoder, media, renderer);
-		if (ret < 0)
-			ULOG_ERRNO("addMediaToRenderer", -ret);
 		e++;
 	}
 	pthread_mutex_unlock(&mSession->mMutex);

@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Broadcom VideoCore 4 EGL renderer
+ * Broadcom VideoCore 4 EGL video renderer
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -32,7 +32,7 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
-#include "pdraw_renderer_videocoreegl.hpp"
+#include "pdraw_renderer_video_videocoreegl.hpp"
 #include "pdraw_session.hpp"
 
 #ifdef USE_VIDEOCOREEGL
@@ -44,7 +44,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-VideoCoreEglRenderer::VideoCoreEglRenderer(
+VideoCoreEglVideoRenderer::VideoCoreEglVideoRenderer(
 	Session *session,
 	Element::Listener *listener,
 	IPdraw::IVideoRenderer *renderer,
@@ -53,14 +53,14 @@ VideoCoreEglRenderer::VideoCoreEglRenderer(
 	const struct pdraw_rect *renderPos,
 	const struct pdraw_video_renderer_params *params,
 	struct egl_display *eglDisplay) :
-		Gles2Renderer(session,
-			      listener,
-			      renderer,
-			      rndListener,
-			      mediaId,
-			      nullptr,
-			      nullptr,
-			      nullptr)
+		Gles2VideoRenderer(session,
+				   listener,
+				   renderer,
+				   rndListener,
+				   mediaId,
+				   nullptr,
+				   nullptr,
+				   nullptr)
 {
 	Element::setClassName(__func__);
 	mDisplay = EGL_NO_DISPLAY;
@@ -69,10 +69,10 @@ VideoCoreEglRenderer::VideoCoreEglRenderer(
 }
 
 
-VideoCoreEglRenderer::~VideoCoreEglRenderer(void) {}
+VideoCoreEglVideoRenderer::~VideoCoreEglVideoRenderer(void) {}
 
 
-int VideoCoreEglRenderer::setup(
+int VideoCoreEglVideoRenderer::setup(
 	const struct pdraw_rect *renderPos,
 	const struct pdraw_video_renderer_params *params,
 	struct egl_display *eglDisplay)
@@ -91,8 +91,8 @@ int VideoCoreEglRenderer::setup(
 }
 
 
-int VideoCoreEglRenderer::loadVideoFrame(const uint8_t *data,
-					 RawVideoMedia::Frame *frame)
+int VideoCoreEglVideoRenderer::loadVideoFrame(const uint8_t *data,
+					      RawVideoMedia::Frame *frame)
 {
 	int ret;
 
@@ -118,7 +118,7 @@ int VideoCoreEglRenderer::loadVideoFrame(const uint8_t *data,
 }
 
 
-int VideoCoreEglRenderer::loadExternalVideoFrame(
+int VideoCoreEglVideoRenderer::loadExternalVideoFrame(
 	const uint8_t *data,
 	RawVideoMedia::Frame *frame,
 	const struct pdraw_media_info *media_info)
@@ -127,10 +127,11 @@ int VideoCoreEglRenderer::loadExternalVideoFrame(
 }
 
 
-int VideoCoreEglRenderer::renderVideoFrame(RawVideoMedia::Frame *frame,
-					   const struct pdraw_rect *renderPos,
-					   struct pdraw_rect *contentPos,
-					   Eigen::Matrix4f &viewProjMat)
+int VideoCoreEglVideoRenderer::renderVideoFrame(
+	RawVideoMedia::Frame *frame,
+	const struct pdraw_rect *renderPos,
+	struct pdraw_rect *contentPos,
+	Eigen::Matrix4f &viewProjMat)
 {
 	enum gles2_video_yuv_range yuvRange =
 		frame->opaqueFrame.fullRange ? GLES2_VIDEO_YUV_FULL_RANGE
@@ -154,7 +155,7 @@ int VideoCoreEglRenderer::renderVideoFrame(RawVideoMedia::Frame *frame,
 }
 
 
-int VideoCoreEglRenderer::renderExternalVideoFrame(
+int VideoCoreEglVideoRenderer::renderExternalVideoFrame(
 	RawVideoMedia::Frame *frame,
 	const struct pdraw_rect *renderPos,
 	struct pdraw_rect *contentPos,

@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Pipeline source element
+ * Pipeline media source for elements
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,11 +28,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#define ULOG_TAG pdraw_source_coded_video
+#define ULOG_TAG pdraw_source
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
-#include "pdraw_source_coded_video.hpp"
+#include "pdraw_source.hpp"
 
 #include <errno.h>
 
@@ -41,7 +41,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-CodedSource::CodedSource(unsigned int maxOutputMedias, Listener *listener) :
+Source::Source(unsigned int maxOutputMedias, Listener *listener) :
 		mMaxOutputMedias(maxOutputMedias), mListener(listener)
 {
 	int res;
@@ -76,7 +76,7 @@ error:
 }
 
 
-CodedSource::~CodedSource(void)
+Source::~Source(void)
 {
 	int ret = removeOutputPorts();
 	if (ret < 0)
@@ -92,19 +92,19 @@ CodedSource::~CodedSource(void)
 }
 
 
-void CodedSource::lock(void)
+void Source::lock(void)
 {
 	pthread_mutex_lock(&mMutex);
 }
 
 
-void CodedSource::unlock(void)
+void Source::unlock(void)
 {
 	pthread_mutex_unlock(&mMutex);
 }
 
 
-unsigned int CodedSource::getOutputMediaCount(void)
+unsigned int Source::getOutputMediaCount(void)
 {
 	pthread_mutex_lock(&mMutex);
 	unsigned int ret = mOutputPorts.size();
@@ -113,21 +113,21 @@ unsigned int CodedSource::getOutputMediaCount(void)
 }
 
 
-CodedVideoMedia *CodedSource::getOutputMedia(unsigned int index)
+Media *Source::getOutputMedia(unsigned int index)
 {
 	pthread_mutex_lock(&mMutex);
-	CodedVideoMedia *ret = (index < mOutputPorts.size())
-				       ? mOutputPorts.at(index).media
-				       : nullptr;
+	Media *ret = (index < mOutputPorts.size())
+			     ? mOutputPorts.at(index).media
+			     : nullptr;
 	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-CodedVideoMedia *CodedSource::findOutputMedia(CodedVideoMedia *media)
+Media *Source::findOutputMedia(Media *media)
 {
 	pthread_mutex_lock(&mMutex);
-	CodedVideoMedia *ret = nullptr;
+	Media *ret = nullptr;
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
@@ -143,17 +143,17 @@ CodedVideoMedia *CodedSource::findOutputMedia(CodedVideoMedia *media)
 }
 
 
-CodedVideoMedia *CodedSource::getOutputMediaFromChannel(void *key)
+Media *Source::getOutputMediaFromChannel(Channel *channel)
 {
 	pthread_mutex_lock(&mMutex);
-	CodedVideoMedia *ret = nullptr;
+	Media *ret = nullptr;
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
-		std::vector<CodedChannel *>::iterator c = p->channels.begin();
+		std::vector<Channel *>::iterator c = p->channels.begin();
 
 		while (c != p->channels.end()) {
-			if ((*c)->getKey() != key) {
+			if ((*c) != channel) {
 				c++;
 				continue;
 			}
@@ -173,7 +173,7 @@ CodedVideoMedia *CodedSource::getOutputMediaFromChannel(void *key)
 }
 
 
-CodedSource::OutputPort *CodedSource::getOutputPort(CodedVideoMedia *media)
+Source::OutputPort *Source::getOutputPort(Media *media)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
@@ -198,7 +198,7 @@ CodedSource::OutputPort *CodedSource::getOutputPort(CodedVideoMedia *media)
 }
 
 
-int CodedSource::addOutputPort(CodedVideoMedia *media)
+int Source::addOutputPort(Media *media)
 {
 	if (media == nullptr)
 		return -EINVAL;
@@ -224,7 +224,7 @@ int CodedSource::addOutputPort(CodedVideoMedia *media)
 }
 
 
-int CodedSource::removeOutputPort(CodedVideoMedia *media)
+int Source::removeOutputPort(Media *media)
 {
 	if (media == nullptr)
 		return -EINVAL;
@@ -266,7 +266,7 @@ int CodedSource::removeOutputPort(CodedVideoMedia *media)
 }
 
 
-int CodedSource::removeOutputPorts(void)
+int Source::removeOutputPorts(void)
 {
 	pthread_mutex_lock(&mMutex);
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
@@ -300,9 +300,9 @@ int CodedSource::removeOutputPorts(void)
 }
 
 
-int CodedSource::createOutputPortMemoryPool(CodedVideoMedia *media,
-					    unsigned int count,
-					    size_t capacity)
+int Source::createOutputPortMemoryPool(Media *media,
+				       unsigned int count,
+				       size_t capacity)
 {
 	int ret;
 
@@ -349,7 +349,7 @@ int CodedSource::createOutputPortMemoryPool(CodedVideoMedia *media,
 }
 
 
-int CodedSource::destroyOutputPortMemoryPool(OutputPort *port)
+int Source::destroyOutputPortMemoryPool(OutputPort *port)
 {
 	int ret = 0;
 
@@ -375,7 +375,7 @@ int CodedSource::destroyOutputPortMemoryPool(OutputPort *port)
 }
 
 
-int CodedSource::destroyOutputPortMemoryPool(CodedVideoMedia *media)
+int Source::destroyOutputPortMemoryPool(Media *media)
 {
 	if (media == nullptr)
 		return -EINVAL;
@@ -404,15 +404,364 @@ int CodedSource::destroyOutputPortMemoryPool(CodedVideoMedia *media)
 }
 
 
-int CodedSource::getOutputMemory(CodedVideoMedia **videoMedias,
-				 unsigned int nbVideoMedias,
-				 struct mbuf_mem **mem,
-				 unsigned int *defaultMediaIndex)
+unsigned int Source::getOutputChannelCount(Media *media)
+{
+	if (media == nullptr) {
+		ULOG_ERRNO("media", EINVAL);
+		return 0;
+	}
+
+	pthread_mutex_lock(&mMutex);
+	OutputPort *port = getOutputPort(media);
+	if (port == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("port", ENOENT);
+		return 0;
+	}
+
+	unsigned int ret = port->channels.size();
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+Channel *Source::getOutputChannel(Media *media, unsigned int index)
+{
+	if (media == nullptr) {
+		ULOG_ERRNO("media", EINVAL);
+		return nullptr;
+	}
+
+	pthread_mutex_lock(&mMutex);
+	OutputPort *port = getOutputPort(media);
+	if (port == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("port", ENOENT);
+		return nullptr;
+	}
+	if (index >= port->channels.size()) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("index", ENOENT);
+		return nullptr;
+	}
+
+	Channel *ret = port->channels.at(index);
+	pthread_mutex_unlock(&mMutex);
+
+	return ret;
+}
+
+
+Channel *Source::findOutputChannel(Media *media, Channel *channel)
+{
+	if (media == nullptr) {
+		ULOG_ERRNO("media", EINVAL);
+		return nullptr;
+	}
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return nullptr;
+	}
+
+	pthread_mutex_lock(&mMutex);
+	OutputPort *port = getOutputPort(media);
+	if (port == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("port", ENOENT);
+		return nullptr;
+	}
+
+	Channel *ret = nullptr;
+	std::vector<Channel *>::iterator c = port->channels.begin();
+
+	while (c != port->channels.end()) {
+		if ((*c) != channel) {
+			c++;
+			continue;
+		}
+		ret = *c;
+		break;
+	}
+
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+int Source::addOutputChannel(Media *media, Channel *channel)
+{
+	if (media == nullptr)
+		return -EINVAL;
+	if (channel == nullptr)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+	Channel *c = findOutputChannel(media, channel);
+	if (c != nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		return -EEXIST;
+	}
+	OutputPort *port = getOutputPort(media);
+	if (port == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		return -ENOENT;
+	}
+
+	channel->setSourceListener(this);
+	port->channels.push_back(channel);
+	pthread_mutex_unlock(&mMutex);
+
+	ULOGI("%s: link media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+	return 0;
+}
+
+
+int Source::removeOutputChannel(Media *media, Channel *channel)
+{
+	if (media == nullptr)
+		return -EINVAL;
+	if (channel == nullptr)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+	OutputPort *port = getOutputPort(media);
+	if (port == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		return -ENOENT;
+	}
+
+	Sink *owner = channel->getOwner();
+	bool found = false;
+	std::vector<Channel *>::iterator c = port->channels.begin();
+
+	while (c != port->channels.end()) {
+		if ((*c) != channel) {
+			c++;
+			continue;
+		}
+		found = true;
+		(*c)->setSourceListener(nullptr);
+		port->channels.erase(c);
+		break;
+	}
+
+	pthread_mutex_unlock(&mMutex);
+	if (!found)
+		return -ENOENT;
+
+	ULOGI("%s: unlink media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      owner);
+	return 0;
+}
+
+
+int Source::sendDownstreamEvent(Media *media, Channel::DownstreamEvent event)
+{
+	int ret;
+	unsigned int outputChannelCount, i;
+	Channel *channel;
+
+	if (media == nullptr)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+
+	/* Send the event downstream */
+	outputChannelCount = getOutputChannelCount(media);
+	for (i = 0; i < outputChannelCount; i++) {
+		channel = getOutputChannel(media, i);
+		if (channel == nullptr) {
+			ULOGW("invalid channel");
+			continue;
+		}
+		ret = channel->sendDownstreamEvent(event);
+		if (ret < 0)
+			ULOG_ERRNO("channel->sendDownstreamEvent", -ret);
+	}
+
+	pthread_mutex_unlock(&mMutex);
+
+	return 0;
+}
+
+
+void Source::onChannelUnlink(Channel *channel)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		ULOGE("media not found");
+		return;
+	}
+
+	int ret = removeOutputChannel(media, channel);
+	if (ret < 0)
+		ULOG_ERRNO("removeOutputChannel", -ret);
+}
+
+
+void Source::onChannelFlushed(Channel *channel)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		ULOGE("media not found");
+		return;
+	}
+	ULOGD("%s: channel flushed media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+}
+
+
+void Source::onChannelResync(Channel *channel)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		ULOGE("media not found");
+		return;
+	}
+	ULOGD("%s: channel resync media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+}
+
+
+void Source::onChannelVideoPresStats(Channel *channel, VideoPresStats *stats)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		ULOGE("media not found");
+		return;
+	}
+	ULOGD("%s: channel video stats media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+}
+
+
+void Source::onChannelUpstreamEvent(Channel *channel,
+				    const struct pomp_msg *event)
+{
+	VideoPresStats stats;
+	int err;
+
+	ULOGD("%s: channel upstream event %s",
+	      getName().c_str(),
+	      Channel::getUpstreamEventStr(
+		      (Channel::UpstreamEvent)pomp_msg_get_id(event)));
+
+	switch (pomp_msg_get_id(event)) {
+	case Channel::UpstreamEvent::UNLINK:
+		onChannelUnlink(channel);
+		break;
+	case Channel::UpstreamEvent::FLUSHED:
+		onChannelFlushed(channel);
+		break;
+	case Channel::UpstreamEvent::RESYNC:
+		onChannelResync(channel);
+		break;
+	case Channel::UpstreamEvent::VIDEO_PRES_STATS:
+		err = stats.readMsg(event);
+		if (err < 0)
+			ULOG_ERRNO("stats.readMsg", -err);
+		else
+			onChannelVideoPresStats(channel, &stats);
+		break;
+	default:
+		ULOG_ERRNO("event id %d", ENOSYS, pomp_msg_get_id(event));
+		break;
+	}
+}
+
+
+int Source::getRawVideoOutputMemory(RawVideoMedia *media, struct mbuf_mem **mem)
+{
+	int ret = 0;
+	OutputPort *port = nullptr;
+	struct mbuf_pool *pool = nullptr;
+
+	if (media == nullptr)
+		return -EINVAL;
+	if (mem == nullptr)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+
+	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	while (p != mOutputPorts.end()) {
+		if (p->media != media) {
+			p++;
+			continue;
+		}
+		port = &(*p);
+		pool = port->pool;
+		break;
+	}
+
+	if (pool == nullptr) {
+		ret = -EPROTO;
+		ULOGE("no pool available");
+		goto exit;
+	}
+
+	ret = mbuf_pool_get(pool, mem);
+	if ((ret < 0) || (*mem == nullptr)) {
+		if (ret != -EAGAIN)
+			ULOG_ERRNO("mbuf_pool_get:source", -ret);
+		goto exit;
+	}
+
+exit:
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+int Source::getCodedVideoOutputMemory(CodedVideoMedia **videoMedias,
+				      unsigned int nbVideoMedias,
+				      struct mbuf_mem **mem,
+				      unsigned int *defaultMediaIndex)
 {
 	int ret = 0;
 	unsigned int outputChannelCount = 0;
 	unsigned int firstUsedMediaIndex = UINT_MAX, firstUsedMediaCount = 0;
-	CodedChannel *channel;
+	Channel *channel;
 	OutputPort *port;
 	struct mbuf_pool *pool = nullptr, *extPool = nullptr;
 	bool externalPool = false;
@@ -439,10 +788,13 @@ int CodedSource::getOutputMemory(CodedVideoMedia **videoMedias,
 			firstUsedMediaIndex = i;
 			channel = getOutputChannel(videoMedias[i],
 						   (unsigned int)0);
-			if (channel == nullptr)
+			if (channel == nullptr) {
 				ULOGW("invalid channel");
-			else
-				extPool = channel->getPool();
+			} else {
+				/* getPool() should only be called by the
+				 * Channel owner, but this is a special case */
+				extPool = channel->getPool(channel->getOwner());
+			}
 		}
 	}
 
@@ -502,10 +854,10 @@ exit:
 }
 
 
-int CodedSource::copyOutputFrame(CodedVideoMedia *srcMedia,
-				 struct mbuf_coded_video_frame *srcFrame,
-				 CodedVideoMedia *dstMedia,
-				 struct mbuf_coded_video_frame **dstFrame)
+int Source::copyCodedVideoOutputFrame(CodedVideoMedia *srcMedia,
+				      struct mbuf_coded_video_frame *srcFrame,
+				      CodedVideoMedia *dstMedia,
+				      struct mbuf_coded_video_frame **dstFrame)
 {
 	int ret;
 	unsigned int dummy;
@@ -522,9 +874,9 @@ int CodedSource::copyOutputFrame(CodedVideoMedia *srcMedia,
 	if (srcMedia->format.encoding != dstMedia->format.encoding)
 		return -EINVAL;
 
-	ret = getOutputMemory(&dstMedia, 1, &dstMem, &dummy);
+	ret = getCodedVideoOutputMemory(&dstMedia, 1, &dstMem, &dummy);
 	if (ret < 0) {
-		ULOG_ERRNO("getOutputMemory", -ret);
+		ULOG_ERRNO("getCodedVideoOutputMemory", -ret);
 		return ret;
 	}
 
@@ -627,313 +979,6 @@ exit:
 		*dstFrame = nullptr;
 	}
 	return ret;
-}
-
-unsigned int CodedSource::getOutputChannelCount(CodedVideoMedia *media)
-{
-	if (media == nullptr) {
-		ULOG_ERRNO("media", EINVAL);
-		return 0;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	OutputPort *port = getOutputPort(media);
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("port", ENOENT);
-		return 0;
-	}
-
-	unsigned int ret = port->channels.size();
-	pthread_mutex_unlock(&mMutex);
-	return ret;
-}
-
-
-CodedChannel *CodedSource::getOutputChannel(CodedVideoMedia *media,
-					    unsigned int index)
-{
-	if (media == nullptr) {
-		ULOG_ERRNO("media", EINVAL);
-		return nullptr;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	OutputPort *port = getOutputPort(media);
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("port", ENOENT);
-		return nullptr;
-	}
-	if (index >= port->channels.size()) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("index", ENOENT);
-		return nullptr;
-	}
-
-	CodedChannel *ret = port->channels.at(index);
-	pthread_mutex_unlock(&mMutex);
-
-	return ret;
-}
-
-
-CodedChannel *CodedSource::getOutputChannel(CodedVideoMedia *media, void *key)
-{
-	if (media == nullptr) {
-		ULOG_ERRNO("media", EINVAL);
-		return nullptr;
-	}
-	if (key == nullptr) {
-		ULOG_ERRNO("key", EINVAL);
-		return nullptr;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	OutputPort *port = getOutputPort(media);
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
-		ULOG_ERRNO("port", ENOENT);
-		return nullptr;
-	}
-
-	CodedChannel *ret = nullptr;
-	std::vector<CodedChannel *>::iterator c = port->channels.begin();
-
-	while (c != port->channels.end()) {
-		if ((*c)->getKey() != key) {
-			c++;
-			continue;
-		}
-		ret = *c;
-		break;
-	}
-
-	pthread_mutex_unlock(&mMutex);
-	return ret;
-}
-
-
-int CodedSource::addOutputChannel(CodedVideoMedia *media, CodedChannel *channel)
-{
-	if (media == nullptr)
-		return -EINVAL;
-	if (channel == nullptr)
-		return -EINVAL;
-
-	pthread_mutex_lock(&mMutex);
-	CodedChannel *c = getOutputChannel(media, channel->getKey());
-	if (c != nullptr) {
-		pthread_mutex_unlock(&mMutex);
-		return -EEXIST;
-	}
-	OutputPort *port = getOutputPort(media);
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
-		return -ENOENT;
-	}
-
-	channel->setSourceListener(this);
-	port->channels.push_back(channel);
-	pthread_mutex_unlock(&mMutex);
-
-	ULOGI("%s: link media name=%s (channel key=%p)",
-	      getName().c_str(),
-	      media->getName().c_str(),
-	      channel->getKey());
-	return 0;
-}
-
-
-int CodedSource::removeOutputChannel(CodedVideoMedia *media, void *key)
-{
-	if (media == nullptr)
-		return -EINVAL;
-	if (key == nullptr)
-		return -EINVAL;
-
-	pthread_mutex_lock(&mMutex);
-	OutputPort *port = getOutputPort(media);
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
-		return -ENOENT;
-	}
-
-	bool found = false;
-	std::vector<CodedChannel *>::iterator c = port->channels.begin();
-
-	while (c != port->channels.end()) {
-		if ((*c)->getKey() != key) {
-			c++;
-			continue;
-		}
-		found = true;
-		(*c)->setSourceListener(nullptr);
-		port->channels.erase(c);
-		break;
-	}
-
-	pthread_mutex_unlock(&mMutex);
-	if (!found)
-		return -ENOENT;
-
-	ULOGI("%s: unlink media name=%s (channel key=%p)",
-	      getName().c_str(),
-	      media->getName().c_str(),
-	      key);
-	return 0;
-}
-
-
-int CodedSource::sendDownstreamEvent(CodedVideoMedia *media,
-				     CodedChannel::DownstreamEvent event)
-{
-	int ret;
-	unsigned int outputChannelCount, i;
-	CodedChannel *channel;
-
-	if (media == nullptr)
-		return -EINVAL;
-
-	pthread_mutex_lock(&mMutex);
-
-	/* Send the event downstream */
-	outputChannelCount = getOutputChannelCount(media);
-	for (i = 0; i < outputChannelCount; i++) {
-		channel = getOutputChannel(media, i);
-		if (channel == nullptr) {
-			ULOGW("invalid channel");
-			continue;
-		}
-		ret = channel->sendDownstreamEvent(event);
-		if (ret < 0)
-			ULOG_ERRNO("channel->sendDownstreamEvent", -ret);
-	}
-
-	pthread_mutex_unlock(&mMutex);
-
-	return 0;
-}
-
-
-void CodedSource::onChannelUnlink(CodedChannel *channel)
-{
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
-	if (media == nullptr) {
-		ULOGE("media not found");
-		return;
-	}
-
-	int ret = removeOutputChannel(media, channel->getKey());
-	if (ret < 0)
-		ULOG_ERRNO("removeOutputChannel", -ret);
-}
-
-
-void CodedSource::onChannelFlushed(CodedChannel *channel)
-{
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
-	if (media == nullptr) {
-		ULOGE("media not found");
-		return;
-	}
-	ULOGD("%s: channel flushed media name=%s (channel key=%p)",
-	      getName().c_str(),
-	      media->getName().c_str(),
-	      channel->getKey());
-
-	/* Nothing to do here, the function should be
-	 * overloaded by sub-classes */
-}
-
-
-void CodedSource::onChannelResync(CodedChannel *channel)
-{
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
-	if (media == nullptr) {
-		ULOGE("media not found");
-		return;
-	}
-	ULOGD("%s: channel resync media name=%s (channel key=%p)",
-	      getName().c_str(),
-	      media->getName().c_str(),
-	      channel->getKey());
-
-	/* Nothing to do here, the function should be
-	 * overloaded by sub-classes */
-}
-
-
-void CodedSource::onChannelVideoPresStats(CodedChannel *channel,
-					  VideoPresStats *stats)
-{
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
-	if (media == nullptr) {
-		ULOGE("media not found");
-		return;
-	}
-	ULOGD("%s: channel video stats media name=%s (channel key=%p)",
-	      getName().c_str(),
-	      media->getName().c_str(),
-	      channel->getKey());
-
-	/* Nothing to do here, the function should be
-	 * overloaded by sub-classes */
-}
-
-
-void CodedSource::onChannelUpstreamEvent(CodedChannel *channel,
-					 const struct pomp_msg *event)
-{
-	VideoPresStats stats;
-	int err;
-
-	ULOGD("%s: channel upstream event %s",
-	      getName().c_str(),
-	      CodedChannel::getUpstreamEventStr(
-		      (CodedChannel::UpstreamEvent)pomp_msg_get_id(event)));
-
-	switch (pomp_msg_get_id(event)) {
-	case CodedChannel::UpstreamEvent::UNLINK:
-		onChannelUnlink(channel);
-		break;
-	case CodedChannel::UpstreamEvent::FLUSHED:
-		onChannelFlushed(channel);
-		break;
-	case CodedChannel::UpstreamEvent::RESYNC:
-		onChannelResync(channel);
-		break;
-	case CodedChannel::UpstreamEvent::VIDEO_PRES_STATS:
-		err = stats.readMsg(event);
-		if (err < 0)
-			ULOG_ERRNO("stats.readMsg", -err);
-		else
-			onChannelVideoPresStats(channel, &stats);
-		break;
-	default:
-		ULOG_ERRNO("event id %d", ENOSYS, pomp_msg_get_id(event));
-		break;
-	}
 }
 
 } /* namespace Pdraw */

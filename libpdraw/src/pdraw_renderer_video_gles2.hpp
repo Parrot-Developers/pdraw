@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * OpenGL ES 2.0 renderer
+ * OpenGL ES 2.0 video renderer
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,30 +28,30 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_GLES2_HPP_
-#define _PDRAW_RENDERER_GLES2_HPP_
+#ifndef _PDRAW_RENDERER_VIDEO_GLES2_HPP_
+#define _PDRAW_RENDERER_VIDEO_GLES2_HPP_
 
 #ifdef USE_GLES2
 
 #	include "pdraw_gles2_hmd.hpp"
 #	include "pdraw_gles2_video.hpp"
-#	include "pdraw_renderer.hpp"
+#	include "pdraw_renderer_video.hpp"
 #	include <atomic>
 
 namespace Pdraw {
 
-class Gles2Renderer : public Renderer {
+class Gles2VideoRenderer : public VideoRenderer {
 public:
-	Gles2Renderer(Session *session,
-		      Element::Listener *listener,
-		      IPdraw::IVideoRenderer *renderer,
-		      IPdraw::IVideoRenderer::Listener *rndListener,
-		      unsigned int mediaId,
-		      const struct pdraw_rect *renderPos,
-		      const struct pdraw_video_renderer_params *params,
-		      struct egl_display *eglDisplay);
+	Gles2VideoRenderer(Session *session,
+			   Element::Listener *listener,
+			   IPdraw::IVideoRenderer *renderer,
+			   IPdraw::IVideoRenderer::Listener *rndListener,
+			   unsigned int mediaId,
+			   const struct pdraw_rect *renderPos,
+			   const struct pdraw_video_renderer_params *params,
+			   struct egl_display *eglDisplay);
 
-	~Gles2Renderer(void);
+	~Gles2VideoRenderer(void);
 
 	int start(void);
 
@@ -72,9 +72,9 @@ public:
 
 	int getParams(struct pdraw_video_renderer_params *params);
 
-	int addInputMedia(RawVideoMedia *media);
+	int addInputMedia(Media *media);
 
-	int removeInputMedia(RawVideoMedia *media);
+	int removeInputMedia(Media *media);
 
 	int removeInputMedias(void);
 
@@ -102,17 +102,17 @@ protected:
 
 	int stopExtLoad(void);
 
-	void onChannelFlush(RawChannel *channel);
+	void onChannelFlush(Channel *channel);
 
-	void onChannelSos(RawChannel *channel);
+	void onChannelSos(Channel *channel);
 
-	void onChannelEos(RawChannel *channel);
+	void onChannelEos(Channel *channel);
 
-	void onChannelReconfigure(RawChannel *channel);
+	void onChannelReconfigure(Channel *channel);
 
-	void onChannelTimeout(RawChannel *channel);
+	void onChannelTimeout(Channel *channel);
 
-	void onChannelPhotoTrigger(RawChannel *channel);
+	void onChannelPhotoTrigger(Channel *channel);
 
 	int doTransition(uint64_t timestamp, bool frameReady, bool *loadFrame);
 
@@ -240,4 +240,4 @@ private:
 
 #endif /* USE_GLES2 */
 
-#endif /* !_PDRAW_RENDERER_GLES2_HPP_ */
+#endif /* !_PDRAW_RENDERER_VIDEO_GLES2_HPP_ */

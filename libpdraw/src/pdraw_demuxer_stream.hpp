@@ -54,7 +54,7 @@ class StreamDemuxer : public Demuxer {
 public:
 	StreamDemuxer(Session *session,
 		      Element::Listener *elementListener,
-		      CodedSource::Listener *sourceListener,
+		      Source::Listener *sourceListener,
 		      IPdraw::IDemuxer *demuxer,
 		      IPdraw::IDemuxer::Listener *demuxerListener);
 
@@ -94,7 +94,7 @@ protected:
 
 		virtual ~VideoMedia(void);
 
-		bool hasMedia(CodedVideoMedia *media);
+		bool hasMedia(Media *media);
 
 		int setup(const struct sdp_media *media);
 
@@ -161,15 +161,15 @@ protected:
 
 		void flush(void);
 
-		void channelFlushed(CodedChannel *channel);
+		void channelFlushed(Channel *channel);
 
-		void channelUnlink(CodedChannel *channel);
+		void channelUnlink(Channel *channel);
 
-		void sendDownstreamEvent(CodedChannel::DownstreamEvent event);
+		void sendDownstreamEvent(Channel::DownstreamEvent event);
 
 		int processFrame(struct vstrm_frame *frame);
 
-		void channelSendVideoPresStats(CodedChannel *channel,
+		void channelSendVideoPresStats(Channel *channel,
 					       VideoPresStats *stats);
 
 		static void
@@ -323,14 +323,13 @@ private:
 
 	static void completeTeardownAsync(void *userdata);
 
-	void onChannelFlushed(CodedChannel *channel);
+	void onChannelFlushed(Channel *channel);
 
-	void onChannelUnlink(CodedChannel *channel);
+	void onChannelUnlink(Channel *channel);
 
-	void onChannelResync(CodedChannel *channel);
+	void onChannelResync(Channel *channel);
 
-	void onChannelVideoPresStats(CodedChannel *channel,
-				     VideoPresStats *stats);
+	void onChannelVideoPresStats(Channel *channel, VideoPresStats *stats);
 
 	void onNewSdp(const char *content_base, const char *sdp);
 

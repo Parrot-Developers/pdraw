@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Broadcom VideoCore 4 EGL renderer
+ * Broadcom VideoCore 4 EGL video renderer
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,32 +28,33 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_VIDEOCOREEGL_HPP_
-#define _PDRAW_RENDERER_VIDEOCOREEGL_HPP_
+#ifndef _PDRAW_RENDERER_VIDEO_VIDEOCOREEGL_HPP_
+#define _PDRAW_RENDERER_VIDEO_VIDEOCOREEGL_HPP_
 
 #ifdef USE_VIDEOCOREEGL
 
 #	include "pdraw_gles2_hmd.hpp"
 #	include "pdraw_gles2_video.hpp"
-#	include "pdraw_renderer_gles2.hpp"
+#	include "pdraw_renderer_video_gles2.hpp"
 
 #	include <EGL/egl.h>
 
 namespace Pdraw {
 
 
-class VideoCoreEglRenderer : public Gles2Renderer {
+class VideoCoreEglVideoRenderer : public Gles2VideoRenderer {
 public:
-	VideoCoreEglRenderer(Session *session,
-			     Element::Listener *listener,
-			     IPdraw::IVideoRenderer *renderer,
-			     IPdraw::IVideoRenderer::Listener *rndListener,
-			     unsigned int mediaId,
-			     const struct pdraw_rect *renderPos,
-			     const struct pdraw_video_renderer_params *params,
-			     struct egl_display *eglDisplay);
+	VideoCoreEglVideoRenderer(
+		Session *session,
+		Element::Listener *listener,
+		IPdraw::IVideoRenderer *renderer,
+		IPdraw::IVideoRenderer::Listener *rndListener,
+		unsigned int mediaId,
+		const struct pdraw_rect *renderPos,
+		const struct pdraw_video_renderer_params *params,
+		struct egl_display *eglDisplay);
 
-	~VideoCoreEglRenderer(void);
+	~VideoCoreEglVideoRenderer(void);
 
 private:
 	int setup(const struct pdraw_rect *renderPos,
@@ -83,4 +84,4 @@ private:
 
 #endif /* USE_VIDEOCOREEGL */
 
-#endif /* !_PDRAW_RENDERER_VIDEOCOREEGL_HPP_ */
+#endif /* !_PDRAW_RENDERER_VIDEO_VIDEOCOREEGL_HPP_ */

@@ -17,11 +17,14 @@ LOCAL_EXPORT_CXXFLAGS := -std=c++11
 LOCAL_CFLAGS := -DPDRAW_API_EXPORTS -fvisibility=hidden -D_USE_MATH_DEFINES -D_GNU_SOURCE
 
 LOCAL_SRC_FILES := \
+	src/pdraw_channel.cpp \
 	src/pdraw_channel_coded_video.cpp \
 	src/pdraw_channel_raw_video.cpp \
 	src/pdraw_decoder_video.cpp \
 	src/pdraw_demuxer.cpp \
 	src/pdraw_demuxer_record.cpp \
+	src/pdraw_demuxer_record_coded_video_media.cpp \
+	src/pdraw_demuxer_record_raw_video_media.cpp \
 	src/pdraw_demuxer_stream_mux.cpp \
 	src/pdraw_demuxer_stream_net.cpp \
 	src/pdraw_demuxer_stream.cpp \
@@ -43,16 +46,14 @@ LOCAL_SRC_FILES := \
 	src/pdraw_muxer_record.cpp \
 	src/pdraw_muxer_stream_rtmp.cpp \
 	src/pdraw_muxer.cpp \
-	src/pdraw_renderer_gles2.cpp \
-	src/pdraw_renderer_videocoreegl.cpp \
-	src/pdraw_renderer.cpp \
+	src/pdraw_renderer_video_gles2.cpp \
+	src/pdraw_renderer_video_videocoreegl.cpp \
+	src/pdraw_renderer_video.cpp \
 	src/pdraw_scaler_video.cpp \
 	src/pdraw_session.cpp \
 	src/pdraw_settings.cpp \
-	src/pdraw_sink_coded_video.cpp \
-	src/pdraw_sink_raw_video.cpp \
-	src/pdraw_source_coded_video.cpp \
-	src/pdraw_source_raw_video.cpp \
+	src/pdraw_sink.cpp \
+	src/pdraw_source.cpp \
 	src/pdraw_utils.cpp \
 	src/pdraw_video_pres_stats.cpp \
 	src/pdraw_wrapper.cpp

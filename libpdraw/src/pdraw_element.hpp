@@ -31,13 +31,8 @@
 #ifndef _PDRAW_ELEMENT_HPP_
 #define _PDRAW_ELEMENT_HPP_
 
-#include "pdraw_channel_coded_video.hpp"
-#include "pdraw_channel_raw_video.hpp"
-#include "pdraw_media.hpp"
-#include "pdraw_sink_coded_video.hpp"
-#include "pdraw_sink_raw_video.hpp"
-#include "pdraw_source_coded_video.hpp"
-#include "pdraw_source_raw_video.hpp"
+#include "pdraw_sink.hpp"
+#include "pdraw_source.hpp"
 #include "pdraw_utils.hpp"
 
 #include <errno.h>
@@ -53,8 +48,6 @@ class Session;
 
 class Element : public Loggable {
 public:
-	friend class Session;
-
 	enum State {
 		INVALID,
 		CREATED,
@@ -111,20 +104,18 @@ protected:
 };
 
 
-class CodedSourceElement : public Element, public CodedSource {
+class SourceElement : public Element, public Source {
 public:
-	friend class Session;
-
-	CodedSourceElement(Session *session,
-			   Element::Listener *listener,
-			   unsigned int maxOutputMedias,
-			   CodedSource::Listener *sourceListener) :
+	SourceElement(Session *session,
+		      Element::Listener *listener,
+		      unsigned int maxOutputMedias,
+		      Source::Listener *sourceListener) :
 			Element(session, listener),
-			CodedSource(maxOutputMedias, sourceListener)
+			Source(maxOutputMedias, sourceListener)
 	{
 	}
 
-	virtual ~CodedSourceElement(void) {}
+	virtual ~SourceElement(void) {}
 
 protected:
 	std::string &getName(void)
@@ -134,20 +125,25 @@ protected:
 };
 
 
-class RawSourceElement : public Element, public RawSource {
+class SinkElement : public Element, public Sink {
 public:
-	friend class Session;
-
-	RawSourceElement(Session *session,
-			 Element::Listener *listener,
-			 unsigned int maxOutputMedias,
-			 RawSource::Listener *sourceListener) :
+	SinkElement(Session *session,
+		    Element::Listener *listener,
+		    unsigned int maxInputMedias,
+		    const struct vdef_coded_format *codedVideoMediaFormatCaps,
+		    int codedVideoMediaFormatCapsCount,
+		    const struct vdef_raw_format *rawVideoMediaFormatCaps,
+		    int rawVideoMediaFormatCapsCount) :
 			Element(session, listener),
-			RawSource(maxOutputMedias, sourceListener)
+			Sink(maxInputMedias,
+			     codedVideoMediaFormatCaps,
+			     codedVideoMediaFormatCapsCount,
+			     rawVideoMediaFormatCaps,
+			     rawVideoMediaFormatCapsCount)
 	{
 	}
 
-	virtual ~RawSourceElement(void) {}
+	virtual ~SinkElement(void) {}
 
 protected:
 	std::string &getName(void)
@@ -157,82 +153,28 @@ protected:
 };
 
 
-class CodedSinkElement : public Element, public CodedSink {
+class FilterElement : public Element, public Sink, public Source {
 public:
-	friend class Session;
-
-	CodedSinkElement(
-		Session *session,
-		Element::Listener *listener,
-		unsigned int maxInputMedias,
-		const struct vdef_coded_format *codedVideoMediaFormatCaps,
-		int codedVideoMediaFormatCapsCount) :
+	FilterElement(Session *session,
+		      Element::Listener *listener,
+		      unsigned int maxInputMedias,
+		      const struct vdef_coded_format *codedVideoMediaFormatCaps,
+		      int codedVideoMediaFormatCapsCount,
+		      const struct vdef_raw_format *rawVideoMediaFormatCaps,
+		      int rawVideoMediaFormatCapsCount,
+		      unsigned int maxOutputMedias,
+		      Source::Listener *sourceListener) :
 			Element(session, listener),
-			CodedSink(maxInputMedias,
-				  codedVideoMediaFormatCaps,
-				  codedVideoMediaFormatCapsCount)
+			Sink(maxInputMedias,
+			     codedVideoMediaFormatCaps,
+			     codedVideoMediaFormatCapsCount,
+			     rawVideoMediaFormatCaps,
+			     rawVideoMediaFormatCapsCount),
+			Source(maxOutputMedias, sourceListener)
 	{
 	}
 
-	virtual ~CodedSinkElement(void) {}
-
-protected:
-	std::string &getName(void)
-	{
-		return Element::getName();
-	}
-};
-
-
-class RawSinkElement : public Element, public RawSink {
-public:
-	friend class Session;
-
-	RawSinkElement(Session *session,
-		       Element::Listener *listener,
-		       unsigned int maxInputMedias,
-		       const struct vdef_raw_format *rawVideoMediaFormatCaps,
-		       int rawVideoMediaFormatCapsCount) :
-			Element(session, listener),
-			RawSink(maxInputMedias,
-				rawVideoMediaFormatCaps,
-				rawVideoMediaFormatCapsCount)
-	{
-	}
-
-	virtual ~RawSinkElement(void) {}
-
-protected:
-	std::string &getName(void)
-	{
-		return Element::getName();
-	}
-};
-
-
-class CodedToRawFilterElement : public Element,
-				public CodedSink,
-				public RawSource {
-public:
-	friend class Session;
-
-	CodedToRawFilterElement(
-		Session *session,
-		Element::Listener *listener,
-		unsigned int maxInputMedias,
-		const struct vdef_coded_format *codedVideoMediaFormatCaps,
-		int codedVideoMediaFormatCapsCount,
-		unsigned int maxOutputMedias,
-		RawSource::Listener *sourceListener) :
-			Element(session, listener),
-			CodedSink(maxInputMedias,
-				  codedVideoMediaFormatCaps,
-				  codedVideoMediaFormatCapsCount),
-			RawSource(maxOutputMedias, sourceListener)
-	{
-	}
-
-	virtual ~CodedToRawFilterElement(void) {}
+	virtual ~FilterElement(void) {}
 
 protected:
 	std::string &getName(void)
@@ -240,105 +182,17 @@ protected:
 		return Element::getName();
 	}
 
-	virtual void onChannelSos(CodedChannel *channel);
+	virtual void onChannelSos(Channel *channel);
 
-	virtual void onChannelEos(CodedChannel *channel);
+	virtual void onChannelEos(Channel *channel);
 
-	virtual void onChannelReconfigure(CodedChannel *channel);
+	virtual void onChannelReconfigure(Channel *channel);
 
-	virtual void onChannelTimeout(CodedChannel *channel);
+	virtual void onChannelTimeout(Channel *channel);
 
-	virtual void onChannelPhotoTrigger(CodedChannel *channel);
+	virtual void onChannelPhotoTrigger(Channel *channel);
 
-	virtual void onChannelVideoPresStats(RawChannel *channel,
-					     VideoPresStats *stats);
-};
-
-
-class RawToCodedFilterElement : public Element,
-				public RawSink,
-				public CodedSource {
-public:
-	friend class Session;
-
-	RawToCodedFilterElement(
-		Session *session,
-		Element::Listener *listener,
-		unsigned int maxInputMedias,
-		const struct vdef_raw_format *rawVideoMediaFormatCaps,
-		int rawVideoMediaFormatCapsCount,
-		unsigned int maxOutputMedias,
-		CodedSource::Listener *sourceListener) :
-			Element(session, listener),
-			RawSink(maxInputMedias,
-				rawVideoMediaFormatCaps,
-				rawVideoMediaFormatCapsCount),
-			CodedSource(maxOutputMedias, sourceListener)
-	{
-	}
-
-	virtual ~RawToCodedFilterElement(void) {}
-
-protected:
-	std::string &getName(void)
-	{
-		return Element::getName();
-	}
-
-	virtual void onChannelSos(RawChannel *channel);
-
-	virtual void onChannelEos(RawChannel *channel);
-
-	virtual void onChannelReconfigure(RawChannel *channel);
-
-	virtual void onChannelTimeout(RawChannel *channel);
-
-	virtual void onChannelPhotoTrigger(RawChannel *channel);
-
-	virtual void onChannelVideoPresStats(CodedChannel *channel,
-					     VideoPresStats *stats);
-};
-
-
-class RawToRawFilterElement : public Element, public RawSink, public RawSource {
-public:
-	friend class Session;
-
-	RawToRawFilterElement(
-		Session *session,
-		Element::Listener *listener,
-		unsigned int maxInputMedias,
-		const struct vdef_raw_format *rawVideoMediaFormatCaps,
-		int rawVideoMediaFormatCapsCount,
-		unsigned int maxOutputMedias,
-		RawSource::Listener *sourceListener) :
-			Element(session, listener),
-			RawSink(maxInputMedias,
-				rawVideoMediaFormatCaps,
-				rawVideoMediaFormatCapsCount),
-			RawSource(maxOutputMedias, sourceListener)
-	{
-	}
-
-	virtual ~RawToRawFilterElement(void) {}
-
-protected:
-	std::string &getName(void)
-	{
-		return Element::getName();
-	}
-
-	virtual void onChannelSos(RawChannel *channel);
-
-	virtual void onChannelEos(RawChannel *channel);
-
-	virtual void onChannelReconfigure(RawChannel *channel);
-
-	virtual void onChannelTimeout(RawChannel *channel);
-
-	virtual void onChannelPhotoTrigger(RawChannel *channel);
-
-	virtual void onChannelVideoPresStats(RawChannel *channel,
+	virtual void onChannelVideoPresStats(Channel *channel,
 					     VideoPresStats *stats);
 };
 

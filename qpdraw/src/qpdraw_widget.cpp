@@ -34,18 +34,25 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
+
+#include <futils/futils.h>
+
+
+/* Default rendering framerate of the widget (Hz) */
+#define QPDRAW_WIDGET_DEFAULT_FRAMERATE 30.
+/* Minimum interval before the next rendering of the widget (msec) */
+#define QPDRAW_WIDGET_MIN_RENDER_INTERVAL_MS 5
+
+
 namespace QPdraw {
 namespace Internal {
 
 
 QPdrawWidgetPriv::QPdrawWidgetPriv(QPdrawWidget *parent) :
-		mParent(parent), mPdraw(nullptr), mRenderer(nullptr)
+		mParent(parent), mPdraw(nullptr), mRenderer(nullptr),
+		mTimer(nullptr), mFramerate(QPDRAW_WIDGET_DEFAULT_FRAMERATE),
+		mPrevRenderTs(UINT64_MAX), mNextRenderExpectedTs(UINT64_MAX)
 {
-	connect(this,
-		&QPdrawWidgetPriv::onRenderReady,
-		this,
-		&QPdrawWidgetPriv::renderReady,
-		Qt::QueuedConnection);
 }
 
 
@@ -60,16 +67,75 @@ void QPdrawWidgetPriv::start(QPdraw *pdraw,
 			     const struct pdraw_rect *renderPos,
 			     const struct pdraw_video_renderer_params *params)
 {
+	ULOG_ERRNO_RETURN_IF(mParent == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_IF(mPdraw != nullptr, EBUSY);
 
 	IPdraw *pdrawInternal =
 		reinterpret_cast<IPdraw *>(pdraw->getInternal());
 	ULOG_ERRNO_RETURN_IF(pdrawInternal == nullptr, EPROTO);
 
+	mTimer = new QTimer();
+	ULOG_ERRNO_RETURN_IF(mTimer == nullptr, EPROTO);
+
 	int res = pdrawInternal->createVideoRenderer(
 		mediaId, renderPos, params, this, &mRenderer);
 	if (res == 0)
 		mPdraw = pdraw;
+
+	connect(mTimer, SIGNAL(timeout()), this, SLOT(update()));
+
+	mTimer->setTimerType(Qt::PreciseTimer);
+	/* Start rendering ASAP */
+	mTimer->start(0);
+}
+
+
+void QPdrawWidgetPriv::update(void)
+{
+	int res;
+	struct timespec ts = {0, 0};
+	uint64_t curTimeUs;
+	int64_t renderPeriodUs = 1000000. / mFramerate;
+
+	ULOG_ERRNO_RETURN_IF(mTimer == nullptr, EINVAL);
+
+	res = time_get_monotonic(&ts);
+	ULOG_ERRNO_RETURN_IF(res < 0, -res);
+	res = time_timespec_to_us(&ts, &curTimeUs);
+	ULOG_ERRNO_RETURN_IF(res < 0, -res);
+
+	/* First iteration */
+	if (mNextRenderExpectedTs == UINT64_MAX)
+		mNextRenderExpectedTs = curTimeUs;
+	/* First iteration: assume that previous render was as expected */
+	if (mPrevRenderTs == UINT64_MAX)
+		mPrevRenderTs = curTimeUs - renderPeriodUs;
+
+	int64_t prevIntervalUs = (int64_t)curTimeUs - (int64_t)mPrevRenderTs;
+	int64_t renderErrorUs =
+		(int64_t)curTimeUs - (int64_t)mNextRenderExpectedTs;
+	int64_t nextIntervalMs = (renderPeriodUs - renderErrorUs) / 1000.;
+
+	/* Filter-out negative and too small interval */
+	if (nextIntervalMs < QPDRAW_WIDGET_MIN_RENDER_INTERVAL_MS)
+		nextIntervalMs = QPDRAW_WIDGET_MIN_RENDER_INTERVAL_MS;
+
+	if (mNextRenderExpectedTs != UINT64_MAX) {
+		ULOGD("prevInterval: %.2fms, nextInterval: %" PRId64
+		      ", error: %.2fms",
+		      (float)prevIntervalUs / 1000.,
+		      nextIntervalMs,
+		      (float)renderErrorUs / 1000.);
+	}
+
+	/* Update widget (will trigger rendering) */
+	mParent->update();
+
+	/* Schedule next rendering */
+	mTimer->setInterval(nextIntervalMs);
+
+	mNextRenderExpectedTs += renderPeriodUs;
+	mPrevRenderTs = curTimeUs;
 }
 
 
@@ -78,9 +144,34 @@ void QPdrawWidgetPriv::stop()
 	if (mPdraw == nullptr)
 		return;
 
-	delete mRenderer;
-	mRenderer = nullptr;
+	if (mTimer != nullptr) {
+		disconnect(mTimer, SIGNAL(timeout()), 0, 0);
+		mTimer->stop();
+		delete mTimer;
+		mTimer = nullptr;
+	}
+
+	if (mRenderer != nullptr) {
+		delete mRenderer;
+		mRenderer = nullptr;
+	}
 	mPdraw = nullptr;
+}
+
+
+void QPdrawWidgetPriv::setFramerate(float framerate)
+{
+	if (mFramerate == framerate)
+		return;
+
+	mFramerate = framerate;
+
+	/* Reset values as framerate has changed */
+	mPrevRenderTs = UINT64_MAX;
+	mNextRenderExpectedTs = UINT64_MAX;
+
+	/* Note: no need to call setInterval, rendering interval
+	 * will dynamically be updated when scheduling the next rendering */
 }
 
 
@@ -126,6 +217,10 @@ void QPdrawWidgetPriv::onVideoRendererMediaAdded(
 	Q_UNUSED(pdraw);
 	Q_UNUSED(renderer);
 
+	/* Reset values as rendering will start */
+	mPrevRenderTs = UINT64_MAX;
+	mNextRenderExpectedTs = UINT64_MAX;
+
 	struct pdraw_media_info info_copy = *info;
 	emit mParent->mediaAdded(info_copy);
 }
@@ -149,8 +244,6 @@ void QPdrawWidgetPriv::onVideoRenderReady(IPdraw *pdraw,
 {
 	Q_UNUSED(pdraw);
 	Q_UNUSED(renderer);
-
-	emit onRenderReady();
 }
 
 
@@ -207,12 +300,6 @@ int QPdrawWidgetPriv::renderVideoOverlay(
 }
 
 
-void QPdrawWidgetPriv::renderReady()
-{
-	mParent->update();
-}
-
-
 } /* namespace Internal */
 
 
@@ -224,6 +311,7 @@ QPdrawWidget::QPdrawWidget(QWidget *parent) : QOpenGLWidget(parent)
 
 	QSurfaceFormat format;
 	format.setSwapBehavior(QSurfaceFormat::TripleBuffer);
+	format.setSwapInterval(1);
 
 	/* Must be called before the widget or its parent
 	 * window gets shown */
@@ -288,6 +376,12 @@ void QPdrawWidget::stop()
 	mPriv->stop();
 
 	doneCurrent();
+}
+
+
+void QPdrawWidget::setFramerate(float framerate)
+{
+	mPriv->setFramerate(framerate);
 }
 
 

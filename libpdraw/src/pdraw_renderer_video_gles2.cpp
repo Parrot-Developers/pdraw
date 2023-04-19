@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * OpenGL ES 2.0 renderer
+ * OpenGL ES 2.0 video renderer
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -32,7 +32,7 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
-#include "pdraw_renderer_gles2.hpp"
+#include "pdraw_renderer_video_gles2.hpp"
 #include "pdraw_session.hpp"
 #include "pdraw_settings.hpp"
 
@@ -63,38 +63,41 @@ namespace Pdraw {
 #	define GLES2_RENDERER_VIDEO_PRES_STATS_TIME_MS 200
 #	define GLES2_RENDERER_SCHED_ADAPTIVE_EPSILON_PERCENT 5
 
-#	define NB_SUPPORTED_FORMATS 4
+#	define NB_SUPPORTED_FORMATS 6
 static struct vdef_raw_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
 static void initializeSupportedFormats(void)
 {
 	supportedFormats[0] = vdef_i420;
 	supportedFormats[1] = vdef_nv12;
-	supportedFormats[2] = vdef_i420_10_16le;
-	supportedFormats[3] = vdef_nv12_10_16le_high;
+	supportedFormats[2] = vdef_nv21;
+	supportedFormats[3] = vdef_i420_10_16le;
+	supportedFormats[4] = vdef_nv12_10_16le_high;
+	supportedFormats[5] = vdef_gray;
 }
 
 
 /* Called on the rendering thread */
-Gles2Renderer::Gles2Renderer(Session *session,
-			     Element::Listener *listener,
-			     IPdraw::IVideoRenderer *renderer,
-			     IPdraw::IVideoRenderer::Listener *rndListener,
-			     unsigned int mediaId,
-			     const struct pdraw_rect *renderPos,
-			     const struct pdraw_video_renderer_params *params,
-			     struct egl_display *eglDisplay) :
-		Renderer(session,
-			 listener,
-			 renderer,
-			 rndListener,
-			 Media::Type::RAW_VIDEO,
-			 nullptr,
-			 0,
-			 mediaId,
-			 renderPos,
-			 params,
-			 eglDisplay)
+Gles2VideoRenderer::Gles2VideoRenderer(
+	Session *session,
+	Element::Listener *listener,
+	IPdraw::IVideoRenderer *renderer,
+	IPdraw::IVideoRenderer::Listener *rndListener,
+	unsigned int mediaId,
+	const struct pdraw_rect *renderPos,
+	const struct pdraw_video_renderer_params *params,
+	struct egl_display *eglDisplay) :
+		VideoRenderer(session,
+			      listener,
+			      renderer,
+			      rndListener,
+			      Media::Type::RAW_VIDEO,
+			      nullptr,
+			      0,
+			      mediaId,
+			      renderPos,
+			      params,
+			      eglDisplay)
 {
 	int ret;
 
@@ -181,7 +184,7 @@ Gles2Renderer::Gles2Renderer(Session *session,
 
 
 /* Must be called on the loop thread */
-Gles2Renderer::~Gles2Renderer(void)
+Gles2VideoRenderer::~Gles2VideoRenderer(void)
 {
 	int ret;
 
@@ -260,9 +263,9 @@ Gles2Renderer::~Gles2Renderer(void)
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::setup(const struct pdraw_rect *renderPos,
-			 const struct pdraw_video_renderer_params *params,
-			 struct egl_display *eglDisplay)
+int Gles2VideoRenderer::setup(const struct pdraw_rect *renderPos,
+			      const struct pdraw_video_renderer_params *params,
+			      struct egl_display *eglDisplay)
 {
 	int ret = 0;
 
@@ -309,7 +312,7 @@ out:
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::start(void)
+int Gles2VideoRenderer::start(void)
 {
 	if ((mState == STARTED) || (mState == STARTING)) {
 		return 0;
@@ -332,11 +335,12 @@ int Gles2Renderer::start(void)
 }
 
 /* Called on the loop thread by start() */
-void Gles2Renderer::idleStart(void *renderer)
+void Gles2VideoRenderer::idleStart(void *renderer)
 {
-	Gles2Renderer *self = reinterpret_cast<Gles2Renderer *>(renderer);
+	Gles2VideoRenderer *self =
+		reinterpret_cast<Gles2VideoRenderer *>(renderer);
 	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	int ret;
+	int err;
 
 	if (self->mState != STARTING) {
 		PDRAW_LOGE("renderer is not starting");
@@ -348,7 +352,7 @@ void Gles2Renderer::idleStart(void *renderer)
 			self->mSession->getLoop(), timerCb, self);
 		if (self->mTimer == nullptr) {
 			PDRAW_LOGE("pomp_timer_new failed");
-			goto err;
+			goto error;
 		}
 	}
 	if (self->mWatchdogTimer == nullptr) {
@@ -356,7 +360,7 @@ void Gles2Renderer::idleStart(void *renderer)
 			self->mSession->getLoop(), watchdogTimerCb, self);
 		if (self->mWatchdogTimer == nullptr) {
 			PDRAW_LOGE("pomp_timer_new failed");
-			goto err;
+			goto error;
 		}
 	}
 	if (self->mVideoPresStatsTimer == nullptr) {
@@ -364,16 +368,16 @@ void Gles2Renderer::idleStart(void *renderer)
 			self->mSession->getLoop(), videoPresStatsTimerCb, self);
 		if (self->mVideoPresStatsTimer == nullptr) {
 			PDRAW_LOGE("pomp_timer_new failed");
-			goto err;
+			goto error;
 		}
 	}
 
 	pthread_mutex_lock(&self->mListenerMutex);
 	if (self->mRendererListener != nullptr) {
-		ret = pomp_timer_set(self->mTimer,
+		err = pomp_timer_set(self->mTimer,
 				     GLES2_RENDERER_DEFAULT_DELAY_MS);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_set", -ret);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 	}
 	pthread_mutex_unlock(&self->mListenerMutex);
 
@@ -381,39 +385,39 @@ void Gles2Renderer::idleStart(void *renderer)
 	self->setState(STARTED);
 	return;
 
-err:
+error:
 	if (self->mTimer != nullptr) {
-		ret = pomp_timer_clear(self->mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(self->mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
+		err = pomp_timer_clear(self->mTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+		err = pomp_timer_destroy(self->mTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
 		self->mTimer = nullptr;
 	}
 	if (self->mWatchdogTimer != nullptr) {
-		ret = pomp_timer_clear(self->mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(self->mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
+		err = pomp_timer_clear(self->mWatchdogTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+		err = pomp_timer_destroy(self->mWatchdogTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
 		self->mWatchdogTimer = nullptr;
 	}
 	if (self->mVideoPresStatsTimer != nullptr) {
-		ret = pomp_timer_clear(self->mVideoPresStatsTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(self->mVideoPresStatsTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
+		err = pomp_timer_clear(self->mVideoPresStatsTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+		err = pomp_timer_destroy(self->mVideoPresStatsTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
 		self->mVideoPresStatsTimer = nullptr;
 	}
 }
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::stop(void)
+int Gles2VideoRenderer::stop(void)
 {
 	int ret;
 
@@ -454,7 +458,7 @@ int Gles2Renderer::stop(void)
 
 
 /* Called on the loop thread */
-void Gles2Renderer::completeStop(void)
+void Gles2VideoRenderer::completeStop(void)
 {
 	int ret;
 
@@ -486,10 +490,10 @@ void Gles2Renderer::completeStop(void)
 
 
 /* Called on the loop thread */
-void Gles2Renderer::queueEventCb(struct pomp_evt *evt, void *userdata)
+void Gles2VideoRenderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 {
-	Gles2Renderer *self = (Gles2Renderer *)userdata;
-	int res = 0;
+	Gles2VideoRenderer *self = (Gles2VideoRenderer *)userdata;
+	int err = 0;
 	uint32_t delayMs;
 	uint64_t delayUs = 0;
 
@@ -501,31 +505,31 @@ void Gles2Renderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 	if ((!self->mRunning) || (self->mState != STARTED))
 		return;
 
-	self->RawSink::lock();
+	self->Sink::lock();
 
 	if (self->mLastAddedMedia == nullptr) {
 		/* No current media */
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		return;
 	}
 
 	struct mbuf_raw_video_frame_queue *queue =
 		self->getLastAddedMediaQueue();
 	if (queue == nullptr) {
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		return;
 	}
 
 	uint64_t curTime = 0;
 	struct timespec ts = {0, 0};
-	res = time_get_monotonic(&ts);
-	if (res < 0)
-		PDRAW_LOG_ERRNO("time_get_monotonic", -res);
-	res = time_timespec_to_us(&ts, &curTime);
-	if (res < 0)
-		PDRAW_LOG_ERRNO("time_timespec_to_us", -res);
+	err = time_get_monotonic(&ts);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("time_get_monotonic", -err);
+	err = time_timespec_to_us(&ts, &curTime);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("time_timespec_to_us", -err);
 
-	res = self->getNextFrameDelay(queue,
+	err = self->getNextFrameDelay(queue,
 				      curTime,
 				      false,
 				      nullptr,
@@ -534,13 +538,13 @@ void Gles2Renderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 				      nullptr,
 				      nullptr,
 				      0);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("getNextFrameDelay", -res);
-		self->RawSink::unlock();
+	if (err < 0) {
+		PDRAW_LOG_ERRNO("getNextFrameDelay", -err);
+		self->Sink::unlock();
 		return;
 	}
 
-	self->RawSink::unlock();
+	self->Sink::unlock();
 
 	pthread_mutex_lock(&self->mListenerMutex);
 	if (self->mRendererListener && !self->mRenderReadyScheduled) {
@@ -556,9 +560,9 @@ void Gles2Renderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 			 * delayed frame and not the renderer keepalive timer */
 			self->mRenderReadyScheduled = true;
 		}
-		res = pomp_timer_set(self->mTimer, delayMs);
-		if (res < 0) {
-			PDRAW_LOG_ERRNO("pomp_timer_set", -res);
+		err = pomp_timer_set(self->mTimer, delayMs);
+		if (err < 0) {
+			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 			self->mRenderReadyScheduled = false;
 		}
 	}
@@ -567,11 +571,15 @@ void Gles2Renderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 
 
 /* Called on the loop thread */
-void Gles2Renderer::timerCb(struct pomp_timer *timer, void *userdata)
+void Gles2VideoRenderer::timerCb(struct pomp_timer *timer, void *userdata)
 {
-	Gles2Renderer *self = (Gles2Renderer *)userdata;
-	int res;
+	Gles2VideoRenderer *self = (Gles2VideoRenderer *)userdata;
+	int err;
+	bool sinkLocked = false;
+	struct mbuf_raw_video_frame_queue *queue = NULL;
+	struct timespec ts = {0, 0};
 	uint32_t delayMs;
+	uint64_t curTime = 0;
 	uint64_t delayUs = 0;
 
 	if (self == nullptr) {
@@ -580,33 +588,32 @@ void Gles2Renderer::timerCb(struct pomp_timer *timer, void *userdata)
 	}
 
 	if ((!self->mRunning) || (self->mState != STARTED))
-		return;
+		goto out;
 
-	self->RawSink::lock();
+	self->Sink::lock();
+	sinkLocked = true;
 
 	if (self->mLastAddedMedia == nullptr) {
 		/* No current media */
-		self->RawSink::unlock();
-		return;
+		goto out;
 	}
 
-	struct mbuf_raw_video_frame_queue *queue =
-		self->getLastAddedMediaQueue();
-	if (queue == nullptr) {
-		self->RawSink::unlock();
-		return;
+	queue = self->getLastAddedMediaQueue();
+	if (queue == nullptr)
+		goto out;
+
+	err = time_get_monotonic(&ts);
+	if (err < 0) {
+		PDRAW_LOG_ERRNO("time_get_monotonic", -err);
+		goto out;
+	}
+	err = time_timespec_to_us(&ts, &curTime);
+	if (err < 0) {
+		PDRAW_LOG_ERRNO("time_timespec_to_us", -err);
+		goto out;
 	}
 
-	uint64_t curTime = 0;
-	struct timespec ts = {0, 0};
-	res = time_get_monotonic(&ts);
-	if (res < 0)
-		PDRAW_LOG_ERRNO("time_get_monotonic", -res);
-	res = time_timespec_to_us(&ts, &curTime);
-	if (res < 0)
-		PDRAW_LOG_ERRNO("time_timespec_to_us", -res);
-
-	res = self->getNextFrameDelay(queue,
+	err = self->getNextFrameDelay(queue,
 				      curTime,
 				      false,
 				      nullptr,
@@ -615,33 +622,39 @@ void Gles2Renderer::timerCb(struct pomp_timer *timer, void *userdata)
 				      nullptr,
 				      nullptr,
 				      0);
-	if ((res < 0) && (res != -EAGAIN)) {
-		PDRAW_LOG_ERRNO("getNextFrameDelay", -res);
-		self->RawSink::unlock();
-		return;
+	if ((err < 0) && (err != -EAGAIN)) {
+		PDRAW_LOG_ERRNO("getNextFrameDelay", -err);
+		goto out;
 	}
 
-	self->RawSink::unlock();
+	self->Sink::unlock();
+	sinkLocked = false;
 
 	pthread_mutex_lock(&self->mListenerMutex);
 	if (self->mRendererListener) {
 		delayMs = (delayUs + 500) / 1000;
 		self->mRendererListener->onVideoRenderReady(self->mSession,
 							    self->mRenderer);
-		if ((res == -EAGAIN) || (delayMs == 0))
+		if ((err == -EAGAIN) || (delayMs == 0))
 			delayMs = GLES2_RENDERER_DEFAULT_DELAY_MS;
-		res = pomp_timer_set(self->mTimer, delayMs);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_set", -res);
+		err = pomp_timer_set(self->mTimer, delayMs);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 	}
 	pthread_mutex_unlock(&self->mListenerMutex);
+
+out:
+	self->mRenderReadyScheduled = false;
+	if (sinkLocked)
+		self->Sink::unlock();
 }
 
 
 /* Called on the loop thread */
-void Gles2Renderer::watchdogTimerCb(struct pomp_timer *timer, void *userdata)
+void Gles2VideoRenderer::watchdogTimerCb(struct pomp_timer *timer,
+					 void *userdata)
 {
-	Gles2Renderer *self = (Gles2Renderer *)userdata;
+	Gles2VideoRenderer *self = (Gles2VideoRenderer *)userdata;
 
 	if ((!self->mRunning) || (self->mState != STARTED))
 		return;
@@ -655,24 +668,24 @@ void Gles2Renderer::watchdogTimerCb(struct pomp_timer *timer, void *userdata)
 
 
 /* Called on the loop thread */
-void Gles2Renderer::videoPresStatsTimerCb(struct pomp_timer *timer,
-					  void *userdata)
+void Gles2VideoRenderer::videoPresStatsTimerCb(struct pomp_timer *timer,
+					       void *userdata)
 {
-	Gles2Renderer *self = (Gles2Renderer *)userdata;
+	Gles2VideoRenderer *self = (Gles2VideoRenderer *)userdata;
 
 	if ((!self->mRunning) || (self->mState != STARTED))
 		return;
 
-	self->RawSink::lock();
+	self->Sink::lock();
 	if (self->mLastAddedMedia == nullptr) {
 		/* No current media */
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		return;
 	}
 
-	RawChannel *channel = self->getInputChannel(self->mLastAddedMedia);
+	Channel *channel = self->getInputChannel(self->mLastAddedMedia);
 	if (channel == nullptr) {
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("failed to get input port", EPROTO);
 		return;
 	}
@@ -681,25 +694,26 @@ void Gles2Renderer::videoPresStatsTimerCb(struct pomp_timer *timer,
 	if (err < 0)
 		PDRAW_LOG_ERRNO("channel->sendVideoPresStats", -err);
 
-	self->RawSink::unlock();
+	self->Sink::unlock();
 }
 
 
 /* Must be called on the loop thread */
-void Gles2Renderer::onChannelFlush(RawChannel *channel)
+void Gles2VideoRenderer::onChannelFlush(Channel *channel)
 {
 	int ret;
 
-	if (channel == nullptr) {
+	RawVideoChannel *c = dynamic_cast<RawVideoChannel *>(channel);
+	if (c == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
 	PDRAW_LOGD("flushing input channel");
 
-	RawSink::lock();
+	Sink::lock();
 
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_raw_video_frame_queue *queue = c->getQueue(this);
 	if (queue != nullptr) {
 		ret = mbuf_raw_video_frame_queue_flush(queue);
 		if (ret < 0)
@@ -714,44 +728,44 @@ void Gles2Renderer::onChannelFlush(RawChannel *channel)
 		mCurrentFrame = nullptr;
 	}
 
-	RawSink::unlock();
+	Sink::unlock();
 
-	ret = channel->flushDone();
+	ret = c->flushDone();
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("channel->flushDone", -ret);
 }
 
 
 /* Must be called on the loop thread */
-void Gles2Renderer::onChannelSos(RawChannel *channel)
+void Gles2VideoRenderer::onChannelSos(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	RawSink::lock();
+	Sink::lock();
 
-	RawSink::onChannelSos(channel);
+	Sink::onChannelSos(channel);
 	if (mParams.enable_transition_flags &
 	    PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_SOS)
 		mPendingTransition = Transition::FADE_FROM_BLACK;
 
-	RawSink::unlock();
+	Sink::unlock();
 }
 
 
 /* Must be called on the loop thread */
-void Gles2Renderer::onChannelEos(RawChannel *channel)
+void Gles2VideoRenderer::onChannelEos(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	RawSink::lock();
+	Sink::lock();
 
-	RawSink::onChannelEos(channel);
+	Sink::onChannelEos(channel);
 	int ret = pomp_timer_clear(mWatchdogTimer);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
@@ -762,69 +776,69 @@ void Gles2Renderer::onChannelEos(RawChannel *channel)
 	    PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_EOS)
 		mPendingTransition = Transition::FADE_TO_BLACK;
 
-	RawSink::unlock();
+	Sink::unlock();
 }
 
 
 /* Must be called on the loop thread */
-void Gles2Renderer::onChannelReconfigure(RawChannel *channel)
+void Gles2VideoRenderer::onChannelReconfigure(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	RawSink::lock();
+	Sink::lock();
 
-	RawSink::onChannelReconfigure(channel);
+	Sink::onChannelReconfigure(channel);
 	if (mParams.enable_transition_flags &
 	    PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_RECONFIGURE)
 		mPendingTransition = Transition::FADE_TO_BLUR;
 
-	RawSink::unlock();
+	Sink::unlock();
 }
 
 
 /* Must be called on the loop thread */
-void Gles2Renderer::onChannelTimeout(RawChannel *channel)
+void Gles2VideoRenderer::onChannelTimeout(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	RawSink::lock();
+	Sink::lock();
 
-	RawSink::onChannelTimeout(channel);
+	Sink::onChannelTimeout(channel);
 	if (mParams.enable_transition_flags &
 	    PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_TIMEOUT)
 		mPendingTransition = Transition::FADE_TO_BLACK_AND_WHITE;
 
-	RawSink::unlock();
+	Sink::unlock();
 }
 
 
 /* Must be called on the loop thread */
-void Gles2Renderer::onChannelPhotoTrigger(RawChannel *channel)
+void Gles2VideoRenderer::onChannelPhotoTrigger(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	RawSink::lock();
+	Sink::lock();
 
-	RawSink::onChannelPhotoTrigger(channel);
+	Sink::onChannelPhotoTrigger(channel);
 	if (mParams.enable_transition_flags &
 	    PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_PHOTO_TRIGGER)
 		mPendingTransition = Transition::FLASH_THEN_BLACK_AND_WHITE;
 
-	RawSink::unlock();
+	Sink::unlock();
 }
 
 
-bool Gles2Renderer::queueFilter(struct mbuf_raw_video_frame *frame,
-				void *userdata)
+bool Gles2VideoRenderer::queueFilter(struct mbuf_raw_video_frame *frame,
+				     void *userdata)
 {
 	int err;
 	uint64_t ts_us;
@@ -845,17 +859,17 @@ bool Gles2Renderer::queueFilter(struct mbuf_raw_video_frame *frame,
 }
 
 
-uint64_t Gles2Renderer::getFrameU64(struct mbuf_raw_video_frame *frame,
-				    const char *key)
+uint64_t Gles2VideoRenderer::getFrameU64(struct mbuf_raw_video_frame *frame,
+					 const char *key)
 {
-	int res;
+	int err;
 	struct mbuf_ancillary_data *data;
 	uint64_t val = 0;
 	const void *raw_data;
 	size_t len;
 
-	res = mbuf_raw_video_frame_get_ancillary_data(frame, key, &data);
-	if (res < 0)
+	err = mbuf_raw_video_frame_get_ancillary_data(frame, key, &data);
+	if (err < 0)
 		return 0;
 
 	raw_data = mbuf_ancillary_data_get_buffer(data, &len);
@@ -869,41 +883,50 @@ out:
 }
 
 
-struct mbuf_raw_video_frame_queue *Gles2Renderer::getLastAddedMediaQueue(void)
+struct mbuf_raw_video_frame_queue *
+Gles2VideoRenderer::getLastAddedMediaQueue(void)
 {
-	RawSink::lock();
-	RawChannel *channel = getInputChannel(mLastAddedMedia);
+	Sink::lock();
+	RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(
+		getInputChannel(mLastAddedMedia));
 	if (channel == nullptr) {
 		PDRAW_LOGE("failed to get input channel");
-		RawSink::unlock();
+		Sink::unlock();
 		return nullptr;
 	}
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
 		PDRAW_LOGE("failed to get input queue");
-		RawSink::unlock();
+		Sink::unlock();
 		return nullptr;
 	}
-	RawSink::unlock();
+	Sink::unlock();
 	return queue;
 }
 
 
 /* Must be called on the loop thread */
-int Gles2Renderer::addInputMedia(RawVideoMedia *media)
+int Gles2VideoRenderer::addInputMedia(Media *media)
 {
 	struct pomp_loop *loop = nullptr;
 	struct pomp_evt *evt = nullptr;
 	int res = 0;
 
-	if ((mMediaId != 0) && (mMediaId != media->id))
+	/* Only accept raw video media */
+	RawVideoMedia *m = dynamic_cast<RawVideoMedia *>(media);
+	if (m == nullptr) {
+		PDRAW_LOGE("unsupported input media");
+		return -ENOSYS;
+	}
+
+	if ((mMediaId != 0) && (mMediaId != m->id))
 		return -EPERM;
 	if (mLastAddedMedia != nullptr)
 		return -EBUSY;
 	if ((!mRunning) || (mState != STARTED))
 		return -EAGAIN;
 
-	RawSink::lock();
+	Sink::lock();
 
 	mFirstFrame = true;
 
@@ -912,24 +935,24 @@ int Gles2Renderer::addInputMedia(RawVideoMedia *media)
 	mSchedLastOutputTimestamp = UINT64_MAX;
 	PDRAW_LOGD("RESET SCHEDULING");
 
-	res = RawSink::addInputMedia(media);
+	res = Sink::addInputMedia(m);
 	if (res == -EEXIST) {
-		RawSink::unlock();
+		Sink::unlock();
 		return res;
 	} else if (res < 0) {
-		RawSink::unlock();
-		PDRAW_LOG_ERRNO("RawSink::addInputMedia", -res);
+		Sink::unlock();
+		PDRAW_LOG_ERRNO("Sink::addInputMedia", -res);
 		return res;
 	}
 
-	RawChannel *channel = getInputChannel(media);
+	RawVideoChannel *channel =
+		dynamic_cast<RawVideoChannel *>(getInputChannel(m));
 	if (channel == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
 
-	channel->setKey(this);
 	struct mbuf_raw_video_frame_queue_args args = {};
 	args.filter = &queueFilter;
 	args.filter_userdata = this;
@@ -937,23 +960,23 @@ int Gles2Renderer::addInputMedia(RawVideoMedia *media)
 	struct mbuf_raw_video_frame_queue *queue;
 	res = mbuf_raw_video_frame_queue_new_with_args(&args, &queue);
 	if (res < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_new_with_args",
 				-res);
 		return res;
 	}
-	channel->setQueue(queue);
+	channel->setQueue(this, queue);
 
 	res = mbuf_raw_video_frame_queue_get_event(queue, &evt);
 	if (res < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_get_event", -res);
 		goto error;
 	}
 
 	loop = mSession->getLoop();
 	if (loop == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("loop not found");
 		res = -ENODEV;
 		goto error;
@@ -961,20 +984,20 @@ int Gles2Renderer::addInputMedia(RawVideoMedia *media)
 
 	res = pomp_evt_attach_to_loop(evt, loop, &queueEventCb, this);
 	if (res < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("pomp_evt_attach_to_loop", -res);
 		goto error;
 	}
 
-	mLastAddedMedia = media;
+	mLastAddedMedia = m;
 	mCurrentMediaId = mMediaId;
 
-	media->fillMediaInfo(&mMediaInfo);
+	m->fillMediaInfo(&mMediaInfo);
 	/* Deep copy: copy the session metadata */
 	mMediaInfoSessionMeta = *mMediaInfo.session_meta;
 	mMediaInfo.session_meta = &mMediaInfoSessionMeta;
 
-	RawSink::unlock();
+	Sink::unlock();
 
 	pthread_mutex_lock(&mListenerMutex);
 	if (mRendererListener) {
@@ -992,7 +1015,7 @@ error:
 
 
 /* Must be called on the loop thread */
-int Gles2Renderer::removeQueueFdFromPomp(
+int Gles2VideoRenderer::removeQueueFdFromPomp(
 	struct mbuf_raw_video_frame_queue *queue)
 {
 	int ret;
@@ -1022,11 +1045,11 @@ int Gles2Renderer::removeQueueFdFromPomp(
 
 
 /* Must be called on the loop thread */
-int Gles2Renderer::removeInputMedia(RawVideoMedia *media)
+int Gles2VideoRenderer::removeInputMedia(Media *media)
 {
 	int ret;
 
-	RawSink::lock();
+	Sink::lock();
 
 	if (mLastAddedMedia == media) {
 		mLastAddedMedia = nullptr;
@@ -1051,25 +1074,26 @@ int Gles2Renderer::removeInputMedia(RawVideoMedia *media)
 	}
 
 
-	RawChannel *channel = getInputChannel(media);
+	RawVideoChannel *channel =
+		dynamic_cast<RawVideoChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
 	/* Keep a reference on the queue to destroy it after removing the
 	 * input media (avoids deadlocks when trying to push new frames out
 	 * of the VideoDecoder whereas the queue is already destroyed) */
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
 
-	ret = RawSink::removeInputMedia(media);
+	ret = Sink::removeInputMedia(media);
 	if (ret < 0) {
-		RawSink::unlock();
-		PDRAW_LOG_ERRNO("RawSink::removeInputMedia", -ret);
+		Sink::unlock();
+		PDRAW_LOG_ERRNO("Sink::removeInputMedia", -ret);
 		return ret;
 	}
 
-	RawSink::unlock();
+	Sink::unlock();
 
 	if (queue != nullptr) {
 		ret = removeQueueFdFromPomp(queue);
@@ -1090,18 +1114,19 @@ int Gles2Renderer::removeInputMedia(RawVideoMedia *media)
 
 
 /* Must be called on the loop thread */
-int Gles2Renderer::removeInputMedias(void)
+int Gles2VideoRenderer::removeInputMedias(void)
 {
 	int ret, inputMediaCount, i;
 
-	RawSink::lock();
+	Sink::lock();
 
 	inputMediaCount = getInputMediaCount();
 
 	/* Note: loop downwards because calling removeInputMedia removes
 	 * input ports and decreases the media count */
 	for (i = inputMediaCount - 1; i >= 0; i--) {
-		RawVideoMedia *media = getInputMedia(i);
+		RawVideoMedia *media =
+			dynamic_cast<RawVideoMedia *>(getInputMedia(i));
 		if (media == nullptr) {
 			PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
 			continue;
@@ -1115,15 +1140,16 @@ int Gles2Renderer::removeInputMedias(void)
 
 	mLastAddedMedia = nullptr;
 	mCurrentMediaId = 0;
-	RawSink::unlock();
+	Sink::unlock();
 
 	return 0;
 }
 
 
-void Gles2Renderer::idleRenewMedia(void *userdata)
+void Gles2VideoRenderer::idleRenewMedia(void *userdata)
 {
-	Gles2Renderer *self = reinterpret_cast<Gles2Renderer *>(userdata);
+	Gles2VideoRenderer *self =
+		reinterpret_cast<Gles2VideoRenderer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	if (self->mLastAddedMedia != nullptr)
 		self->removeInputMedia(self->mLastAddedMedia);
@@ -1132,13 +1158,13 @@ void Gles2Renderer::idleRenewMedia(void *userdata)
 
 
 /* Called on the rendering thread */
-void Gles2Renderer::abortTransition(void)
+void Gles2VideoRenderer::abortTransition(void)
 {
-	RawSink::lock();
+	Sink::lock();
 	mCurrentTransition = Transition::NONE;
 	mTransitionStartTime = 0;
 	mTransitionHoldTime = 0;
-	RawSink::unlock();
+	Sink::unlock();
 
 	if (mGles2Video) {
 		mGles2Video->setSatCoef(1.0f);
@@ -1150,16 +1176,16 @@ void Gles2Renderer::abortTransition(void)
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::doTransition(uint64_t timestamp,
-				bool frameReady,
-				bool *loadFrame)
+int Gles2VideoRenderer::doTransition(uint64_t timestamp,
+				     bool frameReady,
+				     bool *loadFrame)
 {
 	if (timestamp == 0)
 		return -EINVAL;
 	if (loadFrame == nullptr)
 		return -EINVAL;
 
-	RawSink::lock();
+	Sink::lock();
 
 	if (mPendingTransition == Transition::NONE)
 		goto out;
@@ -1241,14 +1267,14 @@ out:
 	} else {
 		*loadFrame = false;
 	}
-	RawSink::unlock();
+	Sink::unlock();
 	return 0;
 }
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::loadVideoFrame(struct mbuf_raw_video_frame *mbufFrame,
-				  RawVideoMedia::Frame *frame)
+int Gles2VideoRenderer::loadVideoFrame(struct mbuf_raw_video_frame *mbufFrame,
+				       RawVideoMedia::Frame *frame)
 {
 	int ret;
 	unsigned int planeCount = 0;
@@ -1299,7 +1325,7 @@ out:
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::loadExternalVideoFrame(
+int Gles2VideoRenderer::loadExternalVideoFrame(
 	struct mbuf_raw_video_frame *mbufFrame,
 	RawVideoMedia::Frame *frame,
 	const struct pdraw_media_info *mediaInfo)
@@ -1366,9 +1392,9 @@ out:
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::renderVideoFrame(const struct pdraw_rect *renderPos,
-				    struct pdraw_rect *contentPos,
-				    Eigen::Matrix4f &viewProjMat)
+int Gles2VideoRenderer::renderVideoFrame(const struct pdraw_rect *renderPos,
+					 struct pdraw_rect *contentPos,
+					 Eigen::Matrix4f &viewProjMat)
 {
 	struct vdef_rect crop = {
 		.left = 0,
@@ -1390,9 +1416,10 @@ int Gles2Renderer::renderVideoFrame(const struct pdraw_rect *renderPos,
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::renderExternalVideoFrame(const struct pdraw_rect *renderPos,
-					    struct pdraw_rect *contentPos,
-					    Eigen::Matrix4f &viewProjMat)
+int Gles2VideoRenderer::renderExternalVideoFrame(
+	const struct pdraw_rect *renderPos,
+	struct pdraw_rect *contentPos,
+	Eigen::Matrix4f &viewProjMat)
 {
 	struct vdef_frame_info info = mCurrentFrameInfo.info;
 	struct vdef_rect crop = {
@@ -1420,8 +1447,8 @@ int Gles2Renderer::renderExternalVideoFrame(const struct pdraw_rect *renderPos,
 }
 
 
-int Gles2Renderer::setupExtTexture(const struct vdef_raw_frame *frameInfo,
-				   const RawVideoMedia::Frame *frame)
+int Gles2VideoRenderer::setupExtTexture(const struct vdef_raw_frame *frameInfo,
+					const RawVideoMedia::Frame *frame)
 {
 	int ret = 0;
 
@@ -1549,10 +1576,10 @@ int Gles2Renderer::setupExtTexture(const struct vdef_raw_frame *frameInfo,
 }
 
 
-void Gles2Renderer::createProjMatrix(Eigen::Matrix4f &projMat,
-				     float aspectRatio,
-				     float near,
-				     float far)
+void Gles2VideoRenderer::createProjMatrix(Eigen::Matrix4f &projMat,
+					  float aspectRatio,
+					  float near,
+					  float far)
 {
 	float w = 1.f;
 	float h = aspectRatio;
@@ -1563,15 +1590,15 @@ void Gles2Renderer::createProjMatrix(Eigen::Matrix4f &projMat,
 }
 
 
-int Gles2Renderer::getNextFrameDelay(mbuf_raw_video_frame_queue *queue,
-				     uint64_t curTime,
-				     bool allowDrop,
-				     bool *shouldBreak,
-				     uint64_t *delayUs,
-				     int64_t *compensationUs,
-				     int64_t *timingErrorUs,
-				     uint64_t *frameTsUs,
-				     int logLevel)
+int Gles2VideoRenderer::getNextFrameDelay(mbuf_raw_video_frame_queue *queue,
+					  uint64_t curTime,
+					  bool allowDrop,
+					  bool *shouldBreak,
+					  uint64_t *delayUs,
+					  int64_t *compensationUs,
+					  int64_t *timingErrorUs,
+					  uint64_t *frameTsUs,
+					  int logLevel)
 {
 	int ret;
 	uint32_t delay;
@@ -1755,9 +1782,9 @@ int Gles2Renderer::getNextFrameDelay(mbuf_raw_video_frame_queue *queue,
 }
 
 
-int Gles2Renderer::scheduleFrame(uint64_t curTime,
-				 bool *load,
-				 int64_t *compensationUs)
+int Gles2VideoRenderer::scheduleFrame(uint64_t curTime,
+				      bool *load,
+				      int64_t *compensationUs)
 {
 	int ret = 0, err;
 	bool _load = false;
@@ -1832,9 +1859,9 @@ out:
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::render(struct pdraw_rect *contentPos,
-			  const float *viewMat,
-			  const float *projMat)
+int Gles2VideoRenderer::render(struct pdraw_rect *contentPos,
+			       const float *viewMat,
+			       const float *projMat)
 {
 	int err;
 	struct pdraw_rect renderPos;
@@ -1910,7 +1937,7 @@ int Gles2Renderer::render(struct pdraw_rect *contentPos,
 	}
 	vpMat = pMat * vMat;
 
-	RawSink::lock();
+	Sink::lock();
 	if (mLastAddedMedia == nullptr) {
 		/* No current media */
 		goto skip_dequeue;
@@ -1925,7 +1952,7 @@ int Gles2Renderer::render(struct pdraw_rect *contentPos,
 
 	err = scheduleFrame(curTime, &load, &compensation);
 	if (err < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		goto skip_dequeue;
 	}
 
@@ -1958,7 +1985,7 @@ int Gles2Renderer::render(struct pdraw_rect *contentPos,
 		PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME,
 		&ancillaryData);
 	if (err < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_ancillary_data",
 				-err);
 		goto skip_render;
@@ -1966,7 +1993,7 @@ int Gles2Renderer::render(struct pdraw_rect *contentPos,
 	data = (RawVideoMedia::Frame *)mbuf_ancillary_data_get_buffer(
 		ancillaryData, NULL);
 	if (data == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid ancillary data pointer");
 		goto skip_render;
 	}
@@ -1976,7 +2003,7 @@ int Gles2Renderer::render(struct pdraw_rect *contentPos,
 	err = mbuf_raw_video_frame_get_frame_info(mCurrentFrame,
 						  &mCurrentFrameInfo);
 	if (err < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_frame_info", -err);
 		goto skip_render;
 	}
@@ -1984,7 +2011,7 @@ int Gles2Renderer::render(struct pdraw_rect *contentPos,
 	err = mbuf_raw_video_frame_get_metadata(mCurrentFrame,
 						&mCurrentFrameMetadata);
 	if (err < 0 && err != -ENOENT) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_metadata", -err);
 		goto skip_render;
 	}
@@ -2011,7 +2038,7 @@ int Gles2Renderer::render(struct pdraw_rect *contentPos,
 
 skip_dequeue:
 	if (mGles2Video == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		goto skip_render;
 	}
 
@@ -2118,7 +2145,7 @@ skip_dequeue:
 		mLastFrameTimestamp = mCurrentFrameData.ntpRawTimestamp;
 	}
 
-	RawSink::unlock();
+	Sink::unlock();
 
 	/* Actual rendering */
 	if (mFrameLoaded) {
@@ -2206,7 +2233,7 @@ skip_render:
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::startHmd(void)
+int Gles2VideoRenderer::startHmd(void)
 {
 	int ret = 0;
 	GLenum gle;
@@ -2315,7 +2342,7 @@ out:
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::stopHmd(void)
+int Gles2VideoRenderer::stopHmd(void)
 {
 	GLCHK();
 
@@ -2344,7 +2371,7 @@ int Gles2Renderer::stopHmd(void)
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::startExtLoad(void)
+int Gles2VideoRenderer::startExtLoad(void)
 {
 	int ret = 0, err;
 	GLenum gle;
@@ -2415,7 +2442,7 @@ out:
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::stopExtLoad(void)
+int Gles2VideoRenderer::stopExtLoad(void)
 {
 	GLCHK();
 
@@ -2436,7 +2463,7 @@ int Gles2Renderer::stopExtLoad(void)
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::resize(const struct pdraw_rect *renderPos)
+int Gles2VideoRenderer::resize(const struct pdraw_rect *renderPos)
 {
 	int ret;
 
@@ -2466,7 +2493,7 @@ int Gles2Renderer::resize(const struct pdraw_rect *renderPos)
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::setMediaId(unsigned int mediaId)
+int Gles2VideoRenderer::setMediaId(unsigned int mediaId)
 {
 	if (mediaId == mMediaId)
 		return 0;
@@ -2482,14 +2509,15 @@ int Gles2Renderer::setMediaId(unsigned int mediaId)
 
 
 /* Called on the rendering thread */
-unsigned int Gles2Renderer::getMediaId(void)
+unsigned int Gles2VideoRenderer::getMediaId(void)
 {
 	return mCurrentMediaId;
 }
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::setParams(const struct pdraw_video_renderer_params *params)
+int Gles2VideoRenderer::setParams(
+	const struct pdraw_video_renderer_params *params)
 {
 	int ret;
 
@@ -2525,7 +2553,7 @@ int Gles2Renderer::setParams(const struct pdraw_video_renderer_params *params)
 
 
 /* Called on the rendering thread */
-int Gles2Renderer::getParams(struct pdraw_video_renderer_params *params)
+int Gles2VideoRenderer::getParams(struct pdraw_video_renderer_params *params)
 {
 	if (params)
 		*params = mParams;

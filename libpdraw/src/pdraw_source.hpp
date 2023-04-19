@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Pipeline source element for coded video
+ * Pipeline media source for elements
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,30 +28,30 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SOURCE_CODED_VIDEO_HPP_
-#define _PDRAW_SOURCE_CODED_VIDEO_HPP_
+#ifndef _PDRAW_SOURCE_HPP_
+#define _PDRAW_SOURCE_HPP_
 
-#include "pdraw_channel_coded_video.hpp"
+#include "pdraw_channel.hpp"
 #include "pdraw_media.hpp"
 
 #include <vector>
 
 namespace Pdraw {
 
-class CodedSource : public CodedChannel::SourceListener {
+class Source : public Channel::SourceListener {
 public:
 	class Listener {
 	public:
 		virtual ~Listener(void) {}
 
-		virtual void onOutputMediaAdded(CodedSource *source,
-						CodedVideoMedia *media) = 0;
+		virtual void onOutputMediaAdded(Source *source,
+						Media *media) = 0;
 
-		virtual void onOutputMediaRemoved(CodedSource *source,
-						  CodedVideoMedia *media) = 0;
+		virtual void onOutputMediaRemoved(Source *source,
+						  Media *media) = 0;
 	};
 
-	virtual ~CodedSource(void);
+	virtual ~Source(void);
 
 	void lock(void);
 
@@ -61,25 +61,24 @@ public:
 
 	unsigned int getOutputMediaCount(void);
 
-	CodedVideoMedia *getOutputMedia(unsigned int index);
+	Media *getOutputMedia(unsigned int index);
 
-	CodedVideoMedia *findOutputMedia(CodedVideoMedia *media);
+	Media *findOutputMedia(Media *media);
 
-	unsigned int getOutputChannelCount(CodedVideoMedia *media);
+	unsigned int getOutputChannelCount(Media *media);
 
-	CodedChannel *getOutputChannel(CodedVideoMedia *media,
-				       unsigned int index);
+	Channel *getOutputChannel(Media *media, unsigned int index);
 
-	CodedChannel *getOutputChannel(CodedVideoMedia *media, void *key);
+	Channel *findOutputChannel(Media *media, Channel *channel);
 
-	int addOutputChannel(CodedVideoMedia *media, CodedChannel *channel);
+	int addOutputChannel(Media *media, Channel *channel);
 
-	int removeOutputChannel(CodedVideoMedia *media, void *key);
+	int removeOutputChannel(Media *media, Channel *channel);
 
 protected:
 	struct OutputPort {
-		CodedVideoMedia *media;
-		std::vector<CodedChannel *> channels;
+		Media *media;
+		std::vector<Channel *> channels;
 		struct mbuf_pool *pool;
 		bool sharedPool;
 
@@ -89,48 +88,50 @@ protected:
 		}
 	};
 
-	CodedSource(unsigned int maxOutputMedias, Listener *listener);
+	Source(unsigned int maxOutputMedias, Listener *listener);
 
-	CodedVideoMedia *getOutputMediaFromChannel(void *key);
+	Media *getOutputMediaFromChannel(Channel *channel);
 
-	OutputPort *getOutputPort(CodedVideoMedia *media);
+	OutputPort *getOutputPort(Media *media);
 
-	int addOutputPort(CodedVideoMedia *media);
+	int addOutputPort(Media *media);
 
-	int removeOutputPort(CodedVideoMedia *media);
+	int removeOutputPort(Media *media);
 
 	int removeOutputPorts(void);
 
-	int createOutputPortMemoryPool(CodedVideoMedia *media,
+	int createOutputPortMemoryPool(Media *media,
 				       unsigned int count,
 				       size_t capacity);
 
-	int destroyOutputPortMemoryPool(CodedVideoMedia *media);
+	int destroyOutputPortMemoryPool(Media *media);
 
-	int getOutputMemory(CodedVideoMedia **videoMedias,
-			    unsigned int nbVideoMedias,
-			    struct mbuf_mem **mem,
-			    unsigned int *defaultMediaIndex);
+	int sendDownstreamEvent(Media *media, Channel::DownstreamEvent event);
 
-	int copyOutputFrame(CodedVideoMedia *srcMedia,
-			    struct mbuf_coded_video_frame *srcFrame,
-			    CodedVideoMedia *dstMedia,
-			    struct mbuf_coded_video_frame **dstFrame);
-
-	int sendDownstreamEvent(CodedVideoMedia *media,
-				CodedChannel::DownstreamEvent event);
-
-	virtual void onChannelUpstreamEvent(CodedChannel *channel,
+	virtual void onChannelUpstreamEvent(Channel *channel,
 					    const struct pomp_msg *event);
 
-	virtual void onChannelUnlink(CodedChannel *channel);
+	virtual void onChannelUnlink(Channel *channel);
 
-	virtual void onChannelFlushed(CodedChannel *channel);
+	virtual void onChannelFlushed(Channel *channel);
 
-	virtual void onChannelResync(CodedChannel *channel);
+	virtual void onChannelResync(Channel *channel);
 
-	virtual void onChannelVideoPresStats(CodedChannel *channel,
+	virtual void onChannelVideoPresStats(Channel *channel,
 					     VideoPresStats *stats);
+
+	int getRawVideoOutputMemory(RawVideoMedia *media,
+				    struct mbuf_mem **mem);
+
+	int getCodedVideoOutputMemory(CodedVideoMedia **videoMedias,
+				      unsigned int nbVideoMedias,
+				      struct mbuf_mem **mem,
+				      unsigned int *defaultMediaIndex);
+
+	int copyCodedVideoOutputFrame(CodedVideoMedia *srcMedia,
+				      struct mbuf_coded_video_frame *srcFrame,
+				      CodedVideoMedia *dstMedia,
+				      struct mbuf_coded_video_frame **dstFrame);
 
 	pthread_mutex_t mMutex;
 	unsigned int mMaxOutputMedias;
@@ -143,4 +144,4 @@ private:
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_SOURCE_CODED_VIDEO_HPP_ */
+#endif /* !_PDRAW_SOURCE_HPP_ */

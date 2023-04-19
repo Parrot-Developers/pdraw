@@ -49,7 +49,7 @@ class StreamDemuxerMux : public StreamDemuxer {
 public:
 	StreamDemuxerMux(Session *session,
 			 Element::Listener *elementListener,
-			 CodedSource::Listener *sourceListener,
+			 Source::Listener *sourceListener,
 			 IPdraw::IDemuxer *demuxer,
 			 IPdraw::IDemuxer::Listener *demuxerListener,
 			 const std::string &url,

@@ -40,11 +40,11 @@
 
 namespace Pdraw {
 
-class VideoDecoder : public CodedToRawFilterElement {
+class VideoDecoder : public FilterElement {
 public:
 	VideoDecoder(Session *session,
 		     Element::Listener *elementListener,
-		     RawSource::Listener *sourceListener);
+		     Source::Listener *sourceListener);
 
 	~VideoDecoder(void);
 
@@ -68,16 +68,16 @@ private:
 
 	int tryStop(void);
 
-	void onChannelQueue(CodedChannel *channel,
-			    struct mbuf_coded_video_frame *buf);
+	void onCodedVideoChannelQueue(CodedVideoChannel *channel,
+				      struct mbuf_coded_video_frame *buf);
 
-	void onChannelFlush(CodedChannel *channel);
+	void onChannelFlush(Channel *channel);
 
-	void onChannelFlushed(RawChannel *channel);
+	void onChannelFlushed(Channel *channel);
 
-	void onChannelTeardown(CodedChannel *channel);
+	void onChannelTeardown(Channel *channel);
 
-	void onChannelUnlink(RawChannel *channel);
+	void onChannelUnlink(Channel *channel);
 
 	static void frameOutputCb(struct vdec_decoder *dec,
 				  int status,
@@ -98,7 +98,6 @@ private:
 	bool mResyncPending;
 	bool mVdecFlushPending;
 	bool mVdecStopPending;
-	int mCompleteStopPendingCount;
 	static const struct vdec_cbs mDecoderCbs;
 };
 

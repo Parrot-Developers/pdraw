@@ -134,6 +134,7 @@ static const GLchar *textureI420FragmentShader =
 	"uniform vec2 max_coords[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
+	"uniform float swap_uv;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
@@ -141,6 +142,11 @@ static const GLchar *textureI420FragmentShader =
 	"    yuv.r = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
 	"    yuv.g = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0)).r;\n"
 	"    yuv.b = texture2D(s_texture_2, min(coord, max_coords[2] - stride[2] / 2.0)).r;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
@@ -150,6 +156,11 @@ static const GLchar *textureI420FragmentShader =
 	"    yuv.r = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
 	"    yuv.g = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0)).r;\n"
 	"    yuv.b = texture2D(s_texture_2, min(coord + offset_px * stride[2], max_coords[2] - stride[2] / 2.0)).r;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
@@ -163,6 +174,7 @@ static const GLchar *textureI42010LELowFragmentShader =
 	"uniform vec2 max_coords[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
+	"uniform float swap_uv;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
@@ -173,6 +185,11 @@ static const GLchar *textureI42010LELowFragmentShader =
 	"    yuv.r = y.a * 64. + y.r / 4.;\n"
 	"    yuv.g = u.a * 64. + u.r / 4.;\n"
 	"    yuv.b = v.a * 64. + v.r / 4.;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
@@ -185,6 +202,11 @@ static const GLchar *textureI42010LELowFragmentShader =
 	"    yuv.r = y.a * 64. + y.r / 4.;\n"
 	"    yuv.g = u.a * 64. + u.r / 4.;\n"
 	"    yuv.b = v.a * 64. + v.r / 4.;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
@@ -196,12 +218,18 @@ static const GLchar *textureNV12FragmentShader =
 	"uniform vec2 max_coords[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
+	"uniform float swap_uv;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
 	"    vec3 yuv;\n"
 	"    yuv.r = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
 	"    yuv.gb = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0)).ra;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
@@ -210,6 +238,11 @@ static const GLchar *textureNV12FragmentShader =
 	"    vec3 yuv;\n"
 	"    yuv.r = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
 	"    yuv.gb = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0)).ra;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
@@ -223,6 +256,7 @@ static const GLchar *textureNV1210LEHighFragmentShader =
 	"uniform vec2 max_coords[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
+	"uniform float swap_uv;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
@@ -232,6 +266,11 @@ static const GLchar *textureNV1210LEHighFragmentShader =
 	"    yuv.r = y.a + y.r / 256.;\n"
 	"    yuv.g = uv.g + uv.b / 256.;\n"
 	"    yuv.b = uv.a + uv.r / 256.;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
@@ -243,7 +282,31 @@ static const GLchar *textureNV1210LEHighFragmentShader =
 	"    yuv.r = y.a + y.r / 256.;\n"
 	"    yuv.g = uv.g + uv.b / 256.;\n"
 	"    yuv.b = uv.a + uv.r / 256.;\n"
+	"    if (swap_uv > 0.5) {\n"
+	"        float tmp = yuv.g;\n"
+	"        yuv.g = yuv.b;\n"
+	"        yuv.b = tmp;\n"
+	"    }\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
+	"}\n";
+
+static const GLchar *textureGrayFragmentShader =
+	"uniform sampler2D s_texture_0;\n"
+	"uniform sampler2D s_texture_1;\n"
+	"uniform sampler2D s_texture_2;\n"
+	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
+	"\n"
+	"vec3 read_rgb(vec2 coord)\n"
+	"{\n"
+	"    float gray = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    return vec3(gray, gray, gray);\n"
+	"}\n"
+	"\n"
+	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
+	"{\n"
+	"    float gray = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    return vec3(gray, gray, gray);\n"
 	"}\n";
 
 static const GLchar *videoFragmentShader =
@@ -320,6 +383,11 @@ const GLchar *Gles2Video::videoFragmentShaders[PROGRAM_MAX][3] = {
 	{
 		videoFragmentShader,
 		textureNV1210LEHighFragmentShader,
+		zebraFragmentShader,
+	},
+	{
+		videoFragmentShader,
+		textureGrayFragmentShader,
 		zebraFragmentShader,
 	},
 };
@@ -449,6 +517,10 @@ const GLchar *Gles2Video::histogramFragmentShaders[PROGRAM_MAX][2] = {
 		histogramFragmentShader,
 		textureNV1210LEHighFragmentShader,
 	},
+	{
+		histogramFragmentShader,
+		textureGrayFragmentShader,
+	},
 };
 
 static const GLfloat zebraAvgWeights[9] = {0.077847f,
@@ -489,6 +561,7 @@ Gles2Video::Gles2Video(Session *session,
 	memset(mProgramSatCoef, 0, sizeof(mProgramSatCoef));
 	memset(mProgramLightCoef, 0, sizeof(mProgramLightCoef));
 	memset(mProgramDarkCoef, 0, sizeof(mProgramDarkCoef));
+	memset(mProgramSwapUv, 0, sizeof(mProgramSwapUv));
 	memset(mProgramZebraEnable, 0, sizeof(mProgramZebraEnable));
 	memset(mProgramZebraThreshold, 0, sizeof(mProgramZebraThreshold));
 	memset(mProgramZebraPhase, 0, sizeof(mProgramZebraPhase));
@@ -621,6 +694,8 @@ Gles2Video::Gles2Video(Session *session,
 			glGetUniformLocation(mProgram[i], "light_coef");
 		mProgramDarkCoef[i] =
 			glGetUniformLocation(mProgram[i], "dark_coef");
+		mProgramSwapUv[i] =
+			glGetUniformLocation(mProgram[i], "swap_uv");
 		mProgramZebraEnable[i] =
 			glGetUniformLocation(mProgram[i], "zebra_enable");
 		mProgramZebraThreshold[i] =
@@ -656,11 +731,8 @@ Gles2Video::Gles2Video(Session *session,
 	GLCHK();
 
 	/* Setup zebra shaders */
-	setupZebra(PROGRAM_NOCONV);
-	setupZebra(PROGRAM_YUV_TO_RGB_PLANAR);
-	setupZebra(PROGRAM_YUV_TO_RGB_SEMIPLANAR);
-	setupZebra(PROGRAM_YUV_TO_RGB_PLANAR_10_16LE);
-	setupZebra(PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH);
+	for (i = 0; i < PROGRAM_MAX; i++)
+		setupZebra((Pdraw::Gles2Video::program)i);
 
 	GLCHK(glGenTextures(GLES2_VIDEO_TEX_UNIT_COUNT, mTextures));
 
@@ -725,16 +797,22 @@ Gles2Video::~Gles2Video(void)
 
 
 enum Gles2Video::program
-Gles2Video::getProgram(const struct vdef_raw_format *format)
+Gles2Video::getProgram(const struct vdef_raw_format *format, bool *swapUv)
 {
+	*swapUv = false;
 	if (vdef_raw_format_cmp(format, &vdef_i420)) {
 		return PROGRAM_YUV_TO_RGB_PLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_nv12)) {
+		return PROGRAM_YUV_TO_RGB_SEMIPLANAR;
+	} else if (vdef_raw_format_cmp(format, &vdef_nv21)) {
+		*swapUv = true;
 		return PROGRAM_YUV_TO_RGB_SEMIPLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_i420_10_16le)) {
 		return PROGRAM_YUV_TO_RGB_PLANAR_10_16LE;
 	} else if (vdef_raw_format_cmp(format, &vdef_nv12_10_16le_high)) {
 		return PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH;
+	} else if (vdef_raw_format_cmp(format, &vdef_gray)) {
+		return PROGRAM_GRAY_TO_RGB_PLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_rgb)) {
 		return PROGRAM_NOCONV;
 	} else if (vdef_raw_format_cmp(format, &vdef_mmal_opaque)) {
@@ -1029,13 +1107,13 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 	float maxCoords[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
-	bool mirrorTexture = false;
+	bool mirrorTexture = false, swapUv = false;
 
 	if (!mBlurInit)
 		return;
 
 	enum program prog;
-	prog = getProgram(format);
+	prog = getProgram(format, &swapUv);
 
 	/* Pass 1 downscale */
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mBlurFbo[0]));
@@ -1046,6 +1124,7 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 	switch (prog) {
 	default:
 	case PROGRAM_NOCONV:
+	case PROGRAM_GRAY_TO_RGB_PLANAR:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -1127,6 +1206,7 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 		GL_FALSE,
 		&vdef_yuv_to_rgb_norm_matrix[info->matrix_coefs]
 					    [info->full_range][0]));
+	GLCHK(glUniform1f(mProgramSwapUv[prog], swapUv ? 1.f : 0.f));
 
 	/* Disable overexposure zebras */
 	updateZebra(nullptr, prog, false, 0.f);
@@ -1459,7 +1539,7 @@ void Gles2Video::renderPadding(size_t framePlaneStride[3],
 	float maxCoords[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
-	bool mirrorTexture = false;
+	bool mirrorTexture = false, swapUv = false;
 
 	if (!mBlurInit)
 		return;
@@ -1469,7 +1549,7 @@ void Gles2Video::renderPadding(size_t framePlaneStride[3],
 		return;
 
 	enum program prog;
-	prog = getProgram(format);
+	prog = getProgram(format, &swapUv);
 
 	/* Pass 1 downscale */
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo[0]));
@@ -1480,6 +1560,7 @@ void Gles2Video::renderPadding(size_t framePlaneStride[3],
 	switch (prog) {
 	default:
 	case PROGRAM_NOCONV:
+	case PROGRAM_GRAY_TO_RGB_PLANAR:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -1561,6 +1642,7 @@ void Gles2Video::renderPadding(size_t framePlaneStride[3],
 		GL_FALSE,
 		&vdef_yuv_to_rgb_norm_matrix[info->matrix_coefs]
 					    [info->full_range][0]));
+	GLCHK(glUniform1f(mProgramSwapUv[prog], swapUv ? 1.f : 0.f));
 
 	/* Disable overexposure zebras */
 	updateZebra(nullptr, prog, false, 0.f);
@@ -2094,7 +2176,7 @@ void Gles2Video::computeHistograms(size_t framePlaneStride[3],
 	uint32_t histoMax[PDRAW_HISTOGRAM_CHANNEL_MAX];
 	struct timespec ts;
 	uint64_t time_us;
-	bool mirrorTexture = false;
+	bool mirrorTexture = false, swapUv = false;
 
 	if ((!mHistogramInit) || (!enable)) {
 		mHistogramLastComputeTime = 0;
@@ -2120,7 +2202,7 @@ void Gles2Video::computeHistograms(size_t framePlaneStride[3],
 		mHistogramValid[i] = false;
 
 	enum program prog;
-	prog = getProgram(format);
+	prog = getProgram(format, &swapUv);
 
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mHistogramFbo));
 	GLCHK(glDisable(GL_BLEND));
@@ -2133,6 +2215,7 @@ void Gles2Video::computeHistograms(size_t framePlaneStride[3],
 	switch (prog) {
 	default:
 	case PROGRAM_NOCONV:
+	case PROGRAM_GRAY_TO_RGB_PLANAR:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -2432,6 +2515,7 @@ int Gles2Video::loadFrame(const uint8_t *framePlanes[3],
 			  struct egl_display *eglDisplay)
 {
 	unsigned int i;
+	bool swapUv = false;
 
 	if ((info == nullptr) || (format == nullptr)) {
 		ULOGE("invalid frame info");
@@ -2443,7 +2527,7 @@ int Gles2Video::loadFrame(const uint8_t *framePlanes[3],
 	}
 
 	enum program prog;
-	prog = getProgram(format);
+	prog = getProgram(format, &swapUv);
 
 	GLCHK(glUseProgram(mProgram[prog]));
 
@@ -2573,6 +2657,23 @@ int Gles2Video::loadFrame(const uint8_t *framePlanes[3],
 				   GL_UNSIGNED_BYTE,
 				   framePlanes[1]));
 		break;
+	case PROGRAM_GRAY_TO_RGB_PLANAR:
+		if ((framePlanes == nullptr) || (framePlaneStride == nullptr)) {
+			ULOGE("invalid planes");
+			return -EINVAL;
+		}
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D,
+				   0,
+				   GL_LUMINANCE,
+				   framePlaneStride[0],
+				   info->resolution.height,
+				   0,
+				   GL_LUMINANCE,
+				   GL_UNSIGNED_BYTE,
+				   framePlanes[0]));
+		break;
 	}
 
 	return 0;
@@ -2595,7 +2696,7 @@ int Gles2Video::renderFrame(const struct pdraw_rect *renderPos,
 	float maxCoords[GLES2_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
-	bool mirrorTexture = false;
+	bool mirrorTexture = false, swapUv = false;
 	float videoAR;
 
 	if ((renderPos == nullptr) || (renderPos->width == 0) ||
@@ -2621,7 +2722,7 @@ int Gles2Video::renderFrame(const struct pdraw_rect *renderPos,
 	}
 
 	enum program prog;
-	prog = getProgram(format);
+	prog = getProgram(format, &swapUv);
 
 	if ((mVideoWidth != _info.resolution.width) ||
 	    (mVideoHeight != _info.resolution.height)) {
@@ -2753,6 +2854,7 @@ int Gles2Video::renderFrame(const struct pdraw_rect *renderPos,
 		switch (prog) {
 		default:
 		case PROGRAM_NOCONV:
+		case PROGRAM_GRAY_TO_RGB_PLANAR:
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 			GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES,
@@ -2841,6 +2943,7 @@ int Gles2Video::renderFrame(const struct pdraw_rect *renderPos,
 			GL_FALSE,
 			&vdef_yuv_to_rgb_norm_matrix[_info.matrix_coefs]
 						    [_info.full_range][0]));
+		GLCHK(glUniform1f(mProgramSwapUv[prog], swapUv ? 1.f : 0.f));
 
 		/* Update overexposure zebras */
 		updateZebra(contentPos,

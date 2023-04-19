@@ -31,191 +31,52 @@
 #ifndef _PDRAW_CHANNEL_CODED_VIDEO_HPP_
 #define _PDRAW_CHANNEL_CODED_VIDEO_HPP_
 
+#include "pdraw_channel.hpp"
+
 #include <inttypes.h>
 
 #include <libpomp.h>
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <video-defs/vdefs.h>
 
-#include "pdraw_video_pres_stats.hpp"
-
 namespace Pdraw {
 
-class CodedChannel {
+class CodedVideoChannel : public Channel {
 public:
-	friend class CodedSource;
-	friend class CodedSink;
-	friend class VideoDecoder;
-	friend class VideoEncoder;
-	friend class RecordDemuxer;
-	friend class StreamDemuxer;
-	friend class Muxer;
-	friend class RecordMuxer;
-	friend class RtmpStreamMuxer;
-	friend class ExternalCodedVideoSink;
-
-	enum DownstreamEvent {
-		/* flush required */
-		FLUSH,
-
-		/* teardown required */
-		TEARDOWN,
-
-		/* start of stream */
-		SOS,
-
-		/* end of stream */
-		EOS,
-
-		/* reconfiguration in progress */
-		RECONFIGURE,
-
-		/* reception timeout */
-		TIMEOUT,
-
-		/* photo trigger */
-		PHOTO_TRIGGER,
-	};
-
-	enum UpstreamEvent {
-		/* unlink required */
-		UNLINK,
-
-		/* flush completed */
-		FLUSHED,
-
-		/* resynchronization required */
-		RESYNC,
-
-		/* video presentation statistics */
-		VIDEO_PRES_STATS,
-	};
-
-	class SinkListener {
+	class CodedVideoSinkListener {
 	public:
-		virtual ~SinkListener(void) {}
-
-		virtual void onChannelQueue(CodedChannel *channel,
-					    mbuf_coded_video_frame *frame) = 0;
+		virtual ~CodedVideoSinkListener(void) {}
 
 		virtual void
-		onChannelDownstreamEvent(CodedChannel *channel,
-					 const struct pomp_msg *event) = 0;
+		onCodedVideoChannelQueue(CodedVideoChannel *channel,
+					 mbuf_coded_video_frame *frame) = 0;
 	};
 
-	class SourceListener {
-	public:
-		virtual ~SourceListener(void) {}
+	CodedVideoChannel(Sink *owner,
+			  SinkListener *sinkListener,
+			  CodedVideoSinkListener *codedVideoSinkListener);
 
-		virtual void
-		onChannelUpstreamEvent(CodedChannel *channel,
-				       const struct pomp_msg *event) = 0;
-	};
-
-	static const char *getDownstreamEventStr(DownstreamEvent val);
-
-	static const char *getUpstreamEventStr(UpstreamEvent val);
-
-	CodedChannel(SinkListener *sinkListener);
-
-	~CodedChannel(void) {}
+	~CodedVideoChannel(void) {}
 
 	int queue(mbuf_coded_video_frame *frame);
 
-	int flush(void);
+	int getCodedVideoMediaFormatCaps(const struct vdef_coded_format **caps);
 
-	bool isFlushPending(void)
-	{
-		return mFlushPending;
-	}
+	void setCodedVideoMediaFormatCaps(Sink *owner,
+					  const struct vdef_coded_format *caps,
+					  int count);
 
-	int flushDone(void);
+	bool onlySupportsByteStream();
 
-	int resync(void);
+	struct mbuf_coded_video_frame_queue *getQueue(Sink *owner);
 
-	int unlink(void);
-
-	int teardown(void);
-
-	int sendVideoPresStats(VideoPresStats *stats);
-
-	int sendDownstreamEvent(DownstreamEvent downstreamEvent);
-
-	SourceListener *getSourceListener(void)
-	{
-		return mSourceListener;
-	}
-
-	void setSourceListener(SourceListener *sourceListener)
-	{
-		mSourceListener = sourceListener;
-	}
-
-	void *getKey(void)
-	{
-		return mKey;
-	}
-
-	int getCodedVideoMediaFormatCaps(const struct vdef_coded_format **caps)
-	{
-		if (!caps)
-			return -EINVAL;
-		*caps = mCodedVideoMediaFormatCaps;
-		return mCodedVideoMediaFormatCapsCount;
-	}
-
-	bool onlySupportsByteStream()
-	{
-		for (int i = 0; i < mCodedVideoMediaFormatCapsCount; i++) {
-			if (mCodedVideoMediaFormatCaps[i].data_format !=
-			    VDEF_CODED_DATA_FORMAT_BYTE_STREAM)
-				return false;
-		}
-		return true;
-	}
-
-protected:
-	void setKey(void *key)
-	{
-		mKey = key;
-	}
-
-	void setCodedVideoMediaFormatCaps(const struct vdef_coded_format *caps,
-					  int count)
-	{
-		mCodedVideoMediaFormatCaps = caps;
-		mCodedVideoMediaFormatCapsCount = count;
-	}
-
-	struct mbuf_coded_video_frame_queue *getQueue(void)
-	{
-		return mQueue;
-	}
-
-	void setQueue(struct mbuf_coded_video_frame_queue *queue)
-	{
-		mQueue = queue;
-	}
-
-	struct mbuf_pool *getPool(void)
-	{
-		return mPool;
-	}
-
-	void setPool(struct mbuf_pool *pool)
-	{
-		mPool = pool;
-	}
+	void setQueue(Sink *owner, struct mbuf_coded_video_frame_queue *queue);
 
 private:
-	SinkListener *mSinkListener;
-	SourceListener *mSourceListener;
-	void *mKey;
+	CodedVideoSinkListener *mCodedVideoSinkListener;
 	const struct vdef_coded_format *mCodedVideoMediaFormatCaps;
 	int mCodedVideoMediaFormatCapsCount;
 	struct mbuf_coded_video_frame_queue *mQueue;
-	struct mbuf_pool *mPool;
-	bool mFlushPending;
 };
 
 } /* namespace Pdraw */

@@ -11,9 +11,15 @@ LOCAL_CATEGORY_PATH := libs
 LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer Qt library
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_CXXFLAGS := -std=c++11
+
+LOCAL_SRC_FILES := \
+	$(call all-cpp-files-under,src)
+
 LOCAL_LIBRARIES := \
+	libfutils \
 	libpdraw-backend \
 	libulog
+
 LOCAL_DEPENDS_MODULES := qt5-base
 LOCAL_EXPORT_LDLIBS := -lqpdraw
 

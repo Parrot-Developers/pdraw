@@ -49,7 +49,7 @@ public:
 
 	~RecordMuxer(void);
 
-	int addInputMedia(CodedVideoMedia *media) override;
+	int addInputMedia(Media *media) override;
 
 private:
 	class Track {

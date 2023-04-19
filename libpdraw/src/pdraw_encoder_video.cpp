@@ -54,19 +54,21 @@ const struct venc_cbs VideoEncoder::mEncoderCbs = {
 
 VideoEncoder::VideoEncoder(Session *session,
 			   Element::Listener *elementListener,
-			   CodedSource::Listener *sourceListener) :
-		RawToCodedFilterElement(session,
-					elementListener,
-					1,
-					nullptr,
-					0,
-					1,
-					sourceListener),
+			   Source::Listener *sourceListener) :
+		FilterElement(session,
+			      elementListener,
+			      1,
+			      nullptr,
+			      0,
+			      nullptr,
+			      0,
+			      1,
+			      sourceListener),
 		mInputMedia(nullptr), mOutputMedia(nullptr),
 		mInputBufferPool(nullptr), mInputBufferQueue(nullptr),
 		mVenc(nullptr), mIsFlushed(true),
 		mInputChannelFlushPending(false), mVencFlushPending(false),
-		mVencStopPending(false), mCompleteStopPendingCount(0)
+		mVencStopPending(false)
 {
 	const struct vdef_raw_format *supportedInputFormats;
 	int supportedInputFormatsCount;
@@ -113,34 +115,34 @@ int VideoEncoder::start(void)
 		return 0;
 	}
 	if (mState != CREATED) {
-		PDRAW_LOGE("encoder is not created");
+		PDRAW_LOGE("%s: encoder is not created", __func__);
 		return -EPROTO;
 	}
 	setState(STARTING);
 
 	/* Get the input media and port */
-	RawSink::lock();
+	Sink::lock();
 	unsigned int inputMediaCount = getInputMediaCount();
 	if (inputMediaCount != 1) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media count");
 		return -EPROTO;
 	}
 	Media *media = getInputMedia(0);
 	if (media == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
 		return -EPROTO;
 	}
 	mInputMedia = dynamic_cast<RawVideoMedia *>(media);
 	if (mInputMedia == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
 		return -EPROTO;
 	}
 	InputPort *port = getInputPort(mInputMedia);
 	if (port == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input port");
 		return -EPROTO;
 	}
@@ -163,19 +165,25 @@ int VideoEncoder::start(void)
 	cfg.output.preferred_format = VDEF_CODED_DATA_FORMAT_AVCC;
 	ret = venc_new(mSession->getLoop(), &cfg, &mEncoderCbs, this, &mVenc);
 	if (ret < 0) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("venc_new", -ret);
 		return ret;
 	}
 
 	/* Setup the input port */
-	port->channel->setKey(this);
+	Channel *c = port->channel;
+	RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(c);
+	if (channel == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("invalid input channel");
+		return -EPROTO;
+	}
 	mInputBufferQueue = venc_get_input_buffer_queue(mVenc);
-	port->channel->setQueue(mInputBufferQueue);
+	channel->setQueue(this, mInputBufferQueue);
 	mInputBufferPool = venc_get_input_buffer_pool(mVenc);
-	port->channel->setPool(mInputBufferPool);
+	channel->setPool(this, mInputBufferPool);
 
-	RawSink::unlock();
+	Sink::unlock();
 
 	setState(STARTED);
 
@@ -190,7 +198,7 @@ int VideoEncoder::stop(void)
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
 	if (mState != STARTED) {
-		PDRAW_LOGE("encoder is not started");
+		PDRAW_LOGE("%s: encoder is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
@@ -210,7 +218,7 @@ int VideoEncoder::flush(void)
 {
 	int ret;
 	unsigned int outputChannelCount, i;
-	CodedChannel *outputChannel;
+	Channel *outputChannel;
 
 	if (mIsFlushed) {
 		PDRAW_LOGD("encoder is already flushed, nothing to do");
@@ -221,7 +229,7 @@ int VideoEncoder::flush(void)
 	mVencFlushPending = true;
 
 	/* Flush the output channels (async) */
-	CodedSource::lock();
+	Source::lock();
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
@@ -238,7 +246,7 @@ int VideoEncoder::flush(void)
 				PDRAW_LOG_ERRNO("channel->flush", -ret);
 		}
 	}
-	CodedSource::unlock();
+	Source::unlock();
 
 	/* Flush the encoder (async)
 	 * (the input channel queue is flushed by venc) */
@@ -254,13 +262,13 @@ void VideoEncoder::completeFlush(void)
 {
 	int ret;
 	unsigned int outputChannelCount, i;
-	CodedChannel *outputChannel;
+	Channel *outputChannel;
 	bool pending = false;
 
 	if (mVencFlushPending)
 		return;
 
-	CodedSource::lock();
+	Source::lock();
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
@@ -278,17 +286,19 @@ void VideoEncoder::completeFlush(void)
 			}
 		}
 	}
-	CodedSource::unlock();
+	Source::unlock();
 
 	if (pending)
 		return;
 
-	RawSink::lock();
+	Sink::lock();
 	if (mInputMedia != nullptr) {
 		mIsFlushed = true;
 		if (mInputChannelFlushPending) {
 			mInputChannelFlushPending = false;
-			RawChannel *inputChannel = getInputChannel(mInputMedia);
+			RawVideoChannel *inputChannel =
+				dynamic_cast<RawVideoChannel *>(
+					getInputChannel(mInputMedia));
 			if (inputChannel == nullptr) {
 				PDRAW_LOGE("failed to get input channel");
 			} else {
@@ -299,7 +309,7 @@ void VideoEncoder::completeFlush(void)
 			}
 		}
 	}
-	RawSink::unlock();
+	Sink::unlock();
 
 	tryStop();
 }
@@ -314,14 +324,15 @@ int VideoEncoder::tryStop(void)
 		return 0;
 
 	/* Remove the input port */
-	RawSink::lock();
+	Sink::lock();
 	if (mInputMedia != nullptr) {
-		RawChannel *channel = getInputChannel(mInputMedia);
+		RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(
+			getInputChannel(mInputMedia));
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
 		} else {
-			channel->setQueue(nullptr);
-			channel->setPool(nullptr);
+			channel->setQueue(this, nullptr);
+			channel->setPool(this, nullptr);
 		}
 
 		ret = removeInputMedia(mInputMedia);
@@ -330,18 +341,17 @@ int VideoEncoder::tryStop(void)
 		else
 			mInputMedia = nullptr;
 	}
-	RawSink::unlock();
+	Sink::unlock();
 
 	/* Teardown the output channels
 	 * Note: loop downwards because calling teardown on a channel may or
 	 * may not synchronously remove the channel from the output port */
-	CodedSource::lock();
+	Source::lock();
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 
 		for (i = outputChannelCount - 1; i >= 0; i--) {
-			CodedChannel *channel =
-				getOutputChannel(mOutputMedia, i);
+			Channel *channel = getOutputChannel(mOutputMedia, i);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   i);
@@ -352,7 +362,7 @@ int VideoEncoder::tryStop(void)
 				PDRAW_LOG_ERRNO("channel->teardown", -ret);
 		}
 	}
-	CodedSource::unlock();
+	Source::unlock();
 
 	/* Stop the encoder */
 	ret = venc_stop(mVenc);
@@ -370,23 +380,20 @@ void VideoEncoder::completeStop(void)
 	int ret;
 	unsigned int outputChannelCount;
 
-	mCompleteStopPendingCount--;
-
-	CodedSource::lock();
+	Source::lock();
 	if (mOutputMedia == nullptr) {
-		CodedSource::unlock();
+		Source::unlock();
 		goto exit;
 	}
 	outputChannelCount = getOutputChannelCount(mOutputMedia);
 	if (outputChannelCount > 0) {
-		CodedSource::unlock();
+		Source::unlock();
 		return;
 	}
 
 	/* Remove the output port */
-	if (CodedSource::mListener) {
-		CodedSource::mListener->onOutputMediaRemoved(this,
-							     mOutputMedia);
+	if (Source::mListener) {
+		Source::mListener->onOutputMediaRemoved(this, mOutputMedia);
 	}
 	ret = removeOutputPort(mOutputMedia);
 	if (ret < 0) {
@@ -396,10 +403,10 @@ void VideoEncoder::completeStop(void)
 		mOutputMedia = nullptr;
 	}
 
-	CodedSource::unlock();
+	Source::unlock();
 
 exit:
-	if ((!mVencStopPending) && (mCompleteStopPendingCount == 0))
+	if ((!mVencStopPending) && (mOutputMedia == nullptr))
 		setState(STOPPED);
 }
 
@@ -409,11 +416,11 @@ int VideoEncoder::createOutputMedia(struct vdef_coded_frame *frame_info,
 {
 	int ret;
 
-	CodedSource::lock();
+	Source::lock();
 
 	mOutputMedia = new CodedVideoMedia(mSession);
 	if (mOutputMedia == nullptr) {
-		CodedSource::unlock();
+		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
 		return -ENOMEM;
 	}
@@ -423,7 +430,7 @@ int VideoEncoder::createOutputMedia(struct vdef_coded_frame *frame_info,
 
 	ret = addOutputPort(mOutputMedia);
 	if (ret < 0) {
-		CodedSource::unlock();
+		Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
 		return ret;
 	}
@@ -439,26 +446,26 @@ int VideoEncoder::createOutputMedia(struct vdef_coded_frame *frame_info,
 	size_t spsSize = 0, ppsSize = 0;
 	ret = venc_get_h264_ps(mVenc, nullptr, &spsSize, nullptr, &ppsSize);
 	if (ret < 0) {
-		CodedSource::unlock();
+		Source::unlock();
 		PDRAW_LOG_ERRNO("venc_get_h264_ps", -ret);
 		return ret;
 	}
 	sps = (uint8_t *)malloc(spsSize);
 	if (sps == nullptr) {
-		CodedSource::unlock();
+		Source::unlock();
 		PDRAW_LOG_ERRNO("malloc:sps", ENOMEM);
 		return ret;
 	}
 	pps = (uint8_t *)malloc(ppsSize);
 	if (pps == nullptr) {
-		CodedSource::unlock();
+		Source::unlock();
 		PDRAW_LOG_ERRNO("malloc:pps", ENOMEM);
 		free(sps);
 		return ret;
 	}
 	ret = venc_get_h264_ps(mVenc, sps, &spsSize, pps, &ppsSize);
 	if (ret < 0) {
-		CodedSource::unlock();
+		Source::unlock();
 		PDRAW_LOG_ERRNO("venc_get_h264_ps", -ret);
 		free(sps);
 		free(pps);
@@ -466,7 +473,7 @@ int VideoEncoder::createOutputMedia(struct vdef_coded_frame *frame_info,
 	}
 	ret = mOutputMedia->setPs(nullptr, 0, sps, spsSize, pps, ppsSize);
 	if (ret < 0) {
-		CodedSource::unlock();
+		Source::unlock();
 		PDRAW_LOG_ERRNO("media->setPs", -ret);
 		free(sps);
 		free(pps);
@@ -475,17 +482,17 @@ int VideoEncoder::createOutputMedia(struct vdef_coded_frame *frame_info,
 	free(sps);
 	free(pps);
 
-	CodedSource::unlock();
+	Source::unlock();
 
-	if (CodedSource::mListener)
-		CodedSource::mListener->onOutputMediaAdded(this, mOutputMedia);
+	if (Source::mListener)
+		Source::mListener->onOutputMediaAdded(this, mOutputMedia);
 
 	return 0;
 }
 
 
-void VideoEncoder::onChannelQueue(RawChannel *channel,
-				  struct mbuf_raw_video_frame *frame)
+void VideoEncoder::onRawVideoChannelQueue(RawVideoChannel *channel,
+					  struct mbuf_raw_video_frame *frame)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
@@ -496,33 +503,33 @@ void VideoEncoder::onChannelQueue(RawChannel *channel,
 		return;
 	}
 	if (mState != STARTED) {
-		PDRAW_LOGE("encoder is not started");
+		PDRAW_LOGE("frame input: encoder is not started");
 		return;
 	}
 	if ((mVencFlushPending) || (mInputChannelFlushPending)) {
 		PDRAW_LOGI("frame input: flush pending, discard frame");
 		return;
 	}
-	RawSink::lock();
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue();
+	Sink::lock();
+	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid queue");
 		return;
 	}
 	if (queue != mInputBufferQueue) {
-		RawSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input buffer queue");
 		return;
 	}
 
-	RawSink::onChannelQueue(channel, frame);
+	Sink::onRawVideoChannelQueue(channel, frame);
 	mIsFlushed = false;
-	RawSink::unlock();
+	Sink::unlock();
 }
 
 
-void VideoEncoder::onChannelFlush(RawChannel *channel)
+void VideoEncoder::onChannelFlush(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
@@ -538,28 +545,28 @@ void VideoEncoder::onChannelFlush(RawChannel *channel)
 }
 
 
-void VideoEncoder::onChannelFlushed(CodedChannel *channel)
+void VideoEncoder::onChannelFlushed(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
 		return;
 	}
-	PDRAW_LOGD("'%s': channel flushed media name=%s (channel key=%p)",
+	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
 		   Element::getName().c_str(),
 		   media->getName().c_str(),
-		   channel->getKey());
+		   channel->getOwner());
 
 	completeFlush();
 }
 
 
-void VideoEncoder::onChannelTeardown(RawChannel *channel)
+void VideoEncoder::onChannelTeardown(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
@@ -574,19 +581,17 @@ void VideoEncoder::onChannelTeardown(RawChannel *channel)
 }
 
 
-void VideoEncoder::onChannelUnlink(CodedChannel *channel)
+void VideoEncoder::onChannelUnlink(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	CodedSource::onChannelUnlink(channel);
+	Source::onChannelUnlink(channel);
 
-	if (mState == STOPPING) {
-		mCompleteStopPendingCount++;
+	if (mState == STOPPING)
 		completeStop();
-	}
 }
 
 
@@ -602,7 +607,6 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 	RawVideoMedia::Frame *in_meta;
 	CodedVideoMedia::Frame out_meta;
 	unsigned int outputChannelCount, i;
-	CodedChannel *channel;
 
 	if (status != 0) {
 		PDRAW_LOGE("encoder error: %d(%s)", -status, strerror(-status));
@@ -618,7 +622,7 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		return;
 	}
 	if (self->mState != STARTED) {
-		PDRAW_LOGE("encoder is not started");
+		PDRAW_LOGE("frame output: encoder is not started");
 		return;
 	}
 	if ((self->mVencFlushPending) || (self->mInputChannelFlushPending)) {
@@ -626,16 +630,16 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		return;
 	}
 
-	self->RawSink::lock();
+	self->Sink::lock();
 	if (self->mInputMedia == nullptr) {
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("invalid input media", EPROTO);
 		return;
 	}
 
 	ret = mbuf_coded_video_frame_get_frame_info(out_frame, &info);
 	if (ret < 0) {
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_frame_info", -ret);
 		return;
 	}
@@ -644,7 +648,7 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME,
 		&ancillaryData);
 	if (ret < 0) {
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO(
 			"mbuf_coded_video_frame_get_ancillary_data:pdraw_in",
 			-ret);
@@ -687,19 +691,19 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		&out_meta,
 		sizeof(out_meta));
 	if (ret < 0) {
-		self->RawSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
 				-ret);
 		return;
 	}
 
-	self->RawSink::unlock();
-	self->CodedSource::lock();
+	self->Sink::unlock();
+	self->Source::lock();
 
 	if (self->mOutputMedia == nullptr) {
 		ret = self->createOutputMedia(&info, out_meta);
 		if (ret < 0) {
-			self->CodedSource::unlock();
+			self->Source::unlock();
 			PDRAW_LOG_ERRNO("createOutputMedia", -ret);
 			return;
 		}
@@ -710,7 +714,10 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		outputChannelCount =
 			self->getOutputChannelCount(self->mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
-			channel = self->getOutputChannel(self->mOutputMedia, i);
+			Channel *c =
+				self->getOutputChannel(self->mOutputMedia, i);
+			CodedVideoChannel *channel =
+				dynamic_cast<CodedVideoChannel *>(c);
 			if (channel == nullptr) {
 				PDRAW_LOGE("failed to get channel at index %d",
 					   i);
@@ -724,7 +731,7 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		PDRAW_LOGD("silent frame (ignored)");
 	}
 
-	self->CodedSource::unlock();
+	self->Source::unlock();
 }
 
 
@@ -755,8 +762,6 @@ void VideoEncoder::stopCb(struct venc_encoder *enc, void *userdata)
 
 	PDRAW_LOGD("encoder is stopped");
 	self->mVencStopPending = false;
-
-	self->mCompleteStopPendingCount++;
 	self->completeStop();
 }
 

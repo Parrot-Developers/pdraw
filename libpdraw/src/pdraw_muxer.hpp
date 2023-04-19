@@ -32,7 +32,6 @@
 #define _PDRAW_MUXER_HPP_
 
 #include "pdraw_element.hpp"
-#include "pdraw_sink_raw_video.hpp"
 
 #include <inttypes.h>
 
@@ -42,7 +41,7 @@
 namespace Pdraw {
 
 
-class Muxer : public CodedSinkElement {
+class Muxer : public SinkElement {
 public:
 	Muxer(Session *session, Element::Listener *elementListener);
 
@@ -53,10 +52,10 @@ public:
 	int stop(void);
 
 	/* Must be called on the loop thread */
-	virtual int addInputMedia(CodedVideoMedia *media);
+	virtual int addInputMedia(Media *media);
 
 	/* Must be called on the loop thread */
-	virtual int removeInputMedia(CodedVideoMedia *media);
+	virtual int removeInputMedia(Media *media);
 
 	/* Must be called on the loop thread */
 	virtual int removeInputMedias(void);
@@ -78,7 +77,7 @@ protected:
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
-	virtual void onChannelTeardown(CodedChannel *channel);
+	virtual void onChannelTeardown(Channel *channel);
 };
 
 } /* namespace Pdraw */

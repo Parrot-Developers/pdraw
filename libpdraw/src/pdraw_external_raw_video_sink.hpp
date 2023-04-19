@@ -41,7 +41,7 @@
 namespace Pdraw {
 
 
-class ExternalRawVideoSink : public RawSinkElement {
+class ExternalRawVideoSink : public SinkElement {
 public:
 	ExternalRawVideoSink(Session *session,
 			     Element::Listener *elementListener,
@@ -75,16 +75,16 @@ public:
 private:
 	int flush(void);
 
-	int channelTeardown(RawChannel *channel);
+	int channelTeardown(RawVideoChannel *channel);
 
-	void onChannelQueue(RawChannel *channel,
-			    struct mbuf_raw_video_frame *frame);
+	void onRawVideoChannelQueue(RawVideoChannel *channel,
+				    struct mbuf_raw_video_frame *frame);
 
-	void onChannelFlush(RawChannel *channel);
+	void onChannelFlush(Channel *channel);
 
-	void onChannelTeardown(RawChannel *channel);
+	void onChannelTeardown(Channel *channel);
 
-	int prepareRawVideoFrame(RawChannel *channel,
+	int prepareRawVideoFrame(RawVideoChannel *channel,
 				 struct mbuf_raw_video_frame *frame);
 
 	/* Video sink listener calls from idle functions */

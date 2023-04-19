@@ -42,7 +42,7 @@
 namespace Pdraw {
 
 
-class ExternalCodedVideoSink : public CodedSinkElement {
+class ExternalCodedVideoSink : public SinkElement {
 public:
 	ExternalCodedVideoSink(
 		Session *session,
@@ -81,19 +81,19 @@ public:
 private:
 	int flush(void);
 
-	int channelTeardown(CodedChannel *channel);
+	int channelTeardown(CodedVideoChannel *channel);
 
-	void onChannelQueue(CodedChannel *channel,
-			    struct mbuf_coded_video_frame *frame);
+	void onCodedVideoChannelQueue(CodedVideoChannel *channel,
+				      struct mbuf_coded_video_frame *frame);
 
-	void onChannelFlush(CodedChannel *channel);
+	void onChannelFlush(Channel *channel);
 
-	void onChannelTeardown(CodedChannel *channel);
+	void onChannelTeardown(Channel *channel);
 
-	int prepareCodedVideoFrame(CodedChannel *channel,
+	int prepareCodedVideoFrame(CodedVideoChannel *channel,
 				   struct mbuf_coded_video_frame *frame);
 
-	int writeGreyIdr(CodedChannel *channel,
+	int writeGreyIdr(CodedVideoChannel *channel,
 			 struct CodedVideoMedia::Frame *inFrame,
 			 struct vdef_coded_frame *inInfo,
 			 uint64_t *ntpDelta,

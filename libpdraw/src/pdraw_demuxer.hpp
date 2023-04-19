@@ -44,7 +44,7 @@ namespace Pdraw {
 #define DEMUXER_OUTPUT_BUFFER_COUNT (30)
 
 
-class Demuxer : public CodedSourceElement {
+class Demuxer : public SourceElement {
 public:
 	virtual ~Demuxer(void);
 
@@ -81,13 +81,13 @@ public:
 protected:
 	Demuxer(Session *session,
 		Element::Listener *elementListener,
-		CodedSource::Listener *sourceListener,
+		Source::Listener *sourceListener,
 		IPdraw::IDemuxer *demuxer,
 		IPdraw::IDemuxer::Listener *demuxerListener) :
-			CodedSourceElement(session,
-					   elementListener,
-					   UINT_MAX,
-					   sourceListener),
+			SourceElement(session,
+				      elementListener,
+				      UINT_MAX,
+				      sourceListener),
 			mDemuxer(demuxer), mDemuxerListener(demuxerListener),
 			mReadyToPlay(false), mUnrecoverableError(false),
 			mCalledOpenResp(false)

@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Renderer interface
+ * Video renderer interface
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,8 +28,8 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_HPP_
-#define _PDRAW_RENDERER_HPP_
+#ifndef _PDRAW_RENDERER_VIDEO_HPP_
+#define _PDRAW_RENDERER_VIDEO_HPP_
 
 #include "pdraw_element.hpp"
 
@@ -37,9 +37,9 @@
 
 namespace Pdraw {
 
-class Renderer : public RawSinkElement {
+class VideoRenderer : public SinkElement {
 public:
-	virtual ~Renderer(void);
+	virtual ~VideoRenderer(void);
 
 	virtual int render(struct pdraw_rect *contentPos,
 			   const float *viewMat = nullptr,
@@ -58,7 +58,7 @@ public:
 
 	virtual void completeStop(void) = 0;
 
-	static Renderer *
+	static VideoRenderer *
 	create(Session *session,
 	       Element::Listener *listener,
 	       IPdraw::IVideoRenderer *renderer,
@@ -69,17 +69,17 @@ public:
 	       struct egl_display *eglDisplay);
 
 protected:
-	Renderer(Session *session,
-		 Element::Listener *listener,
-		 IPdraw::IVideoRenderer *renderer,
-		 IPdraw::IVideoRenderer::Listener *rndListener,
-		 uint32_t mediaTypeCaps,
-		 const struct vdef_raw_format *rawVideoMediaFormatCaps,
-		 int rawVideoMediaFormatCapsCount,
-		 unsigned int mediaId,
-		 const struct pdraw_rect *renderPos,
-		 const struct pdraw_video_renderer_params *params,
-		 struct egl_display *eglDisplay);
+	VideoRenderer(Session *session,
+		      Element::Listener *listener,
+		      IPdraw::IVideoRenderer *renderer,
+		      IPdraw::IVideoRenderer::Listener *rndListener,
+		      uint32_t mediaTypeCaps,
+		      const struct vdef_raw_format *rawVideoMediaFormatCaps,
+		      int rawVideoMediaFormatCapsCount,
+		      unsigned int mediaId,
+		      const struct pdraw_rect *renderPos,
+		      const struct pdraw_video_renderer_params *params,
+		      struct egl_display *eglDisplay);
 
 	void removeRendererListener(void);
 
@@ -95,4 +95,4 @@ private:
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_RENDERER_HPP_ */
+#endif /* !_PDRAW_RENDERER_VIDEO_HPP_ */

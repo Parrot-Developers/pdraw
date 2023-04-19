@@ -160,10 +160,12 @@ private:
 		PROGRAM_YUV_TO_RGB_PLANAR_10_16LE,
 		PROGRAM_YUV_TO_RGB_SEMIPLANAR,
 		PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH,
+		PROGRAM_GRAY_TO_RGB_PLANAR,
 		PROGRAM_MAX,
 	};
 
-	enum program getProgram(const struct vdef_raw_format *format);
+	enum program getProgram(const struct vdef_raw_format *format,
+				bool *swapUv);
 
 	int setupBlur(void);
 
@@ -239,6 +241,7 @@ private:
 	GLint mProgramSatCoef[PROGRAM_MAX];
 	GLint mProgramLightCoef[PROGRAM_MAX];
 	GLint mProgramDarkCoef[PROGRAM_MAX];
+	GLint mProgramSwapUv[PROGRAM_MAX];
 	GLint mProgramZebraEnable[PROGRAM_MAX];
 	GLint mProgramZebraThreshold[PROGRAM_MAX];
 	GLint mProgramZebraPhase[PROGRAM_MAX];

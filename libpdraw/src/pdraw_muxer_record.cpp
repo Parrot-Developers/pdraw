@@ -87,17 +87,24 @@ RecordMuxer::~RecordMuxer(void)
 
 
 /* Must be called on the loop thread */
-int RecordMuxer::addInputMedia(CodedVideoMedia *media)
+int RecordMuxer::addInputMedia(Media *media)
 {
 	int res;
 
-	res = Muxer::addInputMedia(media);
+	/* Only accept coded video media */
+	CodedVideoMedia *m = dynamic_cast<CodedVideoMedia *>(media);
+	if (m == nullptr) {
+		PDRAW_LOGE("%s: unsupported input media", __func__);
+		return -ENOSYS;
+	}
+
+	res = Muxer::addInputMedia(m);
 	if (res < 0)
 		return res;
 
 	if (mMux != nullptr) {
 		/* Add a track for the media if the muxer is already opened */
-		res = addTrackForMedia(media, 0);
+		res = addTrackForMedia(m, 0);
 		if (res < 0)
 			return res;
 	}
@@ -129,13 +136,14 @@ int RecordMuxer::internalStart(void)
 		return res;
 	}
 
-	CodedSink::lock();
+	Sink::lock();
 
 	inputMediaCount = getInputMediaCount();
 
 	/* Add a track for all existing medias */
 	for (i = 0; i < inputMediaCount; i++) {
-		CodedVideoMedia *media = getInputMedia(i);
+		CodedVideoMedia *media =
+			dynamic_cast<CodedVideoMedia *>(getInputMedia(i));
 		if (media == nullptr) {
 			PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
 			continue;
@@ -145,7 +153,7 @@ int RecordMuxer::internalStart(void)
 			continue;
 	}
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return 0;
 }
@@ -559,12 +567,13 @@ int RecordMuxer::process(void)
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mMux == nullptr, EAGAIN);
 
-	CodedSink::lock();
+	Sink::lock();
 
 	inputMediaCount = getInputMediaCount();
 
 	for (i = 0; i < inputMediaCount; i++) {
-		CodedVideoMedia *media = getInputMedia(i);
+		CodedVideoMedia *media =
+			dynamic_cast<CodedVideoMedia *>(getInputMedia(i));
 		if (media == nullptr) {
 			res = -ENOENT;
 			PDRAW_LOG_ERRNO("getInputMedia", -res);
@@ -575,7 +584,7 @@ int RecordMuxer::process(void)
 		processMedia(media);
 	}
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return 0;
 }
@@ -592,13 +601,14 @@ int RecordMuxer::processMedia(CodedVideoMedia *media)
 		PDRAW_LOG_ERRNO("track->trackId", -res);
 		return res;
 	}
-	CodedChannel *channel = getInputChannel(media);
+	CodedVideoChannel *channel =
+		dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
 		res = -ENODEV;
 		PDRAW_LOG_ERRNO("Sink::getInputChannel", -res);
 		return res;
 	}
-	struct mbuf_coded_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
 		res = -ENODEV;
 		PDRAW_LOG_ERRNO("Channel::getQueue", -res);

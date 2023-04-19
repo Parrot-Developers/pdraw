@@ -861,7 +861,7 @@ parse_scheduling_mode(const char *value)
 		    0)
 			return fm;
 	}
-	fm = PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP;
+	fm = PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE;
 	printf("Invalid fill mode value '%s', using '%s' instead",
 	       value,
 	       pdraw_video_renderer_scheduling_mode_str(fm));
@@ -909,7 +909,7 @@ int main(int argc, char **argv)
 	self->speed_sign = 1;
 	self->skyctrl_battery_percentage = 255;
 	self->default_scheduling_mode =
-		PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP;
+		PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE;
 	self->default_fill_mode =
 		PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND;
 

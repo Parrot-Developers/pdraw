@@ -67,7 +67,6 @@ public:
 	 * @param mediaId: identifier of the raw media to render (from a
 	 *                 pdraw_media_info structure); if zero the first
 	 *                 raw media found is used for rendering
-	 * @return 0 on success, negative errno value in case of error
 	 */
 	void start(QPdraw *pdraw, unsigned int mediaId);
 
@@ -84,7 +83,6 @@ public:
 	 *                 raw media found is used for rendering
 	 * @param renderPos: rendering position and size
 	 * @param params: renderer parameters
-	 * @return 0 on success, negative errno value in case of error
 	 */
 	void start(QPdraw *pdraw,
 		   unsigned int mediaId,
@@ -94,9 +92,18 @@ public:
 	/**
 	 * Stop a QPdraw widget.
 	 * This function must be called prior to destroying the instance.
-	 * @return 0 on success, negative errno value in case of error
 	 */
 	void stop();
+
+	/**
+	 * Set the rendering framerate of a QPdraw widget.
+	 * The QPdraw widget uses an internal timer to periodically render
+	 * at the requested frequency.
+	 * This function can be overridden by any child class, but all
+	 * implementations shall call the parent function.
+	 * @param framerate: rendering framerate
+	 */
+	virtual void setFramerate(float framerate);
 
 	/**
 	 * Get the widget rendering rectangle.

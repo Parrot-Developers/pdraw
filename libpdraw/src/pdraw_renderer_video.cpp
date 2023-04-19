@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Renderer interface
+ * Video renderer interface
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -32,64 +32,68 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
-#include "pdraw_renderer.hpp"
-#include "pdraw_renderer_gles2.hpp"
-#include "pdraw_renderer_videocoreegl.hpp"
+#include "pdraw_renderer_video.hpp"
+#include "pdraw_renderer_video_gles2.hpp"
+#include "pdraw_renderer_video_videocoreegl.hpp"
 #include "pdraw_session.hpp"
 
 #include <errno.h>
 
 namespace Pdraw {
 
-Renderer *Renderer::create(Session *session,
-			   Element::Listener *listener,
-			   IPdraw::IVideoRenderer *renderer,
-			   IPdraw::IVideoRenderer::Listener *rndListener,
-			   unsigned int mediaId,
-			   const struct pdraw_rect *renderPos,
-			   const struct pdraw_video_renderer_params *params,
-			   struct egl_display *eglDisplay)
+VideoRenderer *
+VideoRenderer::create(Session *session,
+		      Element::Listener *listener,
+		      IPdraw::IVideoRenderer *renderer,
+		      IPdraw::IVideoRenderer::Listener *rndListener,
+		      unsigned int mediaId,
+		      const struct pdraw_rect *renderPos,
+		      const struct pdraw_video_renderer_params *params,
+		      struct egl_display *eglDisplay)
 {
 #if defined(USE_VIDEOCOREEGL)
-	return new VideoCoreEglRenderer(session,
-					listener,
-					renderer,
-					rndListener,
-					mediaId,
-					renderPos,
-					params,
-					eglDisplay);
+	return new VideoCoreEglVideoRenderer(session,
+					     listener,
+					     renderer,
+					     rndListener,
+					     mediaId,
+					     renderPos,
+					     params,
+					     eglDisplay);
 #elif defined(USE_GLES2)
-	return new Gles2Renderer(session,
-				 listener,
-				 renderer,
-				 rndListener,
-				 mediaId,
-				 renderPos,
-				 params,
-				 eglDisplay);
+	return new Gles2VideoRenderer(session,
+				      listener,
+				      renderer,
+				      rndListener,
+				      mediaId,
+				      renderPos,
+				      params,
+				      eglDisplay);
 #else
 	return nullptr;
 #endif
 }
 
 
-Renderer::Renderer(Session *session,
-		   Element::Listener *listener,
-		   IPdraw::IVideoRenderer *renderer,
-		   IPdraw::IVideoRenderer::Listener *rndListener,
-		   uint32_t mediaTypeCaps,
-		   const struct vdef_raw_format *rawVideoMediaFormatCaps,
-		   int rawVideoMediaFormatCapsCount,
-		   unsigned int mediaId,
-		   const struct pdraw_rect *renderPos,
-		   const struct pdraw_video_renderer_params *params,
-		   struct egl_display *eglDisplay) :
-		RawSinkElement(session,
-			       listener,
-			       1,
-			       rawVideoMediaFormatCaps,
-			       rawVideoMediaFormatCapsCount),
+VideoRenderer::VideoRenderer(
+	Session *session,
+	Element::Listener *listener,
+	IPdraw::IVideoRenderer *renderer,
+	IPdraw::IVideoRenderer::Listener *rndListener,
+	uint32_t mediaTypeCaps,
+	const struct vdef_raw_format *rawVideoMediaFormatCaps,
+	int rawVideoMediaFormatCapsCount,
+	unsigned int mediaId,
+	const struct pdraw_rect *renderPos,
+	const struct pdraw_video_renderer_params *params,
+	struct egl_display *eglDisplay) :
+		SinkElement(session,
+			    listener,
+			    1,
+			    nullptr,
+			    0,
+			    rawVideoMediaFormatCaps,
+			    rawVideoMediaFormatCapsCount),
 		mRenderer(renderer), mRendererListener(rndListener)
 {
 	int res;
@@ -119,7 +123,7 @@ exit:
 }
 
 
-Renderer::~Renderer(void)
+VideoRenderer::~VideoRenderer(void)
 {
 	/* Remove any leftover idle callbacks */
 	pomp_loop_idle_remove(mSession->getLoop(), idleCompleteStop, this);
@@ -128,7 +132,7 @@ Renderer::~Renderer(void)
 }
 
 
-void Renderer::removeRendererListener(void)
+void VideoRenderer::removeRendererListener(void)
 {
 	pthread_mutex_lock(&mListenerMutex);
 	mRendererListener = nullptr;
@@ -136,19 +140,19 @@ void Renderer::removeRendererListener(void)
 }
 
 
-void Renderer::asyncCompleteStop(void)
+void VideoRenderer::asyncCompleteStop(void)
 {
 	pomp_loop_idle_add(mSession->getLoop(), idleCompleteStop, this);
 }
 
 
 /**
- * Renderer calls from idle functions on the loop thread
+ * VideoRenderer calls from idle functions on the loop thread
  */
 
-void Renderer::idleCompleteStop(void *userdata)
+void VideoRenderer::idleCompleteStop(void *userdata)
 {
-	Renderer *self = reinterpret_cast<Renderer *>(userdata);
+	VideoRenderer *self = reinterpret_cast<VideoRenderer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	self->completeStop();
 }

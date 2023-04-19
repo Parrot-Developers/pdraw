@@ -40,11 +40,11 @@
 
 namespace Pdraw {
 
-class VideoScaler : public RawToRawFilterElement {
+class VideoScaler : public FilterElement {
 public:
 	VideoScaler(Session *session,
 		    Element::Listener *elementListener,
-		    RawSource::Listener *sourceListener);
+		    Source::Listener *sourceListener);
 
 	~VideoScaler(void);
 
@@ -64,16 +64,16 @@ private:
 
 	int tryStop(void);
 
-	void onChannelQueue(RawChannel *channel,
-			    struct mbuf_raw_video_frame *frame);
+	void onRawVideoChannelQueue(RawVideoChannel *channel,
+				    struct mbuf_raw_video_frame *frame);
 
-	void onChannelFlush(RawChannel *channel);
+	void onChannelFlush(Channel *channel);
 
-	void onChannelFlushed(RawChannel *channel);
+	void onChannelFlushed(Channel *channel);
 
-	void onChannelTeardown(RawChannel *channel);
+	void onChannelTeardown(Channel *channel);
 
-	void onChannelUnlink(RawChannel *channel);
+	void onChannelUnlink(Channel *channel);
 
 	static void frameOutputCb(struct vscale_scaler *scaler,
 				  int status,
@@ -93,7 +93,6 @@ private:
 	bool mInputChannelFlushPending;
 	bool mVscaleFlushPending;
 	bool mVscaleStopPending;
-	int mCompleteStopPendingCount;
 	static const struct vscale_cbs mScalerCbs;
 };
 

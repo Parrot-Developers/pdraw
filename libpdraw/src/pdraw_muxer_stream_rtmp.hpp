@@ -50,7 +50,7 @@ public:
 
 	~RtmpStreamMuxer(void);
 
-	int addInputMedia(CodedVideoMedia *media) override;
+	int addInputMedia(Media *media) override;
 
 private:
 	int internalStart(void) override;

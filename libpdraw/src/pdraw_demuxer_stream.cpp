@@ -115,7 +115,7 @@ const struct h264_ctx_cbs StreamDemuxer::VideoMedia::mH264Cbs = {
 
 StreamDemuxer::StreamDemuxer(Session *session,
 			     Element::Listener *elementListener,
-			     CodedSource::Listener *sourceListener,
+			     Source::Listener *sourceListener,
 			     IPdraw::IDemuxer *demuxer,
 			     IPdraw::IDemuxer::Listener *demuxerListener) :
 		Demuxer(session,
@@ -366,7 +366,7 @@ void StreamDemuxer::onRtspSessionRemoved(struct rtsp_client *client,
 
 	auto p = self->mVideoMedias.begin();
 	while (p != self->mVideoMedias.end()) {
-		(*p)->sendDownstreamEvent(CodedChannel::DownstreamEvent::EOS);
+		(*p)->sendDownstreamEvent(Channel::DownstreamEvent::EOS);
 		p++;
 	}
 
@@ -1103,7 +1103,7 @@ int StreamDemuxer::start(void)
 		return 0;
 	}
 	if (mState != CREATED) {
-		PDRAW_LOGE("demuxer is not created");
+		PDRAW_LOGE("%s: demuxer is not created", __func__);
 		return -EPROTO;
 	}
 	setState(STARTING);
@@ -1150,7 +1150,7 @@ int StreamDemuxer::stop(void)
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
 	if (mState != STARTED && mState != STARTING) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
@@ -1158,7 +1158,7 @@ int StreamDemuxer::stop(void)
 
 	auto p = mVideoMedias.begin();
 	while (p != mVideoMedias.end()) {
-		(*p)->sendDownstreamEvent(CodedChannel::DownstreamEvent::EOS);
+		(*p)->sendDownstreamEvent(Channel::DownstreamEvent::EOS);
 		p++;
 	}
 
@@ -1197,13 +1197,13 @@ int StreamDemuxer::stop(void)
 			mVideoMedias.front()->stopRtpAvp();
 	}
 
-	CodedSource::lock();
+	Source::lock();
 
 	ret = flush();
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("flush", -ret);
 
-	CodedSource::unlock();
+	Source::unlock();
 
 	if (mNetworkReadyForStop && mChannelsReadyForStop) {
 		mChannelsReadyForStop = false;
@@ -1225,16 +1225,16 @@ int StreamDemuxer::flush(void)
 int StreamDemuxer::flush(bool destroyMedias)
 {
 	if ((mState != STARTED) && (mState != STOPPING)) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
-	CodedSource::lock();
+	Source::lock();
 
 	mDestroyMediasAfterFlush = destroyMedias;
 
 	if (mFlushing) {
-		CodedSource::unlock();
+		Source::unlock();
 		return -EALREADY;
 	}
 
@@ -1248,7 +1248,7 @@ int StreamDemuxer::flush(bool destroyMedias)
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
-		CodedVideoMedia *media = getOutputMedia(i);
+		Media *media = getOutputMedia(i);
 		if (media == nullptr) {
 			PDRAW_LOGW("failed to get media at index %d", i);
 			continue;
@@ -1263,31 +1263,31 @@ int StreamDemuxer::flush(bool destroyMedias)
 		mDestroyMediasAfterFlush = false;
 	}
 
-	CodedSource::unlock();
+	Source::unlock();
 
 	return 0;
 }
 
 
-void StreamDemuxer::onChannelFlushed(CodedChannel *channel)
+void StreamDemuxer::onChannelFlushed(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	CodedSource::lock();
+	Source::lock();
 
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
-		CodedSource::unlock();
+		Source::unlock();
 		return;
 	}
-	PDRAW_LOGD("'%s': channel flushed media name=%s (channel key=%p)",
+	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
 		   Element::getName().c_str(),
 		   media->getName().c_str(),
-		   channel->getKey());
+		   channel->getOwner());
 
 	auto p = mVideoMedias.begin();
 	while (p != mVideoMedias.end()) {
@@ -1309,24 +1309,24 @@ void StreamDemuxer::onChannelFlushed(CodedChannel *channel)
 		mDestroyMediasAfterFlush = false;
 	}
 
-	CodedSource::unlock();
+	Source::unlock();
 }
 
 
-void StreamDemuxer::onChannelUnlink(CodedChannel *channel)
+void StreamDemuxer::onChannelUnlink(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
 		return;
 	}
 
-	int ret = removeOutputChannel(media, channel->getKey());
+	int ret = removeOutputChannel(media, channel);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("removeOutputChannel", -ret);
 
@@ -1355,13 +1355,13 @@ void StreamDemuxer::completeTeardownAsync(void *userdata)
 
 void StreamDemuxer::completeTeardown(void)
 {
-	CodedSource::lock();
+	Source::lock();
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
-		CodedVideoMedia *media = getOutputMedia(i);
+		Media *media = getOutputMedia(i);
 		if (media && getOutputChannelCount(media) > 0) {
-			CodedSource::unlock();
+			Source::unlock();
 			return;
 		}
 	}
@@ -1373,7 +1373,7 @@ void StreamDemuxer::completeTeardown(void)
 	}
 	mVideoMedias.clear();
 
-	CodedSource::unlock();
+	Source::unlock();
 
 	if (mState == STOPPING) {
 		mChannelsReadyForStop = true;
@@ -1399,41 +1399,41 @@ void StreamDemuxer::completeTeardown(void)
 }
 
 
-void StreamDemuxer::onChannelResync(CodedChannel *channel)
+void StreamDemuxer::onChannelResync(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	CodedSource::lock();
+	Source::lock();
 
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
-		CodedSource::unlock();
+		Source::unlock();
 		return;
 	}
-	PDRAW_LOGD("'%s': channel resync media name=%s (channel key=%p)",
+	PDRAW_LOGD("'%s': channel resync media name=%s (channel owner=%p)",
 		   Element::getName().c_str(),
 		   media->getName().c_str(),
-		   channel->getKey());
+		   channel->getOwner());
 
 	auto p = mVideoMedias.begin();
 	while (p != mVideoMedias.end()) {
 		if ((*p)->hasMedia(media)) {
 			(*p)->stop();
-			CodedSource::unlock();
+			Source::unlock();
 			return;
 		}
 		p++;
 	}
 
-	CodedSource::unlock();
+	Source::unlock();
 }
 
 
-void StreamDemuxer::onChannelVideoPresStats(CodedChannel *channel,
+void StreamDemuxer::onChannelVideoPresStats(Channel *channel,
 					    VideoPresStats *stats)
 {
 	if (channel == nullptr) {
@@ -1445,14 +1445,14 @@ void StreamDemuxer::onChannelVideoPresStats(CodedChannel *channel,
 		return;
 	}
 
-	CodedSource::lock();
+	Source::lock();
 
-	CodedSource::onChannelVideoPresStats(channel, stats);
+	Source::onChannelVideoPresStats(channel, stats);
 
-	CodedVideoMedia *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
-		CodedSource::unlock();
+		Source::unlock();
 		return;
 	}
 
@@ -1465,7 +1465,7 @@ void StreamDemuxer::onChannelVideoPresStats(CodedChannel *channel,
 		p++;
 	}
 
-	CodedSource::unlock();
+	Source::unlock();
 }
 
 
@@ -1789,7 +1789,7 @@ int StreamDemuxer::internalPause(void)
 int StreamDemuxer::play(float speed)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
@@ -1809,7 +1809,7 @@ int StreamDemuxer::play(float speed)
 bool StreamDemuxer::isReadyToPlay(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return false;
 	}
 
@@ -1820,7 +1820,7 @@ bool StreamDemuxer::isReadyToPlay(void)
 bool StreamDemuxer::isPaused(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return false;
 	}
 
@@ -1833,12 +1833,12 @@ bool StreamDemuxer::isPaused(void)
 int StreamDemuxer::previous(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
 	if (!mFrameByFrame) {
-		PDRAW_LOGE("demuxer is not paused");
+		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
 	}
 
@@ -1903,12 +1903,12 @@ int StreamDemuxer::previous(void)
 int StreamDemuxer::next(void)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
 	if (!mFrameByFrame) {
-		PDRAW_LOGE("demuxer is not paused");
+		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
 	}
 
@@ -1960,7 +1960,7 @@ int StreamDemuxer::next(void)
 int StreamDemuxer::seek(int64_t delta, bool exact)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
@@ -1977,7 +1977,7 @@ int StreamDemuxer::seek(int64_t delta, bool exact)
 int StreamDemuxer::seekTo(uint64_t timestamp, bool exact)
 {
 	if (mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 
@@ -2133,7 +2133,7 @@ StreamDemuxer::VideoMedia::~VideoMedia(void)
 }
 
 
-bool StreamDemuxer::VideoMedia::hasMedia(CodedVideoMedia *media)
+bool StreamDemuxer::VideoMedia::hasMedia(Media *media)
 {
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
 		if (mVideoMedias[i] == media)
@@ -2226,10 +2226,10 @@ void StreamDemuxer::VideoMedia::finishSetup(void)
 int StreamDemuxer::VideoMedia::setupMedia(void)
 {
 	int ret;
-	CodedSource::OutputPort *basePort, *mediaPort;
+	Source::OutputPort *basePort, *mediaPort;
 
 	if (mDemuxer->mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
 	/* Note: H.265 streaming is not supported */
@@ -2238,10 +2238,10 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 		return -EPROTO;
 	}
 
-	mDemuxer->CodedSource::lock();
+	mDemuxer->Source::lock();
 
 	if (mNbVideoMedias > 0) {
-		mDemuxer->CodedSource::unlock();
+		mDemuxer->Source::unlock();
 		PDRAW_LOGE("media already defined");
 		return -EBUSY;
 	}
@@ -2250,14 +2250,14 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 	mVideoMedias = (CodedVideoMedia **)calloc(mNbVideoMedias,
 						  sizeof(*mVideoMedias));
 	if (mVideoMedias == nullptr) {
-		mDemuxer->CodedSource::unlock();
+		mDemuxer->Source::unlock();
 		PDRAW_LOGE("media allocation failed");
 		return -ENOMEM;
 	}
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
 		mVideoMedias[i] = new CodedVideoMedia(mDemuxer->mSession);
 		if (mVideoMedias[i] == nullptr) {
-			mDemuxer->CodedSource::unlock();
+			mDemuxer->Source::unlock();
 			PDRAW_LOGE("media allocation failed");
 			return -ENOMEM;
 		}
@@ -2273,7 +2273,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 		}
 		ret = mDemuxer->addOutputPort(mVideoMedias[i]);
 		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
+			mDemuxer->Source::unlock();
 			PDRAW_LOG_ERRNO("addOutputPort", -ret);
 			return ret;
 		}
@@ -2287,7 +2287,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 					     mCodecInfo.h264.pps,
 					     mCodecInfo.h264.ppslen);
 		if (ret < 0) {
-			mDemuxer->CodedSource::unlock();
+			mDemuxer->Source::unlock();
 			PDRAW_LOG_ERRNO("media->setPs", -ret);
 			return ret;
 		}
@@ -2308,7 +2308,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 	ret = h264_reader_parse_nalu(
 		mH264Reader, 0, mCodecInfo.h264.sps, mCodecInfo.h264.spslen);
 	if (ret < 0) {
-		mDemuxer->CodedSource::unlock();
+		mDemuxer->Source::unlock();
 		PDRAW_LOG_ERRNO("h264_reader_parse_nalu:sps", -ret);
 		return ret;
 	}
@@ -2316,7 +2316,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 	ret = h264_reader_parse_nalu(
 		mH264Reader, 0, mCodecInfo.h264.pps, mCodecInfo.h264.ppslen);
 	if (ret < 0) {
-		mDemuxer->CodedSource::unlock();
+		mDemuxer->Source::unlock();
 		PDRAW_LOG_ERRNO("h264_reader_parse_nalu:pps", -ret);
 		return ret;
 	}
@@ -2330,7 +2330,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 		mVideoMedias[1]->info.resolution.width *
 			mVideoMedias[1]->info.resolution.height * 3 / 4);
 	if (ret < 0) {
-		mDemuxer->CodedSource::unlock();
+		mDemuxer->Source::unlock();
 		PDRAW_LOG_ERRNO("createOutputPortMemoryPool", -ret);
 		return ret;
 	}
@@ -2348,11 +2348,11 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 	mWaitForSync = true;
 	mRecoveryFrameCount = 0;
 
-	mDemuxer->CodedSource::unlock();
+	mDemuxer->Source::unlock();
 
-	if (mDemuxer->CodedSource::mListener) {
+	if (mDemuxer->Source::mListener) {
 		for (unsigned int i = 0; i < mNbVideoMedias; i++)
-			mDemuxer->CodedSource::mListener->onOutputMediaAdded(
+			mDemuxer->Source::mListener->onOutputMediaAdded(
 				mDemuxer, mVideoMedias[i]);
 	}
 
@@ -2383,8 +2383,8 @@ void StreamDemuxer::VideoMedia::teardownMedia(void)
 
 	/* Remove the output ports */
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-		if (mDemuxer->CodedSource::mListener) {
-			mDemuxer->CodedSource::mListener->onOutputMediaRemoved(
+		if (mDemuxer->Source::mListener) {
+			mDemuxer->Source::mListener->onOutputMediaRemoved(
 				mDemuxer, mVideoMedias[i]);
 		}
 		int ret = mDemuxer->removeOutputPort(mVideoMedias[i]);
@@ -2515,7 +2515,7 @@ void StreamDemuxer::VideoMedia::stop(void)
 
 void StreamDemuxer::VideoMedia::flush(void)
 {
-	mDemuxer->CodedSource::lock();
+	mDemuxer->Source::lock();
 
 	stop();
 	mFlushing = true;
@@ -2528,7 +2528,7 @@ void StreamDemuxer::VideoMedia::flush(void)
 
 		/* Flush the output channels */
 		for (unsigned int j = 0; j < outputChannelCount; j++) {
-			CodedChannel *channel =
+			Channel *channel =
 				mDemuxer->getOutputChannel(mVideoMedias[i], j);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
@@ -2541,11 +2541,11 @@ void StreamDemuxer::VideoMedia::flush(void)
 		}
 	}
 
-	mDemuxer->CodedSource::unlock();
+	mDemuxer->Source::unlock();
 }
 
 
-void StreamDemuxer::VideoMedia::channelFlushed(CodedChannel *channel)
+void StreamDemuxer::VideoMedia::channelFlushed(Channel *channel)
 {
 	mFlushChannelCount--;
 	if (mFlushChannelCount <= 0)
@@ -2553,20 +2553,20 @@ void StreamDemuxer::VideoMedia::channelFlushed(CodedChannel *channel)
 }
 
 
-void StreamDemuxer::VideoMedia::channelUnlink(CodedChannel *channel)
+void StreamDemuxer::VideoMedia::channelUnlink(Channel *channel)
 {
-	mDemuxer->CodedSource::lock();
+	mDemuxer->Source::lock();
 
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
 		unsigned int outputChannelCount =
 			mDemuxer->getOutputChannelCount(mVideoMedias[i]);
 		if (outputChannelCount > 0) {
-			mDemuxer->CodedSource::unlock();
+			mDemuxer->Source::unlock();
 			return;
 		}
 	}
 
-	mDemuxer->CodedSource::unlock();
+	mDemuxer->Source::unlock();
 
 	if (mCodecInfoChanging) {
 		teardownMedia();
@@ -2582,14 +2582,13 @@ void StreamDemuxer::VideoMedia::channelUnlink(CodedChannel *channel)
 
 
 void StreamDemuxer::VideoMedia::sendDownstreamEvent(
-	CodedChannel::DownstreamEvent event)
+	Channel::DownstreamEvent event)
 {
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
-		int res = mDemuxer->CodedSource::sendDownstreamEvent(
-			mVideoMedias[i], event);
+		int res = mDemuxer->Source::sendDownstreamEvent(mVideoMedias[i],
+								event);
 		if (res < 0)
-			PDRAW_LOG_ERRNO("CodedSource::sendDownstreamEvent",
-					-res);
+			PDRAW_LOG_ERRNO("Source::sendDownstreamEvent", -res);
 	}
 }
 
@@ -2598,7 +2597,6 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 {
 	int ret = 0, err;
 	unsigned int outputChannelCount = 0;
-	CodedChannel *channel;
 	CodedVideoMedia::Frame data = {};
 	uint32_t flags = 0;
 	size_t frameSize = 0, bufSize;
@@ -2615,7 +2613,7 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 	int64_t clock_delta = 0;
 	uint32_t precision = UINT32_MAX;
 
-	mDemuxer->CodedSource::lock();
+	mDemuxer->Source::lock();
 
 	/* Get an output memory */
 	if (mCurrentFrame != nullptr) {
@@ -2630,12 +2628,12 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
 		mCurrentMem = nullptr;
 	}
-	ret = mDemuxer->getOutputMemory(mVideoMedias,
-					mNbVideoMedias,
-					&mCurrentMem,
-					&requiredMediaIndex);
+	ret = mDemuxer->getCodedVideoOutputMemory(mVideoMedias,
+						  mNbVideoMedias,
+						  &mCurrentMem,
+						  &requiredMediaIndex);
 	if ((ret < 0) || (mCurrentMem == nullptr)) {
-		mDemuxer->CodedSource::unlock();
+		mDemuxer->Source::unlock();
 		PDRAW_LOGW("failed to get an output memory (%d)", ret);
 		flush();
 		return ret;
@@ -2872,11 +2870,11 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 					   &mVideoMedias[i]->format)) {
 			/* The format is different, we need to pick another
 			 * frame */
-			int copy_ret =
-				mDemuxer->copyOutputFrame(requiredMedia,
-							  mCurrentFrame,
-							  mVideoMedias[i],
-							  &outputFrame);
+			int copy_ret = mDemuxer->copyCodedVideoOutputFrame(
+				requiredMedia,
+				mCurrentFrame,
+				mVideoMedias[i],
+				&outputFrame);
 			if (copy_ret < 0) {
 				PDRAW_LOG_ERRNO("copyOutputFrame", -copy_ret);
 				outputFrame = nullptr;
@@ -2896,8 +2894,10 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 			const struct vdef_coded_format *caps;
 			int capsCount;
 
-			channel =
+			Channel *c =
 				mDemuxer->getOutputChannel(mVideoMedias[i], j);
+			CodedVideoChannel *channel =
+				dynamic_cast<CodedVideoChannel *>(c);
 			if (channel == nullptr) {
 				PDRAW_LOGW("invalid channel");
 				continue;
@@ -2927,7 +2927,7 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 		mbuf_coded_video_frame_unref(outputFrame);
 	if ((mFirstFrame) &&
 	    (!(frameInfo.info.flags & VDEF_FRAME_FLAG_SILENT))) {
-		sendDownstreamEvent(CodedChannel::DownstreamEvent::SOS);
+		sendDownstreamEvent(Channel::DownstreamEvent::SOS);
 		mFirstFrame = false;
 	}
 
@@ -2937,12 +2937,12 @@ out:
 	mbuf_coded_video_frame_unref(mCurrentFrame);
 	mCurrentFrame = nullptr;
 
-	mDemuxer->CodedSource::unlock();
+	mDemuxer->Source::unlock();
 	return ret;
 }
 
 
-void StreamDemuxer::VideoMedia::channelSendVideoPresStats(CodedChannel *channel,
+void StreamDemuxer::VideoMedia::channelSendVideoPresStats(Channel *channel,
 							  VideoPresStats *stats)
 {
 	vstrm_video_stats vstrm_stats = {};
@@ -3102,7 +3102,7 @@ void StreamDemuxer::VideoMedia::codecInfoChangedCb(
 {
 	VideoMedia *self = (VideoMedia *)userdata;
 	int outputChannelCount = 0;
-	CodedChannel *channel;
+	Channel *channel;
 	int ret;
 
 	if ((self == nullptr) || (info == nullptr))
@@ -3115,7 +3115,7 @@ void StreamDemuxer::VideoMedia::codecInfoChangedCb(
 	StreamDemuxer *demuxer = self->mDemuxer;
 
 	if (demuxer->mState != STARTED) {
-		PDRAW_LOGE("demuxer is not started");
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return;
 	}
 
@@ -3132,7 +3132,7 @@ void StreamDemuxer::VideoMedia::codecInfoChangedCb(
 	}
 	self->mCodecInfo = *info;
 
-	demuxer->CodedSource::lock();
+	demuxer->Source::lock();
 
 	if (self->mCurrentFrame != nullptr) {
 		ret = mbuf_coded_video_frame_unref(self->mCurrentFrame);
@@ -3179,13 +3179,13 @@ void StreamDemuxer::VideoMedia::codecInfoChangedCb(
 		self->mCodecInfoChanging = false;
 		ret = self->setupMedia();
 		if (ret < 0) {
-			demuxer->CodedSource::unlock();
+			demuxer->Source::unlock();
 			PDRAW_LOG_ERRNO("setupMedia", -ret);
 			return;
 		}
 	}
 
-	demuxer->CodedSource::unlock();
+	demuxer->Source::unlock();
 }
 
 
@@ -3244,8 +3244,12 @@ void StreamDemuxer::VideoMedia::sessionMetadataPeerChangedCb(
 
 	PDRAW_LOGD("session metadata changed");
 
+	self->mDemuxer->Source::lock();
+
 	for (unsigned int i = 0; i < self->mNbVideoMedias; i++)
 		self->mVideoMedias[i]->sessionMeta = *meta;
+
+	self->mDemuxer->Source::unlock();
 }
 
 
@@ -3254,7 +3258,7 @@ void StreamDemuxer::VideoMedia::eventCb(struct vstrm_receiver *stream,
 					void *userdata)
 {
 	VideoMedia *self = (VideoMedia *)userdata;
-	CodedChannel::DownstreamEvent evt;
+	Channel::DownstreamEvent evt;
 	bool sendEvent = false;
 
 	if (self == nullptr)
@@ -3270,15 +3274,15 @@ void StreamDemuxer::VideoMedia::eventCb(struct vstrm_receiver *stream,
 
 	switch (event) {
 	case VSTRM_EVENT_RECONFIGURE:
-		evt = CodedChannel::DownstreamEvent::RECONFIGURE;
+		evt = Channel::DownstreamEvent::RECONFIGURE;
 		sendEvent = true;
 		break;
 	case VSTRM_EVENT_RESOLUTION_CHANGE:
-		evt = CodedChannel::DownstreamEvent::TIMEOUT;
+		evt = Channel::DownstreamEvent::TIMEOUT;
 		sendEvent = true;
 		break;
 	case VSTRM_EVENT_PHOTO_TRIGGER:
-		evt = CodedChannel::DownstreamEvent::PHOTO_TRIGGER;
+		evt = Channel::DownstreamEvent::PHOTO_TRIGGER;
 		sendEvent = true;
 		break;
 	default:
@@ -3286,9 +3290,9 @@ void StreamDemuxer::VideoMedia::eventCb(struct vstrm_receiver *stream,
 	}
 
 	if (sendEvent) {
-		demuxer->CodedSource::lock();
+		demuxer->Source::lock();
 		self->sendDownstreamEvent(evt);
-		demuxer->CodedSource::unlock();
+		demuxer->Source::unlock();
 	}
 }
 
@@ -3298,7 +3302,7 @@ void StreamDemuxer::VideoMedia::goodbyeCb(struct vstrm_receiver *stream,
 					  void *userdata)
 {
 	VideoMedia *self = (VideoMedia *)userdata;
-	CodedChannel::DownstreamEvent event;
+	Channel::DownstreamEvent event;
 	bool sendEvent = false;
 
 	if (self == nullptr)
@@ -3321,16 +3325,16 @@ void StreamDemuxer::VideoMedia::goodbyeCb(struct vstrm_receiver *stream,
 	if (reason != nullptr) {
 		if (strcmp(reason, DEMUXER_STREAM_GOODBYE_REASON_RECONFIGURE) ==
 		    0) {
-			event = CodedChannel::DownstreamEvent::RECONFIGURE;
+			event = Channel::DownstreamEvent::RECONFIGURE;
 			sendEvent = true;
 		} else if (
 			strcmp(reason,
 			       DEMUXER_STREAM_GOODBYE_REASON_PHOTO_TRIGGER) ==
 			0) {
-			event = CodedChannel::DownstreamEvent::PHOTO_TRIGGER;
+			event = Channel::DownstreamEvent::PHOTO_TRIGGER;
 			sendEvent = true;
 		} else {
-			event = CodedChannel::DownstreamEvent::EOS;
+			event = Channel::DownstreamEvent::EOS;
 			sendEvent = true;
 			self->mFirstFrame = true;
 			if (demuxer->mSessionProtocol == RTSP &&
@@ -3347,9 +3351,9 @@ void StreamDemuxer::VideoMedia::goodbyeCb(struct vstrm_receiver *stream,
 		}
 
 		if (sendEvent) {
-			demuxer->CodedSource::lock();
+			demuxer->Source::lock();
 			self->sendDownstreamEvent(event);
-			demuxer->CodedSource::unlock();
+			demuxer->Source::unlock();
 		}
 	}
 }
@@ -3378,13 +3382,12 @@ void StreamDemuxer::VideoMedia::frameTimeoutCb(struct pomp_timer *timer,
 	if (res < 0)
 		PDRAW_LOG_ERRNO("time_timespec_to_us", -res);
 
-	demuxer->CodedSource::lock();
+	demuxer->Source::lock();
 	if (curTime >
 	    self->mLastFrameReceiveTime + DEMUXER_STREAM_FRAME_TIMEOUT_US) {
-		self->sendDownstreamEvent(
-			CodedChannel::DownstreamEvent::TIMEOUT);
+		self->sendDownstreamEvent(Channel::DownstreamEvent::TIMEOUT);
 	}
-	demuxer->CodedSource::unlock();
+	demuxer->Source::unlock();
 }
 
 
@@ -3400,7 +3403,7 @@ void StreamDemuxer::VideoMedia::rangeTimerCb(struct pomp_timer *timer,
 
 	if (!demuxer->mEndOfRangeNotified) {
 		PDRAW_LOGI("end of range reached");
-		self->sendDownstreamEvent(CodedChannel::DownstreamEvent::EOS);
+		self->sendDownstreamEvent(Channel::DownstreamEvent::EOS);
 		demuxer->onEndOfRange(demuxer->mCurrentTime);
 		demuxer->mEndOfRangeNotified = true;
 	}
@@ -3418,7 +3421,7 @@ void StreamDemuxer::idleEndOfRangeNotification(void *userdata)
 		auto p = self->mVideoMedias.begin();
 		while (p != self->mVideoMedias.end()) {
 			(*p)->sendDownstreamEvent(
-				CodedChannel::DownstreamEvent::EOS);
+				Channel::DownstreamEvent::EOS);
 			p++;
 		}
 

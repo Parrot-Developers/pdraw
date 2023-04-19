@@ -44,7 +44,13 @@ namespace Pdraw {
 
 
 Muxer::Muxer(Session *session, Element::Listener *elementListener) :
-		CodedSinkElement(session, elementListener, UINT_MAX, nullptr, 0)
+		SinkElement(session,
+			    elementListener,
+			    UINT_MAX,
+			    nullptr,
+			    0,
+			    nullptr,
+			    0)
 {
 	Element::setClassName(__func__);
 
@@ -125,65 +131,65 @@ int Muxer::stop(void)
 }
 
 
-int Muxer::addInputMedia(CodedVideoMedia *media)
+int Muxer::addInputMedia(Media *media)
 {
 	int res;
-	CodedChannel *channel = nullptr;
+	CodedVideoChannel *channel = nullptr;
 	struct mbuf_coded_video_frame_queue *queue = nullptr;
 
-	CodedSink::lock();
+	Sink::lock();
 
-	res = CodedSink::addInputMedia(media);
+	res = Sink::addInputMedia(media);
 	if (res == -EEXIST) {
-		CodedSink::unlock();
+		Sink::unlock();
 		return res;
 	} else if (res < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("Sink::addInputMedia", -res);
 		return res;
 	}
 
-	channel = getInputChannel(media);
+	channel = dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		res = -ENODEV;
 		PDRAW_LOG_ERRNO("Sink::getInputChannel", -res);
 		goto error;
 	}
-	channel->setKey(this);
 
 	res = mbuf_coded_video_frame_queue_new(&queue);
 	if (res < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_new", -res);
 		goto error;
 	}
-	channel->setQueue(queue);
+	channel->setQueue(this, queue);
 
 	res = addQueueEvtToLoop(queue, mSession->getLoop());
 	if (res < 0)
 		goto error;
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return 0;
 
 error:
 	removeInputMedia(media);
-	CodedSink::unlock();
+	Sink::unlock();
 	return res;
 }
 
 
-int Muxer::removeInputMedia(CodedVideoMedia *media)
+int Muxer::removeInputMedia(Media *media)
 {
 	int res;
 
-	CodedSink::lock();
+	Sink::lock();
 
-	CodedChannel *channel = getInputChannel(media);
+	CodedVideoChannel *channel =
+		dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		res = -ENODEV;
 		PDRAW_LOG_ERRNO("Sink::getInputChannel", -res);
 		return res;
@@ -192,11 +198,11 @@ int Muxer::removeInputMedia(CodedVideoMedia *media)
 	/* Keep a reference on the queue to destroy it after removing the
 	 * input media (avoids deadlocks when trying to push new frames out
 	 * of upstream elements whereas the queue is already destroyed) */
-	struct mbuf_coded_video_frame_queue *queue = channel->getQueue();
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue(this);
 
-	res = CodedSink::removeInputMedia(media);
+	res = Sink::removeInputMedia(media);
 	if (res < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("Sink::removeInputMedia", -res);
 		return res;
 	}
@@ -213,7 +219,7 @@ int Muxer::removeInputMedia(CodedVideoMedia *media)
 					-res);
 	}
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return 0;
 }
@@ -223,14 +229,15 @@ int Muxer::removeInputMedias(void)
 {
 	int res, inputMediaCount, i;
 
-	CodedSink::lock();
+	Sink::lock();
 
 	inputMediaCount = getInputMediaCount();
 
 	/* Note: loop downwards because calling removeInputMedia removes
 	 * input ports and decreases the media count */
 	for (i = inputMediaCount - 1; i >= 0; i--) {
-		CodedVideoMedia *media = getInputMedia(i);
+		CodedVideoMedia *media =
+			dynamic_cast<CodedVideoMedia *>(getInputMedia(i));
 		if (media == nullptr) {
 			PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
 			continue;
@@ -238,7 +245,7 @@ int Muxer::removeInputMedias(void)
 		res = removeInputMedia(media);
 	}
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return 0;
 }
@@ -306,9 +313,9 @@ void Muxer::queueEventCb(struct pomp_evt *evt, void *userdata)
 }
 
 
-void Muxer::onChannelTeardown(CodedChannel *channel)
+void Muxer::onChannelTeardown(Channel *channel)
 {
-	CodedSink::onChannelTeardown(channel);
+	Sink::onChannelTeardown(channel);
 
 	if (!mInputPorts.empty())
 		return;

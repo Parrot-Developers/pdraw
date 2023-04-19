@@ -56,20 +56,21 @@ const struct vdec_cbs VideoDecoder::mDecoderCbs = {
 
 VideoDecoder::VideoDecoder(Session *session,
 			   Element::Listener *elementListener,
-			   RawSource::Listener *sourceListener) :
-		CodedToRawFilterElement(session,
-					elementListener,
-					1,
-					nullptr,
-					0,
-					1,
-					sourceListener),
+			   Source::Listener *sourceListener) :
+		FilterElement(session,
+			      elementListener,
+			      1,
+			      nullptr,
+			      0,
+			      nullptr,
+			      0,
+			      1,
+			      sourceListener),
 		mInputMedia(nullptr), mOutputMedia(nullptr),
 		mInputBufferPool(nullptr), mInputBufferQueue(nullptr),
 		mVdec(nullptr), mIsFlushed(true),
 		mInputChannelFlushPending(false), mResyncPending(false),
-		mVdecFlushPending(false), mVdecStopPending(false),
-		mCompleteStopPendingCount(0)
+		mVdecFlushPending(false), mVdecStopPending(false)
 {
 	const struct vdef_coded_format *supportedInputFormats;
 	int supportedInputFormatsCount;
@@ -118,35 +119,35 @@ int VideoDecoder::start(void)
 		return 0;
 	}
 	if (mState != CREATED) {
-		PDRAW_LOGE("decoder is not created");
+		PDRAW_LOGE("%s: decoder is not created", __func__);
 		return -EPROTO;
 	}
 	setState(STARTING);
 
 	/* Get the input media and port */
-	CodedSink::lock();
+	Sink::lock();
 	unsigned int inputMediaCount = getInputMediaCount();
 	if (inputMediaCount != 1) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media count");
 		return -EPROTO;
 	}
-	mInputMedia = getInputMedia(0);
+	mInputMedia = dynamic_cast<CodedVideoMedia *>(getInputMedia(0));
 	if (mInputMedia == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
 		return -EPROTO;
 	}
 	InputPort *port = getInputPort(mInputMedia);
 	if (port == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input port");
 		return -EPROTO;
 	}
 
 	fmt = mInputMedia->format.data_format;
 	if (fmt == VDEF_CODED_DATA_FORMAT_UNKNOWN) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input data format");
 		return -EPROTO;
 	}
@@ -172,7 +173,7 @@ int VideoDecoder::start(void)
 #endif
 	ret = vdec_new(mSession->getLoop(), &cfg, &mDecoderCbs, this, &mVdec);
 	if (ret < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("vdec_new", -ret);
 		return ret;
 	}
@@ -183,7 +184,7 @@ int VideoDecoder::start(void)
 	ret = mInputMedia->getPs(
 		&vps, &vpsSize, &sps, &spsSize, &pps, &ppsSize);
 	if (ret < 0) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("media->getPs", -ret);
 		return ret;
 	}
@@ -195,7 +196,7 @@ int VideoDecoder::start(void)
 	if (mInputMedia->format.encoding == VDEF_ENCODING_H265) {
 		vpsBuffer = (uint8_t *)malloc(prefix_size + vpsSize);
 		if (vpsBuffer == nullptr) {
-			CodedSink::unlock();
+			Sink::unlock();
 			PDRAW_LOG_ERRNO("malloc:VPS", ENOMEM);
 			return -ENOMEM;
 		}
@@ -211,7 +212,7 @@ int VideoDecoder::start(void)
 
 	uint8_t *spsBuffer = (uint8_t *)malloc(prefix_size + spsSize);
 	if (spsBuffer == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("malloc:SPS", ENOMEM);
 		free(vpsBuffer);
 		return -ENOMEM;
@@ -227,7 +228,7 @@ int VideoDecoder::start(void)
 
 	uint8_t *ppsBuffer = (uint8_t *)malloc(prefix_size + ppsSize);
 	if (ppsBuffer == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("malloc:PPS", ENOMEM);
 		free(vpsBuffer);
 		free(spsBuffer);
@@ -251,7 +252,7 @@ int VideoDecoder::start(void)
 				       ppsSize + prefix_size,
 				       &mInputMedia->format);
 		if (ret < 0) {
-			CodedSink::unlock();
+			Sink::unlock();
 			PDRAW_LOG_ERRNO("vdec_set_h264_ps", -ret);
 			free(vpsBuffer);
 			free(spsBuffer);
@@ -269,7 +270,7 @@ int VideoDecoder::start(void)
 				       ppsSize + prefix_size,
 				       &mInputMedia->format);
 		if (ret < 0) {
-			CodedSink::unlock();
+			Sink::unlock();
 			PDRAW_LOG_ERRNO("vdec_set_h265_ps", -ret);
 			free(vpsBuffer);
 			free(spsBuffer);
@@ -278,7 +279,7 @@ int VideoDecoder::start(void)
 		}
 		break;
 	default:
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("unsupported input media encoding (%s)",
 			   vdef_encoding_to_str(mInputMedia->format.encoding));
 		free(vpsBuffer);
@@ -292,13 +293,19 @@ int VideoDecoder::start(void)
 	free(ppsBuffer);
 
 	/* Setup the input port */
-	port->channel->setKey(this);
+	Channel *c = port->channel;
+	CodedVideoChannel *channel = dynamic_cast<CodedVideoChannel *>(c);
+	if (channel == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("invalid input channel");
+		return -EPROTO;
+	}
 	mInputBufferQueue = vdec_get_input_buffer_queue(mVdec);
-	port->channel->setQueue(mInputBufferQueue);
+	channel->setQueue(this, mInputBufferQueue);
 	mInputBufferPool = vdec_get_input_buffer_pool(mVdec);
-	port->channel->setPool(mInputBufferPool);
+	channel->setPool(this, mInputBufferPool);
 
-	CodedSink::unlock();
+	Sink::unlock();
 
 	setState(STARTED);
 
@@ -313,7 +320,7 @@ int VideoDecoder::stop(void)
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
 	if (mState != STARTED) {
-		PDRAW_LOGE("decoder is not started");
+		PDRAW_LOGE("%s: decoder is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
@@ -333,7 +340,7 @@ int VideoDecoder::flush(void)
 {
 	int ret;
 	unsigned int outputChannelCount, i;
-	RawChannel *outputChannel;
+	Channel *outputChannel;
 
 	if (mIsFlushed) {
 		PDRAW_LOGD("decoder is already flushed, nothing to do");
@@ -344,7 +351,7 @@ int VideoDecoder::flush(void)
 	mVdecFlushPending = true;
 
 	/* Flush the output channels (async) */
-	RawSource::lock();
+	Source::lock();
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
@@ -361,7 +368,7 @@ int VideoDecoder::flush(void)
 				PDRAW_LOG_ERRNO("channel->flush", -ret);
 		}
 	}
-	RawSource::unlock();
+	Source::unlock();
 
 	/* Flush the decoder (async)
 	 * (the input channel queue is flushed by vdec) */
@@ -377,13 +384,13 @@ void VideoDecoder::completeFlush(void)
 {
 	int ret;
 	unsigned int outputChannelCount, i;
-	RawChannel *outputChannel;
+	Channel *outputChannel;
 	bool pending = false;
 
 	if (mVdecFlushPending)
 		return;
 
-	RawSource::lock();
+	Source::lock();
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
@@ -401,18 +408,19 @@ void VideoDecoder::completeFlush(void)
 			}
 		}
 	}
-	RawSource::unlock();
+	Source::unlock();
 
 	if (pending)
 		return;
 
-	CodedSink::lock();
+	Sink::lock();
 	if (mInputMedia != nullptr) {
 		mIsFlushed = true;
 		if (mInputChannelFlushPending) {
 			mInputChannelFlushPending = false;
-			CodedChannel *inputChannel =
-				getInputChannel(mInputMedia);
+			CodedVideoChannel *inputChannel =
+				dynamic_cast<CodedVideoChannel *>(
+					getInputChannel(mInputMedia));
 			if (inputChannel == nullptr) {
 				PDRAW_LOGE("failed to get input channel");
 			} else {
@@ -423,7 +431,7 @@ void VideoDecoder::completeFlush(void)
 			}
 		}
 	}
-	CodedSink::unlock();
+	Sink::unlock();
 
 	completeResync();
 
@@ -442,12 +450,12 @@ int VideoDecoder::tryStop(void)
 	/* Teardown the output channels
 	 * Note: loop downwards because calling teardown on a channel may or
 	 * may not synchronously remove the channel from the output port */
-	RawSource::lock();
+	Source::lock();
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 
 		for (i = outputChannelCount - 1; i >= 0; i--) {
-			RawChannel *channel = getOutputChannel(mOutputMedia, i);
+			Channel *channel = getOutputChannel(mOutputMedia, i);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   i);
@@ -458,7 +466,7 @@ int VideoDecoder::tryStop(void)
 				PDRAW_LOG_ERRNO("channel->teardown", -ret);
 		}
 	}
-	RawSource::unlock();
+	Source::unlock();
 
 	/* Stop the decoder */
 	ret = vdec_stop(mVdec);
@@ -468,14 +476,15 @@ int VideoDecoder::tryStop(void)
 	}
 
 	/* Remove the input port */
-	CodedSink::lock();
+	Sink::lock();
 	if (mInputMedia != nullptr) {
-		CodedChannel *channel = getInputChannel(mInputMedia);
+		CodedVideoChannel *channel = dynamic_cast<CodedVideoChannel *>(
+			getInputChannel(mInputMedia));
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
 		} else {
-			channel->setQueue(nullptr);
-			channel->setPool(nullptr);
+			channel->setQueue(this, nullptr);
+			channel->setPool(this, nullptr);
 		}
 
 		ret = removeInputMedia(mInputMedia);
@@ -484,7 +493,7 @@ int VideoDecoder::tryStop(void)
 		else
 			mInputMedia = nullptr;
 	}
-	CodedSink::unlock();
+	Sink::unlock();
 
 	return 0;
 }
@@ -495,22 +504,20 @@ void VideoDecoder::completeStop(void)
 	int ret;
 	unsigned int outputChannelCount;
 
-	mCompleteStopPendingCount--;
-
-	RawSource::lock();
+	Source::lock();
 	if (mOutputMedia == nullptr) {
-		RawSource::unlock();
+		Source::unlock();
 		goto exit;
 	}
 	outputChannelCount = getOutputChannelCount(mOutputMedia);
 	if (outputChannelCount > 0) {
-		RawSource::unlock();
+		Source::unlock();
 		return;
 	}
 
 	/* Remove the output port */
-	if (RawSource::mListener) {
-		RawSource::mListener->onOutputMediaRemoved(this, mOutputMedia);
+	if (Source::mListener) {
+		Source::mListener->onOutputMediaRemoved(this, mOutputMedia);
 	}
 	ret = removeOutputPort(mOutputMedia);
 	if (ret < 0) {
@@ -520,10 +527,10 @@ void VideoDecoder::completeStop(void)
 		mOutputMedia = nullptr;
 	}
 
-	RawSource::unlock();
+	Source::unlock();
 
 exit:
-	if ((!mVdecStopPending) && (mCompleteStopPendingCount == 0))
+	if ((!mVdecStopPending) && (mOutputMedia == nullptr))
 		setState(STOPPED);
 }
 
@@ -532,10 +539,10 @@ void VideoDecoder::resync(void)
 {
 	int ret;
 
-	CodedSink::lock();
+	Sink::lock();
 
 	if (mResyncPending) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGD(
 			"%s: decoder is already synchronizing, nothing to do",
 			__func__);
@@ -543,7 +550,7 @@ void VideoDecoder::resync(void)
 	}
 
 	if (mIsFlushed) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGD("%s: decoder is already flushed, nothing to do",
 			   __func__);
 		return;
@@ -555,7 +562,7 @@ void VideoDecoder::resync(void)
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("vdec_flush", -ret);
 
-	CodedSink::unlock();
+	Sink::unlock();
 }
 
 
@@ -563,14 +570,15 @@ void VideoDecoder::completeResync(void)
 {
 	int ret;
 
-	CodedSink::lock();
+	Sink::lock();
 
 	if (!mResyncPending) {
-		CodedSink::unlock();
+		Sink::unlock();
 		return;
 	}
 
-	CodedChannel *inputChannel = getInputChannel(mInputMedia);
+	CodedVideoChannel *inputChannel =
+		dynamic_cast<CodedVideoChannel *>(getInputChannel(mInputMedia));
 	if (inputChannel == nullptr) {
 		PDRAW_LOGE("failed to get input channel");
 	} else {
@@ -580,7 +588,7 @@ void VideoDecoder::completeResync(void)
 	}
 
 	mResyncPending = false;
-	CodedSink::unlock();
+	Sink::unlock();
 }
 
 
@@ -589,11 +597,11 @@ int VideoDecoder::createOutputMedia(struct vdef_raw_frame *frameInfo,
 {
 	int ret;
 
-	RawSource::lock();
+	Source::lock();
 
 	mOutputMedia = new RawVideoMedia(mSession);
 	if (mOutputMedia == nullptr) {
-		RawSource::unlock();
+		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
 		return -ENOMEM;
 	}
@@ -603,7 +611,7 @@ int VideoDecoder::createOutputMedia(struct vdef_raw_frame *frameInfo,
 
 	ret = addOutputPort(mOutputMedia);
 	if (ret < 0) {
-		RawSource::unlock();
+		Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
 		return ret;
 	}
@@ -615,17 +623,18 @@ int VideoDecoder::createOutputMedia(struct vdef_raw_frame *frameInfo,
 	mOutputMedia->playbackType = mInputMedia->playbackType;
 	mOutputMedia->duration = mInputMedia->duration;
 
-	RawSource::unlock();
+	Source::unlock();
 
-	if (RawSource::mListener)
-		RawSource::mListener->onOutputMediaAdded(this, mOutputMedia);
+	if (Source::mListener)
+		Source::mListener->onOutputMediaAdded(this, mOutputMedia);
 
 	return 0;
 }
 
 
-void VideoDecoder::onChannelQueue(CodedChannel *channel,
-				  struct mbuf_coded_video_frame *frame)
+void VideoDecoder::onCodedVideoChannelQueue(
+	CodedVideoChannel *channel,
+	struct mbuf_coded_video_frame *frame)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
@@ -636,33 +645,33 @@ void VideoDecoder::onChannelQueue(CodedChannel *channel,
 		return;
 	}
 	if (mState != STARTED) {
-		PDRAW_LOGE("decoder is not started");
+		PDRAW_LOGE("frame input: decoder is not started");
 		return;
 	}
 	if ((mVdecFlushPending) || (mInputChannelFlushPending)) {
 		PDRAW_LOGI("frame input: flush pending, discard frame");
 		return;
 	}
-	CodedSink::lock();
-	struct mbuf_coded_video_frame_queue *queue = channel->getQueue();
+	Sink::lock();
+	struct mbuf_coded_video_frame_queue *queue = channel->getQueue(this);
 	if (queue == nullptr) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid queue");
 		return;
 	}
 	if (queue != mInputBufferQueue) {
-		CodedSink::unlock();
+		Sink::unlock();
 		PDRAW_LOGE("invalid input buffer queue");
 		return;
 	}
 
-	CodedSink::onChannelQueue(channel, frame);
+	Sink::onCodedVideoChannelQueue(channel, frame);
 	mIsFlushed = false;
-	CodedSink::unlock();
+	Sink::unlock();
 }
 
 
-void VideoDecoder::onChannelFlush(CodedChannel *channel)
+void VideoDecoder::onChannelFlush(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
@@ -678,28 +687,28 @@ void VideoDecoder::onChannelFlush(CodedChannel *channel)
 }
 
 
-void VideoDecoder::onChannelFlushed(RawChannel *channel)
+void VideoDecoder::onChannelFlushed(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel->getKey());
+	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("media not found");
 		return;
 	}
-	PDRAW_LOGD("'%s': channel flushed media name=%s (channel key=%p)",
+	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
 		   Element::getName().c_str(),
 		   media->getName().c_str(),
-		   channel->getKey());
+		   channel->getOwner());
 
 	completeFlush();
 }
 
 
-void VideoDecoder::onChannelTeardown(CodedChannel *channel)
+void VideoDecoder::onChannelTeardown(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
@@ -714,19 +723,17 @@ void VideoDecoder::onChannelTeardown(CodedChannel *channel)
 }
 
 
-void VideoDecoder::onChannelUnlink(RawChannel *channel)
+void VideoDecoder::onChannelUnlink(Channel *channel)
 {
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
 	}
 
-	RawSource::onChannelUnlink(channel);
+	Source::onChannelUnlink(channel);
 
-	if (mState == STOPPING) {
-		mCompleteStopPendingCount++;
+	if (mState == STOPPING)
 		completeStop();
-	}
 }
 
 
@@ -742,7 +749,6 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 	CodedVideoMedia::Frame *in_meta;
 	RawVideoMedia::Frame out_meta;
 	unsigned int outputChannelCount, i;
-	RawChannel *channel;
 
 	if (status != 0) {
 		PDRAW_LOGE("decoder error %d(%s), resync required",
@@ -761,7 +767,7 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		return;
 	}
 	if (self->mState != STARTED) {
-		PDRAW_LOGE("decoder is not started");
+		PDRAW_LOGE("frame input: decoder is not started");
 		return;
 	}
 	if ((self->mVdecFlushPending) || (self->mInputChannelFlushPending)) {
@@ -769,16 +775,16 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		return;
 	}
 
-	self->CodedSink::lock();
+	self->Sink::lock();
 	if (self->mInputMedia == nullptr) {
-		self->CodedSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("invalid input media", EPROTO);
 		return;
 	}
 
 	ret = mbuf_raw_video_frame_get_frame_info(out_frame, &info);
 	if (ret < 0) {
-		self->CodedSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_frame_info", -ret);
 		return;
 	}
@@ -787,7 +793,7 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME,
 		&ancillaryData);
 	if (ret < 0) {
-		self->CodedSink::unlock();
+		self->Sink::unlock();
 		PDRAW_LOG_ERRNO(
 			"mbuf_raw_video_frame_get_ancillary_data:pdraw_in",
 			-ret);
@@ -820,14 +826,14 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_remove_ancillary_data",
 				-ret);
 
-	self->CodedSink::unlock();
-	self->RawSource::lock();
+	self->Sink::unlock();
+	self->Source::lock();
 
 	if (self->mOutputMedia == nullptr) {
 		/* Create the output media now that the format is known */
 		ret = self->createOutputMedia(&info, out_meta);
 		if (ret < 0) {
-			self->RawSource::unlock();
+			self->Source::unlock();
 			PDRAW_LOG_ERRNO("createOutputMedia", -ret);
 			return;
 		}
@@ -844,7 +850,7 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		&out_meta,
 		sizeof(out_meta));
 	if (ret < 0) {
-		self->RawSource::unlock();
+		self->Source::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_add_ancillary_buffer",
 				-ret);
 		return;
@@ -855,7 +861,10 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		outputChannelCount =
 			self->getOutputChannelCount(self->mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
-			channel = self->getOutputChannel(self->mOutputMedia, i);
+			Channel *c =
+				self->getOutputChannel(self->mOutputMedia, i);
+			RawVideoChannel *channel =
+				dynamic_cast<RawVideoChannel *>(c);
 			if (channel == nullptr) {
 				PDRAW_LOGE("failed to get channel at index %d",
 					   i);
@@ -869,7 +878,7 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		PDRAW_LOGD("silent frame (ignored)");
 	}
 
-	self->RawSource::unlock();
+	self->Source::unlock();
 }
 
 
@@ -900,8 +909,6 @@ void VideoDecoder::stopCb(struct vdec_decoder *dec, void *userdata)
 
 	PDRAW_LOGD("decoder is stopped");
 	self->mVdecStopPending = false;
-
-	self->mCompleteStopPendingCount++;
 	self->completeStop();
 }
 
