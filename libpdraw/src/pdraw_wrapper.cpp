@@ -69,18 +69,22 @@ public:
 	}
 
 	void onMediaAdded(Pdraw::IPdraw *pdraw,
-			  const struct pdraw_media_info *info)
+			  const struct pdraw_media_info *info,
+			  void *elementUserData)
 	{
 		if (mCbs.media_added) {
-			(*mCbs.media_added)(mPdraw, info, mUserdata);
+			(*mCbs.media_added)(
+				mPdraw, info, elementUserData, mUserdata);
 		}
 	}
 
 	void onMediaRemoved(Pdraw::IPdraw *pdraw,
-			    const struct pdraw_media_info *info)
+			    const struct pdraw_media_info *info,
+			    void *elementUserData)
 	{
 		if (mCbs.media_removed) {
-			(*mCbs.media_removed)(mPdraw, info, mUserdata);
+			(*mCbs.media_removed)(
+				mPdraw, info, elementUserData, mUserdata);
 		}
 	}
 
@@ -265,6 +269,51 @@ private:
 };
 
 
+class PdrawMuxerListener : public Pdraw::IPdraw::IMuxer::Listener {
+public:
+	PdrawMuxerListener(struct pdraw *pdraw,
+			   const struct pdraw_muxer_cbs *cbs,
+			   void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mMuxer(nullptr)
+	{
+	}
+
+	~PdrawMuxerListener() {}
+
+	void onMuxerNoSpaceLeft(Pdraw::IPdraw *pdraw,
+				Pdraw::IPdraw::IMuxer *muxer,
+				size_t limit,
+				size_t left)
+	{
+		if (mCbs.no_space_left) {
+			(*mCbs.no_space_left)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_muxer *>(muxer),
+				limit,
+				left,
+				mUserdata);
+		}
+	}
+
+	Pdraw::IPdraw::IMuxer *getMuxer()
+	{
+		return mMuxer;
+	}
+
+	void setMuxer(Pdraw::IPdraw::IMuxer *muxer)
+	{
+		mMuxer = muxer;
+	}
+
+private:
+	struct pdraw *mPdraw;
+	struct pdraw_muxer_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IMuxer *mMuxer;
+};
+
+
 class PdrawVideoRendererListener
 		: public Pdraw::IPdraw::IVideoRenderer::Listener {
 public:
@@ -392,6 +441,167 @@ private:
 };
 
 
+class PdrawVipcSourceListener : public Pdraw::IPdraw::IVipcSource::Listener {
+public:
+	PdrawVipcSourceListener(struct pdraw *pdraw,
+				const struct pdraw_vipc_source_cbs *cbs,
+				void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mSource(nullptr)
+	{
+	}
+
+	~PdrawVipcSourceListener() {}
+
+	void vipcSourceReadyToPlay(Pdraw::IPdraw *pdraw,
+				   Pdraw::IPdraw::IVipcSource *source,
+				   bool ready,
+				   enum pdraw_vipc_source_eos_reason eosReason)
+	{
+		if (mCbs.ready_to_play)
+			(*mCbs.ready_to_play)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_vipc_source *>(
+					source),
+				(int)ready,
+				eosReason,
+				mUserdata);
+	}
+
+	void vipcSourceConfigured(Pdraw::IPdraw *pdraw,
+				  Pdraw::IPdraw::IVipcSource *source,
+				  int status,
+				  const struct vdef_format_info *info,
+				  const struct vdef_rectf *crop)
+	{
+		if (mCbs.configured)
+			(*mCbs.configured)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_vipc_source *>(
+					source),
+				status,
+				info,
+				crop,
+				mUserdata);
+	}
+
+	void vipcSourceFrameReady(Pdraw::IPdraw *pdraw,
+				  Pdraw::IPdraw::IVipcSource *source,
+				  struct mbuf_raw_video_frame *frame)
+	{
+		if (mCbs.frame_ready)
+			(*mCbs.frame_ready)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_vipc_source *>(
+					source),
+				frame,
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IVipcSource *getVipcSource()
+	{
+		return mSource;
+	}
+
+	void setVipcSource(Pdraw::IPdraw::IVipcSource *source)
+	{
+		mSource = source;
+	}
+
+private:
+	struct pdraw *mPdraw;
+	struct pdraw_vipc_source_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IVipcSource *mSource;
+};
+
+
+class PdrawCodedVideoSourceListener
+		: public Pdraw::IPdraw::ICodedVideoSource::Listener {
+public:
+	PdrawCodedVideoSourceListener(
+		struct pdraw *pdraw,
+		const struct pdraw_coded_video_source_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mSource(nullptr)
+	{
+	}
+
+	~PdrawCodedVideoSourceListener() {}
+
+	void onCodedVideoSourceFlushed(Pdraw::IPdraw *pdraw,
+				       Pdraw::IPdraw::ICodedVideoSource *source)
+	{
+		if (mCbs.flushed)
+			(*mCbs.flushed)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_coded_video_source
+							 *>(source),
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::ICodedVideoSource *getCodedVideoSource()
+	{
+		return mSource;
+	}
+
+	void setCodedVideoSource(Pdraw::IPdraw::ICodedVideoSource *source)
+	{
+		mSource = source;
+	}
+
+private:
+	struct pdraw *mPdraw;
+	struct pdraw_coded_video_source_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::ICodedVideoSource *mSource;
+};
+
+
+class PdrawRawVideoSourceListener
+		: public Pdraw::IPdraw::IRawVideoSource::Listener {
+public:
+	PdrawRawVideoSourceListener(
+		struct pdraw *pdraw,
+		const struct pdraw_raw_video_source_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mSource(nullptr)
+	{
+	}
+
+	~PdrawRawVideoSourceListener() {}
+
+	void onRawVideoSourceFlushed(Pdraw::IPdraw *pdraw,
+				     Pdraw::IPdraw::IRawVideoSource *source)
+	{
+		if (mCbs.flushed)
+			(*mCbs.flushed)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_raw_video_source
+							 *>(source),
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IRawVideoSource *getRawVideoSource()
+	{
+		return mSource;
+	}
+
+	void setRawVideoSource(Pdraw::IPdraw::IRawVideoSource *source)
+	{
+		mSource = source;
+	}
+
+private:
+	struct pdraw *mPdraw;
+	struct pdraw_raw_video_source_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IRawVideoSource *mSource;
+};
+
+
 class PdrawCodedVideoSinkListener
 		: public Pdraw::IPdraw::ICodedVideoSink::Listener {
 public:
@@ -477,14 +687,76 @@ private:
 };
 
 
+class PdrawVideoEncoderListener
+		: public Pdraw::IPdraw::IVideoEncoder::Listener {
+public:
+	PdrawVideoEncoderListener(struct pdraw *pdraw,
+				  const struct pdraw_video_encoder_cbs *cbs,
+				  void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mEncoder(nullptr)
+	{
+	}
+
+	~PdrawVideoEncoderListener() {}
+
+	void videoEncoderFrameOutput(Pdraw::IPdraw *pdraw,
+				     Pdraw::IPdraw::IVideoEncoder *source,
+				     struct mbuf_coded_video_frame *frame)
+	{
+		if (mCbs.frame_output)
+			(*mCbs.frame_output)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_video_encoder *>(
+					source),
+				frame,
+				mUserdata);
+	}
+
+	void videoEncoderFramePreRelease(Pdraw::IPdraw *pdraw,
+					 Pdraw::IPdraw::IVideoEncoder *source,
+					 struct mbuf_coded_video_frame *frame)
+	{
+		if (mCbs.frame_pre_release)
+			(*mCbs.frame_pre_release)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_video_encoder *>(
+					source),
+				frame,
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IVideoEncoder *getVideoEncoder()
+	{
+		return mEncoder;
+	}
+
+	void setVideoEncoder(Pdraw::IPdraw::IVideoEncoder *encoder)
+	{
+		mEncoder = encoder;
+	}
+
+private:
+	struct pdraw *mPdraw;
+	struct pdraw_video_encoder_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IVideoEncoder *mEncoder;
+};
+
+
 struct pdraw {
 	Pdraw::IPdraw *pdraw;
 	PdrawListener *listener;
 	pthread_mutex_t mutex;
 	std::vector<PdrawDemuxerListener *> *demuxerListeners;
+	std::vector<PdrawMuxerListener *> *muxerListeners;
 	std::vector<PdrawVideoRendererListener *> *videoRendererListeners;
+	std::vector<PdrawVipcSourceListener *> *vipcSourceListeners;
+	std::vector<PdrawCodedVideoSourceListener *> *codedVideoSourceListeners;
+	std::vector<PdrawRawVideoSourceListener *> *rawVideoSourceListeners;
 	std::vector<PdrawCodedVideoSinkListener *> *codedVideoSinkListeners;
 	std::vector<PdrawRawVideoSinkListener *> *rawVideoSinkListeners;
+	std::vector<PdrawVideoEncoderListener *> *videoEncoderListeners;
 };
 
 
@@ -519,9 +791,36 @@ int pdraw_new(struct pomp_loop *loop,
 		goto error;
 	}
 
+	pdraw->muxerListeners = new std::vector<PdrawMuxerListener *>();
+	if (pdraw->muxerListeners == nullptr) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
 	pdraw->videoRendererListeners =
 		new std::vector<PdrawVideoRendererListener *>();
 	if (pdraw->videoRendererListeners == nullptr) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	pdraw->vipcSourceListeners =
+		new std::vector<PdrawVipcSourceListener *>();
+	if (pdraw->vipcSourceListeners == nullptr) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	pdraw->codedVideoSourceListeners =
+		new std::vector<PdrawCodedVideoSourceListener *>();
+	if (pdraw->codedVideoSourceListeners == nullptr) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	pdraw->rawVideoSourceListeners =
+		new std::vector<PdrawRawVideoSourceListener *>();
+	if (pdraw->rawVideoSourceListeners == nullptr) {
 		ret = -ENOMEM;
 		goto error;
 	}
@@ -536,6 +835,13 @@ int pdraw_new(struct pomp_loop *loop,
 	pdraw->rawVideoSinkListeners =
 		new std::vector<PdrawRawVideoSinkListener *>();
 	if (pdraw->rawVideoSinkListeners == nullptr) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	pdraw->videoEncoderListeners =
+		new std::vector<PdrawVideoEncoderListener *>();
+	if (pdraw->videoEncoderListeners == nullptr) {
 		ret = -ENOMEM;
 		goto error;
 	}
@@ -583,6 +889,55 @@ int pdraw_destroy(struct pdraw *pdraw)
 		delete pdraw->demuxerListeners;
 	}
 
+	if (pdraw->muxerListeners != nullptr) {
+		std::vector<PdrawMuxerListener *>::iterator l =
+			pdraw->muxerListeners->begin();
+		while (l != pdraw->muxerListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		pdraw->muxerListeners->clear();
+		delete pdraw->muxerListeners;
+	}
+
+	if (pdraw->codedVideoSourceListeners != nullptr) {
+		std::vector<PdrawCodedVideoSourceListener *>::iterator l =
+			pdraw->codedVideoSourceListeners->begin();
+		while (l != pdraw->codedVideoSourceListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		pdraw->codedVideoSourceListeners->clear();
+		delete pdraw->codedVideoSourceListeners;
+	}
+
+
+	if (pdraw->vipcSourceListeners != nullptr) {
+		std::vector<PdrawVipcSourceListener *>::iterator l =
+			pdraw->vipcSourceListeners->begin();
+		while (l != pdraw->vipcSourceListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		pdraw->vipcSourceListeners->clear();
+		delete pdraw->vipcSourceListeners;
+	}
+
+	if (pdraw->rawVideoSourceListeners != nullptr) {
+		std::vector<PdrawRawVideoSourceListener *>::iterator l =
+			pdraw->rawVideoSourceListeners->begin();
+		while (l != pdraw->rawVideoSourceListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		pdraw->rawVideoSourceListeners->clear();
+		delete pdraw->rawVideoSourceListeners;
+	}
+
 	if (pdraw->codedVideoSinkListeners != nullptr) {
 		std::vector<PdrawCodedVideoSinkListener *>::iterator l =
 			pdraw->codedVideoSinkListeners->begin();
@@ -605,6 +960,18 @@ int pdraw_destroy(struct pdraw *pdraw)
 		}
 		pdraw->rawVideoSinkListeners->clear();
 		delete pdraw->rawVideoSinkListeners;
+	}
+
+	if (pdraw->videoEncoderListeners != nullptr) {
+		std::vector<PdrawVideoEncoderListener *>::iterator l =
+			pdraw->videoEncoderListeners->begin();
+		while (l != pdraw->videoEncoderListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		pdraw->videoEncoderListeners->clear();
+		delete pdraw->videoEncoderListeners;
 	}
 
 	pthread_mutex_lock(&pdraw->mutex);
@@ -1023,35 +1390,50 @@ uint64_t pdraw_demuxer_get_current_time(struct pdraw *pdraw,
 
 int pdraw_muxer_new(struct pdraw *pdraw,
 		    const char *url,
+		    const struct pdraw_muxer_params *params,
+		    const struct pdraw_muxer_cbs *cbs,
+		    void *userdata,
 		    struct pdraw_muxer **ret_obj)
 {
+	int res;
+	Pdraw::IPdraw::IMuxer *muxer = nullptr;
+
 	if (pdraw == nullptr)
 		return -EINVAL;
 	if (url == nullptr)
 		return -EINVAL;
+	if (params == nullptr)
+		return -EINVAL;
+	if (cbs == nullptr)
+		return -EINVAL;
 	if (ret_obj == nullptr)
 		return -EINVAL;
 
-#if MUXER_TEST
-	int res;
-	Pdraw::IPdraw::IMuxer *muxer = nullptr;
+	PdrawMuxerListener *muxerListener =
+		new PdrawMuxerListener(pdraw, cbs, userdata);
+	if (muxerListener == nullptr) {
+		ULOGE("failed to create muxer listener");
+		return -ENOMEM;
+	}
 
 	std::string u(url);
-	res = pdraw->pdraw->createMuxer(u, &muxer);
-	if (res < 0)
+	res = pdraw->pdraw->createMuxer(u, params, muxerListener, &muxer);
+	if (res < 0) {
+		delete muxerListener;
 		return res;
+	}
+
+	muxerListener->setMuxer(muxer);
+	pdraw->muxerListeners->push_back(muxerListener);
 
 	*ret_obj = reinterpret_cast<struct pdraw_muxer *>(muxer);
 	return 0;
-#else
-	/* Not supported yet */
-	return -ENOSYS;
-#endif
 }
 
 
 int pdraw_muxer_destroy(struct pdraw *pdraw, struct pdraw_muxer *muxer)
 {
+	std::vector<PdrawMuxerListener *>::iterator l;
 	Pdraw::IPdraw::IMuxer *m =
 		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(muxer);
 
@@ -1060,7 +1442,19 @@ int pdraw_muxer_destroy(struct pdraw *pdraw, struct pdraw_muxer *muxer)
 	if (muxer == nullptr)
 		return -EINVAL;
 
+	/* The object must be destroyed before the listener */
 	delete m;
+
+	l = pdraw->muxerListeners->begin();
+	while (l != pdraw->muxerListeners->end()) {
+		if ((*l)->getMuxer() != m) {
+			l++;
+			continue;
+		}
+		delete *l;
+		pdraw->muxerListeners->erase(l);
+		break;
+	}
 
 	return 0;
 }
@@ -1080,6 +1474,24 @@ int pdraw_muxer_add_media(struct pdraw *pdraw,
 		return -EINVAL;
 
 	return m->addMedia(media_id, params);
+}
+
+
+int pdraw_muxer_set_thumbnail(struct pdraw *pdraw,
+			      struct pdraw_muxer *muxer,
+			      enum pdraw_muxer_thumbnail_type type,
+			      const uint8_t *data,
+			      size_t size)
+{
+	Pdraw::IPdraw::IMuxer *m =
+		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(muxer);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (muxer == nullptr)
+		return -EINVAL;
+
+	return m->setThumbnail(type, data, size);
 }
 
 
@@ -1170,7 +1582,6 @@ int pdraw_video_renderer_destroy(struct pdraw *pdraw,
 			l++;
 			continue;
 		}
-
 		delete *l;
 		pdraw->videoRendererListeners->erase(l);
 		break;
@@ -1293,6 +1704,455 @@ int pdraw_video_renderer_render_mat(struct pdraw *pdraw,
 		return -EINVAL;
 
 	return rnd->render(content_pos, view_mat, proj_mat);
+}
+
+
+int pdraw_vipc_source_new(struct pdraw *pdraw,
+			  const struct pdraw_vipc_source_params *params,
+			  const struct pdraw_vipc_source_cbs *cbs,
+			  void *userdata,
+			  struct pdraw_vipc_source **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IVipcSource *source = nullptr;
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (params == nullptr)
+		return -EINVAL;
+	if (cbs == nullptr)
+		return -EINVAL;
+	if (ret_obj == nullptr)
+		return -EINVAL;
+
+	PdrawVipcSourceListener *vipcSourceListener =
+		new PdrawVipcSourceListener(pdraw, cbs, userdata);
+	if (vipcSourceListener == nullptr) {
+		ULOGE("failed to create video IPC source listener");
+		return -ENOMEM;
+	}
+
+	res = pdraw->pdraw->createVipcSource(
+		params, vipcSourceListener, &source);
+	if (res < 0) {
+		delete vipcSourceListener;
+		return res;
+	}
+
+	vipcSourceListener->setVipcSource(source);
+	pdraw->vipcSourceListeners->push_back(vipcSourceListener);
+
+	*ret_obj = reinterpret_cast<struct pdraw_vipc_source *>(source);
+	return 0;
+}
+
+
+int pdraw_vipc_source_destroy(struct pdraw *pdraw,
+			      struct pdraw_vipc_source *source)
+{
+	std::vector<PdrawVipcSourceListener *>::iterator l;
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	/* The object must be destroyed before the listener */
+	delete s;
+
+	l = pdraw->vipcSourceListeners->begin();
+	while (l != pdraw->vipcSourceListeners->end()) {
+		if ((*l)->getVipcSource() != s) {
+			l++;
+			continue;
+		}
+		delete *l;
+		pdraw->vipcSourceListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+int pdraw_vipc_source_is_ready_to_play(struct pdraw *pdraw,
+				       struct pdraw_vipc_source *source)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return 0;
+	if (source == nullptr)
+		return 0;
+
+	return s->isReadyToPlay() ? 1 : 0;
+}
+
+
+int pdraw_vipc_source_is_paused(struct pdraw *pdraw,
+				struct pdraw_vipc_source *source)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return 0;
+	if (source == nullptr)
+		return 0;
+
+	return s->isPaused() ? 1 : 0;
+}
+
+
+int pdraw_vipc_source_play(struct pdraw *pdraw,
+			   struct pdraw_vipc_source *source)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->play();
+}
+
+
+int pdraw_vipc_source_pause(struct pdraw *pdraw,
+			    struct pdraw_vipc_source *source)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->pause();
+}
+
+
+int pdraw_vipc_source_configure(struct pdraw *pdraw,
+				struct pdraw_vipc_source *source,
+				const struct vdef_dim *resolution,
+				const struct vdef_rectf *crop)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->configure(resolution, crop);
+}
+
+
+int pdraw_vipc_source_set_session_metadata(struct pdraw *pdraw,
+					   struct pdraw_vipc_source *source,
+					   const struct vmeta_session *meta)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->setSessionMetadata(meta);
+}
+
+
+int pdraw_vipc_source_get_session_metadata(struct pdraw *pdraw,
+					   struct pdraw_vipc_source *source,
+					   struct vmeta_session *meta)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->getSessionMetadata(meta);
+}
+
+
+int pdraw_coded_video_source_new(struct pdraw *pdraw,
+				 const struct pdraw_video_source_params *params,
+				 const struct pdraw_coded_video_source_cbs *cbs,
+				 void *userdata,
+				 struct pdraw_coded_video_source **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::ICodedVideoSource *source = nullptr;
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (params == nullptr)
+		return -EINVAL;
+	if ((cbs == nullptr) || (cbs->flushed == nullptr))
+		return -EINVAL;
+	if (ret_obj == nullptr)
+		return -EINVAL;
+
+	PdrawCodedVideoSourceListener *videoSourceListener =
+		new PdrawCodedVideoSourceListener(pdraw, cbs, userdata);
+	if (videoSourceListener == nullptr) {
+		ULOGE("failed to create coded video source listener");
+		return -ENOMEM;
+	}
+
+	res = pdraw->pdraw->createCodedVideoSource(
+		params, videoSourceListener, &source);
+	if (res < 0) {
+		delete videoSourceListener;
+		return res;
+	}
+
+	videoSourceListener->setCodedVideoSource(source);
+	pdraw->codedVideoSourceListeners->push_back(videoSourceListener);
+
+	*ret_obj = reinterpret_cast<struct pdraw_coded_video_source *>(source);
+	return 0;
+}
+
+
+int pdraw_coded_video_source_destroy(struct pdraw *pdraw,
+				     struct pdraw_coded_video_source *source)
+{
+	std::vector<PdrawCodedVideoSourceListener *>::iterator l;
+	Pdraw::IPdraw::ICodedVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	/* The object must be destroyed before the listener */
+	delete s;
+
+	l = pdraw->codedVideoSourceListeners->begin();
+	while (l != pdraw->codedVideoSourceListeners->end()) {
+		if ((*l)->getCodedVideoSource() != s) {
+			l++;
+			continue;
+		}
+		delete *l;
+		pdraw->codedVideoSourceListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+struct mbuf_coded_video_frame_queue *
+pdraw_coded_video_source_get_queue(struct pdraw *pdraw,
+				   struct pdraw_coded_video_source *source)
+{
+	Pdraw::IPdraw::ICodedVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return nullptr;
+	if (source == nullptr)
+		return nullptr;
+
+	return s->getQueue();
+}
+
+
+int pdraw_coded_video_source_flush(struct pdraw *pdraw,
+				   struct pdraw_coded_video_source *source)
+{
+	Pdraw::IPdraw::ICodedVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->flush();
+}
+
+
+int pdraw_coded_video_source_set_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_coded_video_source *source,
+	const struct vmeta_session *meta)
+{
+	Pdraw::IPdraw::ICodedVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->setSessionMetadata(meta);
+}
+
+
+int pdraw_coded_video_source_get_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_coded_video_source *source,
+	struct vmeta_session *meta)
+{
+	Pdraw::IPdraw::ICodedVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->getSessionMetadata(meta);
+}
+
+
+int pdraw_raw_video_source_new(struct pdraw *pdraw,
+			       const struct pdraw_video_source_params *params,
+			       const struct pdraw_raw_video_source_cbs *cbs,
+			       void *userdata,
+			       struct pdraw_raw_video_source **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IRawVideoSource *source = nullptr;
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (params == nullptr)
+		return -EINVAL;
+	if ((cbs == nullptr) || (cbs->flushed == nullptr))
+		return -EINVAL;
+	if (ret_obj == nullptr)
+		return -EINVAL;
+
+	PdrawRawVideoSourceListener *videoSourceListener =
+		new PdrawRawVideoSourceListener(pdraw, cbs, userdata);
+	if (videoSourceListener == nullptr) {
+		ULOGE("failed to create raw video source listener");
+		return -ENOMEM;
+	}
+
+	res = pdraw->pdraw->createRawVideoSource(
+		params, videoSourceListener, &source);
+	if (res < 0) {
+		delete videoSourceListener;
+		return res;
+	}
+
+	videoSourceListener->setRawVideoSource(source);
+	pdraw->rawVideoSourceListeners->push_back(videoSourceListener);
+
+	*ret_obj = reinterpret_cast<struct pdraw_raw_video_source *>(source);
+	return 0;
+}
+
+
+int pdraw_raw_video_source_destroy(struct pdraw *pdraw,
+				   struct pdraw_raw_video_source *source)
+{
+	std::vector<PdrawRawVideoSourceListener *>::iterator l;
+	Pdraw::IPdraw::IRawVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	/* The object must be destroyed before the listener */
+	delete s;
+
+	l = pdraw->rawVideoSourceListeners->begin();
+	while (l != pdraw->rawVideoSourceListeners->end()) {
+		if ((*l)->getRawVideoSource() != s) {
+			l++;
+			continue;
+		}
+		delete *l;
+		pdraw->rawVideoSourceListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+struct mbuf_raw_video_frame_queue *
+pdraw_raw_video_source_get_queue(struct pdraw *pdraw,
+				 struct pdraw_raw_video_source *source)
+{
+	Pdraw::IPdraw::IRawVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return nullptr;
+	if (source == nullptr)
+		return nullptr;
+
+	return s->getQueue();
+}
+
+
+int pdraw_raw_video_source_flush(struct pdraw *pdraw,
+				 struct pdraw_raw_video_source *source)
+{
+	Pdraw::IPdraw::IRawVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->flush();
+}
+
+
+int pdraw_raw_video_source_set_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_raw_video_source *source,
+	const struct vmeta_session *meta)
+{
+	Pdraw::IPdraw::IRawVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->setSessionMetadata(meta);
+}
+
+
+int pdraw_raw_video_source_get_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_raw_video_source *source,
+	struct vmeta_session *meta)
+{
+	Pdraw::IPdraw::IRawVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(source);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (source == nullptr)
+		return -EINVAL;
+
+	return s->getSessionMetadata(meta);
 }
 
 
@@ -1512,6 +2372,93 @@ int pdraw_raw_video_sink_queue_flushed(struct pdraw *pdraw,
 		return -EINVAL;
 
 	return s->queueFlushed();
+}
+
+
+int pdraw_video_encoder_new(struct pdraw *pdraw,
+			    unsigned int media_id,
+			    const struct venc_config *params,
+			    const struct pdraw_video_encoder_cbs *cbs,
+			    void *userdata,
+			    struct pdraw_video_encoder **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IVideoEncoder *encoder = nullptr;
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (params == nullptr)
+		return -EINVAL;
+	if (cbs == nullptr)
+		return -EINVAL;
+	if (ret_obj == nullptr)
+		return -EINVAL;
+
+	PdrawVideoEncoderListener *videoEncoderListener =
+		new PdrawVideoEncoderListener(pdraw, cbs, userdata);
+	if (videoEncoderListener == nullptr) {
+		ULOGE("failed to create video encoder listener");
+		return -ENOMEM;
+	}
+
+	res = pdraw->pdraw->createVideoEncoder(
+		media_id, params, videoEncoderListener, &encoder);
+	if (res < 0) {
+		delete videoEncoderListener;
+		return res;
+	}
+
+	videoEncoderListener->setVideoEncoder(encoder);
+	pdraw->videoEncoderListeners->push_back(videoEncoderListener);
+
+	*ret_obj = reinterpret_cast<struct pdraw_video_encoder *>(encoder);
+	return 0;
+}
+
+
+int pdraw_video_encoder_destroy(struct pdraw *pdraw,
+				struct pdraw_video_encoder *encoder)
+{
+	std::vector<PdrawVideoEncoderListener *>::iterator l;
+	Pdraw::IPdraw::IVideoEncoder *e =
+		reinterpret_cast<Pdraw::IPdraw::IVideoEncoder *>(encoder);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (encoder == nullptr)
+		return -EINVAL;
+
+	/* The object must be destroyed before the listener */
+	delete e;
+
+	l = pdraw->videoEncoderListeners->begin();
+	while (l != pdraw->videoEncoderListeners->end()) {
+		if ((*l)->getVideoEncoder() != e) {
+			l++;
+			continue;
+		}
+		delete *l;
+		pdraw->videoEncoderListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+int pdraw_video_encoder_configure(struct pdraw *pdraw,
+				  struct pdraw_video_encoder *encoder,
+				  const struct venc_dyn_config *config)
+{
+	Pdraw::IPdraw::IVideoEncoder *e =
+		reinterpret_cast<Pdraw::IPdraw::IVideoEncoder *>(encoder);
+
+	if (pdraw == nullptr)
+		return -EINVAL;
+	if (encoder == nullptr)
+		return -EINVAL;
+
+	return e->configure(config);
 }
 
 
@@ -1757,6 +2704,13 @@ const char *pdraw_video_renderer_transition_flag_str(
 	enum pdraw_video_renderer_transition_flag val)
 {
 	return pdraw_videoRendererTransitionFlagStr(val);
+}
+
+
+const char *
+pdraw_vipc_source_eos_reason_str(enum pdraw_vipc_source_eos_reason val)
+{
+	return pdraw_vipcSourceEosReasonStr(val);
 }
 
 

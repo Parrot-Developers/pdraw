@@ -31,6 +31,9 @@ ifeq ($(TARGET_CPU),$(filter %$(TARGET_CPU),s905d3 s905x3))
   LOCAL_LDLIBS += -lGLESv2
   LOCAL_LIBRARIES += \
 	am-gpu
+else ifeq ($(TARGET_CPU),qrb5165)
+  LOCAL_LIBRARIES += \
+	glesv2
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
   LOCAL_CFLAGS += -DUSE_GLFW3
   LOCAL_LIBRARIES += \

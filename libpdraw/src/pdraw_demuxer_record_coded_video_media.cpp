@@ -144,7 +144,9 @@ RecordDemuxer::DemuxerCodedVideoMedia::~DemuxerCodedVideoMedia(void)
 	for (unsigned int i = 0; i < mNbCodedVideoMedias; i++) {
 		if (mDemuxer->Source::mListener) {
 			mDemuxer->Source::mListener->onOutputMediaRemoved(
-				mDemuxer, mCodedVideoMedias[i]);
+				mDemuxer,
+				mCodedVideoMedias[i],
+				mDemuxer->getDemuxer());
 		}
 		ret = mDemuxer->removeOutputPort(mCodedVideoMedias[i]);
 		if (ret < 0) {
@@ -307,7 +309,8 @@ int RecordDemuxer::DemuxerCodedVideoMedia::setupMedia(
 			PDRAW_LOGE("media allocation failed");
 			goto error;
 		}
-		ret = mDemuxer->addOutputPort(mCodedVideoMedias[i]);
+		ret = mDemuxer->addOutputPort(mCodedVideoMedias[i],
+					      mDemuxer->getDemuxer());
 		if (ret < 0) {
 			mDemuxer->Source::unlock();
 			PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -431,7 +434,9 @@ int RecordDemuxer::DemuxerCodedVideoMedia::setupMedia(
 	if (mDemuxer->Source::mListener) {
 		for (unsigned int i = 0; i < mNbCodedVideoMedias; i++) {
 			mDemuxer->Source::mListener->onOutputMediaAdded(
-				mDemuxer, mCodedVideoMedias[i]);
+				mDemuxer,
+				mCodedVideoMedias[i],
+				mDemuxer->getDemuxer());
 		}
 	}
 

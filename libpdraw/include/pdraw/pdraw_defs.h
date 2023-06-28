@@ -55,6 +55,7 @@
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <video-defs/vdefs.h>
+#include <video-encode/venc_core.h>
 #include <video-metadata/vmeta.h>
 
 
@@ -206,6 +207,43 @@ enum pdraw_video_renderer_transition_flag {
 
 /* Enable all video renderer transitions */
 #define PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_ALL UINT32_MAX
+
+
+/* Video IPC source end of stream reason */
+enum pdraw_vipc_source_eos_reason {
+	/* No reason; the video IPC is stopped for a long period or the program
+	 * is exiting */
+	PDRAW_VIPC_SOURCE_EOS_REASON_NONE = 0,
+
+	/* Restart of video IPC; when the video IPC is restarting or changing
+	 * its configuration, implying that it is temporarily stopped and will
+	 * restart as soon as possible */
+	PDRAW_VIPC_SOURCE_EOS_REASON_RESTART,
+
+	/* A configuration change has stopped the video IPC and does not mean
+	 * that the stream will restart */
+	PDRAW_VIPC_SOURCE_EOS_REASON_CONFIGURATION,
+
+	/* The video IPC is not responding and the client timed out; the video
+	 * IPC source will not restart */
+	PDRAW_VIPC_SOURCE_EOS_REASON_TIMEOUT,
+};
+
+
+/* Muxer thumbnail types */
+enum pdraw_muxer_thumbnail_type {
+	/* Unknown thumbnail type */
+	PDRAW_MUXER_THUMBNAIL_TYPE_UNKNOWN = 0,
+
+	/* JPEG thumbnail */
+	PDRAW_MUXER_THUMBNAIL_TYPE_JPEG,
+
+	/* PNG thumbnail */
+	PDRAW_MUXER_THUMBNAIL_TYPE_PNG,
+
+	/* BMP thumbnail */
+	PDRAW_MUXER_THUMBNAIL_TYPE_BMP,
+};
 
 
 /* Raw video media information */
@@ -513,6 +551,76 @@ struct pdraw_video_renderer_params {
 };
 
 
+/* Video IPC source parameters */
+struct pdraw_vipc_source_params {
+	/* Video IPC server address */
+	const char *address;
+
+	/* Video IPC friendly name for logging; optional, can be NULL; if NULL
+	 * the address is used */
+	const char *friendly_name;
+
+	/* Video IPC backend name; optional, can be NULL; if NULL the default
+	 * backend is used */
+	const char *backend_name;
+
+	/* Maximum client-side frame count; optional, can be 0 which means
+	 * use the default frame count; this should be less than or equal to
+	 * the server-side maximum frame count */
+	unsigned int frame_count;
+
+	/* Initial video resolution to be configured; if left null the default
+	 * video IPC resolution is kept; if dynamic resolution configuration
+	 * is not supported, the vipcSourceConfigured() listener function or
+	 * configured() callback function will be called with an error status */
+	struct vdef_dim resolution;
+
+	/* Initial image crop to be configured; if left null the default
+	 * video IPC crop is kept; if dynamic crop configuration is not
+	 * supported, the vipcSourceConfigured() listener function or
+	 * configured() callback function will be called with an error status */
+	struct vdef_rectf crop;
+
+	/* Time scale in Hz for frame timestamps; optional, can be 0 which
+	 * means use an automatic timescale based on the input framerate */
+	uint32_t timescale;
+
+	/* Applied input framerate decimation; optional, can be 0 which means
+	 * no decimation (same as 1) */
+	unsigned int decimation;
+
+	/* Session metadata */
+	struct vmeta_session session_meta;
+
+	/* Timeout for the video IPC connection and frame reception in ms;
+	 * optional, can be 0 which means using the default value (-1 means wait
+	 * indefinitely) */
+	int timeout_ms;
+};
+
+
+/* Video source parameters */
+struct pdraw_video_source_params {
+	/* Frame queue maximum count; optional, can be 0 which means
+	 * frames are never dropped from the queue; when not 0, older frames
+	 * will be automatically dropped when the queue is full to make room for
+	 * new frames. */
+	unsigned int queue_max_count;
+
+	/* Playback type */
+	enum pdraw_playback_type playback_type;
+
+	/* Playback duration in microseconds (replay only, 0 otherwise) */
+	uint64_t duration;
+
+	/* Session metadata */
+	struct vmeta_session session_meta;
+
+	/* Video media information */
+	struct pdraw_video_info video;
+};
+
+
 /* Video sink parameters */
 struct pdraw_video_sink_params {
 	/* Frame queue maximum count; optional, can be 0 which means
@@ -535,6 +643,16 @@ struct pdraw_video_sink_params {
 };
 
 
+/* Muxer parameters */
+struct pdraw_muxer_params {
+	/* Minimum required free space on the storage to write the file
+	 * (record muxer only); if the free space goes below this value no more
+	 * samples are recorded and the onMuxerNoSpaceLeft listener function or
+	 * no_space_left callback function is called; optional, can be NULL */
+	size_t free_space_limit;
+};
+
+
 /* Muxer video media parameters */
 struct pdraw_muxer_video_media_params {
 	/* Scaling resolution; null values mean no scaling (keep the
@@ -550,6 +668,18 @@ struct pdraw_muxer_video_media_params {
 
 	/* GOP length in seconds (if 0.0, defaults to 1.0) */
 	float gop_length_sec;
+
+	/* Custom media name; optional; can be NULL which means use
+	 * a default name ('DefaultVideo' for coded tracks, 'RawVideo' for raw
+	 * tracks) */
+	const char *track_name;
+
+	/* Time scale in Hz for frame timestamps; optional, can be 0 which
+	 * means use a default timescale */
+	uint32_t timescale;
+
+	/* True if this is a default media that should be enabled by a player */
+	bool is_default;
 };
 
 

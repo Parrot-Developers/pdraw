@@ -230,6 +230,7 @@ static void stop_resp_cb(struct pdraw *pdraw, int status, void *userdata)
 
 static void media_added_cb(struct pdraw *pdraw,
 			   const struct pdraw_media_info *info,
+			   void *element_userdata,
 			   void *userdata)
 {
 	int res = 0;
@@ -298,6 +299,7 @@ out:
 
 static void media_removed_cb(struct pdraw *pdraw,
 			     const struct pdraw_media_info *info,
+			     void *element_userdata,
 			     void *userdata)
 {
 	int res;

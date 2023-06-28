@@ -1,0 +1,29 @@
+config PDRAW_VIPC_BACKEND_DMABUF
+    bool "Include vipc-dmabuf backend support"
+    default n
+    help
+	Enable or disable support for vipc-dmabuf backend
+
+config PDRAW_VIPC_BACKEND_HISI
+    bool "Include vipc-hisi backend support"
+    default n
+    help
+	Enable or disable support for vipc-hisi backend
+
+config PDRAW_VIPC_BACKEND_SHM
+    bool "Include vipc-shm backend support"
+    default n
+    help
+	Enable or disable support for vipc-shm backend
+
+config PDRAW_VIPC_BACKEND_NETWORK_HISI
+    bool "Include vipc-network-hisi backend support"
+    default n
+    help
+	Enable or disable support for vipc-network-hisi backend
+
+config PDRAW_VIPC_BACKEND_NETWORK_CBUF
+    bool "Include vipc-network-cbuf backend support"
+    default n
+    help
+	Enable or disable support for vipc-network-cbuf backend

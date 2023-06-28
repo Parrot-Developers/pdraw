@@ -33,3 +33,68 @@ LOCAL_LIBRARIES := \
 	libulog
 
 include $(BUILD_EXECUTABLE)
+
+
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := pdraw-vipcsourcesink-test
+LOCAL_CATEGORY_PATH := multimedia
+LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer video IPC source to sink test program
+LOCAL_SRC_FILES := \
+	tests/pdraw_vipcsourcesink_test.c
+LOCAL_LIBRARIES := \
+	libmedia-buffers \
+	libmedia-buffers-memory \
+	libmedia-buffers-memory-generic \
+	libpdraw \
+	libpdraw-backend \
+	libulog \
+	libvideo-defs \
+	libvideo-raw
+
+include $(BUILD_EXECUTABLE)
+
+
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := pdraw-rawsourcesink-test
+LOCAL_CATEGORY_PATH := multimedia
+LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer raw video source to sink test program
+LOCAL_SRC_FILES := \
+	tests/pdraw_rawsourcesink_test.c
+LOCAL_LIBRARIES := \
+	libmedia-buffers \
+	libmedia-buffers-memory \
+	libmedia-buffers-memory-generic \
+	libpdraw \
+	libpdraw-backend \
+	libulog \
+	libvideo-defs \
+	libvideo-raw
+
+include $(BUILD_EXECUTABLE)
+
+
+include $(CLEAR_VARS)
+
+LOCAL_MODULE := pdraw-codedsourcesink-test
+LOCAL_CATEGORY_PATH := multimedia
+LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer coded video source to sink test program
+LOCAL_SRC_FILES := \
+	tests/pdraw_codedsourcesink_test.c
+LOCAL_LIBRARIES := \
+	libh264 \
+	libh265 \
+	libmedia-buffers \
+	libmedia-buffers-memory \
+	libmedia-buffers-memory-generic \
+	libpdraw \
+	libpdraw-backend \
+	libulog \
+	libvideo-defs
+
+ifeq ("$(TARGET_OS)","windows")
+  LOCAL_LDLIBS += -lws2_32
+endif
+
+include $(BUILD_EXECUTABLE)

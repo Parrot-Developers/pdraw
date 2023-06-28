@@ -91,6 +91,7 @@ enum pdraw_desktop_event {
 struct pdraw_desktop {
 	char *url;
 	int is_file;
+	int is_vipc;
 	char *local_addr;
 	uint16_t local_stream_port;
 	uint16_t local_control_port;
@@ -118,7 +119,8 @@ struct pdraw_desktop {
 	struct pdraw_backend *pdraw;
 	struct pdraw_demuxer *demuxer;
 	char *demuxer_media_list;
-	unsigned int demuxer_media_count;
+	struct pdraw_vipc_source *source;
+	unsigned int media_count;
 	unsigned int renderer_media_id[MAX_RENDERERS];
 	struct pdraw_video_renderer *renderer[MAX_RENDERERS];
 	struct pdraw_gles2hud *gles2hud[MAX_RENDERERS];
@@ -143,6 +145,10 @@ struct pdraw_desktop {
 
 	enum pdraw_video_renderer_scheduling_mode default_scheduling_mode;
 	enum pdraw_video_renderer_fill_mode default_fill_mode;
+
+	struct pdraw_muxer *recorder;
+	unsigned int recorder_media_id;
+	struct pdraw_muxer_video_media_params recorder_video_params;
 };
 
 
@@ -183,6 +189,9 @@ void pdraw_desktop_goto_beginning(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_goto_end(struct pdraw_desktop *self);
+
+
+void pdraw_desktop_toggle_start_stop_recorder(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self);

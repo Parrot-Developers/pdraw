@@ -32,6 +32,7 @@
 #define _PDRAW_MUXER_RECORD_HPP_
 
 #include "pdraw_muxer.hpp"
+#include <futils/futils.h>
 
 #include <string>
 #include <unordered_map>
@@ -40,36 +41,68 @@
 
 namespace Pdraw {
 
+#define DEFAULT_MP4_TIMESCALE 90000
 
 class RecordMuxer : public Muxer {
 public:
 	RecordMuxer(Session *session,
 		    Element::Listener *elementListener,
-		    const std::string &fileName);
+		    IPdraw::IMuxer::Listener *listener,
+		    IPdraw::IMuxer *muxer,
+		    const std::string &fileName,
+		    const struct pdraw_muxer_params *params);
 
 	~RecordMuxer(void);
 
-	int addInputMedia(Media *media) override;
+	int addInputMedia(
+		Media *media,
+		const struct pdraw_muxer_video_media_params *params) override;
+
+	int addInputMedia(Media *media) override
+	{
+		return addInputMedia(media, nullptr);
+	};
+
+	int removeInputMedia(Media *media) override;
 
 private:
 	class Track {
 	public:
-		Track(uint32_t trackId,
+		Track(std::string name,
+		      uint32_t trackId,
 		      uint32_t metaTrackId,
 		      uint64_t trackTime,
-		      int64_t lastSampleTs) :
-				trackId(trackId),
-				metaTrackId(metaTrackId), trackTime(trackTime),
-				lastSampleTs(lastSampleTs)
+		      int64_t lastSampleTs,
+		      uint32_t timescale,
+		      bool isDefault) :
+				mName(name),
+				trackId(trackId), metaTrackId(metaTrackId),
+				trackTime(trackTime),
+				lastSampleTs(lastSampleTs),
+				mHasMetadataTrack(false), mTimescale(timescale),
+				mIsDefault(isDefault)
 		{
 		}
 
-		Track(void) : Track(0, 0, 0, INT64_MAX) {}
+		Track(void) :
+				Track("Unknown",
+				      0,
+				      0,
+				      0,
+				      INT64_MAX,
+				      DEFAULT_MP4_TIMESCALE,
+				      false)
+		{
+		}
 
+		std::string mName;
 		uint32_t trackId;
 		uint32_t metaTrackId;
 		uint64_t trackTime;
 		int64_t lastSampleTs;
+		bool mHasMetadataTrack;
+		uint32_t mTimescale;
+		bool mIsDefault;
 	};
 
 	struct SessionMetaWriteTrackCbUserdata {
@@ -83,17 +116,30 @@ private:
 
 	void mergeSessionMetadata(void);
 
-	int addTrackForMedia(CodedVideoMedia *media, uint64_t trackTime);
+	int
+	addTrackForMedia(Media *media,
+			 uint64_t trackTime,
+			 const struct pdraw_muxer_video_media_params *params);
 
 	int addMetadataTrack(Track *ref, enum vmeta_frame_type metaType);
 
 	int process(void) override;
 
-	int processMedia(CodedVideoMedia *media);
+	int processMedia(Media *media);
+
+	int checkFreeSpace(size_t spaceNeeded, size_t &spaceLeft);
 
 	int processFrame(CodedVideoMedia *media,
 			 Track *track,
 			 struct mbuf_coded_video_frame *frame);
+
+	int processFrame(RawVideoMedia *media,
+			 Track *track,
+			 struct mbuf_raw_video_frame *frame);
+
+	int setThumbnail(enum pdraw_muxer_thumbnail_type type,
+			 const uint8_t *data,
+			 size_t size) override;
 
 	static void sessionMetaWriteFileCb(enum vmeta_record_type type,
 					   const char *key,
@@ -105,12 +151,28 @@ private:
 					    const char *value,
 					    void *userdata);
 
+	static void *writerThread(void *arg);
+
+	static void mboxCb(int fd, uint32_t revents, void *userdata);
+
+	static void callNoSpaceLeft(void *userdata);
+
+	pthread_mutex_t mMp4Mutex;
 	std::string mFileName;
 	struct mp4_mux *mMux;
 	time_t mMediaDate;
-	std::unordered_map<CodedVideoMedia *, Track> mTracks;
-	bool mHasMetadataTrack;
+	std::unordered_map<Media *, Track> mTracks;
 	uint8_t *mMetaBuffer;
+
+	struct {
+		pthread_t thread;
+		std::atomic_bool started;
+		struct mbox *mbox;
+		pomp_loop *loop;
+	} mWriterThread;
+
+	size_t mFreeSpaceLeft;
+	bool mNoSpaceLeft;
 };
 
 } /* namespace Pdraw */

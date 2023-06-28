@@ -248,6 +248,23 @@ const char *pdraw_videoRendererTransitionFlagStr(
 }
 
 
+const char *pdraw_vipcSourceEosReasonStr(enum pdraw_vipc_source_eos_reason val)
+{
+	switch (val) {
+	case PDRAW_VIPC_SOURCE_EOS_REASON_NONE:
+		return "NONE";
+	case PDRAW_VIPC_SOURCE_EOS_REASON_RESTART:
+		return "RESTART";
+	case PDRAW_VIPC_SOURCE_EOS_REASON_CONFIGURATION:
+		return "CONFIGURATION";
+	case PDRAW_VIPC_SOURCE_EOS_REASON_TIMEOUT:
+		return "TIMEOUT";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+
 #ifdef BUILD_JSON
 static void jsonFillRawVideoInfo(struct json_object *jobj,
 				 const struct vdef_raw_frame *frame)

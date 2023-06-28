@@ -85,8 +85,11 @@ const int RtmpStreamMuxer::mDummyAudioSampleSize = 16;
 
 RtmpStreamMuxer::RtmpStreamMuxer(Session *session,
 				 Element::Listener *elementListener,
-				 const std::string &url) :
-		Muxer(session, elementListener),
+				 IPdraw::IMuxer::Listener *listener,
+				 IPdraw::IMuxer *muxer,
+				 const std::string &url,
+				 const struct pdraw_muxer_params *params) :
+		Muxer(session, elementListener, listener, muxer, params),
 		mUrl(url), mDummyAudioTimer(nullptr), mDummyAudioStarted(false),
 		mRtmpClient(nullptr), mRtmpConnectionState(RTMP_DISCONNECTED),
 		mConfigured(false), mSynchronized(false), mVideoMedia(nullptr),
@@ -110,7 +113,9 @@ RtmpStreamMuxer::~RtmpStreamMuxer(void)
 
 
 /* Must be called on the loop thread */
-int RtmpStreamMuxer::addInputMedia(Media *media)
+int RtmpStreamMuxer::addInputMedia(
+	Media *media,
+	const struct pdraw_muxer_video_media_params *params)
 {
 	int res;
 	const uint8_t *sps = nullptr, *pps = nullptr;
@@ -131,7 +136,7 @@ int RtmpStreamMuxer::addInputMedia(Media *media)
 		return -EALREADY;
 	}
 
-	res = Muxer::addInputMedia(m);
+	res = Muxer::addInputMedia(m, params);
 	if (res < 0)
 		return res;
 

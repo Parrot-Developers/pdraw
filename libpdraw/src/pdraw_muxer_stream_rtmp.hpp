@@ -46,11 +46,21 @@ class RtmpStreamMuxer : public Muxer {
 public:
 	RtmpStreamMuxer(Session *session,
 			Element::Listener *elementListener,
-			const std::string &url);
+			IPdraw::IMuxer::Listener *listener,
+			IPdraw::IMuxer *muxer,
+			const std::string &url,
+			const struct pdraw_muxer_params *params);
 
 	~RtmpStreamMuxer(void);
 
-	int addInputMedia(Media *media) override;
+	int addInputMedia(
+		Media *media,
+		const struct pdraw_muxer_video_media_params *params) override;
+
+	int addInputMedia(Media *media) override
+	{
+		return addInputMedia(media, nullptr);
+	};
 
 private:
 	int internalStart(void) override;

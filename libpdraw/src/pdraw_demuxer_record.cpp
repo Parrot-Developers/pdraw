@@ -252,8 +252,21 @@ int RecordDemuxer::start(void)
 
 	/* List all tracks */
 	for (i = 0; i < tkCount; i++) {
+		char **keys = nullptr, **values = nullptr;
+		unsigned int count = 0;
 		ret = mp4_demux_get_track_info(mDemux, i, &tk);
-		if (ret != 0 || tk.type != MP4_TRACK_TYPE_VIDEO)
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mp4_demux_get_track_info", -ret);
+			continue;
+		}
+		ret = mp4_demux_get_track_metadata_strings(
+			mDemux, tk.id, &count, &keys, &values);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mp4_demux_get_track_metadata_strings",
+					-ret);
+			continue;
+		}
+		if (!isMediaTrack(&tk, keys, values, count))
 			continue;
 		struct pdraw_demuxer_media *current = &medias[mediaIndex];
 		memset(current, 0, sizeof(*current));

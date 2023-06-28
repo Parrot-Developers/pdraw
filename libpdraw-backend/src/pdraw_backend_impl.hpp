@@ -33,6 +33,7 @@
 
 #include <pthread.h>
 
+#include <atomic>
 #include <map>
 #include <vector>
 
@@ -47,6 +48,9 @@ class PdrawBackend : public IPdrawBackend,
 		     public IPdraw::Listener,
 		     public IPdraw::IDemuxer::Listener,
 		     public IPdraw::IVideoRenderer::Listener,
+		     public IPdraw::IVipcSource::Listener,
+		     public IPdraw::ICodedVideoSource::Listener,
+		     public IPdraw::IRawVideoSource::Listener,
 		     public IPdraw::ICodedVideoSink::Listener,
 		     public IPdraw::IRawVideoSink::Listener {
 public:
@@ -109,13 +113,19 @@ public:
 
 	class Muxer : public IPdraw::IMuxer {
 	public:
-		Muxer(PdrawBackend *backend, const std::string &url);
+		Muxer(PdrawBackend *backend,
+		      const std::string &url,
+		      IPdraw::IMuxer::Listener *listener);
 
 		~Muxer(void);
 
 		int
 		addMedia(unsigned int mediaId,
 			 const struct pdraw_muxer_video_media_params *params);
+
+		int setThumbnail(enum pdraw_muxer_thumbnail_type type,
+				 const uint8_t *data,
+				 size_t size);
 
 		IPdraw::IMuxer *getMuxer()
 		{
@@ -129,6 +139,7 @@ public:
 
 	private:
 		PdrawBackend *mBackend;
+		IPdraw::IMuxer::Listener *mListener;
 		IPdraw::IMuxer *mMuxer;
 	};
 
@@ -178,6 +189,106 @@ public:
 		PdrawBackend *mBackend;
 		IPdraw::IVideoRenderer::Listener *mListener;
 		IPdraw::IVideoRenderer *mRenderer;
+	};
+
+	class VipcSource : public IPdraw::IVipcSource {
+	public:
+		VipcSource(PdrawBackend *backend,
+			   IPdraw::IVipcSource::Listener *listener);
+
+		~VipcSource(void);
+
+		bool isReadyToPlay(void);
+
+		bool isPaused(void);
+
+		int play(void);
+
+		int pause(void);
+
+		int configure(const struct vdef_dim *resolution,
+			      const struct vdef_rectf *crop);
+
+		int setSessionMetadata(const struct vmeta_session *meta);
+
+		int getSessionMetadata(struct vmeta_session *meta);
+
+		IPdraw::IVipcSource *getVipcSource()
+		{
+			return mSource;
+		}
+
+		void setVipcSource(IPdraw::IVipcSource *source)
+		{
+			mSource = source;
+		}
+
+	private:
+		PdrawBackend *mBackend;
+		IPdraw::IVipcSource::Listener *mListener;
+		IPdraw::IVipcSource *mSource;
+	};
+
+	class CodedVideoSource : public IPdraw::ICodedVideoSource {
+	public:
+		CodedVideoSource(PdrawBackend *backend,
+				 IPdraw::ICodedVideoSource::Listener *listener);
+
+		~CodedVideoSource(void);
+
+		struct mbuf_coded_video_frame_queue *getQueue(void);
+
+		int flush(void);
+
+		int setSessionMetadata(const struct vmeta_session *meta);
+
+		int getSessionMetadata(struct vmeta_session *meta);
+
+		IPdraw::ICodedVideoSource *getCodedVideoSource()
+		{
+			return mSource;
+		}
+
+		void setCodedVideoSource(IPdraw::ICodedVideoSource *source)
+		{
+			mSource = source;
+		}
+
+	private:
+		PdrawBackend *mBackend;
+		IPdraw::ICodedVideoSource::Listener *mListener;
+		IPdraw::ICodedVideoSource *mSource;
+	};
+
+	class RawVideoSource : public IPdraw::IRawVideoSource {
+	public:
+		RawVideoSource(PdrawBackend *backend,
+			       IPdraw::IRawVideoSource::Listener *listener);
+
+		~RawVideoSource(void);
+
+		struct mbuf_raw_video_frame_queue *getQueue(void);
+
+		int flush(void);
+
+		int setSessionMetadata(const struct vmeta_session *meta);
+
+		int getSessionMetadata(struct vmeta_session *meta);
+
+		IPdraw::IRawVideoSource *getRawVideoSource()
+		{
+			return mSource;
+		}
+
+		void setRawVideoSource(IPdraw::IRawVideoSource *source)
+		{
+			mSource = source;
+		}
+
+	private:
+		PdrawBackend *mBackend;
+		IPdraw::IRawVideoSource::Listener *mListener;
+		IPdraw::IRawVideoSource *mSource;
 	};
 
 	class CodedVideoSink : public IPdraw::ICodedVideoSink {
@@ -242,6 +353,33 @@ public:
 		IPdraw::IRawVideoSink *mSink;
 	};
 
+	class VideoEncoder : public IPdraw::IVideoEncoder {
+	public:
+		VideoEncoder(PdrawBackend *backend,
+			     unsigned int mediaId,
+			     const struct venc_config *params,
+			     IPdraw::IVideoEncoder::Listener *listener);
+
+		~VideoEncoder(void);
+
+		int configure(const struct venc_dyn_config *config);
+
+		IPdraw::IVideoEncoder *getVideoEncoder()
+		{
+			return mEncoder;
+		}
+
+		void setVideoEncoder(IPdraw::IVideoEncoder *encoder)
+		{
+			mEncoder = encoder;
+		}
+
+	private:
+		PdrawBackend *mBackend;
+		IPdraw::IVideoEncoder::Listener *mListener;
+		IPdraw::IVideoEncoder *mEncoder;
+	};
+
 	PdrawBackend(IPdrawBackend::Listener *listener);
 
 	~PdrawBackend(void);
@@ -270,7 +408,10 @@ public:
 			  IPdraw::IDemuxer::Listener *listener,
 			  IPdraw::IDemuxer **retObj);
 
-	int createMuxer(const std::string &url, IPdraw::IMuxer **retObj);
+	int createMuxer(const std::string &url,
+			const struct pdraw_muxer_params *params,
+			IPdraw::IMuxer::Listener *listener,
+			IPdraw::IMuxer **retObj);
 
 	/* Called on the rendering thread */
 	int
@@ -281,6 +422,19 @@ public:
 			    IPdraw::IVideoRenderer **retObj,
 			    struct egl_display *eglDisplay = nullptr);
 
+	int createVipcSource(const struct pdraw_vipc_source_params *params,
+			     IPdraw::IVipcSource::Listener *listener,
+			     IPdraw::IVipcSource **retObj);
+
+	int
+	createCodedVideoSource(const struct pdraw_video_source_params *params,
+			       IPdraw::ICodedVideoSource::Listener *listener,
+			       IPdraw::ICodedVideoSource **retObj);
+
+	int createRawVideoSource(const struct pdraw_video_source_params *params,
+				 IPdraw::IRawVideoSource::Listener *listener,
+				 IPdraw::IRawVideoSource **retObj);
+
 	int createCodedVideoSink(unsigned int mediaId,
 				 const struct pdraw_video_sink_params *params,
 				 IPdraw::ICodedVideoSink::Listener *listener,
@@ -290,6 +444,11 @@ public:
 			       const struct pdraw_video_sink_params *params,
 			       IPdraw::IRawVideoSink::Listener *listener,
 			       IPdraw::IRawVideoSink **retObj);
+
+	int createVideoEncoder(unsigned int mediaId,
+			       const struct venc_config *params,
+			       IPdraw::IVideoEncoder::Listener *listener,
+			       IPdraw::IVideoEncoder **retObj);
 
 	void getFriendlyNameSetting(std::string *friendlyName);
 
@@ -332,9 +491,13 @@ public:
 private:
 	void stopResponse(IPdraw *pdraw, int status);
 
-	void onMediaAdded(IPdraw *pdraw, const struct pdraw_media_info *info);
+	void onMediaAdded(IPdraw *pdraw,
+			  const struct pdraw_media_info *info,
+			  void *elementUserData);
 
-	void onMediaRemoved(IPdraw *pdraw, const struct pdraw_media_info *info);
+	void onMediaRemoved(IPdraw *pdraw,
+			    const struct pdraw_media_info *info,
+			    void *elementUserData);
 
 	void onSocketCreated(IPdraw *pdraw, int fd);
 
@@ -379,6 +542,11 @@ private:
 				 uint64_t timestamp,
 				 float speed);
 
+	void onMuxerNoSpaceLeft(IPdraw *pdraw,
+				IPdraw::IMuxer *muxer,
+				size_t limit,
+				size_t left);
+
 	void onVideoRendererMediaAdded(IPdraw *pdraw,
 				       IPdraw::IVideoRenderer *renderer,
 				       const struct pdraw_media_info *info);
@@ -410,10 +578,39 @@ private:
 			   struct vmeta_frame *frameMeta,
 			   const struct pdraw_video_frame_extra *frameExtra);
 
+	void vipcSourceReadyToPlay(IPdraw *pdraw,
+				   IPdraw::IVipcSource *source,
+				   bool ready,
+				   enum pdraw_vipc_source_eos_reason eosReason);
+
+	void vipcSourceConfigured(IPdraw *pdraw,
+				  IPdraw::IVipcSource *source,
+				  int status,
+				  const struct vdef_format_info *info,
+				  const struct vdef_rectf *crop);
+
+	void vipcSourceFrameReady(IPdraw *pdraw,
+				  IPdraw::IVipcSource *source,
+				  struct mbuf_raw_video_frame *frame);
+
+	void onCodedVideoSourceFlushed(IPdraw *pdraw,
+				       IPdraw::ICodedVideoSource *source);
+
+	void onRawVideoSourceFlushed(IPdraw *pdraw,
+				     IPdraw::IRawVideoSource *source);
+
 	void onCodedVideoSinkFlush(IPdraw *pdraw,
 				   IPdraw::ICodedVideoSink *sink);
 
 	void onRawVideoSinkFlush(IPdraw *pdraw, IPdraw::IRawVideoSink *sink);
+
+	void videoEncoderFrameOutput(IPdraw *pdraw,
+				     IPdraw::IVideoEncoder *encoder,
+				     struct mbuf_coded_video_frame *frame);
+
+	void videoEncoderFramePreRelease(IPdraw *pdraw,
+					 IPdraw::IVideoEncoder *encoder,
+					 struct mbuf_coded_video_frame *frame);
 
 	static void *loopThread(void *ptr);
 
@@ -437,7 +634,24 @@ private:
 			    IPdraw::IDemuxer::Listener *listener,
 			    IPdraw::IDemuxer **retObj);
 
-	int doCreateMuxer(const std::string &url, IPdraw::IMuxer **retObj);
+	int doCreateMuxer(const std::string &url,
+			  const struct pdraw_muxer_params *params,
+			  IPdraw::IMuxer::Listener *listener,
+			  IPdraw::IMuxer **retObj);
+
+	int doCreateVipcSource(const struct pdraw_vipc_source_params *params,
+			       IPdraw::IVipcSource::Listener *listener,
+			       IPdraw::IVipcSource **retObj);
+
+	int
+	doCreateCodedVideoSource(const struct pdraw_video_source_params *params,
+				 IPdraw::ICodedVideoSource::Listener *listener,
+				 IPdraw::ICodedVideoSource **retObj);
+
+	int
+	doCreateRawVideoSource(const struct pdraw_video_source_params *params,
+			       IPdraw::IRawVideoSource::Listener *listener,
+			       IPdraw::IRawVideoSource **retObj);
 
 	int doCreateCodedVideoSink(unsigned int mediaId,
 				   const struct pdraw_video_sink_params *params,
@@ -448,6 +662,11 @@ private:
 				 const struct pdraw_video_sink_params *params,
 				 IPdraw::IRawVideoSink::Listener *listener,
 				 IPdraw::IRawVideoSink **retObj);
+
+	int doCreateVideoEncoder(unsigned int mediaId,
+				 const struct venc_config *params,
+				 IPdraw::IVideoEncoder::Listener *listener,
+				 IPdraw::IVideoEncoder **retObj);
 
 	void internalStop(void);
 
@@ -499,7 +718,9 @@ private:
 
 	void internalDemuxerGetCurrentTime(PdrawBackend::Demuxer *demuxer);
 
-	void internalMuxerCreate(const std::string &url);
+	void internalMuxerCreate(const std::string &url,
+				 const struct pdraw_muxer_params *params,
+				 IPdraw::IMuxer::Listener *listener);
 
 	void internalMuxerDestroy(PdrawBackend::Muxer *muxer);
 
@@ -507,6 +728,68 @@ private:
 		PdrawBackend::Muxer *muxer,
 		unsigned int mediaId,
 		const struct pdraw_muxer_video_media_params *params);
+
+	void internalMuxerSetThumbnail(PdrawBackend::Muxer *muxer,
+				       enum pdraw_muxer_thumbnail_type type,
+				       const uint8_t *data,
+				       size_t size);
+
+	void internalVipcSourceCreate(IPdraw::IVipcSource::Listener *listener);
+
+	void internalVipcSourceDestroy(PdrawBackend::VipcSource *source);
+
+	void internalVipcSourceIsReadyToPlay(PdrawBackend::VipcSource *source);
+
+	void internalVipcSourceIsPaused(PdrawBackend::VipcSource *source);
+
+	void internalVipcSourcePlay(PdrawBackend::VipcSource *source);
+
+	void internalVipcSourcePause(PdrawBackend::VipcSource *source);
+
+	void internalVipcSourceConfigure(PdrawBackend::VipcSource *source,
+					 const struct vdef_dim *resolution,
+					 const struct vdef_rectf *crop);
+
+	void
+	internalVipcSourceSetSessionMetadata(PdrawBackend::VipcSource *source);
+
+	void
+	internalVipcSourceGetSessionMetadata(PdrawBackend::VipcSource *source);
+
+	void internalCodedVideoSourceCreate(
+		IPdraw::ICodedVideoSource::Listener *listener);
+
+	void
+	internalCodedVideoSourceDestroy(PdrawBackend::CodedVideoSource *source);
+
+	void internalCodedVideoSourceGetQueue(
+		PdrawBackend::CodedVideoSource *source);
+
+	void
+	internalCodedVideoSourceFlush(PdrawBackend::CodedVideoSource *source);
+
+	void internalCodedVideoSourceSetSessionMetadata(
+		PdrawBackend::CodedVideoSource *source);
+
+	void internalCodedVideoSourceGetSessionMetadata(
+		PdrawBackend::CodedVideoSource *source);
+
+	void internalRawVideoSourceCreate(
+		IPdraw::IRawVideoSource::Listener *listener);
+
+	void
+	internalRawVideoSourceDestroy(PdrawBackend::RawVideoSource *source);
+
+	void
+	internalRawVideoSourceGetQueue(PdrawBackend::RawVideoSource *source);
+
+	void internalRawVideoSourceFlush(PdrawBackend::RawVideoSource *source);
+
+	void internalRawVideoSourceSetSessionMetadata(
+		PdrawBackend::RawVideoSource *source);
+
+	void internalRawVideoSourceGetSessionMetadata(
+		PdrawBackend::RawVideoSource *source);
 
 	void internalCodedVideoSinkCreate(
 		unsigned int mediaId,
@@ -532,6 +815,17 @@ private:
 	void internalRawVideoSinkGetQueue(PdrawBackend::RawVideoSink *sink);
 
 	void internalRawVideoSinkQueueFlushed(PdrawBackend::RawVideoSink *sink);
+
+	void
+	internalVideoEncoderCreate(unsigned int mediaId,
+				   const struct venc_config *params,
+				   IPdraw::IVideoEncoder::Listener *listener);
+
+	void internalVideoEncoderDestroy(PdrawBackend::VideoEncoder *encoder);
+
+	void
+	internalVideoEncoderConfigure(PdrawBackend::VideoEncoder *encoder,
+				      const struct venc_dyn_config *config);
 
 	void internalGetFriendlyNameSetting(void);
 
@@ -572,9 +866,29 @@ private:
 		IPdraw::IDemuxer::Listener *l;
 	};
 
+	struct muxerAndListener {
+		IPdraw::IMuxer *m;
+		IPdraw::IMuxer::Listener *l;
+	};
+
 	struct videoRendererAndListener {
 		IPdraw::IVideoRenderer *r;
 		IPdraw::IVideoRenderer::Listener *l;
+	};
+
+	struct vipcSourceAndListener {
+		IPdraw::IVipcSource *s;
+		IPdraw::IVipcSource::Listener *l;
+	};
+
+	struct codedVideoSourceAndListener {
+		IPdraw::ICodedVideoSource *s;
+		IPdraw::ICodedVideoSource::Listener *l;
+	};
+
+	struct rawVideoSourceAndListener {
+		IPdraw::IRawVideoSource *s;
+		IPdraw::IRawVideoSource::Listener *l;
 	};
 
 	struct codedVideoSinkAndListener {
@@ -587,6 +901,11 @@ private:
 		IPdraw::IRawVideoSink::Listener *l;
 	};
 
+	struct videoEncoderAndListener {
+		IPdraw::IVideoEncoder *e;
+		IPdraw::IVideoEncoder::Listener *l;
+	};
+
 	pthread_mutex_t mApiMutex;
 	bool mApiMutexCreated;
 	bool mApiReady;
@@ -596,10 +915,13 @@ private:
 	bool mCondCreated;
 	pthread_t mLoopThread;
 	bool mLoopThreadLaunched;
-	bool mThreadShouldStop;
+	std::atomic_bool mThreadShouldStop;
 	struct pomp_loop *mLoop;
 	struct mbox *mMbox;
 	bool mStarted;
+	struct pdraw_video_source_params mParamVideoSource;
+	struct pdraw_vipc_source_params mParamVipcSource;
+	struct vmeta_session mParamVmetaSession;
 	bool mRetValReady;
 	int mRetStatus;
 	bool mRetBool;
@@ -612,8 +934,12 @@ private:
 	struct mbuf_coded_video_frame_queue *mRetCodedQueue;
 	struct mbuf_raw_video_frame_queue *mRetRawQueue;
 	struct pdraw_media_info mRetMediaInfo;
+	IPdraw::IVipcSource *mRetVipcSource;
+	IPdraw::ICodedVideoSource *mRetCodedVideoSource;
+	IPdraw::IRawVideoSource *mRetRawVideoSource;
 	IPdraw::ICodedVideoSink *mRetCodedVideoSink;
 	IPdraw::IRawVideoSink *mRetRawVideoSink;
+	IPdraw::IVideoEncoder *mRetVideoEncoder;
 	IPdraw::IDemuxer *mRetDemuxer;
 	IPdraw::IMuxer *mRetMuxer;
 	IPdraw *mPdraw;
@@ -623,15 +949,34 @@ private:
 	std::map<IPdraw::IDemuxer *, struct demuxerAndListener>
 		mDemuxerListenersMap;
 	struct demuxerAndListener mPendingDemuxerAndListener;
+	std::map<IPdraw::IMuxer *, struct muxerAndListener> mMuxerListenersMap;
+	struct muxerAndListener mPendingMuxerAndListener;
 	std::map<IPdraw::IVideoRenderer *, struct videoRendererAndListener>
 		mVideoRendererListenersMap;
 	struct videoRendererAndListener mPendingVideoRendererAndListener;
+	std::map<IPdraw::IVipcSource *, struct vipcSourceAndListener>
+		mVipcSourceListenersMap;
+	struct vipcSourceAndListener mPendingVipcSourceAndListener;
+	std::map<IPdraw::ICodedVideoSource *,
+		 struct codedVideoSourceAndListener>
+		mCodedVideoSourceListenersMap;
+	struct codedVideoSourceAndListener mPendingCodedVideoSourceAndListener;
+	std::map<IPdraw::IRawVideoSource *, struct rawVideoSourceAndListener>
+		mRawVideoSourceListenersMap;
+	struct rawVideoSourceAndListener mPendingRawVideoSourceAndListener;
 	std::map<IPdraw::ICodedVideoSink *, struct codedVideoSinkAndListener>
 		mCodedVideoSinkListenersMap;
 	struct codedVideoSinkAndListener mPendingCodedVideoSinkAndListener;
 	std::map<IPdraw::IRawVideoSink *, struct rawVideoSinkAndListener>
 		mRawVideoSinkListenersMap;
 	struct rawVideoSinkAndListener mPendingRawVideoSinkAndListener;
+	std::map<IPdraw::IVideoEncoder *, struct videoEncoderAndListener>
+		mVideoEncoderListenersMap;
+	struct videoEncoderAndListener mPendingVideoEncoderAndListener;
+	struct {
+		void *internal;
+		void *external;
+	} mPendingRemovedElementUserdata;
 };
 
 } /* namespace PdrawBackend */

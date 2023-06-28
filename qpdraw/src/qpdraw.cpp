@@ -100,22 +100,24 @@ void QPdrawPriv::stopResponse(IPdraw *pdraw, int status)
 
 
 void QPdrawPriv::onMediaAdded(IPdraw *pdraw,
-			      const struct pdraw_media_info *info)
+			      const struct pdraw_media_info *info,
+			      void *elementUserData)
 {
 	Q_UNUSED(pdraw);
 
 	struct pdraw_media_info info_copy = *info;
-	emit mParent->onMediaAdded(info_copy);
+	emit mParent->onMediaAdded(info_copy, elementUserData);
 }
 
 
 void QPdrawPriv::onMediaRemoved(IPdraw *pdraw,
-				const struct pdraw_media_info *info)
+				const struct pdraw_media_info *info,
+				void *elementUserData)
 {
 	Q_UNUSED(pdraw);
 
 	struct pdraw_media_info info_copy = *info;
-	emit mParent->onMediaRemoved(info_copy);
+	emit mParent->onMediaRemoved(info_copy, elementUserData);
 }
 
 

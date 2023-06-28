@@ -63,7 +63,7 @@ namespace Pdraw {
 #	define GLES2_RENDERER_VIDEO_PRES_STATS_TIME_MS 200
 #	define GLES2_RENDERER_SCHED_ADAPTIVE_EPSILON_PERCENT 5
 
-#	define NB_SUPPORTED_FORMATS 6
+#	define NB_SUPPORTED_FORMATS 8
 static struct vdef_raw_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
 static void initializeSupportedFormats(void)
@@ -74,6 +74,8 @@ static void initializeSupportedFormats(void)
 	supportedFormats[3] = vdef_i420_10_16le;
 	supportedFormats[4] = vdef_nv12_10_16le_high;
 	supportedFormats[5] = vdef_gray;
+	supportedFormats[6] = vdef_raw16;
+	supportedFormats[7] = vdef_raw32;
 }
 
 
@@ -419,7 +421,7 @@ error:
 /* Called on the rendering thread */
 int Gles2VideoRenderer::stop(void)
 {
-	int ret;
+	int err;
 
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
@@ -428,6 +430,24 @@ int Gles2VideoRenderer::stop(void)
 	setStateAsyncNotify(STOPPING);
 
 	mRunning = false;
+
+	/* Flush the remaining frames */
+	Sink::lock();
+	struct mbuf_raw_video_frame_queue *queue = getLastAddedMediaQueue();
+	if (queue != nullptr) {
+		err = mbuf_raw_video_frame_queue_flush(queue);
+		if (err < 0) {
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
+					-err);
+		}
+	}
+	if (mCurrentFrame != nullptr) {
+		err = mbuf_raw_video_frame_unref(mCurrentFrame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mCurrentFrame = nullptr;
+	}
+	Sink::unlock();
 
 	removeRendererListener();
 	mExtLoadVideoTexture = false;
@@ -438,17 +458,17 @@ int Gles2VideoRenderer::stop(void)
 		mGles2Video = nullptr;
 	}
 
-	ret = stopHmd();
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("stopHmd", -ret);
-	ret = stopExtLoad();
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("stopExtLoad", -ret);
+	err = stopHmd();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("stopHmd", -err);
+	err = stopExtLoad();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("stopExtLoad", -err);
 
 	/* Remove any leftover idle callbacks */
-	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
+	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 
 	/* Post a message on the loop thread */
 	asyncCompleteStop();
@@ -730,9 +750,9 @@ void Gles2VideoRenderer::onChannelFlush(Channel *channel)
 
 	Sink::unlock();
 
-	ret = c->flushDone();
+	ret = asyncChannelFlushDone(c);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("channel->flushDone", -ret);
+		PDRAW_LOG_ERRNO("asyncChannelFlushDone", -ret);
 }
 
 

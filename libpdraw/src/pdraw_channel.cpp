@@ -311,6 +311,8 @@ const char *Channel::getDownstreamEventStr(DownstreamEvent val)
 		return "TIMEOUT";
 	case PHOTO_TRIGGER:
 		return "PHOTO_TRIGGER";
+	case SESSION_META_UPDATE:
+		return "SESSION_META_UPDATE";
 	default:
 		return nullptr;
 	}

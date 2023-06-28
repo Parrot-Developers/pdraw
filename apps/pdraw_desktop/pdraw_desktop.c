@@ -33,20 +33,37 @@
 ULOG_DECLARE_TAG(pdraw_desktop);
 
 
+static const struct pdraw_backend_muxer_cbs muxer_cbs;
 static const struct pdraw_backend_demuxer_cbs demuxer_cbs;
+static const struct pdraw_backend_vipc_source_cbs source_cbs;
 
 
 void pdraw_desktop_open(struct pdraw_desktop *self)
 {
 	int res;
 	if (self->url != NULL) {
-		res = pdraw_be_demuxer_new_from_url(self->pdraw,
-						    self->url,
-						    &demuxer_cbs,
-						    self,
-						    &self->demuxer);
-		if (res < 0)
-			ULOG_ERRNO("pdraw_be_demuxer_new_from_url", -res);
+		if (self->is_vipc) {
+			struct pdraw_vipc_source_params params = {
+				.address = self->url,
+			};
+			res = pdraw_be_vipc_source_new(self->pdraw,
+						       &params,
+						       &source_cbs,
+						       self,
+						       &self->source);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_vipc_source_new", -res);
+			self->media_count = 1;
+		} else {
+			res = pdraw_be_demuxer_new_from_url(self->pdraw,
+							    self->url,
+							    &demuxer_cbs,
+							    self,
+							    &self->demuxer);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_demuxer_new_from_url",
+					   -res);
+		}
 	} else {
 		res = pdraw_be_demuxer_new_single_stream(
 			self->pdraw,
@@ -91,23 +108,52 @@ void pdraw_desktop_close(struct pdraw_desktop *self)
 		if (res < 0)
 			ULOG_ERRNO("pdraw_be_demuxer_close", -res);
 	}
+	if (self->source != NULL) {
+		res = pdraw_be_vipc_source_destroy(self->pdraw, self->source);
+		if (res < 0)
+			ULOG_ERRNO("pdraw_be_vipc_source_destroy", -res);
+		else
+			self->source = NULL;
+		res = pdraw_be_stop(self->pdraw);
+		if (res < 0)
+			ULOG_ERRNO("pdraw_be_stop", -res);
+	}
 }
 
 
 void pdraw_desktop_toggle_play_pause(struct pdraw_desktop *self)
 {
 	int res;
-	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) != 0) {
-		res = pdraw_be_demuxer_play_with_speed(
-			self->pdraw,
-			self->demuxer,
-			self->speed * self->speed_sign);
-		if (res < 0)
-			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
-	} else {
-		res = pdraw_be_demuxer_pause(self->pdraw, self->demuxer);
-		if (res < 0)
-			ULOG_ERRNO("pdraw_be_demuxer_pause", -res);
+	if (self->demuxer != NULL) {
+		if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) !=
+		    0) {
+			res = pdraw_be_demuxer_play_with_speed(
+				self->pdraw,
+				self->demuxer,
+				self->speed * self->speed_sign);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_demuxer_play_with_speed",
+					   -res);
+		} else {
+			res = pdraw_be_demuxer_pause(self->pdraw,
+						     self->demuxer);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_demuxer_pause", -res);
+		}
+	}
+	if (self->source != NULL) {
+		if (pdraw_be_vipc_source_is_paused(self->pdraw, self->source) !=
+		    0) {
+			res = pdraw_be_vipc_source_play(self->pdraw,
+							self->source);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_vipc_source_play", -res);
+		} else {
+			res = pdraw_be_vipc_source_pause(self->pdraw,
+							 self->source);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_vipc_source_pause", -res);
+		}
 	}
 }
 
@@ -115,6 +161,8 @@ void pdraw_desktop_toggle_play_pause(struct pdraw_desktop *self)
 void pdraw_desktop_toggle_speed_sign(struct pdraw_desktop *self)
 {
 	int res;
+	if (self->demuxer == NULL)
+		return;
 	self->speed_sign *= -1;
 	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) == 0) {
 		res = pdraw_be_demuxer_play_with_speed(
@@ -130,6 +178,8 @@ void pdraw_desktop_toggle_speed_sign(struct pdraw_desktop *self)
 void pdraw_desktop_speed_down(struct pdraw_desktop *self)
 {
 	int res;
+	if (self->demuxer == NULL)
+		return;
 	self->speed /= 2;
 	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) == 0) {
 		res = pdraw_be_demuxer_play_with_speed(
@@ -145,6 +195,8 @@ void pdraw_desktop_speed_down(struct pdraw_desktop *self)
 void pdraw_desktop_speed_up(struct pdraw_desktop *self)
 {
 	int res;
+	if (self->demuxer == NULL)
+		return;
 	self->speed *= 2;
 	if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) == 0) {
 		res = pdraw_be_demuxer_play_with_speed(
@@ -159,6 +211,8 @@ void pdraw_desktop_speed_up(struct pdraw_desktop *self)
 
 void pdraw_desktop_previous_frame(struct pdraw_desktop *self)
 {
+	if (self->demuxer == NULL)
+		return;
 	int res = pdraw_be_demuxer_previous_frame(self->pdraw, self->demuxer);
 	if (res < 0)
 		ULOG_ERRNO("pdraw_be_demuxer_previous_frame", -res);
@@ -167,6 +221,8 @@ void pdraw_desktop_previous_frame(struct pdraw_desktop *self)
 
 void pdraw_desktop_next_frame(struct pdraw_desktop *self)
 {
+	if (self->demuxer == NULL)
+		return;
 	int res = pdraw_be_demuxer_next_frame(self->pdraw, self->demuxer);
 	if (res < 0)
 		ULOG_ERRNO("pdraw_be_demuxer_next_frame", -res);
@@ -175,6 +231,8 @@ void pdraw_desktop_next_frame(struct pdraw_desktop *self)
 
 void pdraw_desktop_seek_back_10s(struct pdraw_desktop *self)
 {
+	if (self->demuxer == NULL)
+		return;
 	int res = pdraw_be_demuxer_seek_back(
 		self->pdraw, self->demuxer, 10000000, 0);
 	if (res < 0)
@@ -184,6 +242,8 @@ void pdraw_desktop_seek_back_10s(struct pdraw_desktop *self)
 
 void pdraw_desktop_seek_forward_10s(struct pdraw_desktop *self)
 {
+	if (self->demuxer == NULL)
+		return;
 	int res = pdraw_be_demuxer_seek_forward(
 		self->pdraw, self->demuxer, 10000000, 0);
 	if (res < 0)
@@ -193,6 +253,8 @@ void pdraw_desktop_seek_forward_10s(struct pdraw_desktop *self)
 
 void pdraw_desktop_goto_beginning(struct pdraw_desktop *self)
 {
+	if (self->demuxer == NULL)
+		return;
 	int res = pdraw_be_demuxer_seek_to(self->pdraw, self->demuxer, 0, 1);
 	if (res < 0)
 		ULOG_ERRNO("pdraw_be_demuxer_seek_to", -res);
@@ -201,10 +263,98 @@ void pdraw_desktop_goto_beginning(struct pdraw_desktop *self)
 
 void pdraw_desktop_goto_end(struct pdraw_desktop *self)
 {
+	if (self->demuxer == NULL)
+		return;
 	int res = pdraw_be_demuxer_seek_to(
 		self->pdraw, self->demuxer, (uint64_t)-1, 1);
 	if (res < 0)
 		ULOG_ERRNO("pdraw_be_demuxer_seek_to", -res);
+}
+
+
+void pdraw_desktop_toggle_start_stop_recorder(struct pdraw_desktop *self)
+{
+	int res;
+	if (self->recorder == NULL) {
+		uint64_t epoch_sec = 0;
+		int32_t utc_offset_sec = 0;
+		struct tm tm;
+		char *file_path = NULL;
+		struct pdraw_muxer_params muxer_params = {0};
+		muxer_params.free_space_limit = 0;
+
+		time_local_get(&epoch_sec, &utc_offset_sec);
+		time_local_to_tm(epoch_sec, utc_offset_sec, &tm);
+
+		res = asprintf(&file_path,
+			       "pdraw_rec_%04d%02d%02d_%02d%02d%02d_%d.mp4",
+			       tm.tm_year + 1900,
+			       tm.tm_mon + 1,
+			       tm.tm_mday,
+			       tm.tm_hour,
+			       tm.tm_min,
+			       tm.tm_sec,
+			       getpid());
+		if (res <= 0) {
+			ULOG_ERRNO("asprintf", ENOMEM);
+			return;
+		}
+
+		res = pdraw_be_muxer_new(self->pdraw,
+					 file_path,
+					 &muxer_params,
+					 &muxer_cbs,
+					 self,
+					 &self->recorder);
+		if (res < 0) {
+			ULOG_ERRNO("pdraw_be_muxer_new", -res);
+			free(file_path);
+			return;
+		}
+		free(file_path);
+
+		if (self->recorder_media_id == 0) {
+			/* No media yet, nothing more to do */
+			return;
+		}
+
+		if ((self->recorder_video_params.resolution.width == 0) ||
+		    (self->recorder_video_params.resolution.height == 0) ||
+		    (self->recorder_video_params.target_bitrate == 0))
+			self->recorder_video_params.encoding =
+				VDEF_ENCODING_UNKNOWN;
+		else
+			self->recorder_video_params.encoding =
+				VDEF_ENCODING_H264;
+		ULOGI("adding media %d to MP4 muxer with params: "
+		      "res=%ux%u encoding=%s bitrate=%u gop=%.2f "
+		      "name=%s timescale=%zu default=%d",
+		      self->recorder_media_id,
+		      self->recorder_video_params.resolution.width,
+		      self->recorder_video_params.resolution.height,
+		      vdef_encoding_to_str(
+			      self->recorder_video_params.encoding),
+		      self->recorder_video_params.target_bitrate,
+		      self->recorder_video_params.gop_length_sec,
+		      self->recorder_video_params.track_name,
+		      (size_t)self->recorder_video_params.timescale,
+		      self->recorder_video_params.is_default);
+		res = pdraw_be_muxer_add_media(self->pdraw,
+					       self->recorder,
+					       self->recorder_media_id,
+					       &self->recorder_video_params);
+		if (res < 0) {
+			ULOG_ERRNO("pdraw_be_muxer_add_media", -res);
+			return;
+		}
+	} else {
+		res = pdraw_be_muxer_destroy(self->pdraw, self->recorder);
+		if (res < 0) {
+			ULOG_ERRNO("pdraw_be_muxer_destroy", -res);
+			return;
+		}
+		self->recorder = NULL;
+	}
 }
 
 
@@ -327,11 +477,53 @@ stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 
 static void media_added_cb(struct pdraw_backend *pdraw,
 			   const struct pdraw_media_info *info,
+			   void *element_userdata,
 			   void *userdata)
 {
+	int res;
 	struct pdraw_desktop *self = userdata;
-
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
+
+	if ((self->recorder_media_id == 0) &&
+	    (info->type == PDRAW_MEDIA_TYPE_VIDEO) &&
+	    (info->video.format == VDEF_FRAME_TYPE_CODED) &&
+	    (info->video.coded.format.encoding == VDEF_ENCODING_H264)) {
+		self->recorder_media_id = info->id;
+		if (self->recorder != NULL) {
+			if ((self->recorder_video_params.resolution.width ==
+			     0) ||
+			    (self->recorder_video_params.resolution.height ==
+			     0) ||
+			    (self->recorder_video_params.target_bitrate == 0))
+				self->recorder_video_params.encoding =
+					VDEF_ENCODING_UNKNOWN;
+			else
+				self->recorder_video_params.encoding =
+					VDEF_ENCODING_H264;
+			ULOGI("adding media %d to MP4 muxer with params: "
+			      "res=%ux%u encoding=%s bitrate=%u gop=%.2f "
+			      "name=%s timescale=%zu default=%d",
+			      self->recorder_media_id,
+			      self->recorder_video_params.resolution.width,
+			      self->recorder_video_params.resolution.height,
+			      vdef_encoding_to_str(
+				      self->recorder_video_params.encoding),
+			      self->recorder_video_params.target_bitrate,
+			      self->recorder_video_params.gop_length_sec,
+			      self->recorder_video_params.track_name,
+			      (size_t)self->recorder_video_params.timescale,
+			      self->recorder_video_params.is_default);
+			res = pdraw_be_muxer_add_media(
+				self->pdraw,
+				self->recorder,
+				self->recorder_media_id,
+				&self->recorder_video_params);
+			if (res < 0) {
+				ULOG_ERRNO("pdraw_be_muxer_add_media", -res);
+				return;
+			}
+		}
+	}
 
 	if ((info->type == PDRAW_MEDIA_TYPE_VIDEO) &&
 	    (info->video.format == VDEF_FRAME_TYPE_RAW)) {
@@ -346,6 +538,7 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 static void media_removed_cb(struct pdraw_backend *pdraw,
 			     const struct pdraw_media_info *info,
+			     void *element_userdata,
 			     void *userdata)
 {
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
@@ -372,6 +565,28 @@ static void open_resp_cb(struct pdraw_backend *pdraw,
 					 PDRAW_DESKTOP_EVENT_OPEN_RESP,
 					 (void *)(intptr_t)status,
 					 NULL);
+}
+
+
+static void no_space_left_cb(struct pdraw_backend *pdraw,
+			     struct pdraw_muxer *muxer,
+			     size_t limit,
+			     size_t left,
+			     void *userdata)
+{
+	int err;
+
+	struct pdraw_desktop *self = userdata;
+
+	ULOGI("%s limit=%zu, left=%zu", __func__, limit, left);
+
+	/* Stop recorder */
+	err = pdraw_be_muxer_destroy(self->pdraw, self->recorder);
+	if (err < 0) {
+		ULOG_ERRNO("pdraw_be_muxer_destroy", -err);
+		return;
+	}
+	self->recorder = NULL;
 }
 
 
@@ -425,7 +640,7 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 	if (count == 0)
 		return -ENOENT;
 	if (count == 1) {
-		self->demuxer_media_count = 1;
+		self->media_count = 1;
 		return 1 << medias[0].media_id;
 	}
 
@@ -454,7 +669,7 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 	printf(" > ");
 	if (!fgets(s, sizeof(s), stdin)) {
 		printf("Unable to read input, using default media\n");
-		self->demuxer_media_count = default_media_count;
+		self->media_count = default_media_count;
 		return 0;
 	}
 	slen = strlen(s);
@@ -462,7 +677,7 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 		s[slen - 1] = '\0';
 	slen = strlen(s);
 	if (slen == 0) {
-		self->demuxer_media_count = default_media_count;
+		self->media_count = default_media_count;
 		return 0;
 	}
 
@@ -474,13 +689,13 @@ parse:
 			/* strtok_r returning NULL means that the string is
 			 * empty */
 			printf("Unable to read input, using default media\n");
-			self->demuxer_media_count = default_media_count;
+			self->media_count = default_media_count;
 			return 0;
 		} else {
 			while (id_str) {
 				id = atoi(id_str);
 				ids |= (1 << id);
-				self->demuxer_media_count++;
+				self->media_count++;
 				id_str = strtok_r(NULL, ",", &temp);
 			}
 		}
@@ -489,10 +704,10 @@ parse:
 		id = atoi(str);
 		if (id == 0) {
 			ids = 0;
-			self->demuxer_media_count = default_media_count;
+			self->media_count = default_media_count;
 		} else {
 			ids = (1 << id);
-			self->demuxer_media_count = 1;
+			self->media_count = 1;
 		}
 	}
 	return ids;
@@ -588,6 +803,35 @@ static void seek_resp_cb(struct pdraw_backend *pdraw,
 					 PDRAW_DESKTOP_EVENT_SEEK_RESP,
 					 (void *)(intptr_t)status,
 					 (void *)(intptr_t)timestamp);
+}
+
+
+static void
+source_ready_to_play_cb(struct pdraw_backend *pdraw,
+			struct pdraw_vipc_source *source,
+			int ready,
+			enum pdraw_vipc_source_eos_reason eos_reason,
+			void *userdata)
+{
+	struct pdraw_desktop *self = userdata;
+
+	ULOGI("%s ready=%d", __func__, ready);
+
+	pdraw_desktop_ui_send_user_event(self,
+					 PDRAW_DESKTOP_EVENT_READY_TO_PLAY,
+					 (void *)(intptr_t)ready,
+					 NULL);
+}
+
+
+static void source_configured_cb(struct pdraw_backend *pdraw,
+				 struct pdraw_vipc_source *source,
+				 int status,
+				 const struct vdef_format_info *info,
+				 const struct vdef_rectf *crop,
+				 void *userdata)
+{
+	ULOGI("%s: status=%d(%s)", __func__, status, strerror(status));
 }
 
 
@@ -700,6 +944,11 @@ static const struct pdraw_backend_cbs be_cbs = {
 };
 
 
+static const struct pdraw_backend_muxer_cbs muxer_cbs = {
+	.no_space_left = &no_space_left_cb,
+};
+
+
 static const struct pdraw_backend_demuxer_cbs demuxer_cbs = {
 	.open_resp = &open_resp_cb,
 	.close_resp = &close_resp_cb,
@@ -710,6 +959,12 @@ static const struct pdraw_backend_demuxer_cbs demuxer_cbs = {
 	.play_resp = &play_resp_cb,
 	.pause_resp = &pause_resp_cb,
 	.seek_resp = &seek_resp_cb,
+};
+
+
+static const struct pdraw_backend_vipc_source_cbs source_cbs = {
+	.ready_to_play = &source_ready_to_play_cb,
+	.configured = &source_configured_cb,
 };
 
 
@@ -746,6 +1001,9 @@ enum args_id {
 	ARGS_ID_HMD = 256,
 	ARGS_ID_ZEBRAS,
 	ARGS_ID_EXT_TEX,
+	ARGS_ID_REC_RES,
+	ARGS_ID_REC_BR,
+	ARGS_ID_REC_GOP,
 	ARGS_ID_DEMUX,
 	ARGS_ID_SCHEDMODE,
 	ARGS_ID_FILLMODE,
@@ -771,6 +1029,9 @@ static const struct option long_options[] = {
 	{"zebras", required_argument, NULL, ARGS_ID_ZEBRAS},
 	{"ext-tex", no_argument, NULL, ARGS_ID_EXT_TEX},
 	{"tex-mex", no_argument, NULL, ARGS_ID_EXT_TEX},
+	{"rec-res", required_argument, NULL, ARGS_ID_REC_RES},
+	{"rec-br", required_argument, NULL, ARGS_ID_REC_BR},
+	{"rec-gop", required_argument, NULL, ARGS_ID_REC_GOP},
 	{"sched-mode", required_argument, NULL, ARGS_ID_SCHEDMODE},
 	{"fill-mode", required_argument, NULL, ARGS_ID_FILLMODE},
 	{0, 0, 0, 0},
@@ -784,7 +1045,8 @@ static void usage(char *prog_name)
 	       "  -h | --help                      "
 	       "Print this message\n\n"
 	       "  -u | --url <url>                 "
-	       "Stream URL (rtsp://*) or filename (*.mp4)\n\n"
+	       "Stream URL (rtsp://*), filename (*.mp4) "
+	       "or VIPC address (unix:*)\n\n"
 	       "  -i | --ip <ip_address>           "
 	       "Direct RTP/AVP H.264 reception with a remote IP address\n"
 	       "                                   "
@@ -818,6 +1080,15 @@ static void usage(char *prog_name)
 	       "default: 0.95, out of range means default)\n\n"
 	       "       --ext-tex                   "
 	       "Enable testing the external texture loading callback\n\n"
+	       "       --rec-res <WxH>             "
+	       "Recording resolution (e.g. \"1280x720\"; "
+	       "default is \"0x0\" i.e. no scaling)\n\n"
+	       "       --rec-br <bitrate>          "
+	       "Recording bitrate in bit/s "
+	       "(default is 0, i.e. no transcoding)\n\n"
+	       "       --rec-gop <gop>             "
+	       "Recording GOP length in seconds "
+	       "(float, default is 1.0; ignored when not transcoding)\n\n"
 	       "       --sched-mode                "
 	       "Set default renderer scheduling mode (ASAP, ADAPTIVE)\n\n"
 	       "       --fill-mode                 "
@@ -831,6 +1102,8 @@ static int summary(struct pdraw_desktop *self)
 {
 	if (self->is_file) {
 		printf("Offline playing of file '%s'\n\n", self->url);
+	} else if (self->is_vipc) {
+		printf("Playing from video IPC '%s'\n\n", self->url);
 	} else if (self->url != NULL) {
 		printf("Streaming from URL '%s'\n\n", self->url);
 	} else if ((self->local_stream_port != 0) &&
@@ -927,9 +1200,12 @@ int main(int argc, char **argv)
 		case 'u':
 			free(self->url);
 			self->url = strdup(optarg);
-			if ((self->url) &&
-			    ((strlen(self->url) <= 7) ||
-			     (strncmp(self->url, "rtsp://", 7) != 0)))
+			if ((self->url) && (strlen(self->url) > 5) &&
+			    (strncmp(self->url, "unix:", 5) == 0))
+				self->is_vipc = 1;
+			else if ((self->url) &&
+				 ((strlen(self->url) <= 7) ||
+				  (strncmp(self->url, "rtsp://", 7) != 0)))
 				self->is_file = 1;
 			break;
 
@@ -987,6 +1263,25 @@ int main(int argc, char **argv)
 
 		case ARGS_ID_EXT_TEX:
 			self->ext_tex = 1;
+			break;
+
+		case ARGS_ID_REC_RES:
+			sscanf(optarg,
+			       "%ux%u",
+			       &self->recorder_video_params.resolution.width,
+			       &self->recorder_video_params.resolution.height);
+			break;
+
+		case ARGS_ID_REC_BR:
+			sscanf(optarg,
+			       "%d",
+			       &self->recorder_video_params.target_bitrate);
+			break;
+
+		case ARGS_ID_REC_GOP:
+			sscanf(optarg,
+			       "%f",
+			       &self->recorder_video_params.gop_length_sec);
 			break;
 
 		case ARGS_ID_SCHEDMODE:
@@ -1054,6 +1349,23 @@ out:
 		pdraw_desktop_ext_tex_cleanup(self);
 		pdraw_desktop_ui_destroy(self);
 		if (self->pdraw != NULL) {
+			if (self->recorder != NULL) {
+				res = pdraw_be_muxer_destroy(self->pdraw,
+							     self->recorder);
+				if (res < 0) {
+					ULOG_ERRNO("pdraw_be_muxer_destroy",
+						   -res);
+				}
+			}
+			if (self->source != NULL) {
+				res = pdraw_be_vipc_source_destroy(
+					self->pdraw, self->source);
+				if (res < 0) {
+					ULOG_ERRNO(
+						"pdraw_be_vipc_source_destroy",
+						-res);
+				}
+			}
 			res = pdraw_be_destroy(self->pdraw);
 			if (res < 0)
 				ULOG_ERRNO("pdraw_be_destroy", -res);

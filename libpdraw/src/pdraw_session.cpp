@@ -133,6 +133,12 @@ const char *pdrawVideoRendererTransitionFlagStr(
 }
 
 
+const char *pdrawVipcSourceEosReasonStr(enum pdraw_vipc_source_eos_reason val)
+{
+	return pdraw_vipcSourceEosReasonStr(val);
+}
+
+
 int pdrawVideoFrameToJsonStr(const struct pdraw_video_frame *frame,
 			     struct vmeta_frame *metadata,
 			     char *str,
@@ -219,12 +225,9 @@ Session::~Session(void)
 
 	/* Remove any leftover idle callbacks */
 	if (mLoop != nullptr) {
-		pomp_loop_idle_remove(mLoop, idleElementStateChange, this);
-		pomp_loop_idle_remove(mLoop, idleElementDelete, this);
-		pomp_loop_idle_remove(mLoop, idleRendererCompleteStop, this);
-		pomp_loop_idle_remove(mLoop, callStopResponse, this);
-		pomp_loop_idle_remove(mLoop, callOnMediaAdded, this);
-		pomp_loop_idle_remove(mLoop, callOnMediaRemoved, this);
+		int err = pomp_loop_idle_remove_by_cookie(mLoop, this);
+		if (err > 0)
+			ULOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 	}
 
 	pthread_mutex_lock(&mMutex);
@@ -864,14 +867,18 @@ uint64_t Session::Demuxer::getCurrentTime(void)
 }
 
 
-int Session::createMuxer(const std::string &url, IPdraw::IMuxer **retObj)
+int Session::createMuxer(const std::string &url,
+			 const struct pdraw_muxer_params *params,
+			 IPdraw::IMuxer::Listener *listener,
+			 IPdraw::IMuxer **retObj)
 {
-	ULOG_ERRNO_RETURN_ERR_IF(url.length() == 0, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
-
-#if MUXER_TEST
 	int res;
 	Session::Muxer *muxer = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(url.length() == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
 	if (mState == STOPPING || mState == STOPPED) {
@@ -880,7 +887,7 @@ int Session::createMuxer(const std::string &url, IPdraw::IMuxer **retObj)
 		return -EPROTO;
 	}
 
-	muxer = new Session::Muxer(this, url);
+	muxer = new Session::Muxer(this, url, params, listener);
 	if (muxer == nullptr) {
 		pthread_mutex_unlock(&mMutex);
 		ULOGE("%s: failed to create the muxer", __func__);
@@ -916,15 +923,13 @@ error:
 		delete muxer;
 	}
 	return res;
-
-#else
-	/* Not supported yet */
-	return -ENOSYS;
-#endif
 }
 
 
-Session::Muxer::Muxer(Session *session, const std::string &url)
+Session::Muxer::Muxer(Session *session,
+		      const std::string &url,
+		      const struct pdraw_muxer_params *params,
+		      IPdraw::IMuxer::Listener *listener)
 {
 	std::string ext;
 
@@ -941,7 +946,8 @@ Session::Muxer::Muxer(Session *session, const std::string &url)
 	if (url.substr(0, 7) == "rtmp://") {
 #ifdef BUILD_LIBRTMP
 		RtmpStreamMuxer *muxer;
-		muxer = new Pdraw::RtmpStreamMuxer(session, session, url);
+		muxer = new Pdraw::RtmpStreamMuxer(
+			session, session, listener, this, url, params);
 		if (muxer == nullptr) {
 			ULOGE("%s: failed to create the RTMP stream muxer",
 			      __func__);
@@ -951,9 +957,10 @@ Session::Muxer::Muxer(Session *session, const std::string &url)
 #else
 		ULOGE("%s: librtmp is not supported", __func__);
 #endif
-	} else if (ext == ".mp4") {
+	} else if (ext == ".mp4" || ext == ".tmp") {
 		RecordMuxer *muxer;
-		muxer = new Pdraw::RecordMuxer(session, session, url);
+		muxer = new Pdraw::RecordMuxer(
+			session, session, listener, this, url, params);
 		if (muxer == nullptr) {
 			ULOGE("%s: failed to create the record muxer",
 			      __func__);
@@ -977,6 +984,17 @@ Session::Muxer::~Muxer(void)
 }
 
 
+int Session::Muxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
+				 const uint8_t *data,
+				 size_t size)
+{
+	if (mMuxer == nullptr)
+		return -EPROTO;
+
+	return mMuxer->setThumbnail(type, data, size);
+}
+
+
 int Session::Muxer::addMedia(
 	unsigned int mediaId,
 	const struct pdraw_muxer_video_media_params *params)
@@ -984,7 +1002,8 @@ int Session::Muxer::addMedia(
 	int res = 0;
 	Source *source = nullptr;
 	Media *m = nullptr;
-	CodedVideoMedia *media = nullptr;
+	CodedVideoMedia *codedMedia = nullptr;
+	RawVideoMedia *rawMedia = nullptr;
 	Channel *channel = nullptr;
 	bool found = false;
 
@@ -1003,8 +1022,14 @@ int Session::Muxer::addMedia(
 		unsigned int mediaCount = source->getOutputMediaCount();
 		for (unsigned int i = 0; i < mediaCount; i++) {
 			m = source->getOutputMedia(i);
-			media = dynamic_cast<CodedVideoMedia *>(m);
-			if ((media != nullptr) && (media->id == mediaId)) {
+			codedMedia = dynamic_cast<CodedVideoMedia *>(m);
+			rawMedia = dynamic_cast<RawVideoMedia *>(m);
+			if ((codedMedia != nullptr) &&
+			    (codedMedia->id == mediaId)) {
+				found = true;
+				break;
+			} else if ((rawMedia != nullptr) &&
+				   (rawMedia->id == mediaId)) {
 				found = true;
 				break;
 			}
@@ -1013,23 +1038,24 @@ int Session::Muxer::addMedia(
 			break;
 		e++;
 	}
-	if ((!found) || (source == nullptr) || (media == nullptr)) {
+	if ((!found) || (source == nullptr) ||
+	    (codedMedia == nullptr && rawMedia == nullptr)) {
 		pthread_mutex_unlock(&mSession->mMutex);
 		return -ENOENT;
 	}
 
-	res = mMuxer->addInputMedia(media);
+	res = mMuxer->addInputMedia(m, params);
 	if (res < 0) {
 		ULOG_ERRNO("RecordMuxer::addInputMedia", -res);
 		goto out;
 	}
-	channel = mMuxer->getInputChannel(media);
+	channel = mMuxer->getInputChannel(m);
 	if (channel == nullptr) {
 		ULOGE("failed to get muxer input channel");
 		res = -EPROTO;
 		goto out;
 	}
-	res = source->addOutputChannel(media, channel);
+	res = source->addOutputChannel(m, channel);
 	if (res < 0) {
 		ULOG_ERRNO("Source::addOutputChannel", -res);
 		goto out;
@@ -1038,6 +1064,232 @@ int Session::Muxer::addMedia(
 out:
 	pthread_mutex_unlock(&mSession->mMutex);
 	return res;
+}
+
+
+Session::VipcSource::VipcSource(Session *session,
+				const struct pdraw_vipc_source_params *params,
+				IPdraw::IVipcSource::Listener *listener)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	mSource = new Pdraw::VipcSource(
+		session, session, session, listener, this, params);
+	if (mSource == nullptr) {
+		ULOGE("%s: failed to create the video IPC source", __func__);
+		return;
+	}
+#endif
+}
+
+
+Session::VipcSource::~VipcSource(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return;
+	int ret = mSource->stop();
+	if (ret < 0)
+		ULOG_ERRNO("source->stop", -ret);
+#endif
+}
+
+
+bool Session::VipcSource::isReadyToPlay(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return false;
+	return mSource->isReadyToPlay();
+#else
+	return false;
+#endif
+}
+
+
+bool Session::VipcSource::isPaused(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return false;
+	return mSource->isPaused();
+#else
+	return false;
+#endif
+}
+
+
+int Session::VipcSource::play(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->play();
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int Session::VipcSource::pause(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->pause();
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int Session::VipcSource::configure(const struct vdef_dim *resolution,
+				   const struct vdef_rectf *crop)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->configure(resolution, crop);
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int Session::VipcSource::setSessionMetadata(const struct vmeta_session *meta)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->setSessionMetadata(meta);
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int Session::VipcSource::getSessionMetadata(struct vmeta_session *meta)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->getSessionMetadata(meta);
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+Session::CodedVideoSource::CodedVideoSource(
+	Session *session,
+	const struct pdraw_video_source_params *params,
+	IPdraw::ICodedVideoSource::Listener *listener)
+{
+	mSource = new Pdraw::ExternalCodedVideoSource(
+		session, session, session, listener, this, params);
+	if (mSource == nullptr) {
+		ULOGE("%s: failed to create the video source", __func__);
+		return;
+	}
+}
+
+
+Session::CodedVideoSource::~CodedVideoSource(void)
+{
+	if (mSource == nullptr)
+		return;
+	int ret = mSource->stop();
+	if (ret < 0)
+		ULOG_ERRNO("source->stop", -ret);
+}
+
+
+struct mbuf_coded_video_frame_queue *Session::CodedVideoSource::getQueue(void)
+{
+	if (mSource == nullptr)
+		return nullptr;
+	return mSource->getQueue();
+}
+
+
+int Session::CodedVideoSource::flush(void)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->flush();
+}
+
+
+int Session::CodedVideoSource::setSessionMetadata(
+	const struct vmeta_session *meta)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->setSessionMetadata(meta);
+}
+
+
+int Session::CodedVideoSource::getSessionMetadata(struct vmeta_session *meta)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->getSessionMetadata(meta);
+}
+
+
+Session::RawVideoSource::RawVideoSource(
+	Session *session,
+	const struct pdraw_video_source_params *params,
+	IPdraw::IRawVideoSource::Listener *listener)
+{
+	mSource = new Pdraw::ExternalRawVideoSource(
+		session, session, session, listener, this, params);
+	if (mSource == nullptr) {
+		ULOGE("%s: failed to create the video source", __func__);
+		return;
+	}
+}
+
+
+Session::RawVideoSource::~RawVideoSource(void)
+{
+	if (mSource == nullptr)
+		return;
+	int ret = mSource->stop();
+	if (ret < 0)
+		ULOG_ERRNO("source->stop", -ret);
+}
+
+
+struct mbuf_raw_video_frame_queue *Session::RawVideoSource::getQueue(void)
+{
+	if (mSource == nullptr)
+		return nullptr;
+	return mSource->getQueue();
+}
+
+
+int Session::RawVideoSource::flush(void)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->flush();
+}
+
+
+int Session::RawVideoSource::setSessionMetadata(
+	const struct vmeta_session *meta)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->setSessionMetadata(meta);
+}
+
+
+int Session::RawVideoSource::getSessionMetadata(struct vmeta_session *meta)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->getSessionMetadata(meta);
 }
 
 
@@ -1288,6 +1540,179 @@ error:
 }
 
 
+int Session::createVipcSource(const struct pdraw_vipc_source_params *params,
+			      IPdraw::IVipcSource::Listener *listener,
+			      IPdraw::IVipcSource **retObj)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	int res;
+	Session::VipcSource *source = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params->address == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mMutex);
+
+	source = new VipcSource(this, params, listener);
+	if (source == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("video IPC source creation failed");
+		return -ENOMEM;
+	}
+
+	mElements.push_back(source->getElement());
+	pthread_mutex_unlock(&mMutex);
+
+	res = source->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("vipcSource->start", -res);
+		goto error;
+	}
+
+	*retObj = source;
+
+	return 0;
+
+error:
+	if (source != nullptr) {
+		pthread_mutex_lock(&mMutex);
+		std::vector<Element *>::iterator e = mElements.begin();
+		while (e != mElements.end()) {
+			if (*e != source->getElement()) {
+				e++;
+				continue;
+			}
+			mElements.erase(e);
+			break;
+		}
+		pthread_mutex_unlock(&mMutex);
+		delete source;
+	}
+	return res;
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int Session::createCodedVideoSource(
+	const struct pdraw_video_source_params *params,
+	IPdraw::ICodedVideoSource::Listener *listener,
+	IPdraw::ICodedVideoSource **retObj)
+{
+	int res;
+	Session::CodedVideoSource *source = nullptr;
+
+	if (params == nullptr)
+		return -EINVAL;
+	if (listener == nullptr)
+		return -EINVAL;
+	if (retObj == nullptr)
+		return -EINVAL;
+	if (params->video.format != VDEF_FRAME_TYPE_CODED)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+
+	source = new CodedVideoSource(this, params, listener);
+	if (source == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("coded video source creation failed");
+		return -ENOMEM;
+	}
+
+	mElements.push_back(source->getElement());
+	pthread_mutex_unlock(&mMutex);
+
+	res = source->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("codedVideoSource->start", -res);
+		goto error;
+	}
+
+	*retObj = source;
+
+	return 0;
+
+error:
+	if (source != nullptr) {
+		pthread_mutex_lock(&mMutex);
+		std::vector<Element *>::iterator e = mElements.begin();
+		while (e != mElements.end()) {
+			if (*e != source->getElement()) {
+				e++;
+				continue;
+			}
+			mElements.erase(e);
+			break;
+		}
+		pthread_mutex_unlock(&mMutex);
+		delete source;
+	}
+	return res;
+}
+
+
+int Session::createRawVideoSource(
+	const struct pdraw_video_source_params *params,
+	IPdraw::IRawVideoSource::Listener *listener,
+	IPdraw::IRawVideoSource **retObj)
+{
+	int res;
+	Session::RawVideoSource *source = nullptr;
+
+	if (params == nullptr)
+		return -EINVAL;
+	if (listener == nullptr)
+		return -EINVAL;
+	if (retObj == nullptr)
+		return -EINVAL;
+	if (params->video.format != VDEF_FRAME_TYPE_RAW)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+
+	source = new RawVideoSource(this, params, listener);
+	if (source == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("raw video source creation failed");
+		return -ENOMEM;
+	}
+
+	mElements.push_back(source->getElement());
+	pthread_mutex_unlock(&mMutex);
+
+	res = source->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("rawVideoSource->start", -res);
+		goto error;
+	}
+
+	*retObj = source;
+
+	return 0;
+
+error:
+	if (source != nullptr) {
+		pthread_mutex_lock(&mMutex);
+		std::vector<Element *>::iterator e = mElements.begin();
+		while (e != mElements.end()) {
+			if (*e != source->getElement()) {
+				e++;
+				continue;
+			}
+			mElements.erase(e);
+			break;
+		}
+		pthread_mutex_unlock(&mMutex);
+		delete source;
+	}
+	return res;
+}
+
+
 int Session::createCodedVideoSink(unsigned int mediaId,
 				  const struct pdraw_video_sink_params *params,
 				  IPdraw::ICodedVideoSink::Listener *listener,
@@ -1376,6 +1801,107 @@ int Session::createRawVideoSink(unsigned int mediaId,
 		if (found && rawMedia != nullptr) {
 			ret = internalCreateRawVideoSink(
 				source, rawMedia, params, listener, retObj);
+			goto exit;
+		}
+		e++;
+	}
+	ret = -ENOENT;
+exit:
+	pthread_mutex_unlock(&mMutex);
+	return ret;
+}
+
+
+Session::VideoEncoderWrapper::VideoEncoderWrapper(
+	Session *session,
+	const struct venc_config *params,
+	IPdraw::IVideoEncoder::Listener *listener)
+{
+	mEncoder = new Pdraw::VideoEncoder(
+		session, session, session, listener, this, params);
+	if (mEncoder == nullptr) {
+		ULOGE("%s: failed to create the video encoder", __func__);
+		return;
+	}
+}
+
+
+Session::VideoEncoderWrapper::~VideoEncoderWrapper(void)
+{
+	if (mEncoder == nullptr)
+		return;
+	int ret = mEncoder->stop();
+	if (ret < 0)
+		ULOG_ERRNO("VideoEncoder::stop", -ret);
+}
+
+
+int Session::VideoEncoderWrapper::configure(
+	const struct venc_dyn_config *config)
+{
+	if (mEncoder == nullptr)
+		return -EPROTO;
+	return mEncoder->configure(config);
+}
+
+
+int Session::createVideoEncoder(unsigned int mediaId,
+				const struct venc_config *params,
+				IPdraw::IVideoEncoder::Listener *listener,
+				IPdraw::IVideoEncoder **retObj)
+{
+	int ret = 0;
+	bool found = false;
+
+	if (params == nullptr)
+		return -EINVAL;
+	if (listener == nullptr)
+		return -EINVAL;
+	if (retObj == nullptr)
+		return -EINVAL;
+
+	pthread_mutex_lock(&mMutex);
+
+	std::vector<Element *>::iterator e = mElements.begin();
+	while (e != mElements.end()) {
+		Media *media;
+		RawVideoMedia *rawMedia = nullptr;
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			media = source->getOutputMedia(i);
+			if ((media != nullptr) && (media->id == mediaId)) {
+				rawMedia = dynamic_cast<RawVideoMedia *>(media);
+				found = true;
+				break;
+			}
+		}
+		if (found && rawMedia != nullptr) {
+			VideoEncoderWrapper *wrapper =
+				new VideoEncoderWrapper(this, params, listener);
+			if (wrapper == nullptr) {
+				ULOGE("failed to create the "
+				      "VideoEncoderWrapper object");
+				ret = -ENOMEM;
+				goto exit;
+			}
+			ret = mFactory.addEncoderForMedia(
+				source,
+				rawMedia,
+				params,
+				listener,
+				wrapper->getVideoEncoder());
+			if (ret < 0) {
+				ULOG_ERRNO(
+					"PipelineFactory::addEncoderForMedia",
+					-ret);
+				goto exit;
+			}
+			*retObj = wrapper;
 			goto exit;
 		}
 		e++;
@@ -1499,7 +2025,10 @@ void Session::asyncElementStateChange(Element *element, Element::State state)
 	pthread_mutex_lock(&mAsyncMutex);
 	mElementStateChangeElementArgs.push(element);
 	mElementStateChangeStateArgs.push(state);
-	pomp_loop_idle_add(mLoop, idleElementStateChange, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mLoop, idleElementStateChange, this, this);
+	if (err > 0)
+		ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 	pthread_mutex_unlock(&mAsyncMutex);
 }
 
@@ -1515,7 +2044,10 @@ void Session::asyncElementDelete(Element *element)
 {
 	pthread_mutex_lock(&mAsyncMutex);
 	mElementDeleteElementArgs.push(element);
-	pomp_loop_idle_add(mLoop, idleElementDelete, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mLoop, idleElementDelete, this, this);
+	if (err > 0)
+		ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 	pthread_mutex_unlock(&mAsyncMutex);
 }
 
@@ -1583,19 +2115,6 @@ void Session::idleElementDelete(void *userdata)
 }
 
 
-void Session::idleRendererCompleteStop(void *userdata)
-{
-	Session *self = reinterpret_cast<Session *>(userdata);
-	pthread_mutex_lock(&self->mAsyncMutex);
-	Pdraw::VideoRenderer *renderer =
-		self->mRendererCompleteStopRendererArgs.front();
-	self->mRendererCompleteStopRendererArgs.pop();
-	pthread_mutex_unlock(&self->mAsyncMutex);
-	ULOG_ERRNO_RETURN_IF(renderer == nullptr, EINVAL);
-	renderer->completeStop();
-}
-
-
 void Session::callStopResponse(void *userdata)
 {
 	Session *self = reinterpret_cast<Session *>(userdata);
@@ -1615,8 +2134,10 @@ void Session::callOnMediaAdded(void *userdata)
 	pthread_mutex_lock(&self->mAsyncMutex);
 	struct pdraw_media_info info = self->mMediaAddedInfoArgs.front();
 	self->mMediaAddedInfoArgs.pop();
+	void *elementUserData = self->mMediaAddedElementUserDataArgs.front();
+	self->mMediaAddedElementUserDataArgs.pop();
 	pthread_mutex_unlock(&self->mAsyncMutex);
-	self->mListener->onMediaAdded(self, &info);
+	self->mListener->onMediaAdded(self, &info, elementUserData);
 	Media::cleanupMediaInfo(&info);
 }
 
@@ -1627,8 +2148,10 @@ void Session::callOnMediaRemoved(void *userdata)
 	pthread_mutex_lock(&self->mAsyncMutex);
 	struct pdraw_media_info info = self->mMediaRemovedInfoArgs.front();
 	self->mMediaRemovedInfoArgs.pop();
+	void *elementUserData = self->mMediaRemovedElementUserDataArgs.front();
+	self->mMediaRemovedElementUserDataArgs.pop();
 	pthread_mutex_unlock(&self->mAsyncMutex);
-	self->mListener->onMediaRemoved(self, &info);
+	self->mListener->onMediaRemoved(self, &info, elementUserData);
 	Media::cleanupMediaInfo(&info);
 }
 
@@ -1670,7 +2193,9 @@ void Session::onElementStateChanged(Element *element, Element::State state)
 
 
 /* Must be called on the loop thread */
-void Session::onOutputMediaAdded(Source *source, Media *media)
+void Session::onOutputMediaAdded(Source *source,
+				 Media *media,
+				 void *elementUserData)
 {
 	ULOGD("onOutputMediaAdded(raw) name=%s", media->getName().c_str());
 
@@ -1680,12 +2205,18 @@ void Session::onOutputMediaAdded(Source *source, Media *media)
 		struct pdraw_media_info info;
 		media->fillMediaInfo(&info);
 		if (pthread_self() == mLoopThread) {
-			mListener->onMediaAdded(this, &info);
+			mListener->onMediaAdded(this, &info, elementUserData);
 			Media::cleanupMediaInfo(&info);
 		} else {
 			pthread_mutex_lock(&mAsyncMutex);
 			mMediaAddedInfoArgs.push(info);
-			pomp_loop_idle_add(mLoop, callOnMediaAdded, this);
+			mMediaAddedElementUserDataArgs.push(elementUserData);
+			int err = pomp_loop_idle_add_with_cookie(
+				mLoop, callOnMediaAdded, this, this);
+			if (err > 0) {
+				ULOG_ERRNO("pomp_loop_idle_add_with_cookie",
+					   -err);
+			}
 			pthread_mutex_unlock(&mAsyncMutex);
 		}
 	}
@@ -1693,7 +2224,9 @@ void Session::onOutputMediaAdded(Source *source, Media *media)
 
 
 /* Must be called on the loop thread */
-void Session::onOutputMediaRemoved(Source *source, Media *media)
+void Session::onOutputMediaRemoved(Source *source,
+				   Media *media,
+				   void *elementUserData)
 {
 	ULOGD("onOutputMediaRemoved name=%s", media->getName().c_str());
 
@@ -1704,7 +2237,11 @@ void Session::onOutputMediaRemoved(Source *source, Media *media)
 		media->fillMediaInfo(&info);
 		pthread_mutex_lock(&mAsyncMutex);
 		mMediaRemovedInfoArgs.push(info);
-		pomp_loop_idle_add(mLoop, callOnMediaRemoved, this);
+		mMediaRemovedElementUserDataArgs.push(elementUserData);
+		int err = pomp_loop_idle_add_with_cookie(
+			mLoop, callOnMediaRemoved, this, this);
+		if (err > 0)
+			ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 		pthread_mutex_unlock(&mAsyncMutex);
 	}
 }
@@ -1714,7 +2251,10 @@ void Session::stopResp(int status)
 {
 	pthread_mutex_lock(&mAsyncMutex);
 	mStopRespStatusArgs.push(status);
-	pomp_loop_idle_add(mLoop, callStopResponse, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mLoop, callStopResponse, this, this);
+	if (err > 0)
+		ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 	pthread_mutex_unlock(&mAsyncMutex);
 }
 
@@ -1961,41 +2501,77 @@ int Session::PipelineFactory::addDecoderForMedia(Source *source,
 }
 
 
-int Session::PipelineFactory::addEncoderForMedia(Source *source,
-						 RawVideoMedia *media)
+int Session::PipelineFactory::addEncoderForMedia(
+	Source *source,
+	RawVideoMedia *media,
+	const struct venc_config *params,
+	IPdraw::IVideoEncoder::Listener *listener,
+	VideoEncoder *encoder)
 {
 	int ret;
-	VideoEncoder *encoder = new VideoEncoder(mSession, mSession, mSession);
+	bool allocated = false;
+	Channel *channel = nullptr;
+
 	if (encoder == nullptr) {
-		ULOGE("encoder creation failed");
-		return -ENOMEM;
+		encoder = new VideoEncoder(mSession,
+					   mSession,
+					   mSession,
+					   listener,
+					   nullptr,
+					   params);
+		if (encoder == nullptr) {
+			ULOGE("encoder creation failed");
+			return -ENOMEM;
+		}
+		allocated = true;
 	}
 
 	pthread_mutex_lock(&mSession->mMutex);
 	mSession->mElements.push_back(encoder);
 	pthread_mutex_unlock(&mSession->mMutex);
+
 	ret = encoder->addInputMedia(media);
 	if (ret < 0) {
-		ULOG_ERRNO("encoder->addInputMedia", -ret);
-		return ret;
+		ULOG_ERRNO("VideoEncoder::addInputMedia", -ret);
+		goto error;
 	}
 	ret = encoder->start();
 	if (ret < 0) {
-		ULOG_ERRNO("encoder->start", -ret);
-		return ret;
+		ULOG_ERRNO("VideoEncoder::start", -ret);
+		goto error;
 	}
-	Channel *channel = encoder->getInputChannel(media);
+	channel = encoder->getInputChannel(media);
 	if (channel == nullptr) {
 		ULOGE("failed to get encoder input channel");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 	ret = source->addOutputChannel(media, channel);
 	if (ret < 0) {
-		ULOG_ERRNO("source->addOutputChannel", -ret);
-		return ret;
+		ULOG_ERRNO("Source::addOutputChannel", -ret);
+		goto error;
 	}
 
 	return 0;
+
+error:
+	if (encoder != nullptr) {
+		if (channel != nullptr)
+			source->removeOutputChannel(media, channel);
+		std::vector<Element *>::iterator e =
+			mSession->mElements.begin();
+		while (e != mSession->mElements.end()) {
+			if (*e != encoder) {
+				e++;
+				continue;
+			}
+			mSession->mElements.erase(e);
+			break;
+		}
+		if (allocated)
+			delete encoder;
+	}
+	return ret;
 }
 
 int Session::PipelineFactory::addScalerForMedia(Source *source,

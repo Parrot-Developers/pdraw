@@ -33,13 +33,17 @@
 
 #include "pdraw_decoder_video.hpp"
 #include "pdraw_demuxer.hpp"
+#include "pdraw_encoder_video.hpp"
 #include "pdraw_external_coded_video_sink.hpp"
+#include "pdraw_external_coded_video_source.hpp"
 #include "pdraw_external_raw_video_sink.hpp"
+#include "pdraw_external_raw_video_source.hpp"
 #include "pdraw_media.hpp"
 #include "pdraw_muxer.hpp"
 #include "pdraw_renderer_video.hpp"
 #include "pdraw_settings.hpp"
 #include "pdraw_source.hpp"
+#include "pdraw_vipc_source.hpp"
 
 #include <inttypes.h>
 
@@ -102,10 +106,15 @@ public:
 		int addMediaToRenderer(unsigned int mediaId,
 				       Pdraw::VideoRenderer *renderer);
 
+		int
+		addEncoderForMedia(Source *source,
+				   RawVideoMedia *media,
+				   const struct venc_config *params,
+				   IPdraw::IVideoEncoder::Listener *listener,
+				   Pdraw::VideoEncoder *encoder = nullptr);
+
 	private:
 		int addDecoderForMedia(Source *source, CodedVideoMedia *media);
-
-		int addEncoderForMedia(Source *source, RawVideoMedia *media);
 
 		int addScalerForMedia(Source *source, RawVideoMedia *media);
 
@@ -188,13 +197,20 @@ public:
 
 	class Muxer : public IPdraw::IMuxer {
 	public:
-		Muxer(Session *session, const std::string &url);
+		Muxer(Session *session,
+		      const std::string &url,
+		      const struct pdraw_muxer_params *params,
+		      IPdraw::IMuxer::Listener *listener);
 
 		~Muxer(void);
 
 		int
 		addMedia(unsigned int mediaId,
 			 const struct pdraw_muxer_video_media_params *params);
+
+		int setThumbnail(enum pdraw_muxer_thumbnail_type type,
+				 const uint8_t *data,
+				 size_t size);
 
 		Element *getElement()
 		{
@@ -252,6 +268,123 @@ public:
 
 	private:
 		Pdraw::VideoRenderer *mRenderer;
+	};
+
+
+	class VipcSource : public IPdraw::IVipcSource {
+	public:
+		VipcSource(Session *session,
+			   const struct pdraw_vipc_source_params *params,
+			   IPdraw::IVipcSource::Listener *listener);
+
+		~VipcSource(void);
+
+		bool isReadyToPlay(void);
+
+		bool isPaused(void);
+
+		int play(void);
+
+		int pause(void);
+
+		int configure(const struct vdef_dim *resolution,
+			      const struct vdef_rectf *crop);
+
+		int setSessionMetadata(const struct vmeta_session *meta);
+
+		int getSessionMetadata(struct vmeta_session *meta);
+
+#ifdef BUILD_LIBVIDEO_IPC
+		Element *getElement()
+		{
+			return mSource;
+		}
+
+		Source *getSource()
+		{
+			return mSource;
+		}
+
+		Pdraw::VipcSource *getVipcSource()
+		{
+			return mSource;
+		}
+
+	private:
+		Pdraw::VipcSource *mSource;
+#endif
+	};
+
+
+	class CodedVideoSource : public IPdraw::ICodedVideoSource {
+	public:
+		CodedVideoSource(Session *session,
+				 const struct pdraw_video_source_params *params,
+				 IPdraw::ICodedVideoSource::Listener *listener);
+
+		~CodedVideoSource(void);
+
+		struct mbuf_coded_video_frame_queue *getQueue(void);
+
+		int flush(void);
+
+		int setSessionMetadata(const struct vmeta_session *meta);
+
+		int getSessionMetadata(struct vmeta_session *meta);
+
+		Element *getElement()
+		{
+			return mSource;
+		}
+
+		Source *getSource()
+		{
+			return mSource;
+		}
+
+		Pdraw::ExternalCodedVideoSource *getCodedVideoSource()
+		{
+			return mSource;
+		}
+
+	private:
+		Pdraw::ExternalCodedVideoSource *mSource;
+	};
+
+
+	class RawVideoSource : public IPdraw::IRawVideoSource {
+	public:
+		RawVideoSource(Session *session,
+			       const struct pdraw_video_source_params *params,
+			       IPdraw::IRawVideoSource::Listener *listener);
+
+		~RawVideoSource(void);
+
+		struct mbuf_raw_video_frame_queue *getQueue(void);
+
+		int flush(void);
+
+		int setSessionMetadata(const struct vmeta_session *meta);
+
+		int getSessionMetadata(struct vmeta_session *meta);
+
+		Element *getElement()
+		{
+			return mSource;
+		}
+
+		Source *getSource()
+		{
+			return mSource;
+		}
+
+		Pdraw::ExternalRawVideoSource *getRawVideoSource()
+		{
+			return mSource;
+		}
+
+	private:
+		Pdraw::ExternalRawVideoSource *mSource;
 	};
 
 
@@ -323,6 +456,36 @@ public:
 	};
 
 
+	class VideoEncoderWrapper : public IPdraw::IVideoEncoder {
+	public:
+		VideoEncoderWrapper(Session *session,
+				    const struct venc_config *params,
+				    IPdraw::IVideoEncoder::Listener *listener);
+
+		~VideoEncoderWrapper(void);
+
+		int configure(const struct venc_dyn_config *config);
+
+		Element *getElement()
+		{
+			return mEncoder;
+		}
+
+		Sink *getEncoder()
+		{
+			return mEncoder;
+		}
+
+		Pdraw::VideoEncoder *getVideoEncoder()
+		{
+			return mEncoder;
+		}
+
+	private:
+		Pdraw::VideoEncoder *mEncoder;
+	};
+
+
 	Session(struct pomp_loop *loop, IPdraw::Listener *listener);
 
 	~Session(void);
@@ -352,7 +515,10 @@ public:
 			  IPdraw::IDemuxer::Listener *listener,
 			  IPdraw::IDemuxer **retObj);
 
-	int createMuxer(const std::string &url, IPdraw::IMuxer **retObj);
+	int createMuxer(const std::string &url,
+			const struct pdraw_muxer_params *params,
+			IPdraw::IMuxer::Listener *listener,
+			IPdraw::IMuxer **retObj);
 
 	/* Called on the rendering thread */
 	int
@@ -363,6 +529,19 @@ public:
 			    IPdraw::IVideoRenderer **retObj,
 			    struct egl_display *eglDisplay = nullptr);
 
+	int createVipcSource(const struct pdraw_vipc_source_params *params,
+			     IPdraw::IVipcSource::Listener *listener,
+			     IPdraw::IVipcSource **retObj);
+
+	int
+	createCodedVideoSource(const struct pdraw_video_source_params *params,
+			       IPdraw::ICodedVideoSource::Listener *listener,
+			       IPdraw::ICodedVideoSource **retObj);
+
+	int createRawVideoSource(const struct pdraw_video_source_params *params,
+				 IPdraw::IRawVideoSource::Listener *listener,
+				 IPdraw::IRawVideoSource **retObj);
+
 	int createCodedVideoSink(unsigned int mediaId,
 				 const struct pdraw_video_sink_params *params,
 				 IPdraw::ICodedVideoSink::Listener *listener,
@@ -372,6 +551,11 @@ public:
 			       const struct pdraw_video_sink_params *params,
 			       IPdraw::IRawVideoSink::Listener *listener,
 			       IPdraw::IRawVideoSink **retObj);
+
+	int createVideoEncoder(unsigned int mediaId,
+			       const struct venc_config *params,
+			       IPdraw::IVideoEncoder::Listener *listener,
+			       IPdraw::IVideoEncoder **retObj);
 
 	void getFriendlyNameSetting(std::string *friendlyName);
 
@@ -457,6 +641,13 @@ private:
 				   IRawVideoSink::Listener *listener,
 				   IRawVideoSink **retObj);
 
+	int
+	internalCreateVideoEncoder(Source *source,
+				   RawVideoMedia *media,
+				   const struct venc_config *params,
+				   IPdraw::IVideoEncoder::Listener *listener,
+				   IPdraw::IVideoEncoder **retObj);
+
 	void setState(enum State state);
 
 	static void *runLoopThread(void *ptr);
@@ -465,9 +656,12 @@ private:
 
 	void asyncElementStateChange(Element *element, Element::State state);
 
-	void onOutputMediaAdded(Source *source, Media *media);
+	void
+	onOutputMediaAdded(Source *source, Media *media, void *elementUserData);
 
-	void onOutputMediaRemoved(Source *source, Media *media);
+	void onOutputMediaRemoved(Source *source,
+				  Media *media,
+				  void *elementUserData);
 
 	void stopResp(int status);
 
@@ -490,14 +684,14 @@ private:
 	std::queue<Element::State> mElementStateChangeStateArgs;
 	static void idleElementDelete(void *userdata);
 	std::queue<Element *> mElementDeleteElementArgs;
-	static void idleRendererCompleteStop(void *userdata);
-	std::queue<Pdraw::VideoRenderer *> mRendererCompleteStopRendererArgs;
 	static void callStopResponse(void *userdata);
 	std::queue<int> mStopRespStatusArgs;
 	static void callOnMediaAdded(void *userdata);
 	std::queue<struct pdraw_media_info> mMediaAddedInfoArgs;
+	std::queue<void *> mMediaAddedElementUserDataArgs;
 	static void callOnMediaRemoved(void *userdata);
 	std::queue<struct pdraw_media_info> mMediaRemovedInfoArgs;
+	std::queue<void *> mMediaRemovedElementUserDataArgs;
 	/* callOnSocketCreated omitted. Function has to be synchronous */
 };
 

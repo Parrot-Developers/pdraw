@@ -33,6 +33,7 @@
 ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_element.hpp"
+#include "pdraw_session.hpp"
 
 #include <errno.h>
 
@@ -45,56 +46,22 @@ std::atomic<unsigned int> Element::mIdCounter(0);
 Element::Element(Session *session, Listener *listener) :
 		mSession(session), mListener(listener), mState(INVALID)
 {
-	int res;
-	pthread_mutexattr_t attr;
-	bool attr_created = false;
-
 	mId = ++mIdCounter;
 	std::string name = std::string(__func__) + "#" + std::to_string(mId);
 	Loggable::setName(name);
-
-	res = pthread_mutexattr_init(&attr);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_init", res);
-		goto out;
-	}
-	attr_created = true;
-
-	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_settype", res);
-		goto out;
-	}
-
-	res = pthread_mutex_init(&mMutex, &attr);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutex_init", res);
-		goto out;
-	}
-
-out:
-	if (attr_created)
-		pthread_mutexattr_destroy(&attr);
 }
 
 
 Element::~Element(void)
 {
 	mState = INVALID;
-	pthread_mutex_destroy(&mMutex);
+
+	/* Remove any leftover idle callbacks */
+	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+
 	PDRAW_LOGI("element DESTROYED");
-}
-
-
-void Element::lock(void)
-{
-	pthread_mutex_lock(&mMutex);
-}
-
-
-void Element::unlock(void)
-{
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -120,23 +87,17 @@ void Element::setClassName(const char *name)
 
 Element::State Element::getState(void)
 {
-	pthread_mutex_lock(&mMutex);
-	Element::State ret = mState;
-	pthread_mutex_unlock(&mMutex);
-	return ret;
+	return mState;
 }
 
 
 void Element::setState(Element::State state)
 {
-	pthread_mutex_lock(&mMutex);
-	if (state == mState) {
-		pthread_mutex_unlock(&mMutex);
-		return;
-	}
+	Element::State old = mState.exchange(state);
 
-	mState = state;
-	pthread_mutex_unlock(&mMutex);
+	if (old == state)
+		return;
+
 	PDRAW_LOGI("element state change to %s", getElementStateStr(state));
 
 	if (mListener)
@@ -146,19 +107,33 @@ void Element::setState(Element::State state)
 
 void Element::setStateAsyncNotify(Element::State state)
 {
-	pthread_mutex_lock(&mMutex);
-	if (state == mState) {
-		pthread_mutex_unlock(&mMutex);
-		return;
-	}
+	Element::State old = mState.exchange(state);
 
-	mState = state;
-	pthread_mutex_unlock(&mMutex);
+	if (old == state)
+		return;
+
 	PDRAW_LOGI("element state change to %s (async notify)",
 		   getElementStateStr(state));
 
 	if (mListener)
 		mListener->asyncElementStateChange(this, state);
+}
+
+
+int Element::asyncChannelFlushDone(Channel *channel)
+{
+	int ret = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), &idleChannelFlushDone, channel, this);
+	if (ret < 0)
+		ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+	return ret;
+}
+
+
+void Element::idleChannelFlushDone(void *userdata)
+{
+	Channel *channel = (Channel *)userdata;
+	(void)channel->flushDone();
 }
 
 
@@ -296,6 +271,30 @@ void FilterElement::onChannelPhotoTrigger(Channel *channel)
 			continue;
 		int ret = Source::sendDownstreamEvent(
 			media, Channel::DownstreamEvent::PHOTO_TRIGGER);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	Source::unlock();
+}
+
+
+void FilterElement::onChannelSessionMetaUpdate(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Sink::onChannelSessionMetaUpdate(channel);
+
+	Source::lock();
+	unsigned int count = Source::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		Media *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = Source::sendDownstreamEvent(
+			media, Channel::DownstreamEvent::SESSION_META_UPDATE);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
 	}

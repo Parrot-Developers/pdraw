@@ -309,6 +309,48 @@ static const GLchar *textureGrayFragmentShader =
 	"    return vec3(gray, gray, gray);\n"
 	"}\n";
 
+static const GLchar *textureGray16FragmentShader =
+	"uniform sampler2D s_texture_0;\n"
+	"uniform sampler2D s_texture_1;\n"
+	"uniform sampler2D s_texture_2;\n"
+	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
+	"\n"
+	"vec3 read_rgb(vec2 coord)\n"
+	"{\n"
+	"    vec4 p = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
+	"    float gray = p.a + p.r / 256.;\n"
+	"    return vec3(gray, gray, gray);\n"
+	"}\n"
+	"\n"
+	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
+	"{\n"
+	"    vec4 p = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
+	"    float gray = p.a + p.r / 256.;\n"
+	"    return vec3(gray, gray, gray);\n"
+	"}\n";
+
+static const GLchar *textureGray32FragmentShader =
+	"uniform sampler2D s_texture_0;\n"
+	"uniform sampler2D s_texture_1;\n"
+	"uniform sampler2D s_texture_2;\n"
+	"uniform vec2 stride[3];\n"
+	"uniform vec2 max_coords[3];\n"
+	"\n"
+	"vec3 read_rgb(vec2 coord)\n"
+	"{\n"
+	"    vec4 p = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
+	"    float gray = p.a + p.r / 256. + p.g / 256. / 256. + p.b / 256. / 256. / 256.;\n"
+	"    return vec3(gray, gray, gray);\n"
+	"}\n"
+	"\n"
+	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
+	"{\n"
+	"    vec4 p = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
+	"    float gray = p.a + p.r / 256. + p.g / 256. / 256. + p.b / 256. / 256. / 256.;\n"
+	"    return vec3(gray, gray, gray);\n"
+	"}\n";
+
 static const GLchar *videoFragmentShader =
 #	ifdef BCM_VIDEOCORE
 	"#extension GL_OES_EGL_image_external : require\n"
@@ -388,6 +430,16 @@ const GLchar *Gles2Video::videoFragmentShaders[PROGRAM_MAX][3] = {
 	{
 		videoFragmentShader,
 		textureGrayFragmentShader,
+		zebraFragmentShader,
+	},
+	{
+		videoFragmentShader,
+		textureGray16FragmentShader,
+		zebraFragmentShader,
+	},
+	{
+		videoFragmentShader,
+		textureGray32FragmentShader,
 		zebraFragmentShader,
 	},
 };
@@ -520,6 +572,14 @@ const GLchar *Gles2Video::histogramFragmentShaders[PROGRAM_MAX][2] = {
 	{
 		histogramFragmentShader,
 		textureGrayFragmentShader,
+	},
+	{
+		histogramFragmentShader,
+		textureGray16FragmentShader,
+	},
+	{
+		histogramFragmentShader,
+		textureGray16FragmentShader,
 	},
 };
 
@@ -813,6 +873,10 @@ Gles2Video::getProgram(const struct vdef_raw_format *format, bool *swapUv)
 		return PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH;
 	} else if (vdef_raw_format_cmp(format, &vdef_gray)) {
 		return PROGRAM_GRAY_TO_RGB_PLANAR;
+	} else if (vdef_raw_format_cmp(format, &vdef_raw16)) {
+		return PROGRAM_GRAY16_TO_RGB_PLANAR;
+	} else if (vdef_raw_format_cmp(format, &vdef_raw32)) {
+		return PROGRAM_GRAY32_TO_RGB_PLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_rgb)) {
 		return PROGRAM_NOCONV;
 	} else if (vdef_raw_format_cmp(format, &vdef_mmal_opaque)) {
@@ -1123,8 +1187,12 @@ void Gles2Video::renderBlur(size_t framePlaneStride[3],
 
 	switch (prog) {
 	default:
-	case PROGRAM_NOCONV:
 	case PROGRAM_GRAY_TO_RGB_PLANAR:
+	case PROGRAM_GRAY16_TO_RGB_PLANAR:
+	case PROGRAM_GRAY32_TO_RGB_PLANAR:
+		mirrorTexture = true;
+		/* Fall through */
+	case PROGRAM_NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -1559,8 +1627,12 @@ void Gles2Video::renderPadding(size_t framePlaneStride[3],
 
 	switch (prog) {
 	default:
-	case PROGRAM_NOCONV:
 	case PROGRAM_GRAY_TO_RGB_PLANAR:
+	case PROGRAM_GRAY16_TO_RGB_PLANAR:
+	case PROGRAM_GRAY32_TO_RGB_PLANAR:
+		mirrorTexture = true;
+		/* Fall through */
+	case PROGRAM_NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -2214,8 +2286,12 @@ void Gles2Video::computeHistograms(size_t framePlaneStride[3],
 
 	switch (prog) {
 	default:
-	case PROGRAM_NOCONV:
 	case PROGRAM_GRAY_TO_RGB_PLANAR:
+	case PROGRAM_GRAY16_TO_RGB_PLANAR:
+	case PROGRAM_GRAY32_TO_RGB_PLANAR:
+		mirrorTexture = true;
+		/* Fall through */
+	case PROGRAM_NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 		GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTextures[0]));
@@ -2674,6 +2750,40 @@ int Gles2Video::loadFrame(const uint8_t *framePlanes[3],
 				   GL_UNSIGNED_BYTE,
 				   framePlanes[0]));
 		break;
+	case PROGRAM_GRAY16_TO_RGB_PLANAR:
+		if ((framePlanes == nullptr) || (framePlaneStride == nullptr)) {
+			ULOGE("invalid planes");
+			return -EINVAL;
+		}
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D,
+				   0,
+				   GL_LUMINANCE_ALPHA,
+				   framePlaneStride[0] / 2,
+				   info->resolution.height,
+				   0,
+				   GL_LUMINANCE_ALPHA,
+				   GL_UNSIGNED_BYTE,
+				   framePlanes[0]));
+		break;
+	case PROGRAM_GRAY32_TO_RGB_PLANAR:
+		if ((framePlanes == nullptr) || (framePlaneStride == nullptr)) {
+			ULOGE("invalid planes");
+			return -EINVAL;
+		}
+		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
+		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
+		GLCHK(glTexImage2D(GL_TEXTURE_2D,
+				   0,
+				   GL_RGBA,
+				   framePlaneStride[0] / 4,
+				   info->resolution.height,
+				   0,
+				   GL_RGBA,
+				   GL_UNSIGNED_BYTE,
+				   framePlanes[0]));
+		break;
 	}
 
 	return 0;
@@ -2736,14 +2846,25 @@ int Gles2Video::renderFrame(const struct pdraw_rect *renderPos,
 			ULOG_ERRNO("setupPaddingFbo", -ret);
 	}
 
-	if (prog == PROGRAM_YUV_TO_RGB_PLANAR_10_16LE) {
+	switch (prog) {
+	default:
+		break;
+	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
 		framePlaneStride[0] /= 2;
 		framePlaneStride[1] /= 2;
 		framePlaneStride[2] /= 2;
-	} else if (prog == PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH) {
+		break;
+	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
 		framePlaneStride[0] /= 2;
 		framePlaneStride[1] /= 2;
-	}
+		break;
+	case PROGRAM_GRAY16_TO_RGB_PLANAR:
+		framePlaneStride[0] /= 2;
+		break;
+	case PROGRAM_GRAY32_TO_RGB_PLANAR:
+		framePlaneStride[0] /= 4;
+		break;
+	};
 
 	updateTransition();
 
@@ -2853,8 +2974,12 @@ int Gles2Video::renderFrame(const struct pdraw_rect *renderPos,
 
 		switch (prog) {
 		default:
-		case PROGRAM_NOCONV:
 		case PROGRAM_GRAY_TO_RGB_PLANAR:
+		case PROGRAM_GRAY16_TO_RGB_PLANAR:
+		case PROGRAM_GRAY32_TO_RGB_PLANAR:
+			mirrorTexture = true;
+			/* Fall through */
+		case PROGRAM_NOCONV:
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 #	ifdef BCM_VIDEOCORE
 			GLCHK(glBindTexture(GL_TEXTURE_EXTERNAL_OES,

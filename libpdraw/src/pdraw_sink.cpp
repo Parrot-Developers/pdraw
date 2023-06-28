@@ -393,53 +393,6 @@ void Sink::onRawVideoChannelQueue(RawVideoChannel *channel,
 }
 
 
-void Sink::onChannelFlush(Channel *channel)
-{
-	int ret;
-
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-
-	CodedVideoChannel *cvchannel =
-		dynamic_cast<CodedVideoChannel *>(channel);
-	RawVideoChannel *rvchannel = dynamic_cast<RawVideoChannel *>(channel);
-
-	if (cvchannel != nullptr) {
-		struct mbuf_coded_video_frame_queue *queue =
-			cvchannel->getQueue(this);
-		if (queue == nullptr) {
-			ULOGE("invalid queue");
-			return;
-		}
-
-		ret = mbuf_coded_video_frame_queue_flush(queue);
-		if (ret < 0) {
-			ULOG_ERRNO("mbuf_coded_video_frame_queue_flush", -ret);
-			return;
-		}
-	} else if (rvchannel != nullptr) {
-		struct mbuf_raw_video_frame_queue *queue =
-			rvchannel->getQueue(this);
-		if (queue == nullptr) {
-			ULOGE("invalid queue");
-			return;
-		}
-
-		ret = mbuf_raw_video_frame_queue_flush(queue);
-		if (ret < 0) {
-			ULOG_ERRNO("mbuf_raw_video_frame_queue_flush", -ret);
-			return;
-		}
-	}
-
-	ret = channel->flushDone();
-	if (ret < 0)
-		ULOG_ERRNO("channel->flushDone", -ret);
-}
-
-
 void Sink::onChannelTeardown(Channel *channel)
 {
 	if (channel == nullptr) {
@@ -668,6 +621,45 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 }
 
 
+void Sink::onChannelSessionMetaUpdate(Channel *channel)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	pthread_mutex_lock(&mMutex);
+	Media *media = nullptr;
+	std::vector<InputPort>::iterator p = mInputPorts.begin();
+
+	while (p != mInputPorts.end()) {
+		if (p->channel != channel) {
+			p++;
+			continue;
+		}
+		media = p->media;
+		break;
+	}
+
+	if (media == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("media", ENOENT);
+		return;
+	}
+
+	ULOGD("%s: channel session_meta_update "
+	      "media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+
+	pthread_mutex_unlock(&mMutex);
+}
+
+
 void Sink::onChannelDownstreamEvent(Channel *channel,
 				    const struct pomp_msg *event)
 {
@@ -697,6 +689,9 @@ void Sink::onChannelDownstreamEvent(Channel *channel,
 		break;
 	case Channel::DownstreamEvent::PHOTO_TRIGGER:
 		onChannelPhotoTrigger(channel);
+		break;
+	case Channel::DownstreamEvent::SESSION_META_UPDATE:
+		onChannelSessionMetaUpdate(channel);
 		break;
 	default:
 		ULOG_ERRNO("event id %d", ENOSYS, pomp_msg_get_id(event));

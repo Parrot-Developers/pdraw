@@ -82,7 +82,7 @@ RecordDemuxer::DemuxerRawVideoMedia::~DemuxerRawVideoMedia(void)
 	/* Remove the output ports */
 	if (mDemuxer->Source::mListener) {
 		mDemuxer->Source::mListener->onOutputMediaRemoved(
-			mDemuxer, mRawVideoMedia);
+			mDemuxer, mRawVideoMedia, mDemuxer->getDemuxer());
 	}
 	ret = mDemuxer->removeOutputPort(mRawVideoMedia);
 	if (ret < 0) {
@@ -253,7 +253,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 		PDRAW_LOGE("media allocation failed");
 		return -ENOMEM;
 	}
-	ret = mDemuxer->addOutputPort(mRawVideoMedia);
+	ret = mDemuxer->addOutputPort(mRawVideoMedia, mDemuxer->getDemuxer());
 	if (ret < 0) {
 		mDemuxer->Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -261,6 +261,15 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	}
 	mRawVideoMedia->format = format;
 	mRawVideoMedia->info = info;
+
+	char *fmt = vdef_raw_format_to_str(&format);
+	PDRAW_LOGI("%dx%d @ %d/%d fps, format=%s",
+		   info.resolution.width,
+		   info.resolution.height,
+		   info.framerate.num,
+		   info.framerate.den,
+		   fmt);
+	free(fmt);
 
 	std::string path =
 		mDemuxer->Element::getName() + "$" + mRawVideoMedia->getName();
@@ -282,8 +291,8 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	mDemuxer->Source::unlock();
 
 	if (mDemuxer->Source::mListener) {
-		mDemuxer->Source::mListener->onOutputMediaAdded(mDemuxer,
-								mRawVideoMedia);
+		mDemuxer->Source::mListener->onOutputMediaAdded(
+			mDemuxer, mRawVideoMedia, mDemuxer->getDemuxer());
 	}
 
 	return 0;

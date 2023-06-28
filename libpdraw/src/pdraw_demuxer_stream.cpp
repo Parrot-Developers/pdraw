@@ -2271,7 +2271,8 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 		default:
 			break;
 		}
-		ret = mDemuxer->addOutputPort(mVideoMedias[i]);
+		ret = mDemuxer->addOutputPort(mVideoMedias[i],
+					      mDemuxer->getDemuxer());
 		if (ret < 0) {
 			mDemuxer->Source::unlock();
 			PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -2353,7 +2354,9 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 	if (mDemuxer->Source::mListener) {
 		for (unsigned int i = 0; i < mNbVideoMedias; i++)
 			mDemuxer->Source::mListener->onOutputMediaAdded(
-				mDemuxer, mVideoMedias[i]);
+				mDemuxer,
+				mVideoMedias[i],
+				mDemuxer->getDemuxer());
 	}
 
 	/* Process any pending frames (received while the previous media
@@ -2385,7 +2388,9 @@ void StreamDemuxer::VideoMedia::teardownMedia(void)
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
 		if (mDemuxer->Source::mListener) {
 			mDemuxer->Source::mListener->onOutputMediaRemoved(
-				mDemuxer, mVideoMedias[i]);
+				mDemuxer,
+				mVideoMedias[i],
+				mDemuxer->getDemuxer());
 		}
 		int ret = mDemuxer->removeOutputPort(mVideoMedias[i]);
 		if (ret < 0) {

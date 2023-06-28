@@ -45,10 +45,12 @@ public:
 		virtual ~Listener(void) {}
 
 		virtual void onOutputMediaAdded(Source *source,
-						Media *media) = 0;
+						Media *media,
+						void *elementUserData) = 0;
 
 		virtual void onOutputMediaRemoved(Source *source,
-						  Media *media) = 0;
+						  Media *media,
+						  void *elementUserData) = 0;
 	};
 
 	virtual ~Source(void);
@@ -81,9 +83,11 @@ protected:
 		std::vector<Channel *> channels;
 		struct mbuf_pool *pool;
 		bool sharedPool;
+		void *elementUserData;
 
 		inline OutputPort() :
-				media(nullptr), pool(nullptr), sharedPool(false)
+				media(nullptr), pool(nullptr),
+				sharedPool(false), elementUserData(nullptr)
 		{
 		}
 	};
@@ -94,7 +98,7 @@ protected:
 
 	OutputPort *getOutputPort(Media *media);
 
-	int addOutputPort(Media *media);
+	int addOutputPort(Media *media, void *elementUserData = nullptr);
 
 	int removeOutputPort(Media *media);
 

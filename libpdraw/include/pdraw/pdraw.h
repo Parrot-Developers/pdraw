@@ -44,8 +44,12 @@ struct pdraw;
 struct pdraw_demuxer;
 struct pdraw_muxer;
 struct pdraw_video_renderer;
+struct pdraw_vipc_source;
+struct pdraw_coded_video_source;
+struct pdraw_raw_video_source;
 struct pdraw_coded_video_sink;
 struct pdraw_raw_video_sink;
+struct pdraw_video_encoder;
 
 
 /* General callback functions */
@@ -66,20 +70,31 @@ struct pdraw_cbs {
 	 * be used for example to create a video sink on this media.
 	 * @param pdraw: PDrAW instance handle
 	 * @param info: pointer on the media information
+	 * @param element_userdata: optional element user data pointer
+	 *                          that corresponds to the pipeline
+	 *                          element that created the media
 	 * @param userdata: user data pointer */
 	void (*media_added)(struct pdraw *pdraw,
 			    const struct pdraw_media_info *info,
+			    void *element_userdata,
 			    void *userdata);
 
 	/* Media removed callback function, called when a media has been removed
 	 * internally from the PDrAW pipeline. Medias are for example raw or
 	 * coded video medias. When a media is removed, any video sink created
 	 * on this media must then be stopped.
+	 * @warning when this function is called the pipeline element that
+	 * created the media is likely being destroyed, therefore the
+	 * element_userdata should not be casted to the pipeline element object.
 	 * @param pdraw: PDrAW instance handle
 	 * @param info: pointer on the media information
+	 * @param element_userdata: optional element user data pointer
+	 *                          that corresponds to the pipeline
+	 *                          element that created the media
 	 * @param userdata: user data pointer */
 	void (*media_removed)(struct pdraw *pdraw,
 			      const struct pdraw_media_info *info,
+			      void *element_userdata,
 			      void *userdata);
 
 	/* Socket creation callback function, called immediately after a
@@ -258,6 +273,26 @@ struct pdraw_demuxer_cbs {
 };
 
 
+/* Muxer callback functions */
+struct pdraw_muxer_cbs {
+	/* No space left function, called when the amount of free space on the
+	 * storage where the MP4 file written falls below a threshold provided
+	 * at the muxer object creation. This function is called from the
+	 * pomp_loop thread.
+	 * @param pdraw: PDrAW instance handle
+	 * @param muxer: muxer handle
+	 * @param limit: minimum required free space on the storage to write
+	 * the MP4 file (byte)
+	 * @param left: current free space on the storage (byte)
+	 * @param userdata: user data pointer */
+	void (*no_space_left)(struct pdraw *pdraw,
+			      struct pdraw_muxer *muxer,
+			      size_t limit,
+			      size_t left,
+			      void *userdata);
+};
+
+
 /* Video renderer callback functions */
 struct pdraw_video_renderer_cbs {
 	/* Media added callback function, called when a media has been added
@@ -351,6 +386,85 @@ struct pdraw_video_renderer_cbs {
 };
 
 
+/* Video IPC source callback functions */
+struct pdraw_vipc_source_cbs {
+	/* Ready to play function, called when the video IPC is ready to
+	 * start receiving frames (the ready parameter is 1), or when the
+	 * video IPC cannot receive frames any more (end of stream; the ready
+	 * parameter is 0). When the ready parameter is 0, the eos_reason
+	 * parameter indicates the reason why the end of stream was received
+	 * on the video IPC.
+	 * @param pdraw: PDrAW instance handle
+	 * @param source: video IPC source handle
+	 * @param ready: 1 if the session is ready to play, 0 otherwise
+	 * @param eos_reason: end of stream reason if the ready parameter is 0
+	 * @param userdata: user data pointer */
+	void (*ready_to_play)(struct pdraw *pdraw,
+			      struct pdraw_vipc_source *source,
+			      int ready,
+			      enum pdraw_vipc_source_eos_reason eos_reason,
+			      void *userdata);
+
+	/* Configured function, called when a video IPC has been
+	 * configured (initially or reconfigured) or when a configuration
+	 * has failed. The status parameter is the configuration operation
+	 * status: 0 on success, or a negative errno value in case of error.
+	 * The info and crop parameters are the current video IPC configuration.
+	 * @param pdraw: PDrAW instance handle
+	 * @param source: video IPC source handle
+	 * @param status: 0 on success, negative errno value in case of error
+	 * @param info: current video format info
+	 * @param crop: current crop configuration
+	 * @param userdata: user data pointer */
+	void (*configured)(struct pdraw *pdraw,
+			   struct pdraw_vipc_source *source,
+			   int status,
+			   const struct vdef_format_info *info,
+			   const struct vdef_rectf *crop,
+			   void *userdata);
+
+	/* Frame ready function, called when a video frame has been received
+	 * and before it is propagated downstream in the pipeline. This can be
+	 * used to associate metadata with the frame.
+	 * @param pdraw: PDrAW instance handle
+	 * @param source: video IPC source handle
+	 * @param frame: frame information
+	 * @param userdata: user data pointer */
+	void (*frame_ready)(struct pdraw *pdraw,
+			    struct pdraw_vipc_source *source,
+			    struct mbuf_raw_video_frame *frame,
+			    void *userdata);
+};
+
+
+/* Coded video source callback functions */
+struct pdraw_coded_video_source_cbs {
+	/* Coded video source flushed callback function (mandatory),
+	 * called to signal that flushing is complete after the
+	 * pdraw_coded_video_source_flush() function has been called.
+	 * @param pdraw: PDrAW instance handle
+	 * @param source: coded video source handle
+	 * @param userdata: user data pointer */
+	void (*flushed)(struct pdraw *pdraw,
+			struct pdraw_coded_video_source *source,
+			void *userdata);
+};
+
+
+/* Raw video source callback functions */
+struct pdraw_raw_video_source_cbs {
+	/* Raw video source flushed callback function (mandatory),
+	 * called to signal that flushing is complete after the
+	 * pdraw_raw_video_source_flush() function has been called.
+	 * @param pdraw: PDrAW instance handle
+	 * @param source: raw video source handle
+	 * @param userdata: user data pointer */
+	void (*flushed)(struct pdraw *pdraw,
+			struct pdraw_raw_video_source *source,
+			void *userdata);
+};
+
+
 /* Coded video sink callback functions */
 struct pdraw_coded_video_sink_cbs {
 	/* Coded video sink flush callback function, called when flushing is
@@ -384,6 +498,37 @@ struct pdraw_raw_video_sink_cbs {
 	void (*flush)(struct pdraw *pdraw,
 		      struct pdraw_raw_video_sink *sink,
 		      void *userdata);
+};
+
+
+/* Video encoder callback functions */
+struct pdraw_video_encoder_cbs {
+	/* Frame output function, called when a video frame is output
+	 * from the encoder. This can be used to extract frame info
+	 * and ancillary data from the frame. This function is usually called
+	 * from the pomp_loop thread, but it may depend on the video encoder
+	 * implementation.
+	 * @param pdraw: PDrAW instance handle
+	 * @param encoder: video encoder handle
+	 * @param frame: frame information
+	 * @param userdata: user data pointer */
+	void (*frame_output)(struct pdraw *pdraw,
+			     struct pdraw_video_encoder *encoder,
+			     struct mbuf_coded_video_frame *frame,
+			     void *userdata);
+
+	/* Frame pre-release function, called before a video frame is released.
+	 * This can be used to extract frame info and ancillary data from the
+	 * frame. This function is called from the thread that unrefs the frame;
+	 * it can be any thread.
+	 * @param pdraw: PDrAW instance handle
+	 * @param encoder: video encoder handle
+	 * @param frame: frame information
+	 * @param userdata: user data pointer */
+	void (*frame_pre_release)(struct pdraw *pdraw,
+				  struct pdraw_video_encoder *encoder,
+				  struct mbuf_coded_video_frame *frame,
+				  void *userdata);
 };
 
 
@@ -868,20 +1013,29 @@ pdraw_demuxer_get_current_time(struct pdraw *pdraw,
  */
 
 /**
- * Create a muxer (experimental).
- * This function creates a muxer with a given URL.
+ * Create a muxer.
+ * This function creates a muxer with a given URL. The url parameter is a path
+ * to an MP4 file (the file will be created/overwritten).
  * Once the muxer is created medias can be added by id using the
  * pdraw_muxer_add_media() function. Once a muxer is no longer used it must be
  * destroyed by calling the pdraw_muxer_destroy() function. If writing to an
- * MP4 file, the file is finalized in the pdraw_muxer_destroy() function.
- * @note: experimental only, the function returns -ENOSYS
+ * MP4 file, the file is finalized in the pdraw_muxer_destroy() function. The
+ * params structure must be provided but all parameters are optional and can be
+ * left null. The callbacks structure must be provided; all callback functions
+ * are called from the pomp_loop thread.
  * @param pdraw: PDrAW instance handle
  * @param url: destination URL
+ * @param params: muxer parameters
+ * @param cbs: muxer callback functions
+ * @param userdata: callback functions user data (optional, can be null)
  * @param ret_obj: muxer handle (output)
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_API int pdraw_muxer_new(struct pdraw *pdraw,
 			      const char *url,
+			      const struct pdraw_muxer_params *params,
+			      const struct pdraw_muxer_cbs *cbs,
+			      void *userdata,
 			      struct pdraw_muxer **ret_obj);
 
 
@@ -914,6 +1068,25 @@ pdraw_muxer_add_media(struct pdraw *pdraw,
 		      struct pdraw_muxer *muxer,
 		      unsigned int media_id,
 		      const struct pdraw_muxer_video_media_params *params);
+
+
+/**
+ * Set the thumbnail of the MP4 file written by the muxer.
+ * This function is available on a record muxer only; on another type of muxer
+ * -ENOSYS is returned.
+ * @param pdraw: PDrAW instance handle
+ * @param muxer: muxer handle
+ * @param type: type of the thumbnail (JPEG, PNG, etc...)
+ * @param data: thumbnail data, must be of length size
+ * @param size: size of data
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API
+int pdraw_muxer_set_thumbnail(struct pdraw *pdraw,
+			      struct pdraw_muxer *muxer,
+			      enum pdraw_muxer_thumbnail_type type,
+			      const uint8_t *data,
+			      size_t size);
 
 
 /**
@@ -1156,6 +1329,354 @@ pdraw_video_renderer_render_mat(struct pdraw *pdraw,
 
 
 /**
+ * Video IPC source API
+ */
+
+/**
+ * Create a video IPC source.
+ * This function creates a video IPC source. Once a video source is no longer
+ * used, it must be destroyed by calling the pdraw_vipc_source_destroy()
+ * function. The video IPC address must be provided. The callbacks structure
+ * must be provided; all callback functions are called from the pomp_loop
+ * thread.
+ * @param pdraw: PDrAW instance handle
+ * @param params: video IPC source parameters
+ * @param cbs: video IPC source callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: video IPC source handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_vipc_source_new(struct pdraw *pdraw,
+		      const struct pdraw_vipc_source_params *params,
+		      const struct pdraw_vipc_source_cbs *cbs,
+		      void *userdata,
+		      struct pdraw_vipc_source **ret_obj);
+
+
+/**
+ * Destroy a video IPC source.
+ * This function stops a running video IPC source and frees the associated
+ * resources.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_vipc_source_destroy(struct pdraw *pdraw,
+					struct pdraw_vipc_source *source);
+
+
+/**
+ * Get the ready to play status.
+ * This function returns 1 if the video IPC is ready to start, 0 otherwise.
+ * The value returned by this function is identical to the ready parameter
+ * passed to the ready_to_play() video IPC source callback function when it
+ * is called.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @return the ready to play status on success, 0 in case of error
+ */
+PDRAW_API int
+pdraw_vipc_source_is_ready_to_play(struct pdraw *pdraw,
+				   struct pdraw_vipc_source *source);
+
+
+/**
+ * Get the pause status.
+ * This function returns 1 if the video IPC is currently paused, 0 otherwise.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @return the pause status on success, 0 in case of error
+ */
+PDRAW_API int pdraw_vipc_source_is_paused(struct pdraw *pdraw,
+					  struct pdraw_vipc_source *source);
+
+
+/**
+ * Start receiving frames on the video IPC.
+ * This function starts the video IPC if it is ready to play. Otherwise
+ * an error is returned. Receiving frames can be halted by calling the
+ * pdraw_vipc_source_pause() function.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_vipc_source_play(struct pdraw *pdraw,
+				     struct pdraw_vipc_source *source);
+
+
+/**
+ * Stop receiving frames on the video IPC.
+ * This function halts the video IPC to stop receiving frames. Receiving
+ * frames can be resumed by calling the pdraw_vipc_source_play() function.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_vipc_source_pause(struct pdraw *pdraw,
+				      struct pdraw_vipc_source *source);
+
+
+/**
+ * Configure the video IPC.
+ * This function can be used to dynamically reconfigure a video IPC. The
+ * resolution and crop can be specified; if either parameter is NULL or
+ * values are 0, it is ignored.
+ * The function returns before the actual operation is done. If the function
+ * returns 0, the configured() video IPC source callback function will be
+ * called once the configuration is successful (0 status) or has failed
+ * (negative errno status). If the function returns a negative errno value
+ * (immediate failure), the configured() callback function will not be called.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @param resolution: new video IPC resolution to apply (optional, can be NULL)
+ * @param crop: new video IPC crop to apply (optional, can be NULL)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_vipc_source_configure(struct pdraw *pdraw,
+					  struct pdraw_vipc_source *source,
+					  const struct vdef_dim *resolution,
+					  const struct vdef_rectf *crop);
+
+
+/**
+ * Set the session metadata of the video IPC source.
+ * This function updates the session metadata on a running video IPC source, and
+ * propgates this structure to all elements downstream in the pipeline. The
+ * structure is copied internally and ownership stays with the caller.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @param meta: new session metadata
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_vipc_source_set_session_metadata(struct pdraw *pdraw,
+				       struct pdraw_vipc_source *source,
+				       const struct vmeta_session *meta);
+
+
+/**
+ * Get the session metadata of the video IPC source.
+ * This function retrieves the session metadata on a running video IPC source.
+ * The provided meta structure is filled by the function.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video IPC source handle
+ * @param meta: session metadata (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_vipc_source_get_session_metadata(struct pdraw *pdraw,
+				       struct pdraw_vipc_source *source,
+				       struct vmeta_session *meta);
+
+
+/**
+ * Video source API
+ */
+
+/**
+ * Create a coded video source.
+ * This function creates a coded video source to push frames to. Once the
+ * source is created, video frames are to be pushed into the frame queue
+ * returned by the pdraw_coded_video_source_get_queue() function.
+ * Once a video source is no longer used, it must be destroyed by calling the
+ * pdraw_coded_video_source_destroy() function.
+ * The params structure must be provided and must be filled.
+ * The callbacks structure must be provided and the flushed callback function
+ * is required to be implemented; all callback functions are called from the
+ * pomp_loop thread.
+ * @param pdraw: PDrAW instance handle
+ * @param params: video source parameters
+ * @param cbs: video source callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: video source handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_coded_video_source_new(struct pdraw *pdraw,
+			     const struct pdraw_video_source_params *params,
+			     const struct pdraw_coded_video_source_cbs *cbs,
+			     void *userdata,
+			     struct pdraw_coded_video_source **ret_obj);
+
+
+/**
+ * Destroy a coded video source.
+ * This function stops a running video source and frees the associated
+ * resources. Once a video source is destroyed the queue returned by
+ * pdraw_coded_video_source_get_queue() must no longer be used.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_coded_video_source_destroy(struct pdraw *pdraw,
+				 struct pdraw_coded_video_source *source);
+
+
+/**
+ * Get the coded video source frame queue.
+ * This function returns the frame queue to use in order to push frames to a
+ * running coded video source. Frames are pushed into the queue by using the
+ * mbuf_coded_video_frame_queue_push() function.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video source handle
+ * @return a pointer on a mbuf_coded_video_frame_queue object on success, NULL
+ * in case of error
+ */
+PDRAW_API struct mbuf_coded_video_frame_queue *
+pdraw_coded_video_source_get_queue(struct pdraw *pdraw,
+				   struct pdraw_coded_video_source *source);
+
+
+/**
+ * Coded video source flush function.
+ * This function is to be called when flushing is required. When this function
+ * is called, all frames previously pushed to the queue will be returned; once
+ * the flushing is done, the flushed() coded video source callback function
+ * will be called.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_coded_video_source_flush(struct pdraw *pdraw,
+			       struct pdraw_coded_video_source *source);
+
+
+/**
+ * Set the session metadata of the coded video source.
+ * This function updates the session metadata on a running coded video source,
+ * and propgates this structure to all elements downstream in the pipeline. The
+ * structure is copied internally and ownership stays with the caller.
+ * @param pdraw: PDrAW instance handle
+ * @param source: coded video source handle
+ * @param meta: new session metadata
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_coded_video_source_set_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_coded_video_source *source,
+	const struct vmeta_session *meta);
+
+
+/**
+ * Get the session metadata of the coded video source.
+ * This function retrieves the session metadata on a running coded video source.
+ * The provided meta structure is filled by the function.
+ * @param pdraw: PDrAW instance handle
+ * @param source: coded video source handle
+ * @param meta: session metadata (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_coded_video_source_get_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_coded_video_source *source,
+	struct vmeta_session *meta);
+
+
+/**
+ * Create a raw video source.
+ * This function creates a raw video source to push frames to. Once the
+ * source is created, video frames are to be pushed into the frame queue
+ * returned by the pdraw_raw_video_source_get_queue() function.
+ * Once a video source is no longer used, it must be destroyed by calling the
+ * pdraw_raw_video_source_destroy() function.
+ * The params structure must be provided and must be filled.
+ * The callbacks structure must be provided and the flushed callback function
+ * is required to be implemented; all callback functions are called from the
+ * pomp_loop thread.
+ * @param pdraw: PDrAW instance handle
+ * @param params: video source parameters
+ * @param cbs: video source callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: video source handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_raw_video_source_new(struct pdraw *pdraw,
+			   const struct pdraw_video_source_params *params,
+			   const struct pdraw_raw_video_source_cbs *cbs,
+			   void *userdata,
+			   struct pdraw_raw_video_source **ret_obj);
+
+
+/**
+ * Destroy a raw video source.
+ * This function stops a running video source and frees the associated
+ * resources. Once a video source is destroyed the queue returned by
+ * pdraw_raw_video_source_get_queue() must no longer be used.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_raw_video_source_destroy(struct pdraw *pdraw,
+			       struct pdraw_raw_video_source *source);
+
+
+/**
+ * Get the raw video source frame queue.
+ * This function returns the frame queue to use in order to push frames to a
+ * running raw video source. Frames are pushed into the queue by using the
+ * mbuf_raw_video_frame_queue_push() function.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video source handle
+ * @return a pointer on a mbuf_raw_video_frame_queue object on success, NULL
+ * in case of error
+ */
+PDRAW_API struct mbuf_raw_video_frame_queue *
+pdraw_raw_video_source_get_queue(struct pdraw *pdraw,
+				 struct pdraw_raw_video_source *source);
+
+
+/**
+ * Raw video source flush function.
+ * This function is to be called when flushing is required. When this function
+ * is called, all frames previously pushed to the queue will be returned; once
+ * the flushing is done, the flushed() raw video source callback function
+ * will be called.
+ * @param pdraw: PDrAW instance handle
+ * @param source: video source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_raw_video_source_flush(struct pdraw *pdraw,
+			     struct pdraw_raw_video_source *source);
+
+
+/**
+ * Set the session metadata of the raw video source.
+ * This function updates the session metadata on a running raw video source,
+ * and propgates this structure to all elements downstream in the pipeline. The
+ * structure is copied internally and ownership stays with the caller.
+ * @param pdraw: PDrAW instance handle
+ * @param source: raw video source handle
+ * @param meta: new session metadata
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_raw_video_source_set_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_raw_video_source *source,
+	const struct vmeta_session *meta);
+
+
+/**
+ * Get the session metadata of the raw video source.
+ * This function retrieves the session metadata on a running raw video source.
+ * The provided meta structure is filled by the function.
+ * @param pdraw: PDrAW instance handle
+ * @param source: raw video source handle
+ * @param meta: session metadata (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_raw_video_source_get_session_metadata(
+	struct pdraw *pdraw,
+	struct pdraw_raw_video_source *source,
+	struct vmeta_session *meta);
+
+
+/**
  * Video sink API
  */
 
@@ -1177,9 +1698,7 @@ pdraw_video_renderer_render_mat(struct pdraw *pdraw,
  * mbuf_coded_video_frame_queue_flush() and must return all frames outside of
  * the queue by calling mbuf_coded_video_frame_unref(); once the flushing is
  * complete, the pdraw_coded_video_sink_queue_flushed() function must be called.
- *
  * @note media_id must refer to a coded video media.
- *
  * @param pdraw: PDrAW instance handle
  * @param media_id: identifier of the media on which to create the sink
  * @param params: video sink parameters
@@ -1278,9 +1797,7 @@ pdraw_coded_video_sink_queue_flushed(struct pdraw *pdraw,
  * mbuf_raw_video_frame_queue_flush() and must return all frames outside of
  * the queue by calling mbuf_raw_video_frame_unref(); once the flushing is
  * complete, the pdraw_raw_video_sink_queue_flushed() function must be called.
- *
  * @note media_id must refer to a raw video media.
- *
  * @param pdraw: PDrAW instance handle
  * @param media_id: identifier of the media on which to create the sink
  * @param params: video sink parameters
@@ -1342,6 +1859,67 @@ pdraw_raw_video_sink_get_queue(struct pdraw *pdraw,
 PDRAW_API int
 pdraw_raw_video_sink_queue_flushed(struct pdraw *pdraw,
 				   struct pdraw_raw_video_sink *sink);
+
+
+/**
+ * Video encoder API
+ */
+
+/**
+ * Create a video encoder.
+ * This function creates a video encoder on a media of the given media_id.
+ * The media idenfifiers are known when the media_added or media_removed
+ * general callback functions are called.
+ * The params structure must be provided but some parameters are optional and
+ * can be left null. The input sub-structure in the params structure is ignored.
+ * Once a video encoder is no longer used, it must be destroyed by calling the
+ * pdraw_video_encoder_destroy() function. The callbacks structure must be
+ * provided but all callback functions are optional; the frame_output callback
+ * is usually called from the pomp_loop thread, but it may depend on the video
+ * encoder implementation. The frame_pre_release callback is called from the
+ * thread that unrefs the frame; it can be any thread.
+ * @note media_id must refer to a raw video media.
+ * @param pdraw: PDrAW instance handle
+ * @param media_id: identifier of the media on which to create the encoder
+ * @param params: video encoder parameters
+ * @param cbs: PDrAW callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: video encoder handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_video_encoder_new(struct pdraw *pdraw,
+				      unsigned int media_id,
+				      const struct venc_config *params,
+				      const struct pdraw_video_encoder_cbs *cbs,
+				      void *userdata,
+				      struct pdraw_video_encoder **ret_obj);
+
+
+/**
+ * Destroy a video encoder.
+ * This function stops a running video encoder and frees the associated
+ * resources.
+ * @param pdraw: PDrAW instance handle
+ * @param encoder: video encoder handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_video_encoder_destroy(struct pdraw *pdraw,
+					  struct pdraw_video_encoder *encoder);
+
+
+/**
+ * Configure the video encoder.
+ * This function can be used to dynamically reconfigure a video encoder.
+ * @param pdraw: PDrAW instance handle
+ * @param encoder: video encoder handle
+ * @param config: video encoder configuration
+ * @return a pointer on a mbuf_raw_video_frame_queue object on success, NULL
+ * in case of error
+ */
+PDRAW_API int
+pdraw_video_encoder_configure(struct pdraw *pdraw,
+			      struct pdraw_video_encoder *encoder,
+			      const struct venc_dyn_config *config);
 
 
 /**
@@ -1646,6 +2224,15 @@ pdraw_video_renderer_fill_mode_str(enum pdraw_video_renderer_fill_mode val);
  */
 PDRAW_API const char *pdraw_video_renderer_transition_flag_str(
 	enum pdraw_video_renderer_transition_flag val);
+
+
+/**
+ * ToString function for enum pdraw_vipc_source_eos_reason.
+ * @param val: video IPC source end of stream reason value to convert
+ * @return a string description of the video IPC source end of stream reason
+ */
+PDRAW_API const char *
+pdraw_vipc_source_eos_reason_str(enum pdraw_vipc_source_eos_reason val);
 
 
 /**

@@ -36,7 +36,6 @@
 #include "pdraw_utils.hpp"
 
 #include <errno.h>
-#include <pthread.h>
 
 #include <atomic>
 #include <string>
@@ -74,10 +73,6 @@ public:
 
 	virtual int stop(void) = 0;
 
-	void lock(void);
-
-	void unlock(void);
-
 	unsigned int getId(void);
 
 	Element::State getState(void);
@@ -95,11 +90,14 @@ protected:
 
 	void setStateAsyncNotify(Element::State state);
 
+	int asyncChannelFlushDone(Channel *channel);
+
+	static void idleChannelFlushDone(void *userdata);
+
 	Session *mSession;
 	Listener *mListener;
-	Element::State mState;
+	std::atomic<Element::State> mState;
 	unsigned int mId;
-	pthread_mutex_t mMutex;
 	static std::atomic<unsigned int> mIdCounter;
 };
 
@@ -191,6 +189,8 @@ protected:
 	virtual void onChannelTimeout(Channel *channel);
 
 	virtual void onChannelPhotoTrigger(Channel *channel);
+
+	virtual void onChannelSessionMetaUpdate(Channel *channel);
 
 	virtual void onChannelVideoPresStats(Channel *channel,
 					     VideoPresStats *stats);

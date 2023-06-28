@@ -58,9 +58,13 @@ public:
 private:
 	void stopResponse(IPdraw *pdraw, int status);
 
-	void onMediaAdded(IPdraw *pdraw, const struct pdraw_media_info *info);
+	void onMediaAdded(IPdraw *pdraw,
+			  const struct pdraw_media_info *info,
+			  void *elementUserData);
 
-	void onMediaRemoved(IPdraw *pdraw, const struct pdraw_media_info *info);
+	void onMediaRemoved(IPdraw *pdraw,
+			    const struct pdraw_media_info *info,
+			    void *elementUserData);
 
 	void onSocketCreated(IPdraw *pdraw, int fd);
 

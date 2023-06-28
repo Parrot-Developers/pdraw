@@ -41,15 +41,9 @@ namespace Pdraw {
 Demuxer::~Demuxer(void)
 {
 	/* Remove any leftover idle callbacks */
-	pomp_loop_idle_remove(mSession->getLoop(), callOpenResponse, this);
-	pomp_loop_idle_remove(mSession->getLoop(), callCloseResponse, this);
-	pomp_loop_idle_remove(
-		mSession->getLoop(), callOnUnrecoverableError, this);
-	pomp_loop_idle_remove(mSession->getLoop(), callReadyToPlay, this);
-	pomp_loop_idle_remove(mSession->getLoop(), callEndOfRange, this);
-	pomp_loop_idle_remove(mSession->getLoop(), callPlayResponse, this);
-	pomp_loop_idle_remove(mSession->getLoop(), callPauseResponse, this);
-	pomp_loop_idle_remove(mSession->getLoop(), callSeekResponse, this);
+	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 }
 
 
@@ -60,7 +54,10 @@ void Demuxer::openResponse(int status)
 		return;
 	}
 	mOpenRespStatusArgs.push(status);
-	pomp_loop_idle_add(mSession->getLoop(), callOpenResponse, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callOpenResponse, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 	mCalledOpenResp = true;
 }
 
@@ -68,7 +65,10 @@ void Demuxer::openResponse(int status)
 void Demuxer::closeResponse(int status)
 {
 	mCloseRespStatusArgs.push(status);
-	pomp_loop_idle_add(mSession->getLoop(), callCloseResponse, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callCloseResponse, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 
@@ -85,7 +85,10 @@ void Demuxer::onUnrecoverableError(int error)
 
 	mUnrecoverableError = true;
 
-	pomp_loop_idle_add(mSession->getLoop(), callOnUnrecoverableError, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callOnUnrecoverableError, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 
@@ -108,14 +111,20 @@ void Demuxer::readyToPlay(bool ready)
 	mReadyToPlay = ready;
 
 	mReadyToPlayReadyArgs.push(ready);
-	pomp_loop_idle_add(mSession->getLoop(), callReadyToPlay, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callReadyToPlay, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 
 void Demuxer::onEndOfRange(uint64_t timestamp)
 {
 	mEndOfRangeTimestampArgs.push(timestamp);
-	pomp_loop_idle_add(mSession->getLoop(), callEndOfRange, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callEndOfRange, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 
@@ -124,7 +133,10 @@ void Demuxer::playResponse(int status, uint64_t timestamp, float speed)
 	mPlayRespStatusArgs.push(status);
 	mPlayRespTimestampArgs.push(timestamp);
 	mPlayRespSpeedArgs.push(speed);
-	pomp_loop_idle_add(mSession->getLoop(), callPlayResponse, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callPlayResponse, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 
@@ -132,7 +144,10 @@ void Demuxer::pauseResponse(int status, uint64_t timestamp)
 {
 	mPauseRespStatusArgs.push(status);
 	mPauseRespTimestampArgs.push(timestamp);
-	pomp_loop_idle_add(mSession->getLoop(), callPauseResponse, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callPauseResponse, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 
@@ -141,7 +156,10 @@ void Demuxer::seekResponse(int status, uint64_t timestamp, float speed)
 	mSeekRespStatusArgs.push(status);
 	mSeekRespTimestampArgs.push(timestamp);
 	mSeekRespSpeedArgs.push(speed);
-	pomp_loop_idle_add(mSession->getLoop(), callSeekResponse, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callSeekResponse, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 

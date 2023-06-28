@@ -198,7 +198,7 @@ Source::OutputPort *Source::getOutputPort(Media *media)
 }
 
 
-int Source::addOutputPort(Media *media)
+int Source::addOutputPort(Media *media, void *elementUserData)
 {
 	if (media == nullptr)
 		return -EINVAL;
@@ -212,6 +212,7 @@ int Source::addOutputPort(Media *media)
 
 	OutputPort port;
 	port.media = media;
+	port.elementUserData = elementUserData;
 	mOutputPorts.push_back(port);
 
 	pthread_mutex_unlock(&mMutex);
@@ -272,8 +273,10 @@ int Source::removeOutputPorts(void)
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
-		if (mListener)
-			mListener->onOutputMediaRemoved(this, p->media);
+		if (mListener) {
+			mListener->onOutputMediaRemoved(
+				this, p->media, p->elementUserData);
+		}
 
 		unsigned int count = p->channels.size();
 		if (count > 0) {

@@ -95,6 +95,11 @@ VideoScaler::~VideoScaler(void)
 	if (mState != STOPPED)
 		PDRAW_LOGW("scaler is still running");
 
+	/* Remove any leftover idle callbacks */
+	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
+
 	if (mVscale) {
 		ret = vscale_destroy(mVscale);
 		if (ret < 0)
@@ -214,7 +219,10 @@ int VideoScaler::flush(void)
 
 	if (mIsFlushed) {
 		PDRAW_LOGD("scaler is already flushed, nothing to do");
-		completeFlush();
+		int err = pomp_loop_idle_add_with_cookie(
+			mSession->getLoop(), &idleCompleteFlush, this, this);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 		return 0;
 	}
 
@@ -305,6 +313,13 @@ void VideoScaler::completeFlush(void)
 }
 
 
+void VideoScaler::idleCompleteFlush(void *userdata)
+{
+	VideoScaler *self = (VideoScaler *)userdata;
+	self->completeFlush();
+}
+
+
 int VideoScaler::tryStop(void)
 {
 	int ret;
@@ -384,7 +399,8 @@ void VideoScaler::completeStop(void)
 
 	/* Remove the output port */
 	if (Source::mListener) {
-		Source::mListener->onOutputMediaRemoved(this, mOutputMedia);
+		Source::mListener->onOutputMediaRemoved(
+			this, mOutputMedia, nullptr);
 	}
 	ret = removeOutputPort(mOutputMedia);
 	if (ret < 0) {
@@ -436,7 +452,8 @@ int VideoScaler::createOutputMedia(struct vdef_raw_frame *frameInfo,
 	Source::unlock();
 
 	if (Source::mListener)
-		Source::mListener->onOutputMediaAdded(this, mOutputMedia);
+		Source::mListener->onOutputMediaAdded(
+			this, mOutputMedia, nullptr);
 
 	return 0;
 }
@@ -544,6 +561,39 @@ void VideoScaler::onChannelUnlink(Channel *channel)
 
 	if (mState == STOPPING)
 		completeStop();
+}
+
+
+void VideoScaler::onChannelSessionMetaUpdate(Channel *channel)
+{
+	struct vmeta_session tmpSessionMeta;
+
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Sink::lock();
+	if (mInputMedia == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("input media not found");
+		return;
+	}
+	tmpSessionMeta = mInputMedia->sessionMeta;
+	Sink::unlock();
+
+	Source::lock();
+	if (mOutputMedia == nullptr) {
+		Source::unlock();
+		PDRAW_LOGE("output media not found");
+		return;
+	}
+	mOutputMedia->sessionMeta = tmpSessionMeta;
+	Source::unlock();
+
+	PDRAW_LOGD("updating session metadata");
+
+	FilterElement::onChannelSessionMetaUpdate(channel);
 }
 
 

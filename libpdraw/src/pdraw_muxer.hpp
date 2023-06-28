@@ -40,10 +40,13 @@
 
 namespace Pdraw {
 
-
 class Muxer : public SinkElement {
 public:
-	Muxer(Session *session, Element::Listener *elementListener);
+	Muxer(Session *session,
+	      Element::Listener *elementListener,
+	      IPdraw::IMuxer::Listener *listener,
+	      IPdraw::IMuxer *muxer,
+	      const struct pdraw_muxer_params *params);
 
 	virtual ~Muxer(void) = 0;
 
@@ -52,13 +55,35 @@ public:
 	int stop(void);
 
 	/* Must be called on the loop thread */
-	virtual int addInputMedia(Media *media);
+	virtual int
+	addInputMedia(Media *media,
+		      const struct pdraw_muxer_video_media_params *params);
+
+	int addInputMedia(Media *media)
+	{
+		return addInputMedia(media, nullptr);
+	}
 
 	/* Must be called on the loop thread */
 	virtual int removeInputMedia(Media *media);
 
 	/* Must be called on the loop thread */
 	virtual int removeInputMedias(void);
+
+	IPdraw::IMuxer *getMuxer(void)
+	{
+		return mMuxer;
+	}
+
+	IPdraw::IMuxer::Listener *getMuxerListener(void)
+	{
+		return mMuxerListener;
+	}
+
+	/* Must be called on the loop thread */
+	virtual int setThumbnail(enum pdraw_muxer_thumbnail_type type,
+				 const uint8_t *data,
+				 size_t size);
 
 protected:
 	virtual int internalStart(void) = 0;
@@ -72,12 +97,35 @@ protected:
 			      struct pomp_loop *loop);
 
 	/* Must be called on the loop thread */
+	int addQueueEvtToLoop(struct mbuf_raw_video_frame_queue *queue,
+			      struct pomp_loop *loop);
+
+	/* Must be called on the loop thread */
 	int removeQueueEvtFromLoop(struct mbuf_coded_video_frame_queue *queue,
+				   struct pomp_loop *loop);
+
+	/* Must be called on the loop thread */
+	int removeQueueEvtFromLoop(struct mbuf_raw_video_frame_queue *queue,
 				   struct pomp_loop *loop);
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
+	virtual void onChannelFlush(Channel *channel);
+
 	virtual void onChannelTeardown(Channel *channel);
+
+	IPdraw::IMuxer *mMuxer;
+	IPdraw::IMuxer::Listener *mMuxerListener;
+	struct pdraw_muxer_params mParams;
+
+private:
+	int completeStop(void);
+
+	void completeFlush(void);
+
+	static void idleCompleteFlush(void *userdata);
+
+	bool mFlushing;
 };
 
 } /* namespace Pdraw */

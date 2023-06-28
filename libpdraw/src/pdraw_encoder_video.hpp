@@ -35,8 +35,11 @@
 
 #include <inttypes.h>
 
+#include <string>
+
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
+#include <pdraw/pdraw.hpp>
 #include <video-encode/venc.h>
 
 namespace Pdraw {
@@ -45,7 +48,10 @@ class VideoEncoder : public FilterElement {
 public:
 	VideoEncoder(Session *session,
 		     Element::Listener *elementListener,
-		     Source::Listener *sourceListener);
+		     Source::Listener *sourceListener,
+		     IPdraw::IVideoEncoder::Listener *listener,
+		     IPdraw::IVideoEncoder *encoder,
+		     const struct venc_config *params);
 
 	~VideoEncoder(void);
 
@@ -56,6 +62,18 @@ public:
 	void completeFlush(void);
 
 	void completeStop(void);
+
+	int configure(const struct venc_dyn_config *config);
+
+	IPdraw::IVideoEncoder *getVideoEncoder(void)
+	{
+		return mEncoder;
+	}
+
+	IPdraw::IVideoEncoder::Listener *getVideoEncoderListener(void)
+	{
+		return mEncoderListener;
+	}
 
 private:
 	int createOutputMedia(struct vdef_coded_frame *frame_info,
@@ -76,6 +94,8 @@ private:
 
 	void onChannelUnlink(Channel *channel);
 
+	void onChannelSessionMetaUpdate(Channel *channel);
+
 	static void frameOutputCb(struct venc_encoder *enc,
 				  int status,
 				  struct mbuf_coded_video_frame *out_frame,
@@ -85,10 +105,20 @@ private:
 
 	static void stopCb(struct venc_encoder *enc, void *userdata);
 
+	static void framePreReleaseCb(struct mbuf_coded_video_frame *frame,
+				      void *userdata);
+
+	static void idleCompleteFlush(void *userdata);
+
+	IPdraw::IVideoEncoder *mEncoder;
+	IPdraw::IVideoEncoder::Listener *mEncoderListener;
 	RawVideoMedia *mInputMedia;
 	CodedVideoMedia *mOutputMedia;
 	struct mbuf_pool *mInputBufferPool;
 	struct mbuf_raw_video_frame_queue *mInputBufferQueue;
+	struct venc_config *mEncoderConfig;
+	std::string mEncoderName;
+	std::string mEncoderDevice;
 	struct venc_encoder *mVenc;
 	bool mIsFlushed;
 	bool mInputChannelFlushPending;

@@ -7,6 +7,9 @@ LOCAL_MODULE := libpdraw
 LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer library
 LOCAL_CATEGORY_PATH := libs
 
+LOCAL_CONFIG_FILES := pdraw.in
+$(call load-config)
+
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 # Public API headers - top level headers first
 # This header list is currently used to generate a python binding
@@ -31,7 +34,9 @@ LOCAL_SRC_FILES := \
 	src/pdraw_element.cpp \
 	src/pdraw_encoder_video.cpp \
 	src/pdraw_external_coded_video_sink.cpp \
+	src/pdraw_external_coded_video_source.cpp \
 	src/pdraw_external_raw_video_sink.cpp \
+	src/pdraw_external_raw_video_source.cpp \
 	src/pdraw_gles2_hmd_colors.cpp \
 	src/pdraw_gles2_hmd_indices.cpp \
 	src/pdraw_gles2_hmd_positions_cockpitglasses.cpp \
@@ -56,6 +61,7 @@ LOCAL_SRC_FILES := \
 	src/pdraw_source.cpp \
 	src/pdraw_utils.cpp \
 	src/pdraw_video_pres_stats.cpp \
+	src/pdraw_vipc_source.cpp \
 	src/pdraw_wrapper.cpp
 
 LOCAL_LIBRARIES := \
@@ -77,13 +83,26 @@ LOCAL_LIBRARIES := \
 	libvideo-decode \
 	libvideo-defs \
 	libvideo-encode \
+	libvideo-encode-core \
 	libvideo-metadata \
 	libvideo-scale \
 	libvideo-streaming
+
 LOCAL_CONDITIONAL_LIBRARIES := \
 	OPTIONAL:json \
 	OPTIONAL:libmux \
-	OPTIONAL:librtmp
+	OPTIONAL:librtmp \
+	OPTIONAL:libvideo-ipc \
+	OPTIONAL:libvideo-ipc-client-config
+
+LOCAL_CONDITIONAL_LIBRARIES += \
+	CONFIG_PDRAW_VIPC_BACKEND_DMABUF:libvideo-ipc-dmabuf-be \
+	CONFIG_PDRAW_VIPC_BACKEND_DMABUF:libmedia-buffers-memory-ion \
+	CONFIG_PDRAW_VIPC_BACKEND_HISI:libvideo-ipc-hisibe \
+	CONFIG_PDRAW_VIPC_BACKEND_HISI:libmedia-buffers-memory-hisi \
+	CONFIG_PDRAW_VIPC_BACKEND_NETWORK_CBUF:libvideo-ipc-network-cbuf-be \
+	CONFIG_PDRAW_VIPC_BACKEND_NETWORK_HISI:libvideo-ipc-network-hisi-be \
+	CONFIG_PDRAW_VIPC_BACKEND_SHM:libvideo-ipc-shmbe
 
 ifeq ($(TARGET_CPU),$(filter %$(TARGET_CPU),s905d3 s905x3))
   LOCAL_CFLAGS += -DUSE_GLES2

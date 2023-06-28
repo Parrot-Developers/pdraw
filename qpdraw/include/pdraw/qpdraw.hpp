@@ -97,8 +97,10 @@ signals:
 	 * The info structure gives the media identifier that can be used to
 	 * create a video sink on this media.
 	 * @param info: information on the media
+	 * @param elementUserData: optional user data pointer that was passed
+	 *                         on the pipeline element creation
 	 */
-	void onMediaAdded(struct pdraw_media_info info);
+	void onMediaAdded(struct pdraw_media_info info, void *elementUserData);
 
 	/**
 	 * Media removed signal, called when a media has been removed internally
@@ -106,8 +108,11 @@ signals:
 	 * medias. When a media is removed, any video sink created on this media
 	 * must then be stopped.
 	 * @param info: information on the media
+	 * @param elementUserData: optional user data pointer that was passed
+	 *                         on the pipeline element creation
 	 */
-	void onMediaRemoved(struct pdraw_media_info info);
+	void onMediaRemoved(struct pdraw_media_info info,
+			    void *elementUserData);
 
 	/**
 	 * Socket creation signal, called immediately after a socket creation

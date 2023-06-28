@@ -116,6 +116,8 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 			pdraw_desktop_seek_forward_10s(self);
 			break;
 		case SDLK_LEFT:
+			if (self->demuxer == NULL)
+				break;
 			if (pdraw_be_demuxer_is_paused(self->pdraw,
 						       self->demuxer) == 0)
 				pdraw_desktop_seek_back_10s(self);
@@ -123,6 +125,8 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 				pdraw_desktop_previous_frame(self);
 			break;
 		case SDLK_RIGHT:
+			if (self->demuxer == NULL)
+				break;
 			if (pdraw_be_demuxer_is_paused(self->pdraw,
 						       self->demuxer) == 0)
 				pdraw_desktop_seek_forward_10s(self);
@@ -159,6 +163,9 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 				ULOGW("SDL_SetWindowFullscreen() failed: %d",
 				      res);
 			}
+			break;
+		case SDLK_r:
+			pdraw_desktop_toggle_start_stop_recorder(self);
 			break;
 		case SDLK_d:
 			pdraw_desktop_dump_pipeline(self);
@@ -302,16 +309,15 @@ void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
 static void
 get_rect(struct pdraw_desktop *self, struct pdraw_rect *rect, unsigned int idx)
 {
-	unsigned int layout_idx = self->demuxer_media_count - 1;
+	unsigned int layout_idx = self->media_count - 1;
 	unsigned int h = layout[layout_idx].h;
 	unsigned int v = layout[layout_idx].v;
 	unsigned int x = idx % h;
 	unsigned int y = v - 1 - idx / h;
 	if (idx / h == v - 1) {
 		/* Last line */
-		idx -= (self->demuxer_media_count / h) * h;
-		h = self->demuxer_media_count -
-		    (self->demuxer_media_count / h) * h;
+		idx -= (self->media_count / h) * h;
+		h = self->media_count - (self->media_count / h) * h;
 		if (h == 0)
 			h = layout[layout_idx].h;
 		x = idx % h;
@@ -353,7 +359,7 @@ void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
 	inc = i == self->renderer_count;
 	if (self->renderer_count >= MAX_RENDERERS)
 		return;
-	if (self->renderer_count >= self->demuxer_media_count)
+	if (self->renderer_count >= self->media_count)
 		return;
 
 	/* Create the renderer */

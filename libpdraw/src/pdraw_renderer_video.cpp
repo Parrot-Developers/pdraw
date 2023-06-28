@@ -126,7 +126,9 @@ exit:
 VideoRenderer::~VideoRenderer(void)
 {
 	/* Remove any leftover idle callbacks */
-	pomp_loop_idle_remove(mSession->getLoop(), idleCompleteStop, this);
+	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 
 	pthread_mutex_destroy(&mListenerMutex);
 }
@@ -142,7 +144,10 @@ void VideoRenderer::removeRendererListener(void)
 
 void VideoRenderer::asyncCompleteStop(void)
 {
-	pomp_loop_idle_add(mSession->getLoop(), idleCompleteStop, this);
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), idleCompleteStop, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 

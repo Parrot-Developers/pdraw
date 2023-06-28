@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Awesome Video Viewer Library
- * Application external raw video sink
+ * Application external raw video source
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,8 +28,8 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_
-#define _PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_
+#ifndef _PDRAW_EXTERNAL_RAW_VIDEO_SOURCE_HPP_
+#define _PDRAW_EXTERNAL_RAW_VIDEO_SOURCE_HPP_
 
 #include "pdraw_element.hpp"
 
@@ -41,67 +41,74 @@
 namespace Pdraw {
 
 
-class ExternalRawVideoSink : public SinkElement {
+class ExternalRawVideoSource : public SourceElement {
 public:
-	ExternalRawVideoSink(Session *session,
-			     Element::Listener *elementListener,
-			     IPdraw::IRawVideoSink::Listener *listener,
-			     IPdraw::IRawVideoSink *sink,
-			     const struct pdraw_video_sink_params *params);
+	ExternalRawVideoSource(Session *session,
+			       Element::Listener *elementListener,
+			       Source::Listener *sourceListener,
+			       IPdraw::IRawVideoSource::Listener *listener,
+			       IPdraw::IRawVideoSource *source,
+			       const struct pdraw_video_source_params *params);
 
-	~ExternalRawVideoSink(void);
+	~ExternalRawVideoSource(void);
 
-	int start(void);
+	int start(void) override;
 
-	int stop(void);
+	int stop(void) override;
 
-	int flushDone(void);
+	int flush(void);
+
+	int setSessionMetadata(const struct vmeta_session *meta);
+
+	int getSessionMetadata(struct vmeta_session *meta);
 
 	struct mbuf_raw_video_frame_queue *getQueue(void)
 	{
-		return mInputFrameQueue;
+		return mFrameQueue;
 	}
 
-	IPdraw::IRawVideoSink *getVideoSink(void)
+	IPdraw::IRawVideoSource *getVideoSource(void)
 	{
-		return mVideoSink;
+		return mVideoSource;
 	}
 
-	IPdraw::IRawVideoSink::Listener *getVideoSinkListener(void)
+	IPdraw::IRawVideoSource::Listener *getVideoSourceListener(void)
 	{
-		return mVideoSinkListener;
+		return mVideoSourceListener;
 	}
 
 private:
-	int flush(void);
+	int processFrame(struct mbuf_raw_video_frame *frame);
 
-	int channelTeardown(RawVideoChannel *channel);
+	void completeFlush(void);
 
-	void onRawVideoChannelQueue(RawVideoChannel *channel,
-				    struct mbuf_raw_video_frame *frame);
+	int tryStop(void);
 
-	void onChannelFlush(Channel *channel);
+	void completeStop(void);
 
-	void onChannelTeardown(Channel *channel);
+	void onChannelFlushed(Channel *channel) override;
 
-	int prepareRawVideoFrame(RawVideoChannel *channel,
-				 struct mbuf_raw_video_frame *frame);
+	void onChannelUnlink(Channel *channel) override;
 
-	static void idleFlushDone(void *userdata);
+	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
-	/* Video sink listener calls from idle functions */
-	static void callVideoSinkFlush(void *userdata);
+	static bool inputFilter(struct mbuf_raw_video_frame *frame,
+				void *userdata);
 
-	IPdraw::IRawVideoSink *mVideoSink;
-	IPdraw::IRawVideoSink::Listener *mVideoSinkListener;
-	struct pdraw_video_sink_params mParams;
-	RawVideoMedia *mInputMedia;
-	struct mbuf_raw_video_frame_queue *mInputFrameQueue;
-	bool mIsFlushed;
-	bool mInputChannelFlushPending;
-	bool mTearingDown;
+	/* Video source listener calls from idle functions */
+	static void callOnMediaAdded(void *userdata);
+
+	static void callVideoSourceFlushed(void *userdata);
+
+	IPdraw::IRawVideoSource *mVideoSource;
+	IPdraw::IRawVideoSource::Listener *mVideoSourceListener;
+	struct pdraw_video_source_params mParams;
+	struct mbuf_raw_video_frame_queue *mFrameQueue;
+	RawVideoMedia *mOutputMedia;
+	uint64_t mLastTimestamp;
+	bool mFlushPending;
 };
 
 } /* namespace Pdraw */
 
-#endif /* !_PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_ */
+#endif /* !_PDRAW_EXTERNAL_RAW_VIDEO_SOURCE_HPP_ */

@@ -99,7 +99,9 @@ ExternalCodedVideoSink::~ExternalCodedVideoSink(void)
 		PDRAW_LOGW("video sink is still running");
 
 	/* Remove any leftover idle callbacks */
-	pomp_loop_idle_remove(mSession->getLoop(), callVideoSinkFlush, this);
+	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
 
 	/* Flush and destroy the queue */
 	if (mInputFrameQueue != nullptr) {
@@ -320,9 +322,7 @@ int ExternalCodedVideoSink::stop(void)
 	 * NOT destroyed when stop is called, but rather when setState(STOPPED);
 	 * is called, ensuring that the listener outlives this object.
 	 */
-	Element::lock();
 	mVideoSinkListener = nullptr;
-	Element::unlock();
 
 	Sink::lock();
 
@@ -389,15 +389,23 @@ int ExternalCodedVideoSink::resync(void)
 
 int ExternalCodedVideoSink::flush(void)
 {
+	int err;
+
 	if (mIsFlushed) {
 		PDRAW_LOGD("video sink is already flushed, nothing to do");
-		int ret = flushDone();
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("flushDone", -ret);
-		return ret;
+		err = pomp_loop_idle_add_with_cookie(
+			mSession->getLoop(), &idleFlushDone, this, this);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		return 0;
 	}
+
 	/* Signal the application for flushing */
-	pomp_loop_idle_add(mSession->getLoop(), callVideoSinkFlush, this);
+	err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callVideoSinkFlush, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+
 	return 0;
 }
 
@@ -431,6 +439,13 @@ exit:
 		setState(STOPPED);
 
 	return 0;
+}
+
+
+void ExternalCodedVideoSink::idleFlushDone(void *userdata)
+{
+	ExternalCodedVideoSink *self = (ExternalCodedVideoSink *)userdata;
+	(void)self->flushDone();
 }
 
 

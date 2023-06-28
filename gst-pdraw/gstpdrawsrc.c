@@ -119,9 +119,11 @@ static gboolean update_codec_data (GstPdrawSrc * pdrawsrc, GstCaps * caps);
 static void stop_resp (struct pdraw_backend * pdraw, int status,
     void * userdata);
 static void media_added (struct pdraw_backend * pdraw,
-    const struct pdraw_media_info * info, void * userdata);
+    const struct pdraw_media_info * info,
+    void * element_userdata, void * userdata);
 static void media_removed (struct pdraw_backend * pdraw,
-    const struct pdraw_media_info * info, void * userdata);
+    const struct pdraw_media_info * info,
+    void * element_userdata, void * userdata);
 static void open_resp (struct pdraw_backend * pdraw,
     struct pdraw_demuxer * demuxer, int status, void * userdata);
 static void close_resp (struct pdraw_backend * pdraw,
@@ -312,8 +314,8 @@ stop_resp (struct pdraw_backend * pdraw, int status, void * userdata)
 }
 
 static void
-media_added (struct pdraw_backend *pdraw, const struct pdraw_media_info *info,
-    void *userdata)
+media_added (struct pdraw_backend * pdraw, const struct pdraw_media_info * info,
+    void * element_userdata, void * userdata)
 {
   GstPdrawSrc *pdrawsrc = userdata;
   int res;
@@ -362,7 +364,8 @@ out:
 
 static void
 media_removed (struct pdraw_backend * pdraw,
-    const struct pdraw_media_info * info, void * userdata)
+    const struct pdraw_media_info * info,
+    void * element_userdata, void * userdata)
 {
   GstPdrawSrc *pdrawsrc = userdata;
   int res;

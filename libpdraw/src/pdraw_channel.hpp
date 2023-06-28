@@ -66,6 +66,9 @@ public:
 
 		/* photo trigger */
 		PHOTO_TRIGGER,
+
+		/* session metadata update */
+		SESSION_META_UPDATE,
 	};
 
 	enum UpstreamEvent {

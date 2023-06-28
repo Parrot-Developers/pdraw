@@ -74,6 +74,7 @@ stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 
 static void media_added_cb(struct pdraw_backend *pdraw,
 			   const struct pdraw_media_info *info,
+			   void *element_userdata,
 			   void *userdata)
 {
 	ULOGI("%s id=%d", __func__, info->id);
@@ -82,6 +83,7 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 static void media_removed_cb(struct pdraw_backend *pdraw,
 			     const struct pdraw_media_info *info,
+			     void *element_userdata,
 			     void *userdata)
 {
 	ULOGI("%s id=%d", __func__, info->id);

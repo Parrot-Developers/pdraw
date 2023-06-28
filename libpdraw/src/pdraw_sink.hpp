@@ -120,7 +120,7 @@ protected:
 	virtual void onChannelDownstreamEvent(Channel *channel,
 					      const struct pomp_msg *event);
 
-	virtual void onChannelFlush(Channel *channel);
+	virtual void onChannelFlush(Channel *channel) = 0;
 
 	virtual void onChannelTeardown(Channel *channel);
 
@@ -133,6 +133,8 @@ protected:
 	virtual void onChannelTimeout(Channel *channel);
 
 	virtual void onChannelPhotoTrigger(Channel *channel);
+
+	virtual void onChannelSessionMetaUpdate(Channel *channel);
 
 	pthread_mutex_t mMutex;
 	unsigned int mMaxInputMedias;

@@ -61,6 +61,7 @@
 	ULOG_PRI(_pri, "%s: " _fmt, Loggable::_getCName(self), ##__VA_ARGS__)
 #define PDRAW_LOGD(_fmt, ...) _PDRAW_LOG_INT(ULOG_DEBUG, _fmt, ##__VA_ARGS__)
 #define PDRAW_LOGI(_fmt, ...) _PDRAW_LOG_INT(ULOG_INFO, _fmt, ##__VA_ARGS__)
+#define PDRAW_LOGN(_fmt, ...) _PDRAW_LOG_INT(ULOG_NOTICE, _fmt, ##__VA_ARGS__)
 #define PDRAW_LOGW(_fmt, ...) _PDRAW_LOG_INT(ULOG_WARN, _fmt, ##__VA_ARGS__)
 #define PDRAW_LOGE(_fmt, ...) _PDRAW_LOG_INT(ULOG_ERR, _fmt, ##__VA_ARGS__)
 #define PDRAW_LOG_ERRNO(_fmt, _err, ...)                                       \
@@ -134,6 +135,9 @@ pdraw_videoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val);
 
 const char *pdraw_videoRendererTransitionFlagStr(
 	enum pdraw_video_renderer_transition_flag val);
+
+
+const char *pdraw_vipcSourceEosReasonStr(enum pdraw_vipc_source_eos_reason val);
 
 
 int pdraw_frameMetadataToJson(const struct pdraw_video_frame *frame,

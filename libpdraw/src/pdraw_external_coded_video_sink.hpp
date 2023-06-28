@@ -128,6 +128,8 @@ private:
 			   const struct h264_sei_recovery_point *sei,
 			   void *userdata);
 
+	static void idleFlushDone(void *userdata);
+
 	/* Video sink listener calls from idle functions */
 	static void callVideoSinkFlush(void *userdata);
 

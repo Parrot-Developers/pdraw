@@ -79,6 +79,8 @@ private:
 
 	void onChannelUnlink(Channel *channel);
 
+	void onChannelSessionMetaUpdate(Channel *channel);
+
 	static void frameOutputCb(struct vdec_decoder *dec,
 				  int status,
 				  struct mbuf_raw_video_frame *out_frame,
@@ -87,6 +89,8 @@ private:
 	static void flushCb(struct vdec_decoder *dec, void *userdata);
 
 	static void stopCb(struct vdec_decoder *dec, void *userdata);
+
+	static void idleCompleteFlush(void *userdata);
 
 	CodedVideoMedia *mInputMedia;
 	RawVideoMedia *mOutputMedia;

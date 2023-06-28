@@ -70,22 +70,32 @@ public:
 		 * video sink on this media.
 		 * @param pdraw: PDrAW instance handle
 		 * @param info: pointer on the media information
+		 * @param elementUserData: optional element user data pointer
+		 *                         that corresponds to the pipeline
+		 *                         element that created the media
 		 */
-		virtual void
-		onMediaAdded(IPdraw *pdraw,
-			     const struct pdraw_media_info *info) = 0;
+		virtual void onMediaAdded(IPdraw *pdraw,
+					  const struct pdraw_media_info *info,
+					  void *elementUserData) = 0;
 
 		/**
 		 * Media removed function, called when a media has been removed
 		 * internally from the PDrAW pipeline. Medias are for example
 		 * raw or coded video medias. When a media is removed, any
 		 * video sink created on this media must then be stopped.
+		 * @warning when this function is called the pipeline element
+		 * that created the media is likely being destroyed, therefore
+		 * the elementUserData should not be casted to the pipeline
+		 * element object.
 		 * @param pdraw: PDrAW instance handle
 		 * @param info: pointer on the media information
+		 * @param elementUserData: optional element user data pointer
+		 *                         that corresponds to the pipeline
+		 *                         element that created the media
 		 */
-		virtual void
-		onMediaRemoved(IPdraw *pdraw,
-			       const struct pdraw_media_info *info) = 0;
+		virtual void onMediaRemoved(IPdraw *pdraw,
+					    const struct pdraw_media_info *info,
+					    void *elementUserData) = 0;
 
 		/**
 		 * Socket creation function, called immediately after a socket
@@ -688,6 +698,32 @@ public:
 	 */
 	class IMuxer {
 	public:
+		/* Muxer listener object */
+		class Listener {
+		public:
+			/**
+			 * Muxer listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * No space left function, called when the amount of
+			 * free space on the storage where the MP4 file written
+			 * falls below a threshold provided at the muxer
+			 * object creation. This function is called from the
+			 * pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param muxer: muxer handle
+			 * @param limit: minimum required free space on the
+			 * storage to write the MP4 file (byte)
+			 * @param left: current free space on the storage (byte)
+			 */
+			virtual void onMuxerNoSpaceLeft(IPdraw *pdraw,
+							IPdraw::IMuxer *muxer,
+							size_t limit,
+							size_t left) = 0;
+		};
+
 		/**
 		 * Destroy a muxer.
 		 * This function stops a running muxer and frees the
@@ -710,21 +746,41 @@ public:
 		virtual int addMedia(unsigned int mediaId,
 				     const struct pdraw_muxer_video_media_params
 					     *params) = 0;
+
+		/**
+		 * Set the thumbnail of the MP4 file written by the muxer.
+		 * This function is available on a record muxer only; on another
+		 * type of muxer -ENOSYS is returned
+		 * @param type: type of the thumbnail (JPEG, PNG, etc...)
+		 * @param data: thumbnail data must be of length size
+		 * @param size: thumbnail data size
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int setThumbnail(enum pdraw_muxer_thumbnail_type type,
+					 const uint8_t *data,
+					 size_t size) = 0;
 	};
 
 	/**
-	 * Create a muxer (experimental).
-	 * This function creates a muxer with a given URL.
+	 * Create a muxer.
+	 * This function creates a muxer with a given URL. The url parameter
+	 * is a path to an MP4 file (the file will be created/overwritten).
 	 * Once the muxer is created medias can be added by id using the
 	 * addMedia() function. Once a muxer is no longer used, it must be
 	 * destroyed. If writing to an MP4 file, the file is finalized in
-	 * the destructor.
-	 * @note: experimental only, the function returns -ENOSYS
+	 * the destructor. The params structure must be provided but all
+	 * parameters are optional and can be left null. The listener must be
+	 * provided; all listener functions are called from the pomp_loop
+	 * thread.
 	 * @param url: destination URL
+	 * @param params: muxer parameters
+	 * @param listener: muxer listener functions implementation
 	 * @param retObj: muxer object pointer (output)
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	virtual int createMuxer(const std::string &url,
+				const struct pdraw_muxer_params *params,
+				IPdraw::IMuxer::Listener *listener,
 				IPdraw::IMuxer **retObj) = 0;
 
 
@@ -1003,6 +1059,388 @@ public:
 
 
 	/**
+	 * Video IPC source API
+	 * @see the createVipcSource() function for the video IPC source
+	 * object creation
+	 */
+	class IVipcSource {
+	public:
+		/* Video IPC source listener object */
+		class Listener {
+		public:
+			/**
+			 * Video IPC source listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Ready to play function, called when the video IPC is
+			 * ready to start receiving frames (the ready parameter
+			 * is true), or when the video IPC cannot receive frames
+			 * any more (end of stream; the ready parameter is
+			 * false). When the ready parameter is false, the
+			 * eosReason parameter indicates the reason why the end
+			 * of stream was received on the video IPC.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: video IPC source handle
+			 * @param ready: true if the session is ready to play,
+			 *               false otherwise
+			 * @param eosReason: end of stream reason if the ready
+			 *                   parameter is false
+			 */
+			virtual void
+			vipcSourceReadyToPlay(IPdraw *pdraw,
+					      IPdraw::IVipcSource *source,
+					      bool ready,
+					      enum pdraw_vipc_source_eos_reason
+						      eosReason) = 0;
+
+			/**
+			 * Configured function, called when a video IPC has
+			 * been configured (initially or reconfigured) or when
+			 * a configuration has failed. The status parameter is
+			 * the configuration operation status: 0 on success,
+			 * or a negative errno value in case of error. The info
+			 * and crop parameters are the current video IPC
+			 * configuration.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: video IPC source handle
+			 * @param status: 0 on success, negative errno value
+			 *                in case of error
+			 * @param info: current video format info
+			 * @param crop: current crop configuration
+			 */
+			virtual void vipcSourceConfigured(
+				IPdraw *pdraw,
+				IPdraw::IVipcSource *source,
+				int status,
+				const struct vdef_format_info *info,
+				const struct vdef_rectf *crop) = 0;
+
+			/**
+			 * Frame ready function, called when a video frame has
+			 * been received and before it is propagated downstream
+			 * in the pipeline. This can be used to associate
+			 * metadata with the frame.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: video IPC source handle
+			 * @param frame: frame information
+			 */
+			virtual void vipcSourceFrameReady(
+				IPdraw *pdraw,
+				IPdraw::IVipcSource *source,
+				struct mbuf_raw_video_frame *frame) = 0;
+		};
+
+		/**
+		 * Destroy a video IPC source.
+		 * This function stops a running video IPC source and frees
+		 * the associated resources.
+		 */
+		virtual ~IVipcSource(void) {}
+
+		/**
+		 * Get the ready to play status.
+		 * This function returns true if the video IPC is ready to
+		 * start, false otherwise. The value returned by this function
+		 * is identical to the ready parameter passed to the
+		 * readyToPlay() listener function when it is called.
+		 * @return the ready to play status on success, false in case of
+		 *         error
+		 */
+		virtual bool isReadyToPlay(void) = 0;
+
+		/**
+		 * Get the pause status.
+		 * This function returns true if the video IPC is currently
+		 * paused, false otherwise.
+		 * @return the pause status on success, false in case of error
+		 */
+		virtual bool isPaused(void) = 0;
+
+		/**
+		 * Start receiving frames on the video IPC.
+		 * This function starts the video IPC if it is ready to play.
+		 * Otherwise an error is returned. Receiving frames can be
+		 * halted by calling the pause() function.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int play(void) = 0;
+
+		/**
+		 * Stop receiving frames on the video IPC.
+		 * This function halts the video IPC to stop receiving
+		 * frames. Receiving frames can be resumed by calling the
+		 * play() function.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int pause(void) = 0;
+
+		/**
+		 * Configure the video IPC.
+		 * This function can be used to dynamically reconfigure a video
+		 * IPC. The resolution and crop can be specified; if either
+		 * parameter is NULL or values are 0, it is ignored.
+		 * The function returns before the actual operation is done. If
+		 * the function returns 0, the vipcSourceConfigured() listener
+		 * function will be called once the configuration is successful
+		 * (0 status) or has failed (negative errno status). If the
+		 * function returns a negative errno value (immediate failure),
+		 * the vipcSourceConfigured() listener function will not be
+		 * called.
+		 * @param resolution: new video IPC resolution to apply
+		 *                    (optional, can be NULL)
+		 * @param crop: new video IPC crop to apply
+		 *              (optional, can be NULL)
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int configure(const struct vdef_dim *resolution,
+				      const struct vdef_rectf *crop) = 0;
+
+		/**
+		 * Set the session metadata of the video IPC source.
+		 * This function updates the session metadata on a running video
+		 * IPC source, and propgates this structure to all elements
+		 * downstream in the pipeline. The structure is copied
+		 * internally and ownership stays with the caller.
+		 * @param meta: new session metadata
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int
+		setSessionMetadata(const struct vmeta_session *meta) = 0;
+
+		/**
+		 * Get the session metadata of the video IPC source.
+		 * This function retrieves the session metadata on a running
+		 * video IPC source. The provided meta structure is
+		 * filled by the function.
+		 * @param meta: session metadata (output)
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int getSessionMetadata(struct vmeta_session *meta) = 0;
+	};
+
+
+	/**
+	 * Create a video IPC source.
+	 * This function creates a video IPC source. Once a video source is no
+	 * longer used, it must be destroyed. The Video IPC address must be
+	 * provided. The listener must be provided; all listener functions are
+	 * called from the pomp_loop thread.
+	 *
+	 * @param params: video IPC source parameters
+	 * @param listener: video IPC source listener functions implementation
+	 * @param retObj: video IPC source object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createVipcSource(const struct pdraw_vipc_source_params *params,
+			 IPdraw::IVipcSource::Listener *listener,
+			 IPdraw::IVipcSource **retObj) = 0;
+
+
+	/**
+	 * Coded video source API
+	 * @see the createCodedVideoSource() function for the coded video source
+	 * object creation
+	 */
+	class ICodedVideoSource {
+	public:
+		/* Video source listener object */
+		class Listener {
+		public:
+			/**
+			 * Coded video source listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Coded video source flushed function, called to signal
+			 * that flushing is complete after the coded video
+			 * source flush() function has been called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: coded video source handle
+			 */
+			virtual void onCodedVideoSourceFlushed(
+				IPdraw *pdraw,
+				IPdraw::ICodedVideoSource *source) = 0;
+		};
+
+		/**
+		 * Destroy a coded video source.
+		 * This function stops a running coded video source and frees
+		 * the associated resources.
+		 */
+		virtual ~ICodedVideoSource(void) {}
+
+		/**
+		 * Get the coded video source frame queue.
+		 * This function returns the frame queue to use in order to
+		 * push frames to a running coded video source. Frames are
+		 * pushed into the queue by using the
+		 * mbuf_coded_video_frame_queue_push() function.
+		 * @return a pointer on a mbuf_coded_video_frame_queue object on
+		 *          success, nullptr in case of error
+		 */
+		virtual struct mbuf_coded_video_frame_queue *getQueue(void) = 0;
+
+		/**
+		 * Coded video source flush function, to be called when flushing
+		 * is required. When this function is called, all frames
+		 * previously pushed to the queue will be returned; once the
+		 * flushing is done, the onCodedVideoSourceFlushed() listener
+		 * function will be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int flush(void) = 0;
+
+		/**
+		 * Set the session metadata of the coded video source.
+		 * This function updates the session metadata on a running coded
+		 * video source, and propgates this structure to all elements
+		 * downstream in the pipeline. The structure is copied
+		 * internally and ownership stays with the caller.
+		 * @param meta: new session metadata
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int
+		setSessionMetadata(const struct vmeta_session *meta) = 0;
+
+		/**
+		 * Get the session metadata of the coded video source.
+		 * This function retrieves the session metadata on a running
+		 * coded video source. The provided meta structure is
+		 * filled by the function.
+		 * @param meta: session metadata (output)
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int getSessionMetadata(struct vmeta_session *meta) = 0;
+	};
+
+
+	/**
+	 * Raw video source API
+	 * @see the createRawVideoSource() function for the raw video source
+	 * object creation
+	 */
+	class IRawVideoSource {
+	public:
+		/* Video source listener object */
+		class Listener {
+		public:
+			/**
+			 * Raw video source listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Raw video source flushed function, called to signal
+			 * that flushing is complete after the raw video
+			 * source flush() function has been called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: raw video source handle
+			 */
+			virtual void onRawVideoSourceFlushed(
+				IPdraw *pdraw,
+				IPdraw::IRawVideoSource *source) = 0;
+		};
+
+		/**
+		 * Destroy a raw video source.
+		 * This function stops a running raw video source and frees
+		 * the associated resources.
+		 */
+		virtual ~IRawVideoSource(void) {}
+
+		/**
+		 * Get the raw video source frame queue.
+		 * This function returns the frame queue to use in order to
+		 * push frames to a running raw video source. Frames are
+		 * pushed into the queue by using the
+		 * mbuf_raw_video_frame_queue_push() function.
+		 * @return a pointer on a mbuf_raw_video_frame_queue object on
+		 *          success, nullptr in case of error
+		 */
+		virtual struct mbuf_raw_video_frame_queue *getQueue(void) = 0;
+
+		/**
+		 * Raw video source flush function, to be called when flushing
+		 * is required. When this function is called, all frames
+		 * previously pushed to the queue will be returned; once the
+		 * flushing is done, the onRawVideoSourceFlushed() listener
+		 * function will be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int flush(void) = 0;
+
+		/**
+		 * Set the session metadata of the raw video source.
+		 * This function updates the session metadata on a running raw
+		 * video source, and propgates this structure to all elements
+		 * downstream in the pipeline. The structure is copied
+		 * internally and ownership stays with the caller.
+		 * @param meta: new session metadata
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int
+		setSessionMetadata(const struct vmeta_session *meta) = 0;
+
+		/**
+		 * Get the session metadata of the raw video source.
+		 * This function retrieves the session metadata on a running
+		 * raw video source. The provided meta structure is
+		 * filled by the function.
+		 * @param meta: session metadata (output)
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int getSessionMetadata(struct vmeta_session *meta) = 0;
+	};
+
+
+	/**
+	 * Create a coded video source.
+	 * This function creates a video source to push frames to. Once the
+	 * source is created, video frames are to be pushed into the frame queue
+	 * returned by the getQueue() function. Once a video source is no longer
+	 * used, it must be destroyed.
+	 * The params structure must be provided and must be filled.
+	 * The listener must be provided and the onCodedVideoSourceFlushed()
+	 * function is required to be implemented; all listener functions are
+	 * called from the pomp_loop thread.
+	 *
+	 * @param params: video source parameters
+	 * @param listener: video source listener functions implementation
+	 * @param retObj: video source object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createCodedVideoSource(const struct pdraw_video_source_params *params,
+			       IPdraw::ICodedVideoSource::Listener *listener,
+			       IPdraw::ICodedVideoSource **retObj) = 0;
+
+	/**
+	 * Create a raw video source.
+	 * This function creates a video source to push frames to. Once the
+	 * source is created, video frames are to be pushed into the frame queue
+	 * returned by the getQueue() function. Once a video source is no longer
+	 * used, it must be destroyed.
+	 * The params structure must be provided and must be filled.
+	 * The listener must be provided and the onRawVideoSourceFlushed()
+	 * function is required to be implemented; all listener functions are
+	 * called from the pomp_loop thread.
+	 *
+	 * @param params: video source parameters
+	 * @param listener: video source listener functions implementation
+	 * @param retObj: video source object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createRawVideoSource(const struct pdraw_video_source_params *params,
+			     IPdraw::IRawVideoSource::Listener *listener,
+			     IPdraw::IRawVideoSource **retObj) = 0;
+
+
+	/**
 	 * Coded video sink API
 	 * @see the createCodedVideoSink() function for the coded video sink
 	 * object creation
@@ -1206,6 +1644,99 @@ public:
 			   const struct pdraw_video_sink_params *params,
 			   IPdraw::IRawVideoSink::Listener *listener,
 			   IPdraw::IRawVideoSink **retObj) = 0;
+
+
+	/**
+	 * Video encoder API
+	 */
+	class IVideoEncoder {
+	public:
+		/* Video encoder listener object */
+		class Listener {
+		public:
+			/**
+			 * Video encoder listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Frame output function, called when a video frame is
+			 * output from the encoder. This can be used to extract
+			 * frame info and ancillary data from the frame. This
+			 * function is usually called from the pomp_loop thread,
+			 * but it may depend on the video encoder
+			 * implementation.
+			 * @param pdraw: PDrAW instance handle
+			 * @param encoder: video encoder handle
+			 * @param frame: frame information
+			 */
+			virtual void videoEncoderFrameOutput(
+				IPdraw *pdraw,
+				IPdraw::IVideoEncoder *encoder,
+				struct mbuf_coded_video_frame *frame) = 0;
+
+			/**
+			 * Frame pre-release function, called before a video
+			 * frame is released. This can be used to extract frame
+			 * info and ancillary data from the frame. This function
+			 * is called from the thread that unrefs the frame; it
+			 * can be any thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param encoder: video encoder handle
+			 * @param frame: frame information
+			 */
+			virtual void videoEncoderFramePreRelease(
+				IPdraw *pdraw,
+				IPdraw::IVideoEncoder *encoder,
+				struct mbuf_coded_video_frame *frame) = 0;
+		};
+
+		/**
+		 * Destroy a video encoder.
+		 * This function stops a running video encoder and frees the
+		 * associated resources.
+		 */
+		virtual ~IVideoEncoder(void) {}
+
+		/**
+		 * Configure the video encoder.
+		 * This function can be used to dynamically reconfigure a video
+		 * encoder.
+		 * @param config: new video encoder dynamic configuration
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int configure(const struct venc_dyn_config *config) = 0;
+	};
+
+
+	/**
+	 * Create a video encoder.
+	 * This function creates a video encoder on a media of the given
+	 * mediaId. The media idenfifiers are known when the onMediaAdded() or
+	 * onMediaRemoved() general listener functions are called.
+	 * Once a video encoder is no longer used, it must be destroyed.
+	 * The params structure must be provided but some parameters are
+	 * optional and can be left null. The input sub-structure in the params
+	 * structure is ignored. The listener must be provided but all listener
+	 * functions are optional; the videoEncoderFrameOutput() function is
+	 * usually called from the pomp_loop thread, but it may depend on the
+	 * video encoder implementation. The videoEncoderFramePreRelease()
+	 * function is called from the thread that unrefs the frame; it can be
+	 * called from any thread.
+	 *
+	 * @note mediaId must refer to a raw video media.
+	 *
+	 * @param mediaId: identifier of the media on which to create the sink
+	 * @param params: video encoder parameters
+	 * @param listener: video encoder listener functions implementation
+	 * @param retObj: video encoder object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createVideoEncoder(unsigned int mediaId,
+			   const struct venc_config *params,
+			   IPdraw::IVideoEncoder::Listener *listener,
+			   IPdraw::IVideoEncoder **retObj) = 0;
 
 
 	/**
@@ -1491,6 +2022,15 @@ pdrawVideoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val);
  */
 PDRAW_API const char *pdrawVideoRendererTransitionFlagStr(
 	enum pdraw_video_renderer_transition_flag val);
+
+
+/**
+ * ToString function for enum pdraw_vipc_source_eos_reason.
+ * @param val: video IPC source end of stream reason value to convert
+ * @return a string description of the video IPC source end of stream reason
+ */
+PDRAW_API const char *
+pdrawVipcSourceEosReasonStr(enum pdraw_vipc_source_eos_reason val);
 
 
 /**
