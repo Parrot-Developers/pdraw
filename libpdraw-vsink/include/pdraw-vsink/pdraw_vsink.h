@@ -63,11 +63,14 @@ struct pdraw_vsink;
  * @param media_info: media info pointer to fill if not NULL.
  * Note: mdeia_info will be freed in pdraw_vsink_stop().
  * @param ret_obj: pdraw_vsink instance handle (output)
+ * @param : timeout in second to connect (input)
+ * Note: 0 doesn't use a timeout
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_VSINK_API int pdraw_vsink_start(const char *url,
 				      struct pdraw_media_info **media_info,
-				      struct pdraw_vsink **ret_obj);
+				      struct pdraw_vsink **ret_obj,
+					  time_t timeout_seconds);
 
 
 /**
@@ -86,14 +89,16 @@ PDRAW_VSINK_API int pdraw_vsink_stop(struct pdraw_vsink *self);
  * @param frame_memory: memory used by the frame (optional)
  * @param frame_info: frame information (output)
  * @param ret_frame: frame (output)
+ * @param timeout_seconds: timeout in second to get frame (input)
+ * Note: 0 doesn't use a timeout
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_VSINK_API int
 pdraw_vsink_get_frame(struct pdraw_vsink *self,
 		      struct mbuf_mem *frame_memory,
 		      struct pdraw_video_frame *frame_info,
-		      struct mbuf_raw_video_frame **ret_frame);
-/* TODO: Add timeout !!! */
+		      struct mbuf_raw_video_frame **ret_frame,
+			  time_t timeout_seconds);
 
 
 #ifdef __cplusplus

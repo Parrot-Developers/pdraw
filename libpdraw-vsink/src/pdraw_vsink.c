@@ -405,7 +405,8 @@ error:
 
 int pdraw_vsink_start(const char *url,
 		      struct pdraw_media_info **media_info,
-		      struct pdraw_vsink **ret_obj)
+		      struct pdraw_vsink **ret_obj,
+			  time_t timeout_seconds)
 {
 	int res, err;
 
@@ -459,9 +460,26 @@ int pdraw_vsink_start(const char *url,
 	}
 
 	pthread_mutex_lock(&self->mutex);
-	pthread_cond_wait(&self->cond, &self->mutex);
+
+	if(timeout_seconds > 0)
+	{
+		// Create timeout value
+		struct timespec max_wait = {0, 0};
+		const int gettime_rv = clock_gettime(CLOCK_REALTIME, &max_wait);
+		max_wait.tv_sec += timeout_seconds;
+		const time_wait = pthread_cond_timedwait(&self->cond, &self->mutex, &max_wait);
+	}
+	else{
+		pthread_cond_wait(&self->cond, &self->mutex);
+	}
+
 	res = self->result;
 	pthread_mutex_unlock(&self->mutex);
+
+	if(time_wait) {
+		ULOG_ERRNO("mbuf_raw_video_frame_queue_pop timeout", -res);
+		goto error;
+	}
 
 	if (res < 0) {
 		ULOG_ERRNO("failed to start pdraw vsink", -res);
@@ -530,7 +548,8 @@ int pdraw_vsink_stop(struct pdraw_vsink *self)
 int pdraw_vsink_get_frame(struct pdraw_vsink *self,
 			  struct mbuf_mem *frame_memory,
 			  struct pdraw_video_frame *frame_info,
-			  struct mbuf_raw_video_frame **ret_frame)
+			  struct mbuf_raw_video_frame **ret_frame,
+			  time_t timeout_seconds)
 {
 	int res;
 	struct mbuf_raw_video_frame *in_frame = NULL;
@@ -550,8 +569,25 @@ int pdraw_vsink_get_frame(struct pdraw_vsink *self,
 		res = mbuf_raw_video_frame_queue_pop(self->queue, &in_frame);
 		if (res == -EAGAIN) {
 			pthread_mutex_lock(&self->mutex);
-			pthread_cond_wait(&self->cond, &self->mutex);
+
+			if(timeout_seconds > 0)
+			{
+				// Create timeout value
+				struct timespec max_wait = {0, 0};
+				const int gettime_rv = clock_gettime(CLOCK_REALTIME, &max_wait);
+				max_wait.tv_sec += timeout_seconds;
+				res = pthread_cond_timedwait(&self->cond, &self->mutex, &max_wait);
+			}
+			else{
+				pthread_cond_wait(&self->cond, &self->mutex);
+			}
+
 			pthread_mutex_unlock(&self->mutex);
+
+			if(res) {
+				ULOG_ERRNO("mbuf_raw_video_frame_queue_pop timeout", -res);
+				return res;
+			}
 		} else if (res < 0) {
 			ULOG_ERRNO("mbuf_raw_video_frame_queue_pop", -res);
 			return res;
