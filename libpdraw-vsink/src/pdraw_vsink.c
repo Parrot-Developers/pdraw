@@ -568,7 +568,7 @@ int pdraw_vsink_get_frame(struct pdraw_vsink *self,
 			in_frame, &buf, &len);
 		if (res == -EPROTO) {
 			/* Frame is not packed but we have len, nothing to do */
-		} else if (res <= 0) {
+		} else if (res < 0) {
 			ULOG_ERRNO("mbuf_raw_video_frame_get_packed_buffer",
 				   -res);
 			goto out;
