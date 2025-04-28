@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Streaming demuxer - mux implementation
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -50,10 +50,11 @@ public:
 	StreamDemuxerMux(Session *session,
 			 Element::Listener *elementListener,
 			 Source::Listener *sourceListener,
-			 IPdraw::IDemuxer *demuxer,
+			 DemuxerWrapper *wrapper,
 			 IPdraw::IDemuxer::Listener *demuxerListener,
 			 const std::string &url,
-			 struct mux_ctx *mux);
+			 struct mux_ctx *mux,
+			 const struct pdraw_demuxer_params *params);
 
 	~StreamDemuxerMux(void);
 
@@ -76,19 +77,19 @@ private:
 
 		int prepareSetup(void);
 
-		enum rtsp_lower_transport getLowerTransport(void);
+		enum rtsp_lower_transport getLowerTransport(void) const;
 
-		uint16_t getLocalStreamPort(void);
+		uint16_t getLocalStreamPort(void) const;
 
-		uint16_t getLocalControlPort(void);
+		uint16_t getLocalControlPort(void) const;
 
-		uint16_t getRemoteStreamPort(void);
+		uint16_t getRemoteStreamPort(void) const;
 
-		uint16_t getRemoteControlPort(void);
+		uint16_t getRemoteControlPort(void) const;
 
-		const struct rtsp_header_ext *getHeaderExt(void);
+		const struct rtsp_header_ext *getHeaderExt(void) const;
 
-		size_t getHeaderExtCount(void);
+		size_t getHeaderExtCount(void) const;
 
 		void setLocalStreamPort(uint16_t port);
 

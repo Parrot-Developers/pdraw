@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline source to sink channel
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -35,7 +35,6 @@
 
 #include <libpomp.h>
 #include <media-buffers/mbuf_mem.h>
-#include <video-defs/vdefs.h>
 
 #include "pdraw_video_pres_stats.hpp"
 
@@ -60,6 +59,12 @@ public:
 
 		/* reconfiguration in progress */
 		RECONFIGURE,
+
+		/* resolution change in progress */
+		RESOLUTION_CHANGE,
+
+		/* framerate change in progress */
+		FRAMERATE_CHANGE,
 
 		/* reception timeout */
 		TIMEOUT,
@@ -107,7 +112,9 @@ public:
 
 	static const char *getUpstreamEventStr(UpstreamEvent val);
 
-	Channel(Sink *owner, SinkListener *sinkListener);
+	Channel(Sink *owner,
+		SinkListener *sinkListener,
+		struct pomp_loop *loop);
 
 	virtual ~Channel(void) = 0;
 
@@ -120,6 +127,8 @@ public:
 
 	int flushDone(void);
 
+	int asyncFlushDone(void);
+
 	int resync(void);
 
 	int unlink(void);
@@ -130,7 +139,7 @@ public:
 
 	int sendDownstreamEvent(DownstreamEvent downstreamEvent);
 
-	SourceListener *getSourceListener(void)
+	SourceListener *getSourceListener(void) const
 	{
 		return mSourceListener;
 	}
@@ -140,22 +149,25 @@ public:
 		mSourceListener = sourceListener;
 	}
 
-	Sink *getOwner(void)
+	Sink *getOwner(void) const
 	{
 		return mOwner;
 	}
 
-	struct mbuf_pool *getPool(Sink *owner);
+	struct mbuf_pool *getPool(const Sink *owner) const;
 
-	void setPool(Sink *owner, struct mbuf_pool *pool);
+	void setPool(const Sink *owner, struct mbuf_pool *pool);
 
 protected:
 	Sink *mOwner;
 
 private:
+	static void idleFlushDone(void *userdata);
+
 	SinkListener *mSinkListener;
 	SourceListener *mSourceListener;
 	struct mbuf_pool *mPool;
+	struct pomp_loop *mLoop;
 	bool mFlushPending;
 };
 

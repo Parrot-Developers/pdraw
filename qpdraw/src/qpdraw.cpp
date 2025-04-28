@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW object
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -33,6 +33,10 @@
 #define ULOG_TAG qpdraw
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
+
+
+Q_DECLARE_METATYPE(struct pdraw_media_info);
+
 
 namespace QPdraw {
 namespace Internal {

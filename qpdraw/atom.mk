@@ -8,7 +8,7 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE := qpdraw
 LOCAL_CATEGORY_PATH := libs
-LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer Qt library
+LOCAL_DESCRIPTION := PDrAW Qt library
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_CXXFLAGS := -std=c++11
 

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Session
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -31,16 +31,23 @@
 #ifndef _PDRAW_SESSION_HPP_
 #define _PDRAW_SESSION_HPP_
 
+#include "pdraw_alsa_source.hpp"
+#include "pdraw_decoder_audio.hpp"
 #include "pdraw_decoder_video.hpp"
 #include "pdraw_demuxer.hpp"
+#include "pdraw_encoder_audio.hpp"
 #include "pdraw_encoder_video.hpp"
+#include "pdraw_external_audio_sink.hpp"
+#include "pdraw_external_audio_source.hpp"
 #include "pdraw_external_coded_video_sink.hpp"
 #include "pdraw_external_coded_video_source.hpp"
 #include "pdraw_external_raw_video_sink.hpp"
 #include "pdraw_external_raw_video_source.hpp"
 #include "pdraw_media.hpp"
 #include "pdraw_muxer.hpp"
+#include "pdraw_renderer_audio.hpp"
 #include "pdraw_renderer_video.hpp"
+#include "pdraw_scaler_video.hpp"
 #include "pdraw_settings.hpp"
 #include "pdraw_source.hpp"
 #include "pdraw_vipc_source.hpp"
@@ -103,386 +110,69 @@ public:
 
 		int dumpPipeline(const std::string &fileName);
 
-		int addMediaToRenderer(unsigned int mediaId,
-				       Pdraw::VideoRenderer *renderer);
+		int addMediaToVideoRenderer(unsigned int mediaId,
+					    Pdraw::VideoRenderer *renderer);
+
+		int addMediaToAudioRenderer(unsigned int mediaId,
+					    Pdraw::AudioRenderer *renderer);
 
 		int
-		addEncoderForMedia(Source *source,
-				   RawVideoMedia *media,
-				   const struct venc_config *params,
-				   IPdraw::IVideoEncoder::Listener *listener,
-				   Pdraw::VideoEncoder *encoder = nullptr);
+		addMediaToMuxer(unsigned int mediaId,
+				Pdraw::Muxer *muxer,
+				const struct pdraw_muxer_media_params *params);
 
-	private:
-		int addDecoderForMedia(Source *source, CodedVideoMedia *media);
+		int addVideoEncoderForMedia(
+			Source *source,
+			RawVideoMedia *media,
+			const struct venc_config *params,
+			IPdraw::IVideoEncoder::Listener *listener,
+			Pdraw::VideoEncoder *encoder = nullptr);
 
-		int addScalerForMedia(Source *source, RawVideoMedia *media);
-
-		int addMediaToRenderer(Source *source,
+		int
+		addVideoScalerForMedia(Source *source,
 				       RawVideoMedia *media,
-				       Pdraw::VideoRenderer *renderer);
+				       const struct vscale_config *params,
+				       IPdraw::IVideoScaler::Listener *listener,
+				       Pdraw::VideoScaler *scaler = nullptr);
 
-		int addMediaToAllRenderers(Source *source,
-					   RawVideoMedia *media);
-
-		int addAllMediaToRenderer(Pdraw::VideoRenderer *renderer);
-
-		Session *mSession;
-	};
-
-
-	class Demuxer : public IPdraw::IDemuxer {
-	public:
-		Demuxer(Session *session,
-			const std::string &url,
-			struct mux_ctx *mux,
-			IPdraw::IDemuxer::Listener *listener);
-
-		Demuxer(Session *session,
-			const std::string &localAddr,
-			uint16_t localStreamPort,
-			uint16_t localControlPort,
-			const std::string &remoteAddr,
-			uint16_t remoteStreamPort,
-			uint16_t remoteControlPort,
-			IPdraw::IDemuxer::Listener *listener);
-
-		~Demuxer(void);
-
-		int close(void);
-
-		uint16_t getSingleStreamLocalStreamPort(void);
-
-		uint16_t getSingleStreamLocalControlPort(void);
-
-		bool isReadyToPlay(void);
-
-		bool isPaused(void);
-
-		int play(float speed = 1.0f);
-
-		int pause(void);
-
-		int previousFrame(void);
-
-		int nextFrame(void);
-
-		int seek(int64_t delta, bool exact = false);
-
-		int seekForward(uint64_t delta, bool exact = false);
-
-		int seekBack(uint64_t delta, bool exact = false);
-
-		int seekTo(uint64_t timestamp, bool exact = false);
-
-		uint64_t getDuration(void);
-
-		uint64_t getCurrentTime(void);
-
-		Element *getElement()
-		{
-			return mDemuxer;
-		}
-
-		Pdraw::Demuxer *getDemuxer()
-		{
-			return mDemuxer;
-		}
+		int addAudioEncoderForMedia(
+			Source *source,
+			AudioMedia *media,
+			const struct aenc_config *params,
+			IPdraw::IAudioEncoder::Listener *listener,
+			Pdraw::AudioEncoder *encoder = nullptr);
 
 	private:
-		Session *mSession;
-		Pdraw::Demuxer *mDemuxer;
-	};
+		int addVideoDecoderForMedia(Source *source,
+					    CodedVideoMedia *media);
 
+		int addAudioDecoderForMedia(Source *source, AudioMedia *media);
 
-	class Muxer : public IPdraw::IMuxer {
-	public:
-		Muxer(Session *session,
-		      const std::string &url,
-		      const struct pdraw_muxer_params *params,
-		      IPdraw::IMuxer::Listener *listener);
+		int addMediaToVideoRenderer(Source *source,
+					    RawVideoMedia *media,
+					    Pdraw::VideoRenderer *renderer);
 
-		~Muxer(void);
+		int addMediaToAllVideoRenderers(Source *source,
+						RawVideoMedia *media);
+
+		int addAllMediaToVideoRenderer(Pdraw::VideoRenderer *renderer);
+
+		int addMediaToAudioRenderer(Source *source,
+					    AudioMedia *media,
+					    Pdraw::AudioRenderer *renderer);
+
+		int addMediaToAllAudioRenderers(Source *source,
+						AudioMedia *media);
+
+		int addAllMediaToAudioRenderer(Pdraw::AudioRenderer *renderer);
 
 		int
-		addMedia(unsigned int mediaId,
-			 const struct pdraw_muxer_video_media_params *params);
+		addMediaToMuxer(Source *source,
+				Media *media,
+				Pdraw::Muxer *muxer,
+				const struct pdraw_muxer_media_params *params);
 
-		int setThumbnail(enum pdraw_muxer_thumbnail_type type,
-				 const uint8_t *data,
-				 size_t size);
-
-		Element *getElement()
-		{
-			return mMuxer;
-		}
-
-		Pdraw::Muxer *getMuxer()
-		{
-			return mMuxer;
-		}
-
-	private:
 		Session *mSession;
-		Pdraw::Muxer *mMuxer;
-	};
-
-
-	class VideoRenderer : public IPdraw::IVideoRenderer {
-	public:
-		/* Called on the rendering thread */
-		VideoRenderer(Session *session,
-			      unsigned int mediaId,
-			      const struct pdraw_rect *renderPos,
-			      const struct pdraw_video_renderer_params *params,
-			      IPdraw::IVideoRenderer::Listener *listener,
-			      struct egl_display *eglDisplay = nullptr);
-
-		/* Called on the rendering thread */
-		~VideoRenderer(void);
-
-		/* Called on the rendering thread */
-		int resize(const struct pdraw_rect *renderPos);
-
-		/* Called on the rendering thread */
-		int setMediaId(unsigned int mediaId);
-
-		/* Called on the rendering thread */
-		unsigned int getMediaId(void);
-
-		/* Called on the rendering thread */
-		int setParams(const struct pdraw_video_renderer_params *params);
-
-		/* Called on the rendering thread */
-		int getParams(struct pdraw_video_renderer_params *params);
-
-		/* Called on the rendering thread */
-		int render(struct pdraw_rect *contentPos,
-			   const float *viewMat = nullptr,
-			   const float *projMat = nullptr);
-
-		Element *getElement()
-		{
-			return mRenderer;
-		}
-
-	private:
-		Pdraw::VideoRenderer *mRenderer;
-	};
-
-
-	class VipcSource : public IPdraw::IVipcSource {
-	public:
-		VipcSource(Session *session,
-			   const struct pdraw_vipc_source_params *params,
-			   IPdraw::IVipcSource::Listener *listener);
-
-		~VipcSource(void);
-
-		bool isReadyToPlay(void);
-
-		bool isPaused(void);
-
-		int play(void);
-
-		int pause(void);
-
-		int configure(const struct vdef_dim *resolution,
-			      const struct vdef_rectf *crop);
-
-		int setSessionMetadata(const struct vmeta_session *meta);
-
-		int getSessionMetadata(struct vmeta_session *meta);
-
-#ifdef BUILD_LIBVIDEO_IPC
-		Element *getElement()
-		{
-			return mSource;
-		}
-
-		Source *getSource()
-		{
-			return mSource;
-		}
-
-		Pdraw::VipcSource *getVipcSource()
-		{
-			return mSource;
-		}
-
-	private:
-		Pdraw::VipcSource *mSource;
-#endif
-	};
-
-
-	class CodedVideoSource : public IPdraw::ICodedVideoSource {
-	public:
-		CodedVideoSource(Session *session,
-				 const struct pdraw_video_source_params *params,
-				 IPdraw::ICodedVideoSource::Listener *listener);
-
-		~CodedVideoSource(void);
-
-		struct mbuf_coded_video_frame_queue *getQueue(void);
-
-		int flush(void);
-
-		int setSessionMetadata(const struct vmeta_session *meta);
-
-		int getSessionMetadata(struct vmeta_session *meta);
-
-		Element *getElement()
-		{
-			return mSource;
-		}
-
-		Source *getSource()
-		{
-			return mSource;
-		}
-
-		Pdraw::ExternalCodedVideoSource *getCodedVideoSource()
-		{
-			return mSource;
-		}
-
-	private:
-		Pdraw::ExternalCodedVideoSource *mSource;
-	};
-
-
-	class RawVideoSource : public IPdraw::IRawVideoSource {
-	public:
-		RawVideoSource(Session *session,
-			       const struct pdraw_video_source_params *params,
-			       IPdraw::IRawVideoSource::Listener *listener);
-
-		~RawVideoSource(void);
-
-		struct mbuf_raw_video_frame_queue *getQueue(void);
-
-		int flush(void);
-
-		int setSessionMetadata(const struct vmeta_session *meta);
-
-		int getSessionMetadata(struct vmeta_session *meta);
-
-		Element *getElement()
-		{
-			return mSource;
-		}
-
-		Source *getSource()
-		{
-			return mSource;
-		}
-
-		Pdraw::ExternalRawVideoSource *getRawVideoSource()
-		{
-			return mSource;
-		}
-
-	private:
-		Pdraw::ExternalRawVideoSource *mSource;
-	};
-
-
-	class CodedVideoSink : public IPdraw::ICodedVideoSink {
-	public:
-		CodedVideoSink(Session *session,
-			       const struct pdraw_video_sink_params *params,
-			       IPdraw::ICodedVideoSink::Listener *listener);
-
-		~CodedVideoSink(void);
-
-		int resync(void);
-
-		struct mbuf_coded_video_frame_queue *getQueue(void);
-
-		int queueFlushed(void);
-
-		Element *getElement()
-		{
-			return mSink;
-		}
-
-		Sink *getSink()
-		{
-			return mSink;
-		}
-
-		Pdraw::ExternalCodedVideoSink *getCodedVideoSink()
-		{
-			return mSink;
-		}
-
-	private:
-		Pdraw::ExternalCodedVideoSink *mSink;
-	};
-
-
-	class RawVideoSink : public IPdraw::IRawVideoSink {
-	public:
-		RawVideoSink(Session *session,
-			     const struct pdraw_video_sink_params *params,
-			     IPdraw::IRawVideoSink::Listener *listener);
-
-		~RawVideoSink(void);
-
-		int resync(void);
-
-		struct mbuf_raw_video_frame_queue *getQueue(void);
-
-		int queueFlushed(void);
-
-		Element *getElement()
-		{
-			return mSink;
-		}
-
-		Sink *getSink()
-		{
-			return mSink;
-		}
-
-		Pdraw::ExternalRawVideoSink *getRawVideoSink()
-		{
-			return mSink;
-		}
-
-	private:
-		Pdraw::ExternalRawVideoSink *mSink;
-	};
-
-
-	class VideoEncoderWrapper : public IPdraw::IVideoEncoder {
-	public:
-		VideoEncoderWrapper(Session *session,
-				    const struct venc_config *params,
-				    IPdraw::IVideoEncoder::Listener *listener);
-
-		~VideoEncoderWrapper(void);
-
-		int configure(const struct venc_dyn_config *config);
-
-		Element *getElement()
-		{
-			return mEncoder;
-		}
-
-		Sink *getEncoder()
-		{
-			return mEncoder;
-		}
-
-		Pdraw::VideoEncoder *getVideoEncoder()
-		{
-			return mEncoder;
-		}
-
-	private:
-		Pdraw::VideoEncoder *mEncoder;
 	};
 
 
@@ -495,11 +185,12 @@ public:
 	 * API methods
 	 */
 
-	int stop(void);
+	int stop(void) override;
 
 	int createDemuxer(const std::string &url,
+			  const struct pdraw_demuxer_params *params,
 			  IPdraw::IDemuxer::Listener *listener,
-			  IPdraw::IDemuxer **retObj);
+			  IPdraw::IDemuxer **retObj) override;
 
 	int createDemuxer(const std::string &localAddr,
 			  uint16_t localStreamPort,
@@ -507,18 +198,20 @@ public:
 			  const std::string &remoteAddr,
 			  uint16_t remoteStreamPort,
 			  uint16_t remoteControlPort,
+			  const struct pdraw_demuxer_params *params,
 			  IPdraw::IDemuxer::Listener *listener,
-			  IPdraw::IDemuxer **retObj);
+			  IPdraw::IDemuxer **retObj) override;
 
 	int createDemuxer(const std::string &url,
 			  struct mux_ctx *mux,
+			  const struct pdraw_demuxer_params *params,
 			  IPdraw::IDemuxer::Listener *listener,
-			  IPdraw::IDemuxer **retObj);
+			  IPdraw::IDemuxer **retObj) override;
 
 	int createMuxer(const std::string &url,
 			const struct pdraw_muxer_params *params,
 			IPdraw::IMuxer::Listener *listener,
-			IPdraw::IMuxer **retObj);
+			IPdraw::IMuxer **retObj) override;
 
 	/* Called on the rendering thread */
 	int
@@ -526,82 +219,78 @@ public:
 			    const struct pdraw_rect *renderPos,
 			    const struct pdraw_video_renderer_params *params,
 			    IPdraw::IVideoRenderer::Listener *listener,
-			    IPdraw::IVideoRenderer **retObj,
-			    struct egl_display *eglDisplay = nullptr);
+			    IPdraw::IVideoRenderer **retObj) override;
+
+	int
+	createAudioRenderer(unsigned int mediaId,
+			    const struct pdraw_audio_renderer_params *params,
+			    IPdraw::IAudioRenderer::Listener *listener,
+			    IPdraw::IAudioRenderer **retObj) override;
 
 	int createVipcSource(const struct pdraw_vipc_source_params *params,
 			     IPdraw::IVipcSource::Listener *listener,
-			     IPdraw::IVipcSource **retObj);
+			     IPdraw::IVipcSource **retObj) override;
 
 	int
 	createCodedVideoSource(const struct pdraw_video_source_params *params,
 			       IPdraw::ICodedVideoSource::Listener *listener,
-			       IPdraw::ICodedVideoSource **retObj);
+			       IPdraw::ICodedVideoSource **retObj) override;
 
 	int createRawVideoSource(const struct pdraw_video_source_params *params,
 				 IPdraw::IRawVideoSource::Listener *listener,
-				 IPdraw::IRawVideoSource **retObj);
+				 IPdraw::IRawVideoSource **retObj) override;
 
 	int createCodedVideoSink(unsigned int mediaId,
 				 const struct pdraw_video_sink_params *params,
 				 IPdraw::ICodedVideoSink::Listener *listener,
-				 IPdraw::ICodedVideoSink **retObj);
+				 IPdraw::ICodedVideoSink **retObj) override;
 
 	int createRawVideoSink(unsigned int mediaId,
 			       const struct pdraw_video_sink_params *params,
 			       IPdraw::IRawVideoSink::Listener *listener,
-			       IPdraw::IRawVideoSink **retObj);
+			       IPdraw::IRawVideoSink **retObj) override;
+
+	int createAlsaSource(const struct pdraw_alsa_source_params *params,
+			     IPdraw::IAlsaSource::Listener *listener,
+			     IPdraw::IAlsaSource **retObj) override;
+
+	int createAudioSource(const struct pdraw_audio_source_params *params,
+			      IPdraw::IAudioSource::Listener *listener,
+			      IPdraw::IAudioSource **retObj) override;
+
+	int createAudioSink(unsigned int mediaId,
+			    IPdraw::IAudioSink::Listener *listener,
+			    IPdraw::IAudioSink **retObj) override;
 
 	int createVideoEncoder(unsigned int mediaId,
 			       const struct venc_config *params,
 			       IPdraw::IVideoEncoder::Listener *listener,
-			       IPdraw::IVideoEncoder **retObj);
+			       IPdraw::IVideoEncoder **retObj) override;
 
-	void getFriendlyNameSetting(std::string *friendlyName);
+	int createVideoScaler(unsigned int mediaId,
+			      const struct vscale_config *params,
+			      IPdraw::IVideoScaler::Listener *listener,
+			      IPdraw::IVideoScaler **retObj) override;
 
-	void setFriendlyNameSetting(const std::string &friendlyName);
+	int createAudioEncoder(unsigned int mediaId,
+			       const struct aenc_config *params,
+			       IPdraw::IAudioEncoder::Listener *listener,
+			       IPdraw::IAudioEncoder **retObj) override;
 
-	void getSerialNumberSetting(std::string *serialNumber);
+	void getFriendlyNameSetting(std::string *friendlyName) override;
 
-	void setSerialNumberSetting(const std::string &serialNumber);
+	void setFriendlyNameSetting(const std::string &friendlyName) override;
 
-	void getSoftwareVersionSetting(std::string *softwareVersion);
+	void getSerialNumberSetting(std::string *serialNumber) override;
 
-	void setSoftwareVersionSetting(const std::string &softwareVersion);
+	void setSerialNumberSetting(const std::string &serialNumber) override;
 
-	enum pdraw_pipeline_mode getPipelineModeSetting(void);
+	void getSoftwareVersionSetting(std::string *softwareVersion) override;
 
-	void setPipelineModeSetting(enum pdraw_pipeline_mode mode);
+	void
+	setSoftwareVersionSetting(const std::string &softwareVersion) override;
 
-	void getDisplayScreenSettings(float *xdpi,
-				      float *ydpi,
-				      float *deviceMarginTop,
-				      float *deviceMarginBottom,
-				      float *deviceMarginLeft,
-				      float *deviceMarginRight);
-
-	void setDisplayScreenSettings(float xdpi,
-				      float ydpi,
-				      float deviceMarginTop,
-				      float deviceMarginBottom,
-				      float deviceMarginLeft,
-				      float deviceMarginRight);
-
-	enum pdraw_hmd_model getHmdModelSetting(void);
-
-	void setHmdModelSetting(enum pdraw_hmd_model hmdModel);
-
-	void *getAndroidJvm(void)
-	{
-		return mAndroidJvm;
-	}
-
-	void setAndroidJvm(void *jvm)
-	{
-		mAndroidJvm = jvm;
-	}
-
-	int dumpPipeline(const std::string &fileName);
+	int dumpPipeline(const std::string &fileName) override;
 
 
 	/*
@@ -613,13 +302,20 @@ public:
 		return &mSettings;
 	}
 
-	struct pomp_loop *getLoop()
+	struct pomp_loop *getLoop() const
 	{
 		return mLoop;
 	}
 
-	int addMediaToRenderer(unsigned int mediaId,
-			       Pdraw::VideoRenderer *renderer);
+	int addMediaToVideoRenderer(unsigned int mediaId,
+				    Pdraw::VideoRenderer *renderer);
+
+	int addMediaToAudioRenderer(unsigned int mediaId,
+				    Pdraw::AudioRenderer *renderer);
+
+	int addMediaToMuxer(unsigned int mediaId,
+			    Pdraw::Muxer *muxer,
+			    const struct pdraw_muxer_media_params *params);
 
 	void asyncElementDelete(Element *element);
 
@@ -641,31 +337,32 @@ private:
 				   IRawVideoSink::Listener *listener,
 				   IRawVideoSink **retObj);
 
-	int
-	internalCreateVideoEncoder(Source *source,
-				   RawVideoMedia *media,
-				   const struct venc_config *params,
-				   IPdraw::IVideoEncoder::Listener *listener,
-				   IPdraw::IVideoEncoder **retObj);
+	int internalCreateAudioSink(Source *source,
+				    AudioMedia *media,
+				    IPdraw::IAudioSink::Listener *listener,
+				    IPdraw::IAudioSink **retObj);
 
 	void setState(enum State state);
 
-	static void *runLoopThread(void *ptr);
+	void onElementStateChanged(Element *element,
+				   Element::State state) override;
 
-	void onElementStateChanged(Element *element, Element::State state);
+	void asyncElementStateChange(Element *element,
+				     Element::State state) override;
 
-	void asyncElementStateChange(Element *element, Element::State state);
-
-	void
-	onOutputMediaAdded(Source *source, Media *media, void *elementUserData);
+	void onOutputMediaAdded(Source *source,
+				Media *media,
+				void *elementUserData) override;
 
 	void onOutputMediaRemoved(Source *source,
 				  Media *media,
-				  void *elementUserData);
+				  void *elementUserData) override;
 
 	void stopResp(int status);
 
 	static const char *stateStr(enum State val);
+
+	int deleteElement(Element *element);
 
 	PipelineFactory mFactory;
 	IPdraw::Listener *mListener;
@@ -675,7 +372,6 @@ private:
 	pthread_mutex_t mMutex;
 	Settings mSettings;
 	std::vector<Element *> mElements;
-	void *mAndroidJvm;
 
 	/* Calls from idle functions */
 	pthread_mutex_t mAsyncMutex;

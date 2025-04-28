@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
- * GStreamer PDrAW source plugin
+ * Parrot Drones Audio and Video Vector library
+ * ALSA audio
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,25 +28,31 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _GSTPDRAWSRC_H_
-#define _GSTPDRAWSRC_H_
+#ifndef _PDRAW_ALSA_AUDIO_HPP_
+#define _PDRAW_ALSA_AUDIO_HPP_
 
-/* clang-format off */
-#include <gst/gst.h>
-#include <gst/base/gstpushsrc.h>
+#ifdef PDRAW_USE_ALSA
 
-#include <pdraw/pdraw_backend.h>
-#include <media-buffers/mbuf_coded_video_frame.h>
-#include <media-buffers/mbuf_mem_generic.h>
-#include <video-defs/vdefs.h>
+#	include <alsa/asoundlib.h>
 
-G_BEGIN_DECLS
+#	include "pdraw_utils.hpp"
 
-#define GST_TYPE_PDRAW_SRC (gst_pdraw_src_get_type ())
+#	define ALSA_AUDIO_DEFAULT_SAMPLE_COUNT 1024
 
-G_DECLARE_FINAL_TYPE (GstPdrawSrc, gst_pdraw_src, GST, PDRAW_SRC,
-    GstPushSrc)
+namespace Pdraw {
 
-G_END_DECLS
 
-#endif /* !_GSTPDRAWSRC_H_ */
+class AlsaAudio {
+public:
+	static snd_pcm_format_t
+	adefFormatToAlsa(const struct adef_format *format);
+
+	static const struct adef_format *
+	alsaFormatToAdef(snd_pcm_format_t format);
+};
+
+} /* namespace Pdraw */
+
+#endif /* PDRAW_USE_ALSA */
+
+#endif /* !_PDRAW_ALSA_AUDIO_HPP_ */

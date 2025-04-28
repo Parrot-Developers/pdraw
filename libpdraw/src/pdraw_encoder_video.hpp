@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video encoder element
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -44,20 +44,23 @@
 
 namespace Pdraw {
 
+class VideoEncoderWrapper;
+
+
 class VideoEncoder : public FilterElement {
 public:
 	VideoEncoder(Session *session,
 		     Element::Listener *elementListener,
 		     Source::Listener *sourceListener,
 		     IPdraw::IVideoEncoder::Listener *listener,
-		     IPdraw::IVideoEncoder *encoder,
+		     VideoEncoderWrapper *wrapper,
 		     const struct venc_config *params);
 
 	~VideoEncoder(void);
 
-	int start(void);
+	int start(void) override;
 
-	int stop(void);
+	int stop(void) override;
 
 	void completeFlush(void);
 
@@ -65,14 +68,11 @@ public:
 
 	int configure(const struct venc_dyn_config *config);
 
-	IPdraw::IVideoEncoder *getVideoEncoder(void)
+	int getConfig(struct venc_dyn_config *config);
+
+	IPdraw::IVideoEncoder *getVideoEncoder(void) const
 	{
 		return mEncoder;
-	}
-
-	IPdraw::IVideoEncoder::Listener *getVideoEncoderListener(void)
-	{
-		return mEncoderListener;
 	}
 
 private:
@@ -83,18 +83,21 @@ private:
 
 	int tryStop(void);
 
-	void onRawVideoChannelQueue(RawVideoChannel *channel,
-				    struct mbuf_raw_video_frame *frame);
+	void removeEncoderListener(void);
 
-	void onChannelFlush(Channel *channel);
+	void
+	onRawVideoChannelQueue(RawVideoChannel *channel,
+			       struct mbuf_raw_video_frame *frame) override;
 
-	void onChannelFlushed(Channel *channel);
+	void onChannelFlush(Channel *channel) override;
 
-	void onChannelTeardown(Channel *channel);
+	void onChannelFlushed(Channel *channel) override;
 
-	void onChannelUnlink(Channel *channel);
+	void onChannelTeardown(Channel *channel) override;
 
-	void onChannelSessionMetaUpdate(Channel *channel);
+	void onChannelUnlink(Channel *channel) override;
+
+	void onChannelSessionMetaUpdate(Channel *channel) override;
 
 	static void frameOutputCb(struct venc_encoder *enc,
 				  int status,
@@ -105,6 +108,7 @@ private:
 
 	static void stopCb(struct venc_encoder *enc, void *userdata);
 
+	/* Can be called from any thread */
 	static void framePreReleaseCb(struct mbuf_coded_video_frame *frame,
 				      void *userdata);
 
@@ -112,6 +116,7 @@ private:
 
 	IPdraw::IVideoEncoder *mEncoder;
 	IPdraw::IVideoEncoder::Listener *mEncoderListener;
+	pthread_mutex_t mListenerMutex;
 	RawVideoMedia *mInputMedia;
 	CodedVideoMedia *mOutputMedia;
 	struct mbuf_pool *mInputBufferPool;
@@ -125,6 +130,40 @@ private:
 	bool mVencFlushPending;
 	bool mVencStopPending;
 	static const struct venc_cbs mEncoderCbs;
+};
+
+
+class VideoEncoderWrapper : public IPdraw::IVideoEncoder,
+			    public ElementWrapper {
+public:
+	VideoEncoderWrapper(Session *session,
+			    const struct venc_config *params,
+			    IPdraw::IVideoEncoder::Listener *listener);
+
+	~VideoEncoderWrapper(void);
+
+	int configure(const struct venc_dyn_config *config) override;
+
+	int getConfig(struct venc_dyn_config *config) override;
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+		mEncoder = nullptr;
+	}
+
+	Sink *getEncoder() const
+	{
+		return mEncoder;
+	}
+
+	VideoEncoder *getVideoEncoder() const
+	{
+		return mEncoder;
+	}
+
+private:
+	VideoEncoder *mEncoder;
 };
 
 } /* namespace Pdraw */

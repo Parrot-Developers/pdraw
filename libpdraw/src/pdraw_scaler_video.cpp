@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video scaler element
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -53,19 +53,26 @@ const struct vscale_cbs VideoScaler::mScalerCbs = {
 
 VideoScaler::VideoScaler(Session *session,
 			 Element::Listener *elementListener,
-			 Source::Listener *sourceListener) :
+			 Source::Listener *sourceListener,
+			 IPdraw::IVideoScaler::Listener *listener,
+			 VideoScalerWrapper *wrapper,
+			 const struct vscale_config *params) :
 		FilterElement(session,
 			      elementListener,
+			      wrapper,
 			      1,
+			      nullptr,
+			      0,
 			      nullptr,
 			      0,
 			      nullptr,
 			      0,
 			      1,
 			      sourceListener),
+		mScaler(wrapper), mScalerListener(listener),
 		mInputMedia(nullptr), mOutputMedia(nullptr),
 		mInputBufferPool(nullptr), mInputBufferQueue(nullptr),
-		mVscale(nullptr), mIsFlushed(true),
+		mScalerConfig(nullptr), mVscale(nullptr), mIsFlushed(true),
 		mInputChannelFlushPending(false), mVscaleFlushPending(false),
 		mVscaleStopPending(false)
 {
@@ -84,6 +91,24 @@ VideoScaler::VideoScaler(Session *session,
 		setRawVideoMediaFormatCaps(supportedInputFormats,
 					   supportedInputFormatsCount);
 
+	if (params != nullptr) {
+		/* Scaler params deep copy */
+		mScalerConfig =
+			(struct vscale_config *)malloc(sizeof(*mScalerConfig));
+		if (mScalerConfig == nullptr) {
+			PDRAW_LOG_ERRNO("malloc", ENOMEM);
+		} else {
+			*mScalerConfig = *params;
+			if (params->name != nullptr) {
+				mScalerName = params->name;
+				mScalerConfig->name = mScalerName.c_str();
+			} else {
+				mScalerConfig->name = nullptr;
+			}
+			/* TODO: implem_cfg */
+		}
+	}
+
 	setState(CREATED);
 }
 
@@ -95,12 +120,15 @@ VideoScaler::~VideoScaler(void)
 	if (mState != STOPPED)
 		PDRAW_LOGW("scaler is still running");
 
+	/* Make sure listener functions will no longer be called */
+	mScalerListener = nullptr;
+
 	/* Remove any leftover idle callbacks */
 	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
 
-	if (mVscale) {
+	if (mVscale != nullptr) {
 		ret = vscale_destroy(mVscale);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("vscale_destroy", -ret);
@@ -108,12 +136,18 @@ VideoScaler::~VideoScaler(void)
 
 	if (mOutputMedia != nullptr)
 		PDRAW_LOGW("output media was not properly removed");
+
+	free(mScalerConfig);
 }
 
 
 int VideoScaler::start(void)
 {
-	int ret = 0;
+	int ret = 0, err;
+	Media *media = nullptr;
+	InputPort *port = nullptr;
+	Channel *c = nullptr;
+	RawVideoChannel *channel = nullptr;
 
 	if ((mState == STARTED) || (mState == STARTING)) {
 		return 0;
@@ -130,50 +164,71 @@ int VideoScaler::start(void)
 	if (inputMediaCount != 1) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input media count");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
-	Media *media = getInputMedia(0);
+	media = getInputMedia(0);
 	if (media == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 	mInputMedia = dynamic_cast<RawVideoMedia *>(media);
 	if (mInputMedia == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
-	InputPort *port = getInputPort(mInputMedia);
+	port = getInputPort(mInputMedia);
 	if (port == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input port");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 
 	/* Initialize the scaler */
-	struct vscale_config cfg = {};
-	cfg.implem = VSCALE_SCALER_IMPLEM_AUTO;
-	cfg.input.format = mInputMedia->format;
-	cfg.input.info = mInputMedia->info;
-	cfg.output.info = cfg.input.info;
-	cfg.output.info.resolution.width = 1280; /* TODO */
-	cfg.output.info.resolution.height = 720; /* TODO */
-	ret = vscale_new(
-		mSession->getLoop(), &cfg, &mScalerCbs, this, &mVscale);
+	if (mScalerConfig != nullptr) {
+		/* The configuration was provided through the constructor;
+		 * simply override the input config */
+		mScalerConfig->input.format = mInputMedia->format;
+		mScalerConfig->input.info = mInputMedia->info;
+	} else {
+		mScalerConfig = (struct vscale_config *)calloc(
+			1, sizeof(*mScalerConfig));
+		if (mScalerConfig == nullptr) {
+			Sink::unlock();
+			ret = -ENOMEM;
+			PDRAW_LOG_ERRNO("malloc", -ret);
+			goto error;
+		}
+		mScalerConfig->implem = VSCALE_SCALER_IMPLEM_AUTO;
+		mScalerConfig->input.format = mInputMedia->format;
+		mScalerConfig->input.info = mInputMedia->info;
+		mScalerConfig->output.info = mScalerConfig->input.info;
+		mScalerConfig->output.info.resolution.width = 1280; /* TODO */
+		mScalerConfig->output.info.resolution.height = 720; /* TODO */
+	}
+	ret = vscale_new(mSession->getLoop(),
+			 mScalerConfig,
+			 &mScalerCbs,
+			 this,
+			 &mVscale);
 	if (ret < 0) {
 		Sink::unlock();
 		PDRAW_LOG_ERRNO("vscale_new", -ret);
-		return ret;
+		goto error;
 	}
 
 	/* Setup the input port */
-	Channel *c = port->channel;
-	RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(c);
+	c = port->channel;
+	channel = dynamic_cast<RawVideoChannel *>(c);
 	if (channel == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input channel");
-		return -EPROTO;
+		goto error;
 	}
 	mInputBufferQueue = vscale_get_input_buffer_queue(mVscale);
 	channel->setQueue(this, mInputBufferQueue);
@@ -185,6 +240,22 @@ int VideoScaler::start(void)
 	setState(STARTED);
 
 	return 0;
+
+error:
+	if (mInputMedia != nullptr) {
+		/* mInputMedia must be removed synchronously to avoid holding a
+		 * reference to a media that can be destroyed at any moment by
+		 * the Source element */
+		err = removeInputMedia(mInputMedia);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("removeInputMedia", -err);
+		else
+			mInputMedia = nullptr;
+	}
+	err = stop();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("stop", -err);
+	return ret;
 }
 
 
@@ -194,12 +265,20 @@ int VideoScaler::stop(void)
 
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
-	if (mState != STARTED) {
+	if ((mState != STARTING) && (mState != STARTED)) {
 		PDRAW_LOGE("%s: scaler is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
 	mVscaleStopPending = true;
+
+	/* Make sure listener functions will no longer be called */
+	mScalerListener = nullptr;
+
+	Source::lock();
+	if (mOutputMedia != nullptr)
+		mOutputMedia->setTearingDown();
+	Source::unlock();
 
 	/* Flush everything */
 	ret = flush();
@@ -213,20 +292,19 @@ int VideoScaler::stop(void)
 
 int VideoScaler::flush(void)
 {
-	int ret;
+	int ret = 0;
+	int err;
 	unsigned int outputChannelCount, i;
 	Channel *outputChannel;
 
 	if (mIsFlushed) {
 		PDRAW_LOGD("scaler is already flushed, nothing to do");
-		int err = pomp_loop_idle_add_with_cookie(
+		ret = pomp_loop_idle_add_with_cookie(
 			mSession->getLoop(), &idleCompleteFlush, this, this);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
-		return 0;
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		return ret;
 	}
-
-	mVscaleFlushPending = true;
 
 	/* Flush the output channels (async) */
 	Source::lock();
@@ -241,18 +319,30 @@ int VideoScaler::flush(void)
 					i);
 				continue;
 			}
-			ret = outputChannel->flush();
-			if (ret < 0)
-				PDRAW_LOG_ERRNO("channel->flush", -ret);
+			err = outputChannel->flush();
+			if (err < 0) {
+				PDRAW_LOG_ERRNO(
+					"channel->flush (channel index=%u)",
+					-err,
+					i);
+			}
 		}
 	}
 	Source::unlock();
 
 	/* Flush the scaler (async)
 	 * (the input channel queue is flushed by vscale) */
-	ret = vscale_flush(mVscale, 1);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("vscale_flush", -ret);
+	if (mVscale != nullptr) {
+		if (!mVscaleFlushPending) {
+			ret = vscale_flush(mVscale, 1);
+			if (ret < 0)
+				PDRAW_LOG_ERRNO("vscale_flush", -ret);
+			else
+				mVscaleFlushPending = true;
+		}
+	} else {
+		completeFlush();
+	}
 
 	return ret;
 }
@@ -371,10 +461,15 @@ int VideoScaler::tryStop(void)
 	Source::unlock();
 
 	/* Stop the scaler */
-	ret = vscale_stop(mVscale);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("vscale_stop", -ret);
-		return ret;
+	if (mVscale != nullptr) {
+		ret = vscale_stop(mVscale);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("vscale_stop", -ret);
+			return ret;
+		}
+	} else {
+		mVscaleStopPending = false;
+		completeStop();
 	}
 
 	return 0;
@@ -400,7 +495,7 @@ void VideoScaler::completeStop(void)
 	/* Remove the output port */
 	if (Source::mListener) {
 		Source::mListener->onOutputMediaRemoved(
-			this, mOutputMedia, nullptr);
+			this, mOutputMedia, getVideoScaler());
 	}
 	ret = removeOutputPort(mOutputMedia);
 	if (ret < 0) {
@@ -453,7 +548,7 @@ int VideoScaler::createOutputMedia(struct vdef_raw_frame *frameInfo,
 
 	if (Source::mListener)
 		Source::mListener->onOutputMediaAdded(
-			this, mOutputMedia, nullptr);
+			this, mOutputMedia, getVideoScaler());
 
 	return 0;
 }
@@ -523,7 +618,7 @@ void VideoScaler::onChannelFlushed(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
@@ -576,7 +671,7 @@ void VideoScaler::onChannelSessionMetaUpdate(Channel *channel)
 	Sink::lock();
 	if (mInputMedia == nullptr) {
 		Sink::unlock();
-		PDRAW_LOGE("input media not found");
+		PDRAW_LOGE("%s: input media not found", __func__);
 		return;
 	}
 	tmpSessionMeta = mInputMedia->sessionMeta;
@@ -585,7 +680,7 @@ void VideoScaler::onChannelSessionMetaUpdate(Channel *channel)
 	Source::lock();
 	if (mOutputMedia == nullptr) {
 		Source::unlock();
-		PDRAW_LOGE("output media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 	mOutputMedia->sessionMeta = tmpSessionMeta;
@@ -643,29 +738,28 @@ void VideoScaler::frameOutputCb(struct vscale_scaler *scaler,
 		PDRAW_LOG_ERRNO("invalid input media", EPROTO);
 		return;
 	}
+	self->Sink::unlock();
 
 	ret = mbuf_raw_video_frame_get_ancillary_data(
 		out_frame,
 		PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME,
 		&ancillaryData);
 	if (ret < 0) {
-		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_ancillary_data",
 				-ret);
 		return;
 	}
 	in_meta = (RawVideoMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, NULL);
+		ancillaryData, nullptr);
 	out_meta = *in_meta;
 	out_meta.scalerOutputTimestamp = pdraw_getTimestampFromMbufFrame(
 		out_frame, VSCALE_ANCILLARY_KEY_OUTPUT_TIME);
 	mbuf_ancillary_data_unref(ancillaryData);
-	ancillaryData = NULL;
+	ancillaryData = nullptr;
 
 	ret = mbuf_raw_video_frame_remove_ancillary_data(
 		out_frame, PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME);
 	if (ret < 0) {
-		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_remove_ancillary_data",
 				-ret);
 		return;
@@ -677,13 +771,16 @@ void VideoScaler::frameOutputCb(struct vscale_scaler *scaler,
 		&out_meta,
 		sizeof(out_meta));
 	if (ret < 0) {
-		self->Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_add_ancillary_buffer",
 				-ret);
 		return;
 	}
 
-	self->Sink::unlock();
+	if (self->mScalerListener != nullptr) {
+		self->mScalerListener->videoScalerFrameOutput(
+			self->mSession, self->getVideoScaler(), out_frame);
+	}
+
 	self->Source::lock();
 
 	if (self->mOutputMedia == nullptr) {
@@ -749,6 +846,25 @@ void VideoScaler::stopCb(struct vscale_scaler *scaler, void *userdata)
 	PDRAW_LOGD("scaler is stopped");
 	self->mVscaleStopPending = false;
 	self->completeStop();
+}
+
+
+VideoScalerWrapper::VideoScalerWrapper(Session *session,
+				       const struct vscale_config *params,
+				       IPdraw::IVideoScaler::Listener *listener)
+{
+	mElement = mScaler = new Pdraw::VideoScaler(
+		session, session, session, listener, this, params);
+}
+
+
+VideoScalerWrapper::~VideoScalerWrapper(void)
+{
+	if (mScaler == nullptr)
+		return;
+	int ret = mScaler->stop();
+	if (ret < 0)
+		ULOG_ERRNO("VideoScaler::stop", -ret);
 }
 
 } /* namespace Pdraw */

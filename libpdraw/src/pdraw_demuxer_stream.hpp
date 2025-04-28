@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Streaming demuxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -43,11 +43,16 @@
 #include <rtsp/client.h>
 #include <video-streaming/vstrm.h>
 
-namespace Pdraw {
+/* Demuxer stream output buffer count has been increased to hold up to 2 seconds
+ * of video at 30fps to absorb network jitter */
+#define DEMUXER_STREAM_OUTPUT_BUFFER_COUNT (60)
 
+namespace Pdraw {
 
 #define DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT 55004
 #define DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT 55005
+#define DEMUXER_STREAM_TEMP_QUEUE_MAX_SIZE 30
+#define PDRAW_RTP_RXBUF_SIZE (1 * 1024 * 1024) /* In Bytes */
 
 
 class StreamDemuxer : public Demuxer {
@@ -55,32 +60,35 @@ public:
 	StreamDemuxer(Session *session,
 		      Element::Listener *elementListener,
 		      Source::Listener *sourceListener,
-		      IPdraw::IDemuxer *demuxer,
-		      IPdraw::IDemuxer::Listener *demuxerListener);
+		      DemuxerWrapper *wrapper,
+		      IPdraw::IDemuxer::Listener *demuxerListener,
+		      const struct pdraw_demuxer_params *params);
 
 	virtual ~StreamDemuxer(void);
 
-	int start(void);
+	int selectMedia(uint32_t selectedMedias) override;
 
-	int stop(void);
+	int start(void) override;
 
-	int play(float speed = 1.0f);
+	int stop(void) override;
 
-	bool isReadyToPlay(void);
+	int play(float speed = 1.0f) override;
 
-	bool isPaused(void);
+	bool isReadyToPlay(void) override;
 
-	int previous(void);
+	bool isPaused(void) override;
 
-	int next(void);
+	int previous(void) override;
 
-	int seek(int64_t delta, bool exact = false);
+	int next(void) override;
 
-	int seekTo(uint64_t timestamp, bool exact = false);
+	int seek(int64_t delta, bool exact = false) override;
 
-	uint64_t getDuration(void);
+	int seekTo(uint64_t timestamp, bool exact = false) override;
 
-	uint64_t getCurrentTime(void);
+	uint64_t getDuration(void) override;
+
+	uint64_t getCurrentTime(void) override;
 
 protected:
 	enum SessionProtocol {
@@ -96,7 +104,14 @@ protected:
 
 		bool hasMedia(Media *media);
 
+		unsigned int getMediaCount(void) const
+		{
+			return mNbVideoMedias;
+		}
+
 		int setup(const struct sdp_media *media);
+
+		int teardown(void);
 
 		int createReceiver(void);
 
@@ -111,36 +126,41 @@ protected:
 
 		virtual int prepareSetup(void) = 0;
 
-		virtual enum rtsp_lower_transport getLowerTransport(void) = 0;
+		virtual enum rtsp_lower_transport
+		getLowerTransport(void) const = 0;
 
-		virtual uint16_t getLocalStreamPort(void) = 0;
+		virtual uint16_t getLocalStreamPort(void) const = 0;
 
-		virtual uint16_t getLocalControlPort(void) = 0;
+		virtual uint16_t getLocalControlPort(void) const = 0;
 
-		virtual uint16_t getRemoteStreamPort(void) = 0;
+		virtual uint16_t getRemoteStreamPort(void) const = 0;
 
-		virtual uint16_t getRemoteControlPort(void) = 0;
+		virtual uint16_t getRemoteControlPort(void) const = 0;
 
-		uint32_t getSsrc(void)
+		uint32_t getSsrc(void) const
 		{
 			return mSsrc;
 		}
 
-		const char *getControlUrl(void)
+		bool getDestroyAfterFlush(void) const
+		{
+			return mDestroyAfterFlush;
+		}
+
+		const char *getControlUrl(void) const
 		{
 			return mSdpMedia->control_url;
 		}
 
-		virtual const struct rtsp_header_ext *getHeaderExt(void)
+		virtual const struct rtsp_header_ext *getHeaderExt(void) const
 		{
-			return NULL;
+			return nullptr;
 		}
 
-		virtual size_t getHeaderExtCount(void)
+		virtual size_t getHeaderExtCount(void) const
 		{
 			return 0;
 		}
-
 
 		virtual void setLocalStreamPort(uint16_t port) = 0;
 
@@ -157,13 +177,26 @@ protected:
 
 		void play(void);
 
+		void pause(void);
+
+		void resync(void);
+
 		void stop(void);
 
-		void flush(void);
+		void flush(bool destroy = false);
+
+		void setTearingDown(void);
+
+		bool isTearingDown(void)
+		{
+			return mTearingDown;
+		}
 
 		void channelFlushed(Channel *channel);
 
 		void channelUnlink(Channel *channel);
+
+		void resetFrameTimer(bool rearm);
 
 		void sendDownstreamEvent(Channel::DownstreamEvent event);
 
@@ -187,6 +220,8 @@ protected:
 		uint16_t mRemoteControlPort;
 
 		void finishSetup(void);
+
+		void finishTeardown(void);
 
 	private:
 		int setupMedia(void);
@@ -254,6 +289,9 @@ protected:
 		struct pomp_timer *mRangeTimer;
 		uint32_t mSsrc;
 		bool mFlushing;
+		bool mDestroyAfterFlush;
+		bool mPendingTearDown;
+		bool mTearingDown;
 		unsigned int mFlushChannelCount;
 		bool mFirstFrame;
 		uint64_t mLastFrameReceiveTime;
@@ -282,16 +320,33 @@ protected:
 		const struct rtsp_header_ext *headerExt;
 		size_t headerExtCount;
 	};
+	struct TeardownRequest {
+		VideoMedia *media;
+		char *controlUrl;
+	};
 
 	int startRtsp(const std::string &url);
 
-	int processSetupRequests(void);
+	int processRtspRequests(void);
+
+	void cleanupRtspRequests(void);
+
+	int processSetupRequest(void);
+
+	int processTeardownRequest(void);
 
 	virtual VideoMedia *createVideoMedia(void) = 0;
+
+	void teardownVideoMedia(StreamDemuxer::VideoMedia *media);
+
+	void teardownAllVideoMedias(void);
+
 	void destroyAllVideoMedias(void);
 
 	std::string mUrl;
 	std::string mServerAddr;
+	std::string mServerIpAddr;
+	uint16_t mServerPort;
 	std::string mRtspAddr;
 	std::string mRtspPath;
 	const char *mContentBase;
@@ -301,6 +356,9 @@ protected:
 	std::vector<StreamDemuxer::VideoMedia *> mVideoMedias;
 	std::queue<StreamDemuxer::SetupRequest> mSetupRequests;
 	unsigned int mSetupRequestsCount;
+	std::queue<StreamDemuxer::TeardownRequest> mTeardownRequests;
+	unsigned int mTeardownRequestsCount;
+	struct sdp_session *mSdpSession;
 
 private:
 	enum RtspState {
@@ -311,27 +369,38 @@ private:
 		SETUP_DONE,
 	};
 
+	int processSelectedMedias(void);
+
 	int internalPlay(float speed);
 
 	int internalPause(void);
 
-	int flush(void);
+	int flush(void) override;
 
 	int flush(bool destroyMedias);
 
 	void completeTeardown(void);
 
-	static void completeTeardownAsync(void *userdata);
+	void tryCompleteStart(bool callOpenResp = true);
 
-	void onChannelFlushed(Channel *channel);
+	void tryCompleteStop(void);
 
-	void onChannelUnlink(Channel *channel);
+	void asyncRtspDisconnect(void);
 
-	void onChannelResync(Channel *channel);
+	void asyncCompleteTeardown(void);
 
-	void onChannelVideoPresStats(Channel *channel, VideoPresStats *stats);
+	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelUnlink(Channel *channel) override;
+
+	void onChannelResync(Channel *channel) override;
+
+	void onChannelVideoPresStats(Channel *channel,
+				     VideoPresStats *stats) override;
 
 	void onNewSdp(const char *content_base, const char *sdp);
+
+	void setRtspState(StreamDemuxer::RtspState state);
 
 	static const char *getRtspStateStr(StreamDemuxer::RtspState val);
 
@@ -422,8 +491,19 @@ private:
 				   const char *sdp,
 				   void *userdata);
 
+	static void onRtspForcedTeardown(struct rtsp_client *client,
+					 const char *path,
+					 const char *session_id,
+					 const struct rtsp_header_ext *ext,
+					 size_t ext_count,
+					 void *userdata);
+
 	static void idleRtspDisconnect(void *userdata);
 	static void idleEndOfRangeNotification(void *userdata);
+	static void idleCompleteTeardown(void *userdata);
+
+	static void videoStatsDynCleaner(struct mbuf_ancillary_data *data,
+					 void *userdata);
 
 	struct vmeta_session mSessionMetaFromSdp;
 	bool mChannelsReadyForStop;

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * PDrAW back-end library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -176,6 +176,8 @@ struct pdraw_backend_demuxer_cbs {
 	 * @param demuxer: demuxer handle
 	 * @param medias: array of demuxer media
 	 * @param count: demuxer media array element count
+	 * @param selected_medias: bitfield of the identifiers of the currently
+	 *                         selected medias
 	 * @param userdata: user data pointer
 	 * @return a bitfield of the identifiers of the chosen medias,
 	 *         0 or -ENOSYS to choose the default medias,
@@ -185,6 +187,7 @@ struct pdraw_backend_demuxer_cbs {
 			    struct pdraw_demuxer *demuxer,
 			    const struct pdraw_demuxer_media *medias,
 			    size_t count,
+			    uint32_t selected_medias,
 			    void *userdata);
 
 	/* Ready to play callback function, called when the playback is ready
@@ -283,21 +286,49 @@ struct pdraw_backend_demuxer_cbs {
 
 /* Muxer callback functions */
 struct pdraw_backend_muxer_cbs {
-	/* No space left function, called when the amount of free space on the
-	 * storage where the MP4 file written falls below a threshold provided
-	 * at the muxer object creation. This function is called from the
-	 * pomp_loop thread.
+	/* Connection state changed function, called when a muxer connection
+	 * state has changed. This function is called on a stream muxer only;
+	 * on any other type of muxer it is not relevant.
+	 * @param pdraw: PDrAW instance handle
+	 * @param muxer: muxer handle
+	 * @param connection_state: connection state
+	 * @param disconnection_reason: disconnection reason; only relevant when
+	 *                              connectionState is DISCONNECTED.
+	 * @param userdata: user data pointer */
+	void (*connection_state_changed)(
+		struct pdraw_backend *pdraw,
+		struct pdraw_muxer *muxer,
+		enum pdraw_muxer_connection_state connection_state,
+		enum pdraw_muxer_disconnection_reason disconnection_reason,
+		void *userdata);
+
+	/* Unrecoverable error callback function, called when a previously
+	 * opened session is no longer running. When this function is called,
+	 * the muxer session is no longer running; pdraw_be_muxer_close() must
+	 * be called and one must wait for the close_resp callback function to
+	 * be issued prior to calling pdraw_be_muxer_destroy().
 	 * @param pdraw: PDrAW back-end instance handle
 	 * @param muxer: muxer handle
-	 * @param limit: minimum required free space on the storage to write
-	 * the MP4 file (byte)
-	 * @param left: current free space on the storage (byte)
+	 * @param status: error status code
 	 * @param userdata: user data pointer */
-	void (*no_space_left)(struct pdraw_backend *pdraw,
-			      struct pdraw_muxer *muxer,
-			      size_t limit,
-			      size_t left,
-			      void *userdata);
+	void (*unrecoverable_error)(struct pdraw_backend *pdraw,
+				    struct pdraw_muxer *muxer,
+				    int status,
+				    void *userdata);
+
+	/* Close response callback function, called when a close operation is
+	 * complete or has failed (optional, can be null, but highly recommended
+	 * for correct PDrAW session management).
+	 * The status parameter is the close operation status: 0 on success,
+	 * or a negative errno value in case of error.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param muxer: muxer handle
+	 * @param status: 0 on success, negative errno value in case of error
+	 * @param userdata: user data pointer */
+	void (*close_resp)(struct pdraw_backend *pdraw,
+			   struct pdraw_muxer *muxer,
+			   int status,
+			   void *userdata);
 };
 
 
@@ -321,10 +352,13 @@ struct pdraw_backend_video_renderer_cbs {
 	 * @param pdraw: PDrAW back-end instance handle
 	 * @param renderer: renderer handle
 	 * @param info: pointer on the media information
+	 * @param restart: true if a new media should follow shortly
+	 *                 (reconfiguration, resolution change...)
 	 * @param userdata: user data pointer */
 	void (*media_removed)(struct pdraw_backend *pdraw,
 			      struct pdraw_video_renderer *renderer,
 			      const struct pdraw_media_info *info,
+			      int restart,
 			      void *userdata);
 
 	/* Render ready callback function, called both when a new frame is
@@ -365,10 +399,8 @@ struct pdraw_backend_video_renderer_cbs {
 	/* Overlay rendering callback function (optional, can be null).
 	 * This function is called after the rendering of the video frame
 	 * (if one is available) in order to render an application overlay
-	 * on top of the video. When HMD distorsion correction is enabled
-	 * in the renderer, it is applied after the overlay rendering.
-	 * This function is called from the rendering thread.
-	 * When no frame is available for the rendering, the frame_meta
+	 * on top of the video. This function is called from the rendering
+	 * thread. When no frame is available for the rendering, the frame_meta
 	 * and frame_extra parameters are NULL.
 	 * @param pdraw: PDrAW back-end instance handle
 	 * @param renderer: renderer handle
@@ -376,7 +408,7 @@ struct pdraw_backend_video_renderer_cbs {
 	 * @param content_pos: video content position
 	 * @param view_mat: 4x4 view matrix
 	 * @param proj_mat: 4x4 projection matrix
-	 * @param media_info: media information
+	 * @param media_info: media information (optional, can be NULL)
 	 * @param frame_meta: frame metadata (optional, can be NULL)
 	 * @param frame_extra: frame extra information (optional, can be NULL)
 	 * @param userdata: user data pointer */
@@ -391,6 +423,34 @@ struct pdraw_backend_video_renderer_cbs {
 		struct vmeta_frame *frame_meta,
 		const struct pdraw_video_frame_extra *frame_extra,
 		void *userdata);
+};
+
+
+/* Audio renderer callback functions */
+struct pdraw_backend_audio_renderer_cbs {
+	/* Media added callback function, called when a media has been added
+	 * internally to the renderer. Medias are audio medias.
+	 * This function is called from the internal pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param renderer: renderer handle
+	 * @param info: pointer on the media information
+	 * @param userdata: user data pointer */
+	void (*media_added)(struct pdraw_backend *pdraw,
+			    struct pdraw_audio_renderer *renderer,
+			    const struct pdraw_media_info *info,
+			    void *userdata);
+
+	/* Media removed callback function, called when a media has been removed
+	 * internally from the renderer. Medias are audio medias.
+	 * This function is called from the internal pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param renderer: renderer handle
+	 * @param info: pointer on the media information
+	 * @param userdata: user data pointer */
+	void (*media_removed)(struct pdraw_backend *pdraw,
+			      struct pdraw_audio_renderer *renderer,
+			      const struct pdraw_media_info *info,
+			      void *userdata);
 };
 
 
@@ -412,6 +472,23 @@ struct pdraw_backend_vipc_source_cbs {
 			      int ready,
 			      enum pdraw_vipc_source_eos_reason eos_reason,
 			      void *userdata);
+
+	/* Framerate changed function, called when the video IPC framerate has
+	 * changed (new status). The return value is a boolean indicating
+	 * whether the framerate change must be ignored or not. If 'false', the
+	 * current media is destroyed and a new media is created.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: video IPC source handle
+	 * @param prev_framerate the previous framerate
+	 * @param new_framerate the new framerate
+	 * @param userdata: user data pointer
+	 * @return true to ignore the framerate change, false to re-create a
+	 * media. */
+	bool (*framerate_changed)(struct pdraw_backend *pdraw,
+				  struct pdraw_vipc_source *source,
+				  const struct vdef_frac *prev_framerate,
+				  const struct vdef_frac *new_framerate,
+				  void *userdata);
 
 	/* Configured function, called when a video IPC has been
 	 * configured (initially or reconfigured) or when a configuration
@@ -442,6 +519,22 @@ struct pdraw_backend_vipc_source_cbs {
 			    struct pdraw_vipc_source *source,
 			    struct mbuf_raw_video_frame *frame,
 			    void *userdata);
+
+	/* End-of-stream function, called when the video IPC has received an
+	 * end-of-stream from the server. The return value is a boolean
+	 * indicating whether the end-of-stream must be ignored or not.
+	 * If 'false', the current media is destroyed. In all cases, a flush
+	 * is triggered.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: video IPC source handle
+	 * @param eos_reason end of stream reason
+	 * @param userdata: user data pointer
+	 * @return true to ignore the end-of-stream, false to destroy the
+	 * media */
+	bool (*end_of_stream)(struct pdraw_backend *pdraw,
+			      struct pdraw_vipc_source *source,
+			      enum pdraw_vipc_source_eos_reason eos_reason,
+			      void *userdata);
 };
 
 
@@ -487,6 +580,17 @@ struct pdraw_backend_coded_video_sink_cbs {
 	void (*flush)(struct pdraw_backend *pdraw,
 		      struct pdraw_coded_video_sink *sink,
 		      void *userdata);
+
+	/* Session metadata update callback function, called when the session
+	 * metadata have been updated.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: coded video sink handle
+	 * @param meta: new session metadata
+	 * @param userdata: user data pointer */
+	void (*session_metadata_update)(struct pdraw_backend *pdraw,
+					struct pdraw_coded_video_sink *sink,
+					const struct vmeta_session *meta,
+					void *userdata);
 };
 
 
@@ -504,6 +608,80 @@ struct pdraw_backend_raw_video_sink_cbs {
 	void (*flush)(struct pdraw_backend *pdraw,
 		      struct pdraw_raw_video_sink *sink,
 		      void *userdata);
+
+	/* Session metadata update callback function, called when the session
+	 * metadata have been updated.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: raw video sink handle
+	 * @param meta: new session metadata
+	 * @param userdata: user data pointer */
+	void (*session_metadata_update)(struct pdraw_backend *pdraw,
+					struct pdraw_raw_video_sink *sink,
+					const struct vmeta_session *meta,
+					void *userdata);
+};
+
+
+/* ALSA source callback functions */
+struct pdraw_backend_alsa_source_cbs {
+	/* Ready to play function, called when the ALSA source is ready to start
+	 * receiving frames (the ready parameter is 1), or when the ALSA source
+	 * cannot receive frames any more (end of stream; the ready parameter is
+	 * 0). When the ready parameter is 0, the eos_reason parameter indicates
+	 * the reason why the end of stream was received on the ALSA source.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: ALSA source handle
+	 * @param ready: 1 if the session is ready to play, 0 otherwise
+	 * @param eos_reason: end of stream reason if the ready parameter is 0
+	 * @param userdata: user data pointer */
+	void (*ready_to_play)(struct pdraw_backend *pdraw,
+			      struct pdraw_alsa_source *source,
+			      int ready,
+			      enum pdraw_alsa_source_eos_reason eos_reason,
+			      void *userdata);
+
+	/* Frame ready function, called when an audio frame has been received
+	 * and before it is propagated downstream in the pipeline.
+	 * This can be used to associate metadata with the frame.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: ALSA source handle
+	 * @param frame: frame information
+	 * @param userdata: user data pointer */
+	void (*frame_ready)(struct pdraw_backend *pdraw,
+			    struct pdraw_alsa_source *source,
+			    struct mbuf_audio_frame *frame,
+			    void *userdata);
+};
+
+
+/* Audio source callback functions */
+struct pdraw_backend_audio_source_cbs {
+	/* Audio source flushed callback function (mandatory),
+	 * called to signal that flushing is complete after the
+	 * pdraw_be_audio_source_flush() function has been called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: audio source handle
+	 * @param userdata: user data pointer */
+	void (*flushed)(struct pdraw_backend *pdraw,
+			struct pdraw_audio_source *source,
+			void *userdata);
+};
+
+
+/* Audio sink callback functions */
+struct pdraw_backend_audio_sink_cbs {
+	/* Audio sink flush callback function, called when flushing is
+	 * required (mandatory). When this function is called, the application
+	 * must flush the sink queue by calling mbuf_audio_frame_queue_flush()
+	 * and must return all frames outside of the queue by calling
+	 * mbuf_audio_frame_unref(); once the flushing is done, the
+	 * pdraw_be_audio_sink_queue_flushed() function must be called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: audio sink handle
+	 * @param userdata: user data pointer */
+	void (*flush)(struct pdraw_backend *pdraw,
+		      struct pdraw_audio_sink *sink,
+		      void *userdata);
 };
 
 
@@ -514,6 +692,8 @@ struct pdraw_backend_video_encoder_cbs {
 	 * from the frame. This function is usually called from the pomp_loop
 	 * thread, but it may depend on the video encoder implementation.
 	 * @param pdraw: PDrAW back-end instance handle
+	 * @warning: this function is called with a callback mutex locked,
+	 * therefore no API function must be called from this callback.
 	 * @param encoder: video encoder handle
 	 * @param frame: frame information
 	 * @param userdata: user data pointer */
@@ -526,6 +706,8 @@ struct pdraw_backend_video_encoder_cbs {
 	 * This can be used to extract frame info and ancillary data from the
 	 * frame. This function is called from the thread that unrefs the frame;
 	 * it can be any thread.
+	 * @warning: this function is called with a callback mutex locked,
+	 * therefore no API function must be called from this callback.
 	 * @param pdraw: PDrAW back-end instance handle
 	 * @param encoder: video encoder handle
 	 * @param frame: frame information
@@ -533,6 +715,58 @@ struct pdraw_backend_video_encoder_cbs {
 	void (*frame_pre_release)(struct pdraw_backend *pdraw,
 				  struct pdraw_video_encoder *encoder,
 				  struct mbuf_coded_video_frame *frame,
+				  void *userdata);
+};
+
+
+/* Video scaler callback functions */
+struct pdraw_backend_video_scaler_cbs {
+	/* Frame output function, called when a video frame is output
+	 * from the scaler. This can be used to extract frame info
+	 * and ancillary data from the frame. This function is usually called
+	 * from the pomp_loop thread, but it may depend on the video scaler
+	 * implementation.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param scaler: video scaler handle
+	 * @param frame: frame information
+	 * @param userdata: user data pointer */
+	void (*frame_output)(struct pdraw_backend *pdraw,
+			     struct pdraw_video_scaler *scaler,
+			     struct mbuf_raw_video_frame *frame,
+			     void *userdata);
+};
+
+
+/* Audio encoder callback functions */
+struct pdraw_backend_audio_encoder_cbs {
+	/* Frame output function, called when an audio frame is output from the
+	 * encoder. This can be used to extract frame info and ancillary data
+	 * from the frame. This function is usually called from the pomp_loop
+	 * thread, but it may depend on the audio encoder implementation.
+	 * @warning: this function is called with a callback mutex locked,
+	 * therefore no API function must be called from this callback.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param encoder: audio encoder handle
+	 * @param frame: frame information
+	 * @param userdata: user data pointer */
+	void (*frame_output)(struct pdraw_backend *pdraw,
+			     struct pdraw_audio_encoder *encoder,
+			     struct mbuf_audio_frame *frame,
+			     void *userdata);
+
+	/* Frame pre-release function, called before an audio frame is released.
+	 * This can be used to extract frame info and ancillary data from the
+	 * frame. This function is called from the thread that unrefs the frame;
+	 * it can be any thread.
+	 * @warning: this function is called with a callback mutex locked,
+	 * therefore no API function must be called from this callback.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param encoder: audio encoder handle
+	 * @param frame: frame information
+	 * @param userdata: user data pointer */
+	void (*frame_pre_release)(struct pdraw_backend *pdraw,
+				  struct pdraw_audio_encoder *encoder,
+				  struct mbuf_audio_frame *frame,
 				  void *userdata);
 };
 
@@ -611,15 +845,17 @@ pdraw_be_get_loop(struct pdraw_backend *self);
  * Create a demuxer on a URL (stream or local file).
  * The URL can be either an RTSP URL (starting with "rtsp://") or a local file
  * path (either absolute or relative).
- * The function returns before the actual opening is done. If the function
- * returns 0, the open_resp callback function will be issued once the open
- * operation is successful (0 status) or has failed (negative errno status).
- * If the function returns a negative errno value (immediate failure), the
- * open_resp callback function will not be issued.
- * Once a demuxer is no longer used, it must be closed and then destroyed
+ * The params structure must be provided but all parameters are optional and can
+ * be left null. The function returns before the actual opening is done. If the
+ * function returns 0, the open_resp callback function will be issued once the
+ * open operation is successful (0 status) or has failed (negative errno
+ * status). If the function returns a negative errno value (immediate failure),
+ * the open_resp callback function will not be issued. Once a demuxer is no
+ * longer used, it must be closed and then destroyed
  * (@see the pdraw_be_demuxer_close() function).
  * @param pdraw: PDrAW back-end instance handle
  * @param url: URL of the resource to open
+ * @param params: demuxer parameters
  * @param cbs: demuxer callback functions
  * @param userdata: callback functions user data (optional, can be null)
  * @param ret_obj: demuxer handle (output)
@@ -628,6 +864,7 @@ pdraw_be_get_loop(struct pdraw_backend *self);
 PDRAW_BACKEND_API int
 pdraw_be_demuxer_new_from_url(struct pdraw_backend *self,
 			      const char *url,
+			      const struct pdraw_demuxer_params *params,
 			      const struct pdraw_backend_demuxer_cbs *cbs,
 			      void *userdata,
 			      struct pdraw_demuxer **ret_obj);
@@ -645,12 +882,13 @@ pdraw_be_demuxer_new_from_url(struct pdraw_backend *self,
  * be used. The remote_addr, remote_stream_port and remote_control_port
  * parameters can be left null if unknown; they will be known once the stream
  * is being received.
- * The function returns before the actual opening is done. If the function
- * returns 0, the open_resp callback function will be issued once the open
- * operation is successful (0 status) or has failed (negative errno status).
- * If the function returns a negative errno value (immediate failure), the
- * open_resp callback function will not be issued.
- * Once a demuxer is no longer used, it must be closed and then destroyed
+ * The params structure must be provided but all parameters are optional and can
+ * be left null. The function returns before the actual opening is done. If the
+ * function returns 0, the open_resp callback function will be issued once the
+ * open operation is successful (0 status) or has failed (negative errno
+ * status). If the function returns a negative errno value (immediate failure),
+ * the open_resp callback function will not be issued. Once a demuxer is no
+ * longer used, it must be closed and then destroyed
  * (@see the pdraw_be_demuxer_close() function).
  * @param pdraw: PDrAW back-end instance handle
  * @param local_addr: local IP address (optional, can be NULL)
@@ -659,6 +897,7 @@ pdraw_be_demuxer_new_from_url(struct pdraw_backend *self,
  * @param remote_addr: remote IP address (optional, can be NULL)
  * @param remote_stream_port: remote stream (RTP) port (optional, can be 0)
  * @param remote_control_port: remote control (RTCP) port (optional, can be 0)
+ * @param params: demuxer parameters
  * @param cbs: demuxer callback functions
  * @param userdata: callback functions user data (optional, can be null)
  * @param ret_obj: demuxer handle (output)
@@ -672,6 +911,7 @@ pdraw_be_demuxer_new_single_stream(struct pdraw_backend *self,
 				   const char *remote_addr,
 				   uint16_t remote_stream_port,
 				   uint16_t remote_control_port,
+				   const struct pdraw_demuxer_params *params,
 				   const struct pdraw_backend_demuxer_cbs *cbs,
 				   void *userdata,
 				   struct pdraw_demuxer **ret_obj);
@@ -685,16 +925,18 @@ pdraw_be_demuxer_new_single_stream(struct pdraw_backend *self,
  * No concurrent sessions can run on the mux channel; therefore the user must
  * take care of limiting the number of PDrAW instances and demuxer objects
  * running on the mux channel to only one.
- * The function returns before the actual opening is done. If the function
- * returns 0, the open_resp callback function will be issued once the open
- * operation is successful (0 status) or has failed (negative errno status).
- * If the function returns a negative errno value (immediate failure), the
- * open_resp callback function will not be issued.
- * Once a demuxer is no longer used, it must be closed and then destroyed
+ * The params structure must be provided but all parameters are optional and can
+ * be left null. The function returns before the actual opening is done. If the
+ * function returns 0, the open_resp callback function will be issued once the
+ * open operation is successful (0 status) or has failed (negative errno
+ * status). If the function returns a negative errno value (immediate failure),
+ * the open_resp callback function will not be issued. Once a demuxer is no
+ * longer used, it must be closed and then destroyed
  * (@see the pdraw_be_demuxer_close() function).
  * @param pdraw: PDrAW back-end instance handle
  * @param url: URL of the resource to open
  * @param mux: mux instance handle
+ * @param params: demuxer parameters
  * @param cbs: demuxer callback functions
  * @param userdata: callback functions user data (optional, can be null)
  * @param ret_obj: demuxer handle (output)
@@ -704,6 +946,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_new_from_url_on_mux(
 	struct pdraw_backend *self,
 	const char *url,
 	struct mux_ctx *mux,
+	const struct pdraw_demuxer_params *params,
 	const struct pdraw_backend_demuxer_cbs *cbs,
 	void *userdata,
 	struct pdraw_demuxer **ret_obj);
@@ -735,6 +978,47 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_destroy(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int pdraw_be_demuxer_close(struct pdraw_backend *self,
 					     struct pdraw_demuxer *demuxer);
+
+
+/**
+ * Get the available demuxer media list.
+ * This function returns the media list. If no media are available, -ENOENT is
+ * returned. Otherwise, the media_list is allocated (must be freed once no
+ * longer used) and media_count is set to the number of media.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param demuxer: demuxer handle
+ * @param media_list: pointer to an array of struct
+ *                    pdraw_demuxer_media (output, must be freed)
+ * @param media_count: pointer to the media count (output)
+ * @param selected_medias: bitfield of the identifiers of the currently selected
+ *                         medias (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_demuxer_get_media_list(struct pdraw_backend *self,
+				struct pdraw_demuxer *demuxer,
+				struct pdraw_demuxer_media **media_list,
+				size_t *media_count,
+				uint32_t *selected_medias);
+
+
+/**
+ * Select media function.
+ * This function dynamically selects the media to use from a running demuxer. If
+ * the demuxer is opening or closing, -EPROTO is returned. The selected_medias
+ * parameter is a bitfield of the identifiers of the chosen medias (from the
+ * pdraw_demuxer_media structure), or 0 to choose the default medias. If the
+ * bitfield is invalid, -EINVAL is returned.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param demuxer: demuxer handle
+ * @param selected_medias: bitfield of the identifiers of the chosen medias or 0
+ *                         to choose the default medias
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_demuxer_select_media(struct pdraw_backend *self,
+			      struct pdraw_demuxer *demuxer,
+			      uint32_t selected_medias);
 
 
 /**
@@ -1005,6 +1289,28 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_seek_to(struct pdraw_backend *self,
 
 
 /**
+ * Get the video chapter list.
+ * This function returns the video chapter list if available. If the video does
+ * not contain any chapter, -ENOENT is returned. Otherwise, the chapter_list is
+ * allocated (must be freed once no longer used) and chapter_count is set to the
+ * number of chapters. The chapter timestamps can be used to seek to the desired
+ * chapter. This function is available on a record demuxer only; on any other
+ * type of muxer -ENOSYS is returned.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param demuxer: demuxer handle
+ * @param chapter_list: pointer to an array of struct
+ *                      pdraw_chapter (output, must be freed)
+ * @param chapter_count: pointer to the chapter count (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_demuxer_get_chapter_list(struct pdraw_backend *self,
+				  struct pdraw_demuxer *demuxer,
+				  struct pdraw_chapter **chapter_list,
+				  size_t *chapter_count);
+
+
+/**
  * Get the playback duration.
  * This function returns the playback duration in microseconds. The duration is
  * only available on replays (either local or streamed), not on live streams.
@@ -1038,8 +1344,8 @@ pdraw_be_demuxer_get_current_time(struct pdraw_backend *self,
 
 /**
  * Create a muxer.
- * This function creates a muxer with a given URL. The url parameter is a path
- * to an MP4 file (the file will be created/overwritten).
+ * This function creates a muxer with a given URL. The url parameter is either
+ * an RTMP URL or a path to an MP4 file (the file will be created/overwritten).
  * Once the muxer is created medias can be added by id using the
  * pdraw_be_muxer_add_media() function. Once a muxer is no longer used it must
  * be destroyed by calling the pdraw_be_muxer_destroy() function. If writing to
@@ -1076,28 +1382,43 @@ PDRAW_BACKEND_API int pdraw_be_muxer_destroy(struct pdraw_backend *self,
 
 
 /**
+ * Close a muxer.
+ * This function closes a previously opened muxer (either record or stream).
+ * The function returns before the actual closing is done. If the function
+ * returns 0, the close_resp callback function will be issued once the close is
+ * successful (0 status) or has failed (negative errno status). If the function
+ * returns a negative errno value (immediate failure), the close_resp callback
+ * function will not be issued. After a successful close, the muxer must be
+ * destroyed by calling pdraw_be_muxer_destroy().
+ * @param pdraw: PDrAW back-end instance handle
+ * @param muxer: muxer handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int pdraw_be_muxer_close(struct pdraw_backend *self,
+					   struct pdraw_muxer *muxer);
+
+
+/**
  * Add a media to a muxer.
  * This function adds a media to the muxer by its media_id. The media
  * idenfifiers are known when the media_added or media_removed general
- * callback functions are called.
- * The params structure is only relevant for video medias; the structure must
- * then be provided but all parameters are optional and can be left null.
+ * callback functions are called. The params structure is optional.
  * @param pdraw: PDrAW back-end instance handle
  * @param muxer: muxer handle
  * @param media_id: identifier of the media to add to the muxer
- * @param params: muxer video media parameters
+ * @param params: muxer media parameters
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
 pdraw_be_muxer_add_media(struct pdraw_backend *self,
 			 struct pdraw_muxer *muxer,
 			 unsigned int media_id,
-			 const struct pdraw_muxer_video_media_params *params);
+			 const struct pdraw_muxer_media_params *params);
 
 
 /**
  * Set the thumbnail of the MP4 file written by the muxer.
- * This function is available on a record muxer only; on another type of muxer
+ * This function is available on a record muxer only; on any other type of muxer
  * -ENOSYS is returned
  * @param pdraw: PDrAW back-end instance handle
  * @param muxer: muxer handle
@@ -1112,6 +1433,40 @@ int pdraw_be_muxer_set_thumbnail(struct pdraw_backend *pdraw,
 				 enum pdraw_muxer_thumbnail_type type,
 				 const uint8_t *data,
 				 size_t size);
+
+
+/**
+ * Add a chapter to the MP4 file written by the muxer.
+ * This function is available on a record muxer only; on any other type of muxer
+ * -ENOSYS is returned.
+ * The timestamp is expressed in microseconds and is relative to the start of
+ * the record. If no zero-timestamped chapter is set, a default chapter named
+ * 'Start' will be added as the first chapter.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param muxer: muxer handle
+ * @param timestamp: timestamp of the chapter in microseconds
+ * @param name: name of the chapter
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API
+int pdraw_be_muxer_add_chapter(struct pdraw_backend *pdraw,
+			       struct pdraw_muxer *muxer,
+			       uint64_t timestamp,
+			       const char *name);
+
+
+/**
+ * Get statistics about the muxer.
+ * This function fills the stats structure with the latest muxer
+ * statistics. The structure must have been previously allocated.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param muxer: muxer handle
+ * @param stats: muxer statistics structure to fill
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int pdraw_be_muxer_get_stats(struct pdraw_backend *self,
+					       struct pdraw_muxer *muxer,
+					       struct pdraw_muxer_stats *stats);
 
 
 /**
@@ -1155,46 +1510,6 @@ pdraw_be_video_renderer_new(struct pdraw_backend *self,
 			    const struct pdraw_backend_video_renderer_cbs *cbs,
 			    void *userdata,
 			    struct pdraw_video_renderer **ret_obj);
-
-
-/**
- * Create a video renderer on an EGL display.
- * This function creates a video renderer on an active EGL display context on a
- * media of the given media id; if the media id is zero the first raw
- * media encountered is used. Once the renderer is created, the rendering is
- * done by calling the pdraw_video_renderer_render*() functions. Once a renderer
- * is no longer used it must be destroyed by calling the
- * pdraw_be_video_renderer_destroy() function. The render_pos parameter sets the
- * position and size of the rendering in the window/view; these coordinates are
- * in pixels from the bottom-left corner (OpenGL coordinates). The params
- * structure must be provided but all parameters are optional and can be left
- * null. The callbacks structure must be provided but all callback functions are
- * optional; all callback functions are called from the rendering thread,
- * except the render_ready function which is called from the internal pomp_loop
- * thread.
- * @warning: this function must be called from the application's rendering
- * thread.
- * @param pdraw: PDrAW back-end instance handle
- * @param media_id: identifier of the raw media to render (from a
- *                  pdraw_media_info structure); if zero the first
- *                  raw media found is used for rendering
- * @param render_pos: rendering position and size
- * @param params: renderer parameters
- * @param cbs: renderer callback functions
- * @param userdata: callback functions user data (optional, can be null)
- * @param egl_display: EGL display context
- * @param ret_obj: renderer handle (output)
- * @return 0 on success, negative errno value in case of error
- */
-PDRAW_BACKEND_API int pdraw_be_video_renderer_new_egl(
-	struct pdraw_backend *self,
-	unsigned int media_id,
-	const struct pdraw_rect *render_pos,
-	const struct pdraw_video_renderer_params *params,
-	const struct pdraw_backend_video_renderer_cbs *cbs,
-	void *userdata,
-	struct egl_display *egl_display,
-	struct pdraw_video_renderer **ret_obj);
 
 
 /**
@@ -1357,6 +1672,114 @@ pdraw_be_video_renderer_render_mat(struct pdraw_backend *self,
 
 
 /**
+ * Audio renderer API
+ */
+
+/**
+ * Create an audio renderer.
+ * This function creates an audio renderer on a media of the given media id;
+ * if the media id is zero the first audio media encountered is used.
+ * Once the renderer is created, the rendering is done internally.
+ * Once a renderer is no longer used it must be destroyed by calling the
+ * pdraw_be_audio_renderer_destroy() function. The params structure must be
+ * provided but all parameters are optional and can be left null. The callbacks
+ * structure must be provided but all callback functions are optional; all
+ * callback functions are called from the pomp_loop thread.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param media_id: identifier of the audio media to render (from a
+ *                  pdraw_media_info structure); if zero the first
+ *                  media media found is used for rendering
+ * @param params: renderer parameters
+ * @param cbs: renderer callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: renderer handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_renderer_new(struct pdraw_backend *self,
+			    unsigned int media_id,
+			    const struct pdraw_audio_renderer_params *params,
+			    const struct pdraw_backend_audio_renderer_cbs *cbs,
+			    void *userdata,
+			    struct pdraw_audio_renderer **ret_obj);
+
+
+/**
+ * Destroy an audio renderer.
+ * This function stops a running audio renderer and frees the associated
+ * resources.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param renderer: renderer handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_renderer_destroy(struct pdraw_backend *self,
+				struct pdraw_audio_renderer *renderer);
+
+
+/**
+ * Set the audio renderer media identifier.
+ * This function updates the identifier of the media on which the rendering is
+ * done; if the media id is zero the first audio media encountered is used.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param renderer: renderer handle
+ * @param media_id: identifier of the audio media to render (from a
+ *                  pdraw_media_info structure); if zero the first audio media
+ *                  found is used for rendering
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_renderer_set_media_id(struct pdraw_backend *self,
+				     struct pdraw_audio_renderer *renderer,
+				     unsigned int media_id);
+
+
+/**
+ * Get the audio renderer media identifier.
+ * This function retrieves the identifier of the media on which the rendering
+ * is done.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param renderer: renderer handle
+ * @return the identifier of the media on success, 0 if no media is being
+ *         renderered or in case of error
+ */
+PDRAW_BACKEND_API unsigned int
+pdraw_be_audio_renderer_get_media_id(struct pdraw_backend *self,
+				     struct pdraw_audio_renderer *renderer);
+
+
+/**
+ * Set the audio renderer parameters.
+ * This function updates the rendering parameters on a running audio renderer.
+ * The params structure must be provided but all parameters are optional and
+ * can be left null.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param renderer: renderer handle
+ * @param params: renderer parameters
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int pdraw_be_audio_renderer_set_params(
+	struct pdraw_backend *self,
+	struct pdraw_audio_renderer *renderer,
+	const struct pdraw_backend_audio_renderer_cbs *params);
+
+
+/**
+ * Get the audio renderer parameters.
+ * This function retrieves the rendering parameters on a running audio renderer.
+ * The provided params structure is filled by the function.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param renderer: renderer handle
+ * @param params: renderer parameters (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int pdraw_be_audio_renderer_get_params(
+	struct pdraw_backend *self,
+	struct pdraw_audio_renderer *renderer,
+	struct pdraw_backend_audio_renderer_cbs *params);
+
+
+/**
  * Video IPC source API
  */
 
@@ -1470,6 +1893,22 @@ pdraw_be_vipc_source_configure(struct pdraw_backend *self,
 			       struct pdraw_vipc_source *source,
 			       const struct vdef_dim *resolution,
 			       const struct vdef_rectf *crop);
+
+
+/**
+ * Insert a grey frame.
+ * This function can be used to insert a grey frame into the video IPC source at
+ * a given timestamp. This can be used for example to add a first sample on a
+ * VIPC that does not send frame continuously. The function can be called
+ * several times to insert several grey frames but the frame timestamp (usec)
+ * must be strictly monotonic.
+ * @param ts_us: the grey frame timestamp in microseconds
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_vipc_source_insert_grey_frame(struct pdraw_backend *self,
+				       struct pdraw_vipc_source *source,
+				       uint64_t ts_us);
 
 
 /**
@@ -1587,7 +2026,7 @@ pdraw_be_coded_video_source_flush(struct pdraw_backend *self,
  * @param meta: new session metadata
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_API int pdraw_be_coded_video_source_set_session_metadata(
+PDRAW_BACKEND_API int pdraw_be_coded_video_source_set_session_metadata(
 	struct pdraw_backend *self,
 	struct pdraw_coded_video_source *source,
 	const struct vmeta_session *meta);
@@ -1602,7 +2041,7 @@ PDRAW_API int pdraw_be_coded_video_source_set_session_metadata(
  * @param meta: session metadata (output)
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_API int pdraw_be_coded_video_source_get_session_metadata(
+PDRAW_BACKEND_API int pdraw_be_coded_video_source_get_session_metadata(
 	struct pdraw_backend *self,
 	struct pdraw_coded_video_source *source,
 	struct vmeta_session *meta);
@@ -1688,7 +2127,7 @@ pdraw_be_raw_video_source_flush(struct pdraw_backend *self,
  * @param meta: new session metadata
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_API int pdraw_be_raw_video_source_set_session_metadata(
+PDRAW_BACKEND_API int pdraw_be_raw_video_source_set_session_metadata(
 	struct pdraw_backend *self,
 	struct pdraw_raw_video_source *source,
 	const struct vmeta_session *meta);
@@ -1703,7 +2142,7 @@ PDRAW_API int pdraw_be_raw_video_source_set_session_metadata(
  * @param meta: session metadata (output)
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_API int pdraw_be_raw_video_source_get_session_metadata(
+PDRAW_BACKEND_API int pdraw_be_raw_video_source_get_session_metadata(
 	struct pdraw_backend *self,
 	struct pdraw_raw_video_source *source,
 	struct vmeta_session *meta);
@@ -1899,6 +2338,254 @@ pdraw_be_raw_video_sink_queue_flushed(struct pdraw_backend *self,
 
 
 /**
+ * ALSA source API
+ */
+
+/**
+ * Create an ALSA source.
+ * This function creates an ALSA source. Once an ALSA source is no longer used,
+ * it must be destroyed by calling the pdraw_alsa_source_destroy() function. The
+ * ALSA address must be provided. The callbacks structure must be provided; all
+ * callback functions are called from the pomp_loop thread.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param params: ALSA source parameters
+ * @param cbs: ALSA source callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: ALSA source handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_alsa_source_new(struct pdraw_backend *pdraw,
+			 const struct pdraw_alsa_source_params *params,
+			 const struct pdraw_backend_alsa_source_cbs *cbs,
+			 void *userdata,
+			 struct pdraw_alsa_source **ret_obj);
+
+
+/**
+ * Destroy an ALSA source.
+ * This function stops a running ALSA source and frees the associated resources.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: ALSA source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_alsa_source_destroy(struct pdraw_backend *pdraw,
+			     struct pdraw_alsa_source *source);
+
+
+/**
+ * Get the ready to play status.
+ * This function returns 1 if the ALSA source is ready to start, 0 otherwise.
+ * The value returned by this function is identical to the ready parameter
+ * passed to the ready_to_play() ALSA source callback function when it is
+ * called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: ALSA source handle
+ * @return the ready to play status on success, 0 in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_alsa_source_is_ready_to_play(struct pdraw_backend *pdraw,
+				      struct pdraw_alsa_source *source);
+
+
+/**
+ * Get the pause status.
+ * This function returns 1 if the ALSA source is currently paused, 0 otherwise.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: ALSA source handle
+ * @return the pause status on success, 0 in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_alsa_source_is_paused(struct pdraw_backend *pdraw,
+			       struct pdraw_alsa_source *source);
+
+
+/**
+ * Start receiving frames on the ALSA source.
+ * This function starts the ALSA source if it is ready to play. Otherwise an
+ * error is returned. Receiving frames can be halted by calling the
+ * pdraw_alsa_source_pause() function.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: ALSA source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_alsa_source_play(struct pdraw_backend *pdraw,
+			  struct pdraw_alsa_source *source);
+
+
+/**
+ * Stop receiving frames on the ALSA source.
+ * This function halts the ALSA source to stop receiving frames. Receiving
+ * frames can be resumed by calling the pdraw_alsa_source_play() function.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: ALSA source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_alsa_source_pause(struct pdraw_backend *pdraw,
+			   struct pdraw_alsa_source *source);
+
+
+/**
+ * Audio source API
+ */
+
+/**
+ * Create an audio source.
+ * This function creates an audio source to push frames to. Once the
+ * source is created, audio frames are to be pushed into the frame queue
+ * returned by the pdraw_be_audio_source_get_queue() function.
+ * Once an audio source is no longer used, it must be destroyed by calling the
+ * pdraw_be_audio_source_destroy() function.
+ * The params structure must be provided and must be filled.
+ * The callbacks structure must be provided and the flushed callback function
+ * is required to be implemented; all callback functions are called from the
+ * pomp_loop thread.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param params: audio source parameters
+ * @param cbs: audio source callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: audio source handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_source_new(struct pdraw_backend *pdraw,
+			  const struct pdraw_audio_source_params *params,
+			  const struct pdraw_backend_audio_source_cbs *cbs,
+			  void *userdata,
+			  struct pdraw_audio_source **ret_obj);
+
+
+/**
+ * Destroy an audio source.
+ * This function stops a running audio source and frees the associated
+ * resources. Once an audio source is destroyed the queue returned by
+ * pdraw_be_audio_source_get_queue() must no longer be used.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: audio source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_source_destroy(struct pdraw_backend *pdraw,
+			      struct pdraw_audio_source *source);
+
+
+/**
+ * Get the audio source frame queue.
+ * This function returns the frame queue to use in order to push frames to a
+ * running audio source. Frames are pushed into the queue by using the
+ * mbuf_audio_frame_queue_push() function.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: audio source handle
+ * @return a pointer on a mbuf_audio_frame_queue object on success, NULL
+ * in case of error
+ */
+PDRAW_BACKEND_API struct mbuf_audio_frame_queue *
+pdraw_be_audio_source_get_queue(struct pdraw_backend *pdraw,
+				struct pdraw_audio_source *source);
+
+
+/**
+ * Audio source flush function.
+ * This function is to be called when flushing is required. When this function
+ * is called, all frames previously pushed to the queue will be returned; once
+ * the flushing is done, the flushed() audio source callback function
+ * will be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: audio source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_source_flush(struct pdraw_backend *pdraw,
+			    struct pdraw_audio_source *source);
+
+
+/**
+ * Audio sink API
+ */
+
+/**
+ * Create an audio sink.
+ * This function creates an audio sink on a media of the given media_id.
+ * The media idenfifiers are known when the media_added or media_removed
+ * general callback functions are called.
+ * Once the sink is created, audio frames are retrieved by getting them
+ * from the queue returned by the pdraw_be_audio_sink_get_queue() function.
+ * Once an audio sink is no longer used, it must be destroyed by calling the
+ * pdraw_be_audio_sink_destroy() function.
+ * The callbacks structure must be provided and the flush callback function is
+ * required to be implemented; all callback functions are called from the
+ * pomp_loop thread. When the flush callback function is called, the
+ * application must flush the sink queue by calling
+ * mbuf_audio_frame_queue_flush() and must return all frames outside of
+ * the queue by calling mbuf_audio_frame_unref(); once the flushing is
+ * complete, the pdraw_be_audio_sink_queue_flushed() function must be called.
+ * @note media_id must refer to an audio media.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param media_id: identifier of the media on which to create the sink
+ * @param cbs: audio sink callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: audio sink handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_sink_new(struct pdraw_backend *pdraw,
+			unsigned int media_id,
+			const struct pdraw_backend_audio_sink_cbs *cbs,
+			void *userdata,
+			struct pdraw_audio_sink **ret_obj);
+
+
+/**
+ * Destroy an audio sink.
+ * This function stops a running audio sink and frees the associated resources.
+ * An audio sink must not be destroyed unless all frames outside of the queue
+ * have been returned by calling mbuf_audio_frame_unref(). Once an audio
+ * sink is destroyed the queue returned by pdraw_be_audio_sink_get_queue() must
+ * no longer be used.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: audio sink handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_sink_destroy(struct pdraw_backend *pdraw,
+			    struct pdraw_audio_sink *sink);
+
+
+/**
+ * Get the audio sink frame queue.
+ * This function returns the frame queue to use in order to retrieve frames
+ * from a running audio sink. Frames are retrieved from the queue by using the
+ * mbuf_audio_frame_queue_pop() function.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: audio sink handle
+ * @return a pointer on a mbuf_audio_frame_queue object on success, NULL
+ * in case of error
+ */
+PDRAW_BACKEND_API struct mbuf_audio_frame_queue *
+pdraw_be_audio_sink_get_queue(struct pdraw_backend *pdraw,
+			      struct pdraw_audio_sink *sink);
+
+
+/**
+ * Signal that an audio sink has been flushed.
+ * This function is used to signal that flushing is complete. When the flush
+ * audio sink callback function is called, the application must flush the sink
+ * queue by calling mbuf_audio_frame_queue_flush() and must return all
+ * frames outside of the queue by calling mbuf_audio_frame_unref(); once
+ * the flushing is complete, this function must be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: audio sink handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_sink_queue_flushed(struct pdraw_backend *pdraw,
+				  struct pdraw_audio_sink *sink);
+
+
+/**
  * Video encoder API
  */
 
@@ -1952,13 +2639,121 @@ pdraw_be_video_encoder_destroy(struct pdraw_backend *self,
  * @param self: PDrAW back-end instance handle
  * @param encoder: video encoder handle
  * @param config: video encoder configuration
- * @return a pointer on a mbuf_raw_video_frame_queue object on success, NULL
- * in case of error
+ * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
 pdraw_be_video_encoder_configure(struct pdraw_backend *self,
 				 struct pdraw_video_encoder *encoder,
 				 const struct venc_dyn_config *config);
+
+
+/**
+ * Get the video encoder dynamic configuration.
+ * This function fills the config structure with the dynamic configuration.
+ * The structure must have been previously allocated.
+ * @param self: PDrAW back-end instance handle
+ * @param encoder: video encoder handle
+ * @param config: video encoder configuration structure to fill
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_video_encoder_get_config(struct pdraw_backend *self,
+				  struct pdraw_video_encoder *encoder,
+				  struct venc_dyn_config *config);
+
+
+/**
+ * Video scaler API
+ */
+
+/**
+ * Create a video scaler.
+ * This function creates a video scaler on a media of the given media_id.
+ * The media idenfifiers are known when the media_added or media_removed
+ * general callback functions are called.
+ * The params structure must be provided but some parameters are optional and
+ * can be left null. The input sub-structure in the params structure is ignored.
+ * Once a video scaler is no longer used, it must be destroyed by calling the
+ * pdraw_video_scaler_destroy() function. The callbacks structure must be
+ * provided but all callback functions are optional; the frame_output callback
+ * is usually called from the pomp_loop thread, but it may depend on the video
+ * scaler implementation.
+ * @note media_id must refer to a raw video media.
+ * @param self: PDrAW back-end instance handle
+ * @param media_id: identifier of the media on which to create the scaler
+ * @param params: video scaler parameters
+ * @param cbs: PDrAW callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: video scaler handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_video_scaler_new(struct pdraw_backend *self,
+			  unsigned int media_id,
+			  const struct vscale_config *params,
+			  const struct pdraw_backend_video_scaler_cbs *cbs,
+			  void *userdata,
+			  struct pdraw_video_scaler **ret_obj);
+
+
+/**
+ * Destroy a video scaler.
+ * This function stops a running video scaler and frees the associated
+ * resources.
+ * @param self: PDrAW back-end instance handle
+ * @param scaler: video scaler handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_video_scaler_destroy(struct pdraw_backend *self,
+			      struct pdraw_video_scaler *scaler);
+
+
+/**
+ * Audio encoder API
+ */
+/**
+ * Create an audio encoder.
+ * This function creates an audio encoder on a media of the given media_id.
+ * The media idenfifiers are known when the media_added or media_removed
+ * general callback functions are called.
+ * The params structure must be provided but some parameters are optional and
+ * can be left null. The input sub-structure in the params structure is ignored.
+ * Once an audio encoder is no longer used, it must be destroyed by calling the
+ * pdraw_be_audio_encoder_destroy() function. The callbacks structure must be
+ * provided but all callback functions are optional; the frame_output callback
+ * is usually called from the pomp_loop thread, but it may depend on the audio
+ * encoder implementation. The frame_pre_release callback is called from the
+ * thread that unrefs the frame; it can be any thread.
+ * @note media_id must refer to a raw audio media.
+ * @param self: PDrAW back-end instance handle
+ * @param media_id: identifier of the media on which to create the encoder
+ * @param params: audio encoder parameters
+ * @param cbs: audio encoder callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: audio encoder handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_encoder_new(struct pdraw_backend *self,
+			   unsigned int media_id,
+			   const struct aenc_config *params,
+			   const struct pdraw_backend_audio_encoder_cbs *cbs,
+			   void *userdata,
+			   struct pdraw_audio_encoder **ret_obj);
+
+
+/**
+ * Destroy an audio encoder.
+ * This function stops a running audio encoder and frees the associated
+ * resources.
+ * @param self: PDrAW back-end instance handle
+ * @param encoder: audio encoder handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_encoder_destroy(struct pdraw_backend *self,
+			       struct pdraw_audio_encoder *encoder);
 
 
 /**
@@ -2065,127 +2860,6 @@ pdraw_be_get_software_version_setting(struct pdraw_backend *self,
 PDRAW_BACKEND_API int
 pdraw_be_set_software_version_setting(struct pdraw_backend *self,
 				      const char *software_version);
-
-
-/**
- * Get the pipeline mode setting.
- * This function returns the pipeline mode of a PDrAW instance. The pipeline
- * mode controls whether to decode the selected video media (for full processing
- * up to the rendering), or to disable video decoding (e.g. when no rendering
- * is required, only a coded video sink).
- * @param pdraw: PDrAW back-end instance handle
- * @return the pipeline mode, or PDRAW_PIPELINE_MODE_DECODE_ALL in case of error
- */
-PDRAW_BACKEND_API enum pdraw_pipeline_mode
-pdraw_be_get_pipeline_mode_setting(struct pdraw_backend *self);
-
-
-/**
- * Set the pipeline mode setting.
- * This function sets the pipeline mode of a PDrAW instance. This function can
- * be called only prior to any open operation. The pipeline mode controls
- * whether to decode the selected video media (for full processing up to the
- * rendering), or to disable video decoding (e.g. when no rendering is required,
- * only a coded video sink).
- * @param pdraw: PDrAW back-end instance handle
- * @param mode: pipeline mode
- * @return 0 on success, negative errno value in case of error
- */
-PDRAW_BACKEND_API int
-pdraw_be_set_pipeline_mode_setting(struct pdraw_backend *self,
-				   enum pdraw_pipeline_mode mode);
-
-
-/**
- * Get the display screen settings.
- * This function returns the display screen settings through the xdpi, ydpi and
- * device_margin_* parameters. This is only useful if HMD distortion correction
- * is enabled in the video rendering. The xdpi and ydpi are pixel densities in
- * dots per inches. The device margins are in millimeters.
- * @param pdraw: PDrAW back-end instance handle
- * @param xdpi: horizontal pixel density (output)
- * @param ydpi: vertical pixel density (output)
- * @param device_margin_top: top device margin (output)
- * @param device_margin_bottom: bottom device margin (output)
- * @param device_margin_left: left device margin (output)
- * @param device_margin_right: right device margin (output)
- * @return 0 on success, negative errno value in case of error
- */
-PDRAW_BACKEND_API int
-pdraw_be_get_display_screen_settings(struct pdraw_backend *self,
-				     float *xdpi,
-				     float *ydpi,
-				     float *device_margin_top,
-				     float *device_margin_bottom,
-				     float *device_margin_left,
-				     float *device_margin_right);
-
-
-/**
- * Set the display screen settings.
- * This function sets the display screen settings. This is only useful if HMD
- * distortion correction is enabled in the video rendering. The xdpi and ydpi
- * are pixel densities in dots per inches. The device margins are in
- * millimeters.
- * @param pdraw: PDrAW back-end instance handle
- * @param xdpi: horizontal pixel density
- * @param ydpi: vertical pixel density
- * @param device_margin_top: top device margin
- * @param device_margin_bottom: bottom device margin
- * @param device_margin_left: left device margin
- * @param device_margin_right: right device margin
- * @return 0 on success, negative errno value in case of error
- */
-PDRAW_BACKEND_API int
-pdraw_be_set_display_screen_settings(struct pdraw_backend *self,
-				     float xdpi,
-				     float ydpi,
-				     float device_margin_top,
-				     float device_margin_bottom,
-				     float device_margin_left,
-				     float device_margin_right);
-
-
-/**
- * Get the HMD model setting.
- * This function returns the head-mounted display (HMD) model. This is only
- * useful if HMD distortion correction is enabled in the video rendering.
- * @param pdraw: PDrAW back-end instance handle
- * @return the HMD model, or PDRAW_HMD_MODEL_UNKNOWN in case of error
- */
-PDRAW_BACKEND_API enum pdraw_hmd_model
-pdraw_be_get_hmd_model_setting(struct pdraw_backend *self);
-
-
-/**
- * Set the HMD model setting.
- * This function sets the head-mounted display (HMD) model. This is only
- * useful if HMD distortion correction is enabled in the video rendering.
- * @param pdraw: PDrAW back-end instance handle
- * @param hmd_model: HMD model
- * @return 0 on success, negative errno value in case of error
- */
-PDRAW_BACKEND_API int
-pdraw_be_set_hmd_model_setting(struct pdraw_backend *self,
-			       enum pdraw_hmd_model hmd_model);
-
-
-/**
- * Platform-specific API
- */
-
-/**
- * Set the Android JVM pointer.
- * This function sets the JVM pointer for internal calls to the Android SDK API.
- * This is only useful on Android and is ignored on other platforms. If the
- * JVM pointer is not provided on Android platforms, some features may not be
- * available.
- * @param pdraw: PDrAW back-end instance handle
- * @param jvm: JVM pointer
- * @return 0 on success, negative errno value in case of error
- */
-PDRAW_BACKEND_API int pdraw_be_set_android_jvm(struct pdraw_backend *self,
-					       void *jvm);
 
 
 /**

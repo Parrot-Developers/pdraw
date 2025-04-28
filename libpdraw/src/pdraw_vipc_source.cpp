@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video IPC source
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -28,14 +28,17 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef BUILD_LIBVIDEO_IPC
-
-#	define ULOG_TAG pdraw_vipc_source
-#	include <ulog.h>
+#define ULOG_TAG pdraw_vipc_source
+#include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
-#	include <time.h>
+#include <libmp4.h>
+#include <time.h>
 
+#include "pdraw_session.hpp"
+#include "pdraw_vipc_source.hpp"
+
+#ifdef BUILD_LIBVIDEO_IPC
 #	if PDRAW_VIPC_BACKEND_HISI || PDRAW_VIPC_BACKEND_NETWORK_HISI
 #		include <hi_buffer.h>
 #		include <mpi_sys.h>
@@ -46,10 +49,13 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #	if PDRAW_VIPC_BACKEND_DMABUF
 #		include <media-buffers/mbuf_mem_ion.h>
+#		include <linux/ion.h>
+#		include <sys/ioctl.h>
+#		define ION_BIT(nr) (1U << (nr))
+#		define ION_HEAP(bit) ION_BIT(bit)
+#		define ION_SECURE_HEAP_ID 9
+#		define ION_SYSTEM_HEAP_ID 25
 #	endif
-
-#	include "pdraw_session.hpp"
-#	include "pdraw_vipc_source.hpp"
 
 #	define PDRAW_VIPC_SOURCE_ANCILLARY_KEY_INPUT_TIME                     \
 		"pdraw.vipcsource.input_time"
@@ -59,28 +65,33 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #	define DEFAULT_IN_POOL_SIZE 10
 #	define DEFAULT_TIMESCALE 1000000
 #	define DEFAULT_TIMEOUT_MS 2000
-
+#endif
 
 namespace Pdraw {
 
 
-/* TODO: Channel::DownstreamEvent::TIMEOUT? */
+#ifdef BUILD_LIBVIDEO_IPC
 
+/* TODO: Channel::DownstreamEvent::TIMEOUT? */
 
 VipcSource::VipcSource(Session *session,
 		       Element::Listener *elementListener,
 		       Source::Listener *sourceListener,
 		       IPdraw::IVipcSource::Listener *listener,
-		       IPdraw::IVipcSource *source,
+		       VipcSourceWrapper *wrapper,
 		       const struct pdraw_vipc_source_params *params) :
-		SourceElement(session, elementListener, 1, sourceListener),
-		mVipcSource(source), mVipcSourceListener(listener),
+		SourceElement(session,
+			      elementListener,
+			      wrapper,
+			      1,
+			      sourceListener),
+		mVipcSource(wrapper), mVipcSourceListener(listener),
 		mClient(nullptr),
 		mLastEosReason(PDRAW_VIPC_SOURCE_EOS_REASON_NONE),
 		mOutputMedia(nullptr), mOutputMediaChanging(false),
-		mVipcConnected(false), mReady(false), mWasReady(false),
-		mRunning(false), mWasRunning(false), mFirstFrame(true),
-		mInputFramesCount(0), mFrameIndex(0),
+		mKeepMedia(false), mVipcConnected(false), mReady(false),
+		mWasReady(false), mRunning(false), mWasRunning(false),
+		mFirstFrame(true), mInputFramesCount(0), mNextFrameIndex(0),
 		mTimescale(DEFAULT_TIMESCALE), mLastTimestamp(UINT64_MAX),
 		mFlushPending(false), mWatchdogTimer(nullptr)
 {
@@ -91,7 +102,7 @@ VipcSource::VipcSource(Session *session,
 #	endif
 
 	mBackendType = (VipcSource::BackendType)0;
-	mStatus = {};
+	mStatus = nullptr;
 
 	mParams = *params;
 	if (params->address != nullptr) {
@@ -121,8 +132,10 @@ VipcSource::VipcSource(Session *session,
 	}
 	if (mParams.decimation == 0)
 		mParams.decimation = 1;
-	if (mParams.timeout_ms == 0)
-		mParams.timeout_ms = DEFAULT_TIMEOUT_MS;
+	if (mParams.connection_timeout_ms == 0)
+		mParams.connection_timeout_ms = DEFAULT_TIMEOUT_MS;
+	if (mParams.frame_timeout_ms == 0)
+		mParams.frame_timeout_ms = DEFAULT_TIMEOUT_MS;
 
 	setState(CREATED);
 }
@@ -132,8 +145,16 @@ VipcSource::~VipcSource(void)
 {
 	int err;
 
+	/* Make sure listener functions will no longer be called */
+	mVipcSourceListener = nullptr;
+
 	if (mState == STARTED)
 		PDRAW_LOGW("VIPC source is still running");
+
+	/* Remove any leftover idle callbacks */
+	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 
 	if (mClient != nullptr) {
 		err = vipcc_destroy(mClient);
@@ -152,6 +173,8 @@ VipcSource::~VipcSource(void)
 		if (err < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
 	}
+
+	vipc_status_free(mStatus);
 }
 
 
@@ -180,7 +203,8 @@ int VipcSource::start(void)
 	}
 
 	/* Watchdog is only created if timeout is specified */
-	if (mWatchdogTimer == nullptr && mParams.timeout_ms != -1) {
+	if (mWatchdogTimer == nullptr && (mParams.connection_timeout_ms != -1 ||
+					  mParams.frame_timeout_ms != -1)) {
 		mWatchdogTimer = pomp_timer_new(
 			mSession->getLoop(), watchdogTimerCb, this);
 		if (mWatchdogTimer == nullptr) {
@@ -204,8 +228,9 @@ int VipcSource::start(void)
 		goto error;
 	}
 
-	if (mWatchdogTimer != nullptr) {
-		ret = pomp_timer_set(mWatchdogTimer, mParams.timeout_ms);
+	if (mWatchdogTimer != nullptr && mParams.connection_timeout_ms != -1) {
+		ret = pomp_timer_set(mWatchdogTimer,
+				     mParams.connection_timeout_ms);
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("pomp_timer_set", -ret);
 			goto error;
@@ -235,6 +260,14 @@ int VipcSource::stop(void)
 	}
 
 	setState(STOPPING);
+
+	/* Make sure listener functions will no longer be called */
+	mVipcSourceListener = nullptr;
+
+	Source::lock();
+	if (mOutputMedia != nullptr)
+		mOutputMedia->setTearingDown();
+	Source::unlock();
 
 	if (mRunning) {
 		err = vipcc_stop(mClient);
@@ -297,6 +330,13 @@ void VipcSource::completeStop(void)
 
 exit:
 	Source::unlock();
+
+	if (mClient != nullptr) {
+		err = vipcc_destroy(mClient);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("vipcc_destroy", -err);
+		mClient = nullptr;
+	}
 
 	if (mWatchdogTimer != nullptr) {
 		err = pomp_timer_clear(mWatchdogTimer);
@@ -435,7 +475,7 @@ void VipcSource::onChannelFlushed(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
@@ -481,8 +521,9 @@ int VipcSource::play(void)
 		return ret;
 	}
 
-	if (mWatchdogTimer != nullptr) {
-		int err = pomp_timer_set(mWatchdogTimer, mParams.timeout_ms);
+	if (mWatchdogTimer != nullptr && mParams.frame_timeout_ms != -1) {
+		int err = pomp_timer_set(mWatchdogTimer,
+					 mParams.frame_timeout_ms);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 	}
@@ -533,6 +574,219 @@ int VipcSource::configure(const struct vdef_dim *resolution,
 }
 
 
+int VipcSource::insertGreyFrame(uint64_t tsUs)
+{
+	int ret, err;
+	struct mbuf_raw_video_frame *frame = nullptr;
+	unsigned int outputChannelCount;
+	struct timespec ts = {0, 0};
+	uint64_t curTime = 0;
+	struct vdef_raw_frame frameInfo = {};
+	RawVideoMedia::Frame out_meta = {};
+	size_t frameSize = 0;
+	struct mbuf_mem *mem = nullptr;
+	uint8_t *data = nullptr;
+	size_t size = 0;
+	size_t offset = 0;
+
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mStatus == nullptr, EPROTO);
+
+	ret = vacq_pix_format_to_vdef_raw_format(mStatus->format,
+						 &frameInfo.format);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("vacq_pix_format_to_vdef_raw_format", -ret);
+		goto out;
+	}
+	vdef_format_to_frame_info(&mOutputMedia->info, &frameInfo.info);
+	frameInfo.info.timestamp = mp4_usec_to_sample_time(tsUs, mTimescale);
+	frameInfo.info.timescale = mTimescale;
+	frameInfo.info.capture_timestamp = 0;
+	/* Indicate that the frame is fake */
+	frameInfo.info.flags = VDEF_FRAME_FLAG_FAKE;
+	frameInfo.info.index = mNextFrameIndex;
+	frameInfo.info.full_range = mStatus->full_range;
+	frameInfo.info.resolution.width = mStatus->width;
+	frameInfo.info.resolution.height = mStatus->height;
+	for (size_t i = 0; i < mStatus->num_planes; i++) {
+		frameInfo.plane_stride[i] = mStatus->planes[i].stride;
+		frameSize += mStatus->planes[i].size;
+	}
+
+	/* Check the frame timestamp */
+	if ((mLastTimestamp != UINT64_MAX) &&
+	    (frameInfo.info.timestamp <= mLastTimestamp)) {
+		PDRAW_LOGE("%s: non-strictly-monotonic timestamp (%" PRIu64
+			   " <= %" PRIu64 ")",
+			   __func__,
+			   frameInfo.info.timestamp,
+			   mLastTimestamp);
+		ret = -EINVAL;
+		goto out;
+	}
+
+	ret = mbuf_raw_video_frame_new(&frameInfo, &frame);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_new", -ret);
+		goto out;
+	}
+
+	switch (mBackendType) {
+#	if PDRAW_VIPC_BACKEND_DMABUF
+	case BackendType::DMABUF: {
+		struct mbuf_ion_heap_attr heapAttrs = {};
+		heapAttrs.heap_id_mask = ION_HEAP(ION_SECURE_HEAP_ID) |
+					 ION_HEAP(ION_SYSTEM_HEAP_ID);
+		heapAttrs.flags = ION_FLAG_CACHED;
+		ret = mbuf_mem_ion_new(&heapAttrs, frameSize, &mem);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_mem_ion_new", -ret);
+			goto out;
+		}
+		break;
+	}
+#	endif
+#	if PDRAW_VIPC_BACKEND_SHM || PDRAW_VIPC_BACKEND_NETWORK_CBUF
+	case BackendType::SHM: {
+		ret = mbuf_mem_generic_new(frameSize, &mem);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_mem_generic_new", -ret);
+			goto out;
+		}
+		break;
+	}
+#	endif
+#	if PDRAW_VIPC_BACKEND_HISI || PDRAW_VIPC_BACKEND_NETWORK_HISI
+	case BackendType::HISI: {
+		/* TODO: single hisi memory is not supported, a pool should be
+		 * created */
+		ret = -ENOSYS;
+		goto out;
+	}
+#	endif
+	default:
+		ret = -ENOSYS;
+		goto out;
+	}
+
+#	pragma GCC diagnostic push
+#	pragma GCC diagnostic ignored "-Wunreachable-code"
+	/* coverity[unreachable] */
+	ret = mbuf_mem_get_data(mem, (void **)&data, &size);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
+		goto out;
+	}
+	if (size == 0 || size < frameSize) {
+		PDRAW_LOGE("insufficient buffer space");
+		goto out;
+	}
+
+	/* Fill the frame with grey */
+	if (vdef_raw_format_cmp(&frameInfo.format, &vdef_nv12) ||
+	    vdef_raw_format_cmp(&frameInfo.format, &vdef_nv21) ||
+	    vdef_raw_format_cmp(&frameInfo.format, &vdef_i420)) {
+		memset(data, 0x80, size);
+	} else if (vdef_raw_format_cmp(&frameInfo.format, &vdef_raw16)) {
+		const uint16_t RAW16_GREY = 0x8000;
+		for (size_t i = 0; (i + 1) < size; i += 2) {
+			memcpy(data + i, &RAW16_GREY, sizeof(RAW16_GREY));
+		}
+	} else {
+		ret = -ENOSYS;
+		goto out;
+	}
+
+	for (size_t i = 0; i < mStatus->num_planes; i++) {
+		size_t planeSize = mStatus->planes[i].size;
+		ret = mbuf_raw_video_frame_set_plane(
+			frame, i, mem, offset, planeSize);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_set_plane", -ret);
+			goto out;
+		}
+		offset += planeSize;
+	}
+
+	/* Set the ancillary data */
+	time_get_monotonic(&ts);
+	time_timespec_to_us(&ts, &curTime);
+	err = mbuf_raw_video_frame_add_ancillary_buffer(
+		frame,
+		PDRAW_VIPC_SOURCE_ANCILLARY_KEY_INPUT_TIME,
+		&curTime,
+		sizeof(curTime));
+	if (err < 0) {
+		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_add_ancillary_buffer",
+				-err);
+	}
+
+	out_meta.ntpTimestamp = 0;
+	out_meta.ntpUnskewedTimestamp = 0;
+	out_meta.ntpRawTimestamp = 0;
+	out_meta.ntpRawUnskewedTimestamp = 0;
+	out_meta.demuxOutputTimestamp = curTime;
+	out_meta.playTimestamp = 0;
+	out_meta.captureTimestamp = 0;
+	out_meta.localTimestamp = 0;
+
+	ret = mbuf_raw_video_frame_add_ancillary_buffer(
+		frame,
+		PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME,
+		&out_meta,
+		sizeof(out_meta));
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_add_ancillary_buffer",
+				-ret);
+		goto out;
+	}
+
+	ret = mbuf_raw_video_frame_finalize(frame);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_finalize", -ret);
+		goto out;
+	}
+
+	Source::lock();
+
+	/* Queue the frame in the output channels */
+	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	for (unsigned int i = 0; i < outputChannelCount; i++) {
+		Channel *c = getOutputChannel(mOutputMedia, i);
+		RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(c);
+		if (channel == nullptr) {
+			PDRAW_LOGE("failed to get channel at index %d", i);
+			continue;
+		}
+		err = channel->queue(frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("channel->queue", -err);
+	}
+
+	/* Save frame timestamp as last_timestamp */
+	mLastTimestamp = frameInfo.info.timestamp;
+	/* Increment next frame index */
+	mNextFrameIndex++;
+
+	Source::unlock();
+
+	ret = 0;
+
+out:
+	if (frame != nullptr) {
+		err = mbuf_raw_video_frame_unref(frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+	}
+	if (mem != nullptr) {
+		err = mbuf_mem_unref(mem);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_mem_unref", -err);
+	}
+	return ret;
+#	pragma GCC diagnostic pop
+}
+
+
 int VipcSource::setSessionMetadata(const struct vmeta_session *meta)
 {
 	if (meta == nullptr)
@@ -543,9 +797,11 @@ int VipcSource::setSessionMetadata(const struct vmeta_session *meta)
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		mOutputMedia->sessionMeta = mParams.session_meta;
-		sendDownstreamEvent(
+		int err = sendDownstreamEvent(
 			mOutputMedia,
 			Channel::DownstreamEvent::SESSION_META_UPDATE);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
 	}
 	Source::unlock();
 
@@ -575,7 +831,6 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 	struct timespec ts = {0, 0};
 	uint64_t curTime = 0;
 	unsigned int outputChannelCount;
-	IPdraw::IVipcSource::Listener *listener = getVipcSourceListener();
 
 	if (mState != STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
@@ -584,8 +839,8 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 		return -EPROTO;
 	}
 
-	if (mWatchdogTimer != nullptr) {
-		err = pomp_timer_set(mWatchdogTimer, mParams.timeout_ms);
+	if (mWatchdogTimer != nullptr && mParams.frame_timeout_ms != -1) {
+		err = pomp_timer_set(mWatchdogTimer, mParams.frame_timeout_ms);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 	}
@@ -600,8 +855,10 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 
 	if (mFirstFrame) {
 		mFirstFrame = false;
-		sendDownstreamEvent(mOutputMedia,
-				    Channel::DownstreamEvent::SOS);
+		err = sendDownstreamEvent(mOutputMedia,
+					  Channel::DownstreamEvent::SOS);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
 	}
 
 	ret = vacq_pix_format_to_vdef_raw_format(vipcFrame->format,
@@ -612,10 +869,10 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 	}
 	vdef_format_to_frame_info(&mOutputMedia->info, &frameInfo.info);
 	frameInfo.info.timestamp =
-		(vipcFrame->ts_sof_ns * mTimescale + 500000000) / 1000000000;
+		((vipcFrame->ts_sof_ns / 1000) * mTimescale + 500000) / 1000000;
 	frameInfo.info.timescale = mTimescale;
 	frameInfo.info.capture_timestamp = vipcFrame->ts_sof_ns / 1000;
-	frameInfo.info.index = mFrameIndex++;
+	frameInfo.info.index = mNextFrameIndex;
 	frameInfo.info.full_range =
 		(vipcFrame->meta.flags & VIPC_META_FLAG_FULL_RANGE);
 	frameInfo.info.resolution.width = vipcFrame->width;
@@ -673,9 +930,6 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 		goto out;
 	}
 
-	/* Save frame timestamp as last_timestamp */
-	mLastTimestamp = frameInfo.info.timestamp;
-
 	/* Create the raw video frame */
 	ret = mbuf_raw_video_frame_new(&frameInfo, &mbufFrame);
 	if (ret < 0) {
@@ -728,9 +982,24 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 	}
 
 	/* Notify that a frame is ready */
-	if (listener != nullptr) {
-		listener->vipcSourceFrameReady(
+	if (mVipcSourceListener != nullptr) {
+		mVipcSourceListener->vipcSourceFrameReady(
 			mSession, getVipcSource(), mbufFrame);
+	}
+
+	/* Note: the vipcSourceFrameReady listener may call the insertGreyFrame
+	 * API function, leading to non-monotonic frame indexes.
+	 * Update the currently processed frame index if necessary before
+	 * finalizing the frame. */
+	if (mNextFrameIndex > frameInfo.info.index) {
+		frameInfo.info.index = mNextFrameIndex;
+		ret = mbuf_raw_video_frame_set_frame_info(mbufFrame,
+							  &frameInfo);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_set_frame_info",
+					-ret);
+			goto out;
+		}
 	}
 
 	/* Finalize the frame */
@@ -754,6 +1023,11 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 			PDRAW_LOG_ERRNO("channel->queue", -err);
 	}
 
+	/* Save frame timestamp as last_timestamp */
+	mLastTimestamp = frameInfo.info.timestamp;
+	/* Increment next frame index */
+	mNextFrameIndex++;
+
 out:
 	Source::unlock();
 
@@ -773,6 +1047,9 @@ const VipcSource::Backend *VipcSource::getBackend(const char *name,
 {
 	if (BE_COUNT == 0)
 		return nullptr;
+#	pragma GCC diagnostic push
+#	pragma GCC diagnostic ignored "-Wunreachable-code"
+	/* coverity[unreachable] */
 	if (!name || strcmp(name, DEFAULT_BACKEND_NAME) == 0)
 		goto default_backend;
 
@@ -792,11 +1069,14 @@ default_backend:
 		return &cBackends[0];
 	}
 	return nullptr;
+#	pragma GCC diagnostic pop
 }
 
 
 int VipcSource::setupMedia(void)
 {
+	bool validStatus = (mStatus != nullptr);
+
 	if (mState == STOPPED)
 		return 0;
 
@@ -816,8 +1096,10 @@ int VipcSource::setupMedia(void)
 		return 0;
 	}
 
-	if (mOutputMedia != nullptr) {
-		mOutputMediaChanging = true;
+	if ((mOutputMedia != nullptr) &&
+	    (!validStatus || (validStatus && !mKeepMedia))) {
+		if (!mKeepMedia)
+			mOutputMediaChanging = true;
 		int ret = flush();
 		Source::unlock();
 		return ret;
@@ -825,16 +1107,36 @@ int VipcSource::setupMedia(void)
 
 	Source::unlock();
 
-	if (mStatus.width > 0 && mStatus.height > 0)
+	if (validStatus && mStatus->width > 0 && mStatus->height > 0)
 		return createMedia();
 	else
 		return 0;
 }
 
 
+/**
+ * Vipc source listener calls from idle functions
+ */
+void VipcSource::callOnMediaAdded(void *userdata)
+{
+	VipcSource *self = reinterpret_cast<VipcSource *>(userdata);
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	if (self->mOutputMedia == nullptr) {
+		PDRAW_LOGW("%s: output media not found", __func__);
+		return;
+	}
+
+	if (self->Source::mListener) {
+		self->Source::mListener->onOutputMediaAdded(
+			self, self->mOutputMedia, self->getVipcSource());
+	}
+}
+
+
 int VipcSource::createMedia(void)
 {
-	int ret;
+	int ret, err;
 	std::string path;
 
 	if (mState != STARTED) {
@@ -844,9 +1146,14 @@ int VipcSource::createMedia(void)
 		return -EPROTO;
 	}
 
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mStatus == nullptr, EPROTO);
+
 	Source::lock();
 
 	if (mOutputMedia != nullptr) {
+		if (mKeepMedia)
+			goto media_created;
+
 		Source::unlock();
 		PDRAW_LOGE("already existing output media");
 		return -EALREADY;
@@ -868,36 +1175,36 @@ int VipcSource::createMedia(void)
 		return ret;
 	}
 
-	ret = vacq_pix_format_to_vdef_raw_format(mStatus.format,
+	ret = vacq_pix_format_to_vdef_raw_format(mStatus->format,
 						 &mOutputMedia->format);
 	if (ret < 0) {
 		Source::unlock();
 		PDRAW_LOG_ERRNO("vacq_pix_format_to_vdef_raw_format", -ret);
 		return ret;
 	}
-	mOutputMedia->info.framerate.num = mStatus.framerate_num;
+	mOutputMedia->info.framerate.num = mStatus->framerate_num;
 	mOutputMedia->info.framerate.den =
-		mStatus.framerate_den * mParams.decimation;
+		mStatus->framerate_den * mParams.decimation;
 	mOutputMedia->info.bit_depth = mOutputMedia->format.pix_size;
-	mOutputMedia->info.full_range = mStatus.full_range;
-	mOutputMedia->info.color_primaries = mStatus.color_primaries;
-	mOutputMedia->info.transfer_function = mStatus.transfer_function;
+	mOutputMedia->info.full_range = mStatus->full_range;
+	mOutputMedia->info.color_primaries = mStatus->color_primaries;
+	mOutputMedia->info.transfer_function = mStatus->transfer_function;
 	mOutputMedia->info.matrix_coefs =
 		VDEF_MATRIX_COEFS_UNKNOWN; /* Note: unavailable for now */
-	mOutputMedia->info.dynamic_range = mStatus.dynamic_range;
-	mOutputMedia->info.tone_mapping = mStatus.tone_mapping;
-	mOutputMedia->info.resolution.width = mStatus.width;
-	mOutputMedia->info.resolution.height = mStatus.height;
+	mOutputMedia->info.dynamic_range = mStatus->dynamic_range;
+	mOutputMedia->info.tone_mapping = mStatus->tone_mapping;
+	mOutputMedia->info.resolution.width = mStatus->width;
+	mOutputMedia->info.resolution.height = mStatus->height;
 	mOutputMedia->info.sar.width = 1; /* Note: unavailable for now */
 	mOutputMedia->info.sar.height = 1; /* Note: unavailable for now */
 	mOutputMedia->sessionMeta = mParams.session_meta;
 	mOutputMedia->playbackType = PDRAW_PLAYBACK_TYPE_LIVE;
 	mOutputMedia->duration = 0;
 
-	mParams.resolution.width = mStatus.width;
-	mParams.resolution.height = mStatus.height;
+	mParams.resolution.width = mStatus->width;
+	mParams.resolution.height = mStatus->height;
 	if (mParams.timescale == 0)
-		mTimescale = mStatus.framerate_num;
+		mTimescale = mStatus->framerate_num;
 	else
 		mTimescale = mParams.timescale;
 	/* Ensure that the timescale is precise enough to avoid non strictly
@@ -909,24 +1216,30 @@ int VipcSource::createMedia(void)
 
 	PDRAW_LOGI("output media created");
 
-	IPdraw::IVipcSource::Listener *listener = getVipcSourceListener();
-	if (listener != nullptr) {
-		listener->vipcSourceConfigured(mSession,
-					       getVipcSource(),
-					       0,
-					       &mOutputMedia->info,
-					       &mParams.crop);
+	if (mVipcSourceListener != nullptr) {
+		mVipcSourceListener->vipcSourceConfigured(mSession,
+							  getVipcSource(),
+							  0,
+							  &mOutputMedia->info,
+							  &mParams.crop);
 	}
 
 	if (Source::mListener) {
-		Source::mListener->onOutputMediaAdded(
-			this, mOutputMedia, getVipcSource());
+		/* Call the onMediaAdded listener function from a fresh
+		 * callstack as a direct call could ultimately be blocking
+		 * in a pdraw-backend application calling another pdraw-backend
+		 * function from the onMediaAdded listener function */
+		err = pomp_loop_idle_add_with_cookie(
+			mSession->getLoop(), callOnMediaAdded, this, this);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 	}
 
+media_created:
 	if (!mReady) {
 		mReady = true;
-		if (listener != nullptr) {
-			listener->vipcSourceReadyToPlay(
+		if (mVipcSourceListener != nullptr) {
+			mVipcSourceListener->vipcSourceReadyToPlay(
 				mSession,
 				getVipcSource(),
 				mReady,
@@ -936,12 +1249,13 @@ int VipcSource::createMedia(void)
 
 	if (mWasRunning) {
 		mWasRunning = false;
-		int err = vipcc_start(mClient);
+		err = vipcc_start(mClient);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("vipcc_start", -err);
-		if (mWatchdogTimer != nullptr) {
+		if (mWatchdogTimer != nullptr &&
+		    mParams.connection_timeout_ms != -1) {
 			err = pomp_timer_set(mWatchdogTimer,
-					     mParams.timeout_ms);
+					     mParams.connection_timeout_ms);
 			if (err < 0)
 				PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 		}
@@ -992,13 +1306,12 @@ int VipcSource::destroyMedia(void)
 
 	if (mWasReady) {
 		mWasReady = false;
-		IPdraw::IVipcSource::Listener *listener =
-			getVipcSourceListener();
-		if ((listener != nullptr) && (mState == STARTED)) {
-			listener->vipcSourceReadyToPlay(mSession,
-							getVipcSource(),
-							mReady,
-							mLastEosReason);
+		if ((mVipcSourceListener != nullptr) && (mState == STARTED)) {
+			mVipcSourceListener->vipcSourceReadyToPlay(
+				mSession,
+				getVipcSource(),
+				mReady,
+				mLastEosReason);
 		}
 	}
 
@@ -1021,7 +1334,7 @@ int VipcSource::teardownChannels(void)
 	 * Note: loop downwards because calling teardown on a channel may or
 	 * may not synchronously remove the channel from the output port */
 
-	unsigned int outputChannelCount = getOutputChannelCount(mOutputMedia);
+	int outputChannelCount = getOutputChannelCount(mOutputMedia);
 
 	for (int i = outputChannelCount - 1; i >= 0; i--) {
 		Channel *channel = getOutputChannel(mOutputMedia, i);
@@ -1046,7 +1359,9 @@ void VipcSource::statusCb(struct vipcc_ctx *ctx,
 			  const struct vipc_status *status,
 			  void *userdata)
 {
+	int err;
 	VipcSource *self = reinterpret_cast<VipcSource *>(userdata);
+	unsigned int gcd;
 
 	PDRAW_LOGN(
 		"%s('%s'): %ux%u@%.2ffps (color=%s, transfer=%s, "
@@ -1071,18 +1386,101 @@ void VipcSource::statusCb(struct vipcc_ctx *ctx,
 		return;
 	}
 
+	if (self->mStatus != nullptr) {
+		struct vipc_status statusCopy = *self->mStatus;
+
+		/* Check for framerate change only */
+		statusCopy.framerate_num = status->framerate_num;
+		statusCopy.framerate_den = status->framerate_den;
+
+		if (vipc_status_cmp(self->mStatus, status)) {
+			PDRAW_LOGW("%s: ignored (identical)", __func__);
+			self->mWasRunning = self->mRunning;
+			self->mRunning = false;
+			goto ignore;
+		} else if (self->mVipcSourceListener != nullptr &&
+			   vipc_status_cmp(&statusCopy, status)) {
+			const struct vdef_frac prevFramerate = {
+				.num = self->mStatus->framerate_num,
+				.den = self->mStatus->framerate_den,
+			};
+			const struct vdef_frac newFramerate = {
+				.num = status->framerate_num,
+				.den = status->framerate_den,
+			};
+			bool ignore = self->mVipcSourceListener
+					      ->vipcSourceFramerateChanged(
+						      self->mSession,
+						      self->getVipcSource(),
+						      &prevFramerate,
+						      &newFramerate);
+			if (ignore) {
+				PDRAW_LOGI(
+					"%s: ignored "
+					"(framerate change "
+					"from %u/%u to %u/%u)",
+					__func__,
+					prevFramerate.num,
+					prevFramerate.den,
+					newFramerate.num,
+					newFramerate.den);
+				self->mStatus->framerate_num =
+					status->framerate_num;
+				self->mStatus->framerate_den =
+					status->framerate_den;
+				self->mWasRunning = self->mRunning;
+				self->mRunning = false;
+				goto ignore;
+			}
+		}
+	}
+
 	if (self->mWatchdogTimer != nullptr) {
-		int err = pomp_timer_clear(self->mWatchdogTimer);
+		err = pomp_timer_clear(self->mWatchdogTimer);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
 	}
 
-	self->mStatus = *status;
+	/* vipc_status deep copy */
+	vipc_status_free(self->mStatus);
+	self->mStatus = nullptr;
+	err = vipc_status_copy(status, &self->mStatus);
+	if (err < 0) {
+		ULOG_ERRNO("vipc_status_copy", -err);
+		return;
+	}
+
+	/* Ensure that the framerate fraction is reduced */
+	gcd = pdraw_gcd(self->mStatus->framerate_num,
+			self->mStatus->framerate_den);
+	if (gcd > 0) {
+		self->mStatus->framerate_num /= gcd;
+		self->mStatus->framerate_den /= gcd;
+	}
 
 	/* TODO: apply initial resolution and crop configuration */
 
 	if (!self->mOutputMediaChanging)
 		(void)self->setupMedia();
+
+	return;
+
+ignore:
+	if (self->mWasRunning) {
+		self->mWasRunning = false;
+		int err = vipcc_start(self->mClient);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("vipcc_start", -err);
+		if (self->mWatchdogTimer != nullptr &&
+		    self->mParams.connection_timeout_ms != -1) {
+			err = pomp_timer_set(
+				self->mWatchdogTimer,
+				self->mParams.connection_timeout_ms);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+		}
+		self->mRunning = true;
+	}
 }
 
 
@@ -1097,9 +1495,8 @@ void VipcSource::watchdogTimerCb(struct pomp_timer *timer, void *userdata)
 		PDRAW_LOGW("timeout while waiting for %s",
 			   self->mVipcConnected ? "status" : "connection");
 
-	IPdraw::IVipcSource::Listener *listener = self->getVipcSourceListener();
-	if (listener != nullptr) {
-		listener->vipcSourceReadyToPlay(
+	if (self->mVipcSourceListener != nullptr) {
+		self->mVipcSourceListener->vipcSourceReadyToPlay(
 			self->mSession,
 			self->getVipcSource(),
 			false,
@@ -1169,10 +1566,11 @@ void VipcSource::configureCb(struct vipcc_ctx *ctx,
 
 #	if PDRAW_VIPC_BACKEND_DMABUF || PDRAW_VIPC_BACKEND_HISI ||            \
 		PDRAW_VIPC_BACKEND_NETWORK_HISI || PDRAW_VIPC_BACKEND_SHM
+/* Can be called from any thread */
 void VipcSource::releaseFrameCb(void *data, size_t len, void *userdata)
 {
 	FrameCtx *f = reinterpret_cast<FrameCtx *>(userdata);
-	vipcc_release(f->client, f->frame);
+	vipcc_release_safe(f->frame);
 	free(f);
 }
 #	endif
@@ -1534,9 +1932,10 @@ void VipcSource::connectionStatusCb(struct vipcc_ctx *ctx,
 					       : self->mParams.address);
 	self->mVipcConnected = connected;
 
-	if (!connected && self->mWatchdogTimer != nullptr) {
+	if (!connected && self->mWatchdogTimer != nullptr &&
+	    self->mParams.connection_timeout_ms != -1) {
 		int err = pomp_timer_set(self->mWatchdogTimer,
-					 self->mParams.timeout_ms);
+					 self->mParams.connection_timeout_ms);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 	}
@@ -1547,6 +1946,7 @@ void VipcSource::eosCb(struct vipcc_ctx *ctx,
 		       enum vipc_eos_reason reason,
 		       void *userdata)
 {
+	int err;
 	VipcSource *self = reinterpret_cast<VipcSource *>(userdata);
 
 	PDRAW_LOGN("%s('%s'): EOS reason %s (%u)",
@@ -1579,17 +1979,21 @@ void VipcSource::eosCb(struct vipcc_ctx *ctx,
 		self->mLastEosReason = PDRAW_VIPC_SOURCE_EOS_REASON_NONE;
 		self->mFirstFrame = true;
 		if (self->mOutputMedia != nullptr) {
-			self->sendDownstreamEvent(
+			err = self->sendDownstreamEvent(
 				self->mOutputMedia,
 				Channel::DownstreamEvent::EOS);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
 		}
 		break;
 	case VIPC_EOS_REASON_RESTART:
 		self->mLastEosReason = PDRAW_VIPC_SOURCE_EOS_REASON_RESTART;
 		if (self->mOutputMedia != nullptr) {
-			self->sendDownstreamEvent(
+			err = self->sendDownstreamEvent(
 				self->mOutputMedia,
 				Channel::DownstreamEvent::RECONFIGURE);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
 		}
 		break;
 	case VIPC_EOS_REASON_CONFIGURATION:
@@ -1597,20 +2001,45 @@ void VipcSource::eosCb(struct vipcc_ctx *ctx,
 			PDRAW_VIPC_SOURCE_EOS_REASON_CONFIGURATION;
 		self->mFirstFrame = true;
 		if (self->mOutputMedia != nullptr) {
-			self->sendDownstreamEvent(
+			err = self->sendDownstreamEvent(
 				self->mOutputMedia,
 				Channel::DownstreamEvent::EOS);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
 		}
 		break;
 	};
 
-	/* Reset the status to avoid creating a new media */
-	self->mStatus = {};
+	if (self->mVipcSourceListener != nullptr) {
+		self->mKeepMedia =
+			self->mVipcSourceListener->vipcSourceEndOfStream(
+				self->mSession,
+				self->getVipcSource(),
+				self->mLastEosReason);
+	}
+
+	/* Notify not ready-to-play if eos is ignored */
+	if (self->mKeepMedia && self->mWasReady) {
+		self->mWasReady = false;
+		if ((self->mVipcSourceListener != nullptr) &&
+		    (self->mState == STARTED)) {
+			self->mVipcSourceListener->vipcSourceReadyToPlay(
+				self->mSession,
+				self->getVipcSource(),
+				self->mReady,
+				self->mLastEosReason);
+		}
+	}
+
+	/* Invalidate the status to avoid creating a new media */
+	vipc_status_free(self->mStatus);
+	self->mStatus = nullptr;
+
 	(void)self->setupMedia();
 }
 
 
-const char *VipcSource::getSourceName(void)
+const char *VipcSource::getSourceName(void) const
 {
 	if (!mFriendlyName.empty())
 		return mFriendlyName.c_str();
@@ -1695,6 +2124,129 @@ const VipcSource::Backend VipcSource::cBackends[BE_COUNT] = {
 #	endif
 };
 
-} /* namespace Pdraw */
-
 #endif /* BUILD_LIBVIDEO_IPC */
+
+
+VipcSourceWrapper::VipcSourceWrapper(
+	Session *session,
+	const struct pdraw_vipc_source_params *params,
+	IPdraw::IVipcSource::Listener *listener)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	mElement = mSource = new Pdraw::VipcSource(
+		session, session, session, listener, this, params);
+#else
+	ULOGE("no video IPC source implementation found");
+#endif
+}
+
+
+VipcSourceWrapper::~VipcSourceWrapper(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return;
+	int ret = mSource->stop();
+	if (ret < 0)
+		ULOG_ERRNO("source->stop", -ret);
+#endif
+}
+
+
+bool VipcSourceWrapper::isReadyToPlay(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return false;
+	return mSource->isReadyToPlay();
+#else
+	return false;
+#endif
+}
+
+
+bool VipcSourceWrapper::isPaused(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return false;
+	return mSource->isPaused();
+#else
+	return false;
+#endif
+}
+
+
+int VipcSourceWrapper::play(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->play();
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int VipcSourceWrapper::pause(void)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->pause();
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int VipcSourceWrapper::configure(const struct vdef_dim *resolution,
+				 const struct vdef_rectf *crop)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->configure(resolution, crop);
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int VipcSourceWrapper::insertGreyFrame(uint64_t tsUs)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->insertGreyFrame(tsUs);
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int VipcSourceWrapper::setSessionMetadata(const struct vmeta_session *meta)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->setSessionMetadata(meta);
+#else
+	return -ENOSYS;
+#endif
+}
+
+
+int VipcSourceWrapper::getSessionMetadata(struct vmeta_session *meta)
+{
+#ifdef BUILD_LIBVIDEO_IPC
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->getSessionMetadata(meta);
+#else
+	return -ENOSYS;
+#endif
+}
+
+} /* namespace Pdraw */

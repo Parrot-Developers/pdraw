@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline media sink for elements
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -32,6 +32,7 @@
 #include <ulog.h>
 ULOG_DECLARE_TAG(ULOG_TAG);
 
+#include "pdraw_session.hpp"
 #include "pdraw_sink.hpp"
 
 #include <errno.h>
@@ -39,16 +40,22 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-Sink::Sink(unsigned int maxInputMedias,
+Sink::Sink(Session *session,
+	   unsigned int maxInputMedias,
 	   const struct vdef_coded_format *codedVideoMediaFormatCaps,
 	   int codedVideoMediaFormatCapsCount,
 	   const struct vdef_raw_format *rawVideoMediaFormatCaps,
-	   int rawVideoMediaFormatCapsCount) :
+	   int rawVideoMediaFormatCapsCount,
+	   const struct adef_format *audioMediaFormatCaps,
+	   int audioMediaFormatCapsCount) :
+		mLoop(session ? session->getLoop() : nullptr),
 		mMaxInputMedias(maxInputMedias),
 		mCodedVideoMediaFormatCaps(codedVideoMediaFormatCaps),
 		mCodedVideoMediaFormatCapsCount(codedVideoMediaFormatCapsCount),
 		mRawVideoMediaFormatCaps(rawVideoMediaFormatCaps),
-		mRawVideoMediaFormatCapsCount(rawVideoMediaFormatCapsCount)
+		mRawVideoMediaFormatCapsCount(rawVideoMediaFormatCapsCount),
+		mAudioMediaFormatCaps(audioMediaFormatCaps),
+		mAudioMediaFormatCapsCount(audioMediaFormatCapsCount)
 {
 	int res;
 	pthread_mutexattr_t attr;
@@ -179,6 +186,8 @@ int Sink::addInputMedia(Media *media)
 
 	if (media == nullptr)
 		return -EINVAL;
+	if (media->isTearingDown())
+		return -EPERM;
 
 	pthread_mutex_lock(&mMutex);
 	if (getInputPort(media) != nullptr) {
@@ -192,6 +201,7 @@ int Sink::addInputMedia(Media *media)
 
 	CodedVideoMedia *cvmedia = dynamic_cast<CodedVideoMedia *>(media);
 	RawVideoMedia *rvmedia = dynamic_cast<RawVideoMedia *>(media);
+	AudioMedia *amedia = dynamic_cast<AudioMedia *>(media);
 
 	if (cvmedia != nullptr) {
 		/* Coded video media */
@@ -210,7 +220,7 @@ int Sink::addInputMedia(Media *media)
 
 		port.media = cvmedia;
 		CodedVideoChannel *channel =
-			new CodedVideoChannel(this, this, this);
+			new CodedVideoChannel(this, this, this, mLoop);
 		if (channel == nullptr) {
 			pthread_mutex_unlock(&mMutex);
 			ULOGE("failed to create channel");
@@ -236,7 +246,7 @@ int Sink::addInputMedia(Media *media)
 
 		port.media = rvmedia;
 		RawVideoChannel *channel =
-			new RawVideoChannel(this, this, this);
+			new RawVideoChannel(this, this, this, mLoop);
 		if (channel == nullptr) {
 			pthread_mutex_unlock(&mMutex);
 			ULOGE("failed to create channel");
@@ -246,6 +256,31 @@ int Sink::addInputMedia(Media *media)
 			this,
 			mRawVideoMediaFormatCaps,
 			mRawVideoMediaFormatCapsCount);
+		port.channel = channel;
+	} else if (amedia != nullptr) {
+		/* Audio media */
+		if (!adef_format_intersect(&amedia->format,
+					   mAudioMediaFormatCaps,
+					   mAudioMediaFormatCapsCount)) {
+			pthread_mutex_unlock(&mMutex);
+			ULOGE("audio media"
+			      " format " ADEF_FORMAT_TO_STR_FMT
+			      " not supported",
+			      ADEF_FORMAT_TO_STR_ARG(&amedia->format));
+			return -ENOSYS;
+		}
+
+		port.media = amedia;
+		AudioChannel *channel =
+			new AudioChannel(this, this, this, mLoop);
+		if (channel == nullptr) {
+			pthread_mutex_unlock(&mMutex);
+			ULOGE("failed to create channel");
+			return -ENOMEM;
+		}
+		channel->setAudioMediaFormatCaps(this,
+						 mAudioMediaFormatCaps,
+						 mAudioMediaFormatCapsCount);
 		port.channel = channel;
 	} else {
 		pthread_mutex_unlock(&mMutex);
@@ -388,6 +423,31 @@ void Sink::onRawVideoChannelQueue(RawVideoChannel *channel,
 	int ret = mbuf_raw_video_frame_queue_push(queue, frame);
 	if (ret < 0) {
 		ULOG_ERRNO("mbuf_raw_video_frame_queue_push", -ret);
+		return;
+	}
+}
+
+
+void Sink::onAudioChannelQueue(AudioChannel *channel,
+			       struct mbuf_audio_frame *frame)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+	if (frame == nullptr) {
+		ULOG_ERRNO("frame", EINVAL);
+		return;
+	}
+	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
+	if (queue == nullptr) {
+		ULOGE("invalid queue");
+		return;
+	}
+
+	int ret = mbuf_audio_frame_queue_push(queue, frame);
+	if (ret < 0) {
+		ULOG_ERRNO("mbuf_audio_frame_queue_push", -ret);
 		return;
 	}
 }
@@ -544,6 +604,82 @@ void Sink::onChannelReconfigure(Channel *channel)
 }
 
 
+void Sink::onChannelResolutionChange(Channel *channel)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	pthread_mutex_lock(&mMutex);
+	Media *media = nullptr;
+	std::vector<InputPort>::iterator p = mInputPorts.begin();
+
+	while (p != mInputPorts.end()) {
+		if (p->channel != channel) {
+			p++;
+			continue;
+		}
+		media = p->media;
+		break;
+	}
+
+	if (media == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("media", ENOENT);
+		return;
+	}
+
+	ULOGD("%s: channel resolution change media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+
+	pthread_mutex_unlock(&mMutex);
+}
+
+
+void Sink::onChannelFramerateChange(Channel *channel)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	pthread_mutex_lock(&mMutex);
+	Media *media = nullptr;
+	std::vector<InputPort>::iterator p = mInputPorts.begin();
+
+	while (p != mInputPorts.end()) {
+		if (p->channel != channel) {
+			p++;
+			continue;
+		}
+		media = p->media;
+		break;
+	}
+
+	if (media == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOG_ERRNO("media", ENOENT);
+		return;
+	}
+
+	ULOGD("%s: channel framerate change media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+
+	pthread_mutex_unlock(&mMutex);
+}
+
+
 void Sink::onChannelTimeout(Channel *channel)
 {
 	if (channel == nullptr) {
@@ -683,6 +819,12 @@ void Sink::onChannelDownstreamEvent(Channel *channel,
 		break;
 	case Channel::DownstreamEvent::RECONFIGURE:
 		onChannelReconfigure(channel);
+		break;
+	case Channel::DownstreamEvent::RESOLUTION_CHANGE:
+		onChannelResolutionChange(channel);
+		break;
+	case Channel::DownstreamEvent::FRAMERATE_CHANGE:
+		onChannelFramerateChange(channel);
 		break;
 	case Channel::DownstreamEvent::TIMEOUT:
 		onChannelTimeout(channel);

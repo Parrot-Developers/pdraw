@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * PDrAW back-end library
  *
  * Copyright (c) 2018 Parrot Drones SAS

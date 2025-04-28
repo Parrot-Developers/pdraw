@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video decoder element
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -48,9 +48,9 @@ public:
 
 	~VideoDecoder(void);
 
-	int start(void);
+	int start(void) override;
 
-	int stop(void);
+	int stop(void) override;
 
 	void completeFlush(void);
 
@@ -59,8 +59,8 @@ public:
 	void resync(void);
 
 private:
-	int createOutputMedia(struct vdef_raw_frame *frameInfo,
-			      RawVideoMedia::Frame &frame);
+	int createOutputMedia(const struct vdef_raw_frame *frameInfo,
+			      const RawVideoMedia::Frame &frame);
 
 	int flush(void);
 
@@ -68,18 +68,19 @@ private:
 
 	int tryStop(void);
 
-	void onCodedVideoChannelQueue(CodedVideoChannel *channel,
-				      struct mbuf_coded_video_frame *buf);
+	void
+	onCodedVideoChannelQueue(CodedVideoChannel *channel,
+				 struct mbuf_coded_video_frame *buf) override;
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlush(Channel *channel) override;
 
-	void onChannelFlushed(Channel *channel);
+	void onChannelFlushed(Channel *channel) override;
 
-	void onChannelTeardown(Channel *channel);
+	void onChannelTeardown(Channel *channel) override;
 
-	void onChannelUnlink(Channel *channel);
+	void onChannelUnlink(Channel *channel) override;
 
-	void onChannelSessionMetaUpdate(Channel *channel);
+	void onChannelSessionMetaUpdate(Channel *channel) override;
 
 	static void frameOutputCb(struct vdec_decoder *dec,
 				  int status,
@@ -91,6 +92,11 @@ private:
 	static void stopCb(struct vdec_decoder *dec, void *userdata);
 
 	static void idleCompleteFlush(void *userdata);
+
+	static ssize_t preparePsBuffer(const uint8_t *ps,
+				       size_t psSize,
+				       enum vdef_coded_data_format fmt,
+				       uint8_t **ret);
 
 	CodedVideoMedia *mInputMedia;
 	RawVideoMedia *mOutputMedia;

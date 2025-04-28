@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW demuxer object
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -46,18 +46,28 @@ public:
 	explicit QPdrawDemuxerPriv(QPdrawDemuxer *parent);
 	~QPdrawDemuxerPriv();
 
-	int open(const std::string &url);
+	int open(const std::string &url,
+		 const struct pdraw_demuxer_params *params);
 
 	int open(const std::string &localAddr,
 		 uint16_t localStreamPort,
 		 uint16_t localControlPort,
 		 const std::string &remoteAddr,
 		 uint16_t remoteStreamPort,
-		 uint16_t remoteControlPort);
+		 uint16_t remoteControlPort,
+		 const struct pdraw_demuxer_params *params);
 
-	int open(const std::string &url, struct mux_ctx *mux);
+	int open(const std::string &url,
+		 struct mux_ctx *mux,
+		 const struct pdraw_demuxer_params *params);
 
 	int close(void);
+
+	int getMediaList(struct pdraw_demuxer_media **mediaList,
+			 size_t *mediaCount,
+			 uint32_t *selectedMedias);
+
+	int selectMedia(uint32_t selectedMedias);
 
 	uint16_t getSingleStreamLocalStreamPort(void);
 
@@ -92,44 +102,45 @@ private:
 
 	void demuxerOpenResponse(IPdraw *pdraw,
 				 IPdraw::IDemuxer *demuxer,
-				 int status);
+				 int status) override;
 
 	void demuxerCloseResponse(IPdraw *pdraw,
 				  IPdraw::IDemuxer *demuxer,
-				  int status);
+				  int status) override;
 
 	void onDemuxerUnrecoverableError(IPdraw *pdraw,
-					 IPdraw::IDemuxer *demuxer);
+					 IPdraw::IDemuxer *demuxer) override;
 
 	int demuxerSelectMedia(IPdraw *pdraw,
 			       IPdraw::IDemuxer *demuxer,
 			       const struct pdraw_demuxer_media *medias,
-			       size_t count);
+			       size_t count,
+			       uint32_t selectedMedias) override;
 
 	void demuxerReadyToPlay(IPdraw *pdraw,
 				IPdraw::IDemuxer *demuxer,
-				bool ready);
+				bool ready) override;
 
 	void onDemuxerEndOfRange(IPdraw *pdraw,
 				 IPdraw::IDemuxer *demuxer,
-				 uint64_t timestamp);
+				 uint64_t timestamp) override;
 
 	void demuxerPlayResponse(IPdraw *pdraw,
 				 IPdraw::IDemuxer *demuxer,
 				 int status,
 				 uint64_t timestamp,
-				 float speed);
+				 float speed) override;
 
 	void demuxerPauseResponse(IPdraw *pdraw,
 				  IPdraw::IDemuxer *demuxer,
 				  int status,
-				  uint64_t timestamp);
+				  uint64_t timestamp) override;
 
 	void demuxerSeekResponse(IPdraw *pdraw,
 				 IPdraw::IDemuxer *demuxer,
 				 int status,
 				 uint64_t timestamp,
-				 float speed);
+				 float speed) override;
 
 	QPdrawDemuxer *mParent;
 	IPdraw::IDemuxer *mDemuxer;

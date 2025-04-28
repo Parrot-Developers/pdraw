@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer
- * Desktop application
+ * Parrot Drones Audio and Video Vector
+ * Desktop player application
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Recording demuxer raw video media
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -65,39 +65,33 @@ RecordDemuxer::DemuxerRawVideoMedia::DemuxerRawVideoMedia(
 
 RecordDemuxer::DemuxerRawVideoMedia::~DemuxerRawVideoMedia(void)
 {
-	int ret;
+	teardownMedia();
+}
 
+
+void RecordDemuxer::DemuxerRawVideoMedia::flush(bool destroy)
+{
 	if (mCurrentFrame != nullptr) {
-		ret = mbuf_raw_video_frame_unref(mCurrentFrame);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -ret);
+		int err = mbuf_raw_video_frame_unref(mCurrentFrame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mCurrentFrame = nullptr;
 	}
 
 	if (mCurrentMem != nullptr) {
-		ret = mbuf_mem_unref(mCurrentMem);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
+		int err = mbuf_mem_unref(mCurrentMem);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_mem_unref", -err);
+		mCurrentMem = nullptr;
 	}
 
-	/* Remove the output ports */
-	if (mDemuxer->Source::mListener) {
-		mDemuxer->Source::mListener->onOutputMediaRemoved(
-			mDemuxer, mRawVideoMedia, mDemuxer->getDemuxer());
-	}
-	ret = mDemuxer->removeOutputPort(mRawVideoMedia);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("removeOutputPort", -ret);
-	} else {
-		delete mRawVideoMedia;
-	}
+	DemuxerMedia::flush(destroy);
 }
 
 
 void RecordDemuxer::DemuxerRawVideoMedia::stop(void)
 {
 	int ret;
-
-	RecordDemuxer::DemuxerMedia::stop();
 
 	if (mCurrentFrame != nullptr) {
 		ret = mbuf_raw_video_frame_unref(mCurrentFrame);
@@ -111,22 +105,36 @@ void RecordDemuxer::DemuxerRawVideoMedia::stop(void)
 			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
 		mCurrentMem = nullptr;
 	}
+
+	DemuxerMedia::stop();
 }
 
 
-void RecordDemuxer::DemuxerRawVideoMedia::sendDownstreamEvent(
-	Channel::DownstreamEvent event)
+void RecordDemuxer::DemuxerRawVideoMedia::teardownMedia(void)
 {
 	int ret;
 
-	ret = mDemuxer->Source::sendDownstreamEvent(mRawVideoMedia, event);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("Source::sendDownstreamEvent", -ret);
+	if (mCurrentFrame != nullptr) {
+		ret = mbuf_raw_video_frame_unref(mCurrentFrame);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -ret);
+		mCurrentFrame = nullptr;
+	}
+
+	if (mCurrentMem != nullptr) {
+		ret = mbuf_mem_unref(mCurrentMem);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
+		mCurrentMem = nullptr;
+	}
+
+	DemuxerMedia::teardownMedia();
+	mRawVideoMedia = nullptr;
 }
 
 
 int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
-	struct mp4_track_info *tkinfo)
+	const struct mp4_track_info *tkinfo)
 {
 	int ret;
 	unsigned int count = 0, i;
@@ -253,6 +261,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 		PDRAW_LOGE("media allocation failed");
 		return -ENOMEM;
 	}
+	mMedias.push_back(mRawVideoMedia);
 	ret = mDemuxer->addOutputPort(mRawVideoMedia, mDemuxer->getDemuxer());
 	if (ret < 0) {
 		mDemuxer->Source::unlock();
@@ -276,13 +285,17 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	mRawVideoMedia->setPath(path);
 	(void)mDemuxer->fetchSessionMetadata(mTrackId,
 					     &mRawVideoMedia->sessionMeta);
+	if (mRawVideoMedia->sessionMeta.first_frame_capture_ts != 0)
+		mFirstTs = mRawVideoMedia->sessionMeta.first_frame_capture_ts;
 	mRawVideoMedia->playbackType = PDRAW_PLAYBACK_TYPE_REPLAY;
 	mRawVideoMedia->duration = mDemuxer->mDuration;
 	if (tkinfo->has_metadata)
 		mMetadataMimeType = strdup(tkinfo->metadata_mime_format);
 
 	ret = mDemuxer->createOutputPortMemoryPool(
-		mRawVideoMedia, DEMUXER_OUTPUT_BUFFER_COUNT, capacity);
+		mRawVideoMedia,
+		DEMUXER_RECORD_RAW_VIDEO_MEDIA_OUTPUT_BUFFER_COUNT,
+		capacity);
 	if (ret < 0) {
 		mDemuxer->Source::unlock();
 		PDRAW_LOG_ERRNO("createOutputPortMemoryPool", -ret);
@@ -306,7 +319,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 	bool *didSeek,
 	bool *waitFlush)
 {
-	int ret = 0;
+	int ret = 0, err;
 	uint8_t *buf = nullptr;
 	size_t bufSize = 0, frameSize, offset = 0;
 	ssize_t ret2;
@@ -331,7 +344,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
 		mCurrentMem = nullptr;
 	}
-	ret = mDemuxer->getRawVideoOutputMemory(mRawVideoMedia, &mCurrentMem);
+	ret = mDemuxer->getOutputMemory(mRawVideoMedia, &mCurrentMem);
 	if ((ret < 0) || (mCurrentMem == nullptr)) {
 		PDRAW_LOGW("failed to get an input buffer (%d)", ret);
 		*waitFlush = true;
@@ -452,16 +465,20 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 			&meta_buf, mMetadataBuffer, sample->metadata_size, 0);
 		ret = vmeta_frame_read(&meta_buf, mMetadataMimeType, &meta);
 		if (ret < 0) {
-			PDRAW_LOG_ERRNO("vmeta_frame_read", -ret);
-			goto exit;
-		}
-
-		ret = mbuf_raw_video_frame_set_metadata(mCurrentFrame, meta);
-		vmeta_frame_unref(meta);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_set_metadata",
+			if (ret != -ENODATA) {
+				PDRAW_LOG_ERRNO("vmeta_frame_read", -ret);
+				goto exit;
+			}
+		} else {
+			ret = mbuf_raw_video_frame_set_metadata(mCurrentFrame,
+								meta);
+			vmeta_frame_unref(meta);
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO(
+					"mbuf_raw_video_frame_set_metadata",
 					-ret);
-			goto exit;
+				goto exit;
+			}
 		}
 	}
 
@@ -547,10 +564,18 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 	}
 
 exit:
-	mbuf_mem_unref(mCurrentMem);
-	mCurrentMem = nullptr;
-	mbuf_raw_video_frame_unref(mCurrentFrame);
-	mCurrentFrame = nullptr;
+	if (mCurrentMem != nullptr) {
+		err = mbuf_mem_unref(mCurrentMem);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_mem_unref", -err);
+		mCurrentMem = nullptr;
+	}
+	if (mCurrentFrame != nullptr) {
+		err = mbuf_raw_video_frame_unref(mCurrentFrame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mCurrentFrame = nullptr;
+	}
 
 	return ret;
 }

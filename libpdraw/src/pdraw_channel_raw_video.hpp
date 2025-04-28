@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline source to sink channel for raw video
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -54,21 +54,24 @@ public:
 
 	RawVideoChannel(Sink *owner,
 			SinkListener *sinkListener,
-			RawVideoSinkListener *rawVideoSinkListener);
+			RawVideoSinkListener *rawVideoSinkListener,
+			struct pomp_loop *loop);
 
 	~RawVideoChannel(void) {}
 
 	int queue(mbuf_raw_video_frame *frame);
 
-	int getRawVideoMediaFormatCaps(const struct vdef_raw_format **caps);
+	int
+	getRawVideoMediaFormatCaps(const struct vdef_raw_format **caps) const;
 
-	void setRawVideoMediaFormatCaps(Sink *owner,
+	void setRawVideoMediaFormatCaps(const Sink *owner,
 					const struct vdef_raw_format *caps,
 					int count);
 
-	struct mbuf_raw_video_frame_queue *getQueue(Sink *owner);
+	struct mbuf_raw_video_frame_queue *getQueue(const Sink *owner) const;
 
-	void setQueue(Sink *owner, struct mbuf_raw_video_frame_queue *queue);
+	void setQueue(const Sink *owner,
+		      struct mbuf_raw_video_frame_queue *queue);
 
 private:
 	RawVideoSinkListener *mRawVideoSinkListener;

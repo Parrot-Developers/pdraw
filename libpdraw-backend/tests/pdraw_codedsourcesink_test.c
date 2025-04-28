@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Coded video source to sink test program
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -195,7 +195,7 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 	if (info->video.format != VDEF_FRAME_TYPE_CODED)
 		return;
 
-	if (strcmp(info->session_meta->friendly_name, FRIENDLY_NAME) != 0)
+	if (strcmp(info->video.session_meta->friendly_name, FRIENDLY_NAME) != 0)
 		ULOGW("mismatch on friendly_name session metadata");
 
 	struct pdraw_video_sink_params sink_params = {0};
@@ -277,7 +277,7 @@ static void unmap_file(struct pdraw_backend_app *self)
 	self->in_file = INVALID_HANDLE_VALUE;
 #else
 	if (self->in_fd >= 0) {
-		if (self->in_data != NULL)
+		if (self->in_data != NULL && self->in_len > 0)
 			munmap(self->in_data, self->in_len);
 		self->in_data = NULL;
 		close(self->in_fd);
@@ -332,6 +332,8 @@ static int map_file(struct pdraw_backend_app *self, const char *input_file)
 		goto error;
 	}
 #else
+	off_t size;
+
 	/* Try to open input file */
 	self->in_fd = open(input_file, O_RDONLY);
 	if (self->in_fd < 0) {
@@ -341,12 +343,14 @@ static int map_file(struct pdraw_backend_app *self, const char *input_file)
 	}
 
 	/* Get size and map it */
-	self->in_len = lseek(self->in_fd, 0, SEEK_END);
-	if (self->in_len == (size_t)-1) {
+	size = lseek(self->in_fd, 0, SEEK_END);
+	if (size < 0) {
 		res = -errno;
 		ULOG_ERRNO("lseek", -res);
+		self->in_len = 0;
 		goto error;
 	}
+	self->in_len = (size_t)size;
 
 	self->in_data = mmap(
 		NULL, self->in_len, PROT_READ, MAP_PRIVATE, self->in_fd, 0);
@@ -1010,7 +1014,7 @@ static const struct option long_options[] = {
 
 static void welcome(int argc, char **argv)
 {
-	printf("%s - Parrot Drones Awesome Video Viewer "
+	printf("%s - Parrot Drones Audio and Video Vector - "
 	       "Coded video source to sink test program\n\n",
 	       argv[0]);
 }
@@ -1061,7 +1065,10 @@ int main(int argc, char **argv)
 			break;
 
 		case 'n':
-			sscanf(optarg, "%d", &max_count);
+			if (sscanf(optarg, "%d", &max_count) == EOF) {
+				usage(argc, argv);
+				exit(EXIT_FAILURE);
+			}
 			break;
 
 		default:

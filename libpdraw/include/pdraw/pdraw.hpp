@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -187,10 +187,11 @@ public:
 			/**
 			 * Unrecoverable error function, called when a
 			 * previously opened demuxer is no longer running.
-			 * is called, the demuxer is no longer running;
-			 * the close() function must be called and one must wait
-			 * for the demuxerCloseResponse() listener function to
-			 * be called prior to destroying the demuxer.
+			 * When this function is called, the demuxer is no
+			 * longer running; the close() function must be called
+			 * and one must wait for the demuxerCloseResponse()
+			 * listener function to be called prior to destroying
+			 * the demuxer.
 			 * @param pdraw: PDrAW instance handle
 			 * @param demuxer: demuxer handle
 			 */
@@ -218,6 +219,8 @@ public:
 			 * @param demuxer: demuxer handle
 			 * @param medias: array of demuxer media
 			 * @param count: demuxer media array element count
+			 * @param selectedMedias: bitfield of the identifiers of
+			 *                        the currently selected medias
 			 * @return a bitfield of the identifiers of the chosen
 			 *         medias, 0 or -ENOSYS to choose the default
 			 *         medias, -ECANCELED to choose no media and
@@ -228,7 +231,8 @@ public:
 				IPdraw *pdraw,
 				IPdraw::IDemuxer *demuxer,
 				const struct pdraw_demuxer_media *medias,
-				size_t count) = 0;
+				size_t count,
+				uint32_t selectedMedias) = 0;
 
 			/**
 			 * Ready to play function, called when the playback is
@@ -366,6 +370,38 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int close(void) = 0;
+
+		/**
+		 * Get the available demuxer media list.
+		 * This function returns the media list. If no media are
+		 * available, -ENOENT is returned. Otherwise, the mediaList is
+		 * allocated (must be freed once no longer used) and mediaCount
+		 * is set to the number of media.
+		 * @param mediaList: pointer to an array of struct
+		 *                   pdraw_demuxer_media (output, must be freed)
+		 * @param mediaCount: pointer to the media count (output)
+		 * @param selectedMedias: bitfield of the identifiers of the
+		 *                        currently selected medias (output)
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int getMediaList(struct pdraw_demuxer_media **mediaList,
+					 size_t *mediaCount,
+					 uint32_t *selectedMedias) = 0;
+
+		/**
+		 * Select media function.
+		 * This function dynamically selects the media to use from a
+		 * running demuxer. If the demuxer is opening or closing,
+		 * -EPROTO is returned. The selectedMedias parameter is a
+		 * bitfield of the identifiers of the chosen medias (from the
+		 * pdraw_demuxer_media structure), or 0 to choose the default
+		 * medias. If the bitfield is invalid, -EINVAL is returned.
+		 * @param selectedMedias: bitfield of the identifiers of the
+		 *                        chosen medias or 0 to choose the
+		 *                        default medias
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int selectMedia(uint32_t selectedMedias) = 0;
 
 		/**
 		 * Get the single stream local stream port.
@@ -580,6 +616,23 @@ public:
 		virtual int seekTo(uint64_t timestamp, bool exact = false) = 0;
 
 		/**
+		 * Get the video chapter list.
+		 * This function returns the video chapter list if available. If
+		 * the video does not contain any chapter, -ENOENT is returned.
+		 * Otherwise, the chapterList is allocated (must be freed
+		 * once no longer used) and chapterCount is set to the number of
+		 * chapters. The chapter timestamps can be used to seek to the
+		 * desired chapter. This function is available on a record
+		 * demuxer only; on any other type of muxer -ENOSYS is returned.
+		 * @param chapterList: pointer to an array of struct
+		 *                     pdraw_chapter (output, must be freed)
+		 * @param chapterCount: pointer to the chapter count (output)
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int getChapterList(struct pdraw_chapter **chapterList,
+					   size_t *chapterCount) = 0;
+
+		/**
 		 * Get the playback duration.
 		 * This function returns the playback duration in microseconds.
 		 * The duration is only available on replays (either local or
@@ -605,20 +658,23 @@ public:
 	 * Create a demuxer on a URL (stream or local file).
 	 * The URL can be either an RTSP URL (starting with "rtsp://") or a
 	 * local file path (either absolute or relative).
-	 * The function returns before the actual opening is done. If the
-	 * function returns 0, the demuxerOpenResponse() listener function will
-	 * be called once the open operation is successful (0 status) or has
-	 * failed (negative errno status). If the function returns a negative
-	 * errno value (immediate failure), the demuxerOpenResponse() listener
-	 * function will not be called. Once a demuxer is no longer used, it
-	 * must be closed and then destroyed (@see the IDemuxer::close()
-	 * function).
+	 * The params structure must be provided but all parameters are optional
+	 * and can be left null. The function returns before the actual opening
+	 * is done. If the function returns 0, the demuxerOpenResponse()
+	 * listener function will be called once the open operation is
+	 * successful (0 status) or has failed (negative errno status). If the
+	 * function returns a negative errno value (immediate failure), the
+	 * demuxerOpenResponse() listener function will not be called. Once a
+	 * demuxer is no longer used, it must be closed and then destroyed (@see
+	 * the IDemuxer::close() function).
 	 * @param url: URL of the resource to open
+	 * @param params: demuxer parameters
 	 * @param listener: demuxer listener functions implementation
 	 * @param retObj: demuxer object pointer (output)
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	virtual int createDemuxer(const std::string &url,
+				  const struct pdraw_demuxer_params *params,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj) = 0;
 
@@ -634,14 +690,15 @@ public:
 	 * will be used. The remoteAddr, remoteStreamPort and remoteControlPort
 	 * parameters can be left null/empty if unknown; they will be known once
 	 * the stream is being received.
-	 * The function returns before the actual opening is done. If the
-	 * function returns 0, the demuxerOpenResponse() listener function will
-	 * be called once the open operation is successful (0 status) or has
-	 * failed (negative errno status). If the function returns a negative
-	 * errno value (immediate failure), the demuxerOpenResponse() listener
-	 * function will not be called. Once a demuxer is no longer used, it
-	 * must be closed and then destroyed (@see the IDemuxer::close()
-	 * function).
+	 * The params structure must be provided but all parameters are optional
+	 * and can be left null. The function returns before the actual opening
+	 * is done. If the function returns 0, the demuxerOpenResponse()
+	 * listener function will be called once the open operation is
+	 * successful (0 status) or has failed (negative errno status). If the
+	 * function returns a negative errno value (immediate failure), the
+	 * demuxerOpenResponse() listener function will not be called. Once a
+	 * demuxer is no longer used, it must be closed and then destroyed (@see
+	 * the IDemuxer::close() function).
 	 * @param localAddr: local IP address (optional, can be empty)
 	 * @param localStreamPort: local stream (RTP) port (optional, can be 0)
 	 * @param localControlPort: local control (RTCP) port (optional,
@@ -651,6 +708,7 @@ public:
 	 *                          can be 0)
 	 * @param remoteControlPort: remote control (RTCP) port (optional,
 	 *                           can be 0)
+	 * @param params: demuxer parameters
 	 * @param listener: demuxer listener functions implementation
 	 * @param retObj: demuxer object pointer (output)
 	 * @return 0 on success, negative errno value in case of error
@@ -661,6 +719,7 @@ public:
 				  const std::string &remoteAddr,
 				  uint16_t remoteStreamPort,
 				  uint16_t remoteControlPort,
+				  const struct pdraw_demuxer_params *params,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj) = 0;
 
@@ -672,22 +731,25 @@ public:
 	 * No concurrent sessions can run on the mux channel; therefore the user
 	 * must take care of limiting the number of PDrAW instances and demuxer
 	 * objects running on the mux channel to only one.
-	 * The function returns before the actual opening is done. If the
-	 * function returns 0, the demuxerOpenResponse() listener function will
-	 * be called once the open operation is successful (0 status) or has
-	 * failed (negative errno status). If the function returns a negative
-	 * errno value (immediate failure), the demuxerOpenResponse() listener
-	 * function will not be called. Once a demuxer is no longer used, it
-	 * must be closed and then destroyed (@see the IDemuxer::close()
-	 * function).
+	 * The params structure must be provided but all parameters are optional
+	 * and can be left null. The function returns before the actual opening
+	 * is done. If the function returns 0, the demuxerOpenResponse()
+	 * listener function will be called once the open operation is
+	 * successful (0 status) or has failed (negative errno status). If the
+	 * function returns a negative errno value (immediate failure), the
+	 * demuxerOpenResponse() listener function will not be called. Once a
+	 * demuxer is no longer used, it must be closed and then destroyed (@see
+	 * the IDemuxer::close() function).
 	 * @param url: URL of the resource to open
 	 * @param mux: mux instance handle
+	 * @param params: demuxer parameters
 	 * @param listener: demuxer listener functions implementation
 	 * @param retObj: demuxer object pointer (output)
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	virtual int createDemuxer(const std::string &url,
 				  struct mux_ctx *mux,
+				  const struct pdraw_demuxer_params *params,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj) = 0;
 
@@ -707,21 +769,55 @@ public:
 			virtual ~Listener(void) {}
 
 			/**
-			 * No space left function, called when the amount of
-			 * free space on the storage where the MP4 file written
-			 * falls below a threshold provided at the muxer
-			 * object creation. This function is called from the
-			 * pomp_loop thread.
+			 * Connection state changed function, called when a
+			 * muxer connection state has changed.
+			 * This function is called on a stream muxer only;
+			 * on any other type of muxer it is not relevant.
 			 * @param pdraw: PDrAW instance handle
 			 * @param muxer: muxer handle
-			 * @param limit: minimum required free space on the
-			 * storage to write the MP4 file (byte)
-			 * @param left: current free space on the storage (byte)
+			 * @param connectionState: connection state
+			 * @param disconnectionReason: disconnection reason;
+			 *                             only relevant when
+			 *                             connectionState is
+			 *                             DISCONNECTED.
 			 */
-			virtual void onMuxerNoSpaceLeft(IPdraw *pdraw,
+			virtual void onMuxerConnectionStateChanged(
+				IPdraw *pdraw,
+				IPdraw::IMuxer *muxer,
+				enum pdraw_muxer_connection_state
+					connectionState,
+				enum pdraw_muxer_disconnection_reason
+					disconnectionReason) = 0;
+
+			/**
+			 * Unrecoverable error function, called when a
+			 * previously opened muxer is no longer running.
+			 * When this function is called, the muxer is no longer
+			 * running; the close() function must be called and one
+			 * must wait for the muxerCloseResponse() listener
+			 * function to be called prior to destroying the muxer.
+			 * @param pdraw: PDrAW instance handle
+			 * @param muxer: muxer handle
+			 * @param status: error status code
+			 */
+			virtual void
+			onMuxerUnrecoverableError(IPdraw *pdraw,
+						  IPdraw::IMuxer *muxer,
+						  int status) = 0;
+
+			/**
+			 * Close response function, called when a close
+			 * operation is complete or has failed. The status
+			 * parameter is the close operation status: 0 on
+			 * success, or a negative errno value in case of error.
+			 * @param pdraw: PDrAW instance handle
+			 * @param muxer: muxer handle
+			 * @param status: 0 on success, negative errno value in
+			 *                case of error
+			 */
+			virtual void muxerCloseResponse(IPdraw *pdraw,
 							IPdraw::IMuxer *muxer,
-							size_t limit,
-							size_t left) = 0;
+							int status) = 0;
 		};
 
 		/**
@@ -732,25 +828,38 @@ public:
 		virtual ~IMuxer(void) {}
 
 		/**
+		 * Close a muxer.
+		 * This function closes a previously opened muxer. The
+		 * function returns before the actual closing is done. If the
+		 * function returns 0, the muxerCloseResponse() listener
+		 * function will be called once the close is successful (0
+		 * status) or has failed (negative errno status). If the
+		 * function returns a negative errno value (immediate failure),
+		 * the muxerCloseResponse() listener function will not be
+		 * called. After a successful close, the muxer must be
+		 * destroyed.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int close(void) = 0;
+
+		/**
 		 * Add a media to a muxer.
 		 * This function adds a media to the muxer by its mediaId.
 		 * The media idenfifiers are known when the onMediaAdded() or
 		 * onMediaRemoved() general listener functions are called.
-		 * The params structure is only relevant for video medias;
-		 * the structure must then be provided but all parameters are
-		 * optional and can be left null.
+		 * The params structure is optional.
 		 * @param mediaId: identifier of the media to add to the muxer
-		 * @param params: muxer video media parameters
+		 * @param params: muxer media parameters
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int addMedia(unsigned int mediaId,
-				     const struct pdraw_muxer_video_media_params
-					     *params) = 0;
+		virtual int
+		addMedia(unsigned int mediaId,
+			 const struct pdraw_muxer_media_params *params) = 0;
 
 		/**
 		 * Set the thumbnail of the MP4 file written by the muxer.
-		 * This function is available on a record muxer only; on another
-		 * type of muxer -ENOSYS is returned
+		 * This function is available on a record muxer only; on any
+		 * other type of muxer -ENOSYS is returned.
 		 * @param type: type of the thumbnail (JPEG, PNG, etc...)
 		 * @param data: thumbnail data must be of length size
 		 * @param size: thumbnail data size
@@ -759,19 +868,72 @@ public:
 		virtual int setThumbnail(enum pdraw_muxer_thumbnail_type type,
 					 const uint8_t *data,
 					 size_t size) = 0;
+
+		/**
+		 * Add a chapter to the MP4 file written by the muxer.
+		 * This function is available on a record muxer only; on any
+		 * other type of muxer -ENOSYS is returned.
+		 * The timestamp is expressed in microseconds and is relative to
+		 * the start of the record. If no zero-timestamped chapter is
+		 * set, a default chapter named 'Start' will be added as the
+		 * first chapter.
+		 * @param timestamp: timestamp of the chapter in microseconds
+		 * @param name: name of the chapter
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int addChapter(uint64_t timestamp,
+				       const char *name) = 0;
+
+		/**
+		 * Get statistics about the muxer.
+		 * This function fills the stats structure with the latest muxer
+		 * statistics. The structure must have been previously
+		 * allocated.
+		 * @param stats: muxer statistics structure to fill
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int getStats(struct pdraw_muxer_stats *stats) = 0;
+
+		/**
+		 * Set the muxer dynamic parameters.
+		 * This function is available on a record muxer only; on any
+		 * other type of muxer -ENOSYS is returned.
+		 * @param dyn_params: dynamic parameters
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int setDynParams(
+			const struct pdraw_muxer_dyn_params *dyn_params) = 0;
+
+		/**
+		 * Get the muxer dynamic parameters.
+		 * This function is available on a record muxer only; on any
+		 * other type of muxer -ENOSYS is returned.
+		 * @param dyn_params: dynamic parameters structure to fill
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int
+		getDynParams(struct pdraw_muxer_dyn_params *dyn_params) = 0;
+
+		/**
+		 * Force the muxer to write the MP4 tables.
+		 * This function is available on a record muxer only; on any
+		 * other type of muxer -ENOSYS is returned.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int forceSync(void) = 0;
 	};
 
 	/**
 	 * Create a muxer.
-	 * This function creates a muxer with a given URL. The url parameter
-	 * is a path to an MP4 file (the file will be created/overwritten).
-	 * Once the muxer is created medias can be added by id using the
-	 * addMedia() function. Once a muxer is no longer used, it must be
-	 * destroyed. If writing to an MP4 file, the file is finalized in
-	 * the destructor. The params structure must be provided but all
-	 * parameters are optional and can be left null. The listener must be
-	 * provided; all listener functions are called from the pomp_loop
-	 * thread.
+	 * This function creates a muxer with a given URL. The url parameter is
+	 * either an RTMP URL or a path to an MP4 file (the file will be
+	 * created/overwritten). Once the muxer is created medias can be added
+	 * by id using the addMedia() function. Once a muxer is no longer used,
+	 * it must be destroyed. If writing to an MP4 file, the file is
+	 * finalized in the destructor. The params structure must be provided
+	 * but all parameters are optional and can be left null. The listener
+	 * must be provided; all listener functions are called from the
+	 * pomp_loop thread.
 	 * @param url: destination URL
 	 * @param params: muxer parameters
 	 * @param listener: muxer listener functions implementation
@@ -823,11 +985,15 @@ public:
 			 * @param pdraw: PDrAW instance handle
 			 * @param renderer: renderer handle
 			 * @param info: pointer on the media information
+			 * @param restart: true if a new media should follow
+			 *                 shortly (reconfiguration,
+			 *                 resolution change...)
 			 */
 			virtual void onVideoRendererMediaRemoved(
 				IPdraw *pdraw,
 				IPdraw::IVideoRenderer *renderer,
-				const struct pdraw_media_info *info) = 0;
+				const struct pdraw_media_info *info,
+				bool restart) = 0;
 
 			/**
 			 * Render ready function, called both when a new frame
@@ -878,9 +1044,7 @@ public:
 			 * Overlay rendering function. This function is called
 			 * after the rendering of the video frame (if one is
 			 * available) in order to render an application overlay
-			 * on top of the video. When HMD distorsion correction
-			 * is enabled in the renderer, it is applied after the
-			 * overlay rendering. When no frame is available for
+			 * on top of the video. When no frame is available for
 			 * the rendering, the frameMeta and frameExtra
 			 * parameters are null. This function is called from
 			 * the rendering thread. If no implementation of this
@@ -894,7 +1058,8 @@ public:
 			 * @param contentPos: video content position
 			 * @param viewMat: 4x4 view matrix
 			 * @param projMat: 4x4 projection matrix
-			 * @param mediaInfo: media information
+			 * @param mediaInfo: media information (optional,
+			 *                   can be null)
 			 * @param frameMeta: frame metadata (optional,
 			 *                   can be null)
 			 * @param frameExtra: frame extra information
@@ -1046,7 +1211,6 @@ public:
 	 * @param params: renderer parameters
 	 * @param listener: renderer listener functions implementation
 	 * @param retObj: renderer object pointer (output)
-	 * @param eglDisplay: EGL display context
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	virtual int
@@ -1054,8 +1218,125 @@ public:
 			    const struct pdraw_rect *renderPos,
 			    const struct pdraw_video_renderer_params *params,
 			    IPdraw::IVideoRenderer::Listener *listener,
-			    IPdraw::IVideoRenderer **retObj,
-			    struct egl_display *eglDisplay = nullptr) = 0;
+			    IPdraw::IVideoRenderer **retObj) = 0;
+
+
+	/**
+	 * Audio renderer API
+	 * @see the createAudioRenderer() function for the audio renderer
+	 * object creation
+	 */
+	class IAudioRenderer {
+	public:
+		/* Audio renderer listener object */
+		class Listener {
+		public:
+			/**
+			 * Audio renderer listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Media added function, called when a media has been
+			 * added internally to the renderer. Medias are audio
+			 * medias. This function is called from the pomp_loop
+			 * thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param renderer: renderer handle
+			 * @param info: pointer on the media information
+			 */
+			virtual void onAudioRendererMediaAdded(
+				IPdraw *pdraw,
+				IPdraw::IAudioRenderer *renderer,
+				const struct pdraw_media_info *info) = 0;
+
+			/**
+			 * Media removed function, called when a media has been
+			 * removed internally from the renderer. Medias are
+			 * audio medias. This function is called from the
+			 * pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param renderer: renderer handle
+			 * @param info: pointer on the media information
+			 */
+			virtual void onAudioRendererMediaRemoved(
+				IPdraw *pdraw,
+				IPdraw::IAudioRenderer *renderer,
+				const struct pdraw_media_info *info) = 0;
+		};
+
+		/**
+		 * Destroy an audio renderer.
+		 * This function stops a running audio renderer and frees the
+		 * associated resources.
+		 */
+		virtual ~IAudioRenderer(void) {}
+
+		/**
+		 * Set the audio renderer media identifier.
+		 * This function updates the identifier of the media on which
+		 * the rendering is done; if the media id is zero the first
+		 * audio media encountered is used.
+		 * @param mediaId: identifier of the audio media to render (from
+		 *                 a pdraw_media_info structure); if zero the
+		 *                 first audio media found is used for rendering
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int setMediaId(unsigned int mediaId) = 0;
+
+		/**
+		 * Get the audio renderer media identifier.
+		 * This function retrieves the identifier of the media on which
+		 * the rendering is done.
+		 * @return the identifier of the media on success,
+		 *         0 if no media is being renderered or in case of error
+		 */
+		virtual unsigned int getMediaId(void) = 0;
+
+		/**
+		 * Set the audio renderer parameters.
+		 * This function updates the rendering parameters on a running
+		 * audio renderer. The params structure must be provided but all
+		 * parameters are optional and can be left null.
+		 * @param params: renderer parameters
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int
+		setParams(const struct pdraw_audio_renderer_params *params) = 0;
+
+		/**
+		 * Get the audio renderer parameters.
+		 * This function retrieves the rendering parameters on a running
+		 * audio renderer. The provided params structure is filled by
+		 * the function.
+		 * @param params: renderer parameters (output)
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int
+		getParams(struct pdraw_audio_renderer_params *params) = 0;
+	};
+
+	/**
+	 * Create an audio renderer.
+	 * This function creates an audio renderer on a media of the given media
+	 * id; if the media id is zero the first audio media encountered is
+	 * used. Once the renderer is created, the rendering is done internally.
+	 * Once a renderer is no longer used it must be destroyed. A valid
+	 * listener must be provided and all functions must be implemented. All
+	 * listener functions are called from the pomp_loop thread.
+	 * @param mediaId: identifier of the audio media to render (from a
+	 *                 pdraw_media_info structure); if zero the first
+	 *                 audio media found is used for rendering
+	 * @param params: renderer parameters
+	 * @param listener: renderer listener functions implementation
+	 * @param retObj: renderer object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createAudioRenderer(unsigned int mediaId,
+			    const struct pdraw_audio_renderer_params *params,
+			    IPdraw::IAudioRenderer::Listener *listener,
+			    IPdraw::IAudioRenderer **retObj) = 0;
 
 
 	/**
@@ -1096,6 +1377,25 @@ public:
 						      eosReason) = 0;
 
 			/**
+			 * Framerate changed function, called when the video IPC
+			 * framerate has changed (new status). The return value
+			 * is a boolean indicating whether the framerate change
+			 * must be ignored or not. If 'false', the current media
+			 * is destroyed and a new media is created.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: video IPC source handle
+			 * @param prevFramerate the previous framerate,
+			 * @param newFramerate the new framerate.
+			 * @return true to ignore the framerate change, false to
+			 * re-create a media.
+			 */
+			virtual bool vipcSourceFramerateChanged(
+				IPdraw *pdraw,
+				IPdraw::IVipcSource *source,
+				const struct vdef_frac *prevFramerate,
+				const struct vdef_frac *newFramerate) = 0;
+
+			/**
 			 * Configured function, called when a video IPC has
 			 * been configured (initially or reconfigured) or when
 			 * a configuration has failed. The status parameter is
@@ -1130,6 +1430,25 @@ public:
 				IPdraw *pdraw,
 				IPdraw::IVipcSource *source,
 				struct mbuf_raw_video_frame *frame) = 0;
+
+			/**
+			 * End-of-stream function, called when the video IPC has
+			 * received an end-of-stream from the server. The return
+			 * value is a boolean indicating whether the
+			 * end-of-stream must be ignored or not. If 'false',
+			 * the current media is destroyed. In all cases, a flush
+			 * is triggered.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: video IPC source handle
+			 * @param eosReason end of stream reason
+			 * @return true to ignore the end-of-stream, false to
+			 * destroy the media.
+			 */
+			virtual bool
+			vipcSourceEndOfStream(IPdraw *pdraw,
+					      IPdraw::IVipcSource *source,
+					      enum pdraw_vipc_source_eos_reason
+						      eosReason) = 0;
 		};
 
 		/**
@@ -1180,7 +1499,7 @@ public:
 		 * Configure the video IPC.
 		 * This function can be used to dynamically reconfigure a video
 		 * IPC. The resolution and crop can be specified; if either
-		 * parameter is NULL or values are 0, it is ignored.
+		 * parameter is null or values are 0, it is ignored.
 		 * The function returns before the actual operation is done. If
 		 * the function returns 0, the vipcSourceConfigured() listener
 		 * function will be called once the configuration is successful
@@ -1189,13 +1508,26 @@ public:
 		 * the vipcSourceConfigured() listener function will not be
 		 * called.
 		 * @param resolution: new video IPC resolution to apply
-		 *                    (optional, can be NULL)
+		 *                    (optional, can be null)
 		 * @param crop: new video IPC crop to apply
-		 *              (optional, can be NULL)
+		 *              (optional, can be null)
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int configure(const struct vdef_dim *resolution,
 				      const struct vdef_rectf *crop) = 0;
+
+		/**
+		 * Insert a grey frame.
+		 * This function can be used to insert a grey frame into the
+		 * video IPC source at a given timestamp. This can be used for
+		 * example to add a first sample on a VIPC that does not send
+		 * frame continuously. The function can be called several times
+		 * to insert several grey frames but the frame timestamp (usec)
+		 * must be strictly monotonic.
+		 * @param tsUs: the grey frame timestamp in microseconds
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int insertGreyFrame(uint64_t tsUs) = 0;
 
 		/**
 		 * Set the session metadata of the video IPC source.
@@ -1469,6 +1801,18 @@ public:
 			virtual void onCodedVideoSinkFlush(
 				IPdraw *pdraw,
 				IPdraw::ICodedVideoSink *sink) = 0;
+
+			/**
+			 * Session metadata update function, called when the
+			 * session metadata have been updated.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: coded video sink handle
+			 * @param meta: new session metadata
+			 */
+			virtual void onCodedVideoSinkSessionMetaUpdate(
+				IPdraw *pdraw,
+				IPdraw::ICodedVideoSink *sink,
+				const struct vmeta_session *meta) = 0;
 		};
 
 		/**
@@ -1546,6 +1890,18 @@ public:
 			virtual void
 			onRawVideoSinkFlush(IPdraw *pdraw,
 					    IPdraw::IRawVideoSink *sink) = 0;
+
+			/**
+			 * Session metadata update function, called when the
+			 * session metadata have been updated.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: raw video sink handle
+			 * @param meta: new session metadata
+			 */
+			virtual void onRawVideoSinkSessionMetaUpdate(
+				IPdraw *pdraw,
+				IPdraw::IRawVideoSink *sink,
+				const struct vmeta_session *meta) = 0;
 		};
 
 		/**
@@ -1647,6 +2003,293 @@ public:
 
 
 	/**
+	 * ALSA source API
+	 * @see the createAlsaSource() function for the ALSA source
+	 * object creation
+	 */
+	class IAlsaSource {
+	public:
+		/* Alsa source listener object */
+		class Listener {
+		public:
+			/**
+			 * Alsa source listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Ready to play function, called when the ALSA source
+			 * is ready to start receiving frames (the ready
+			 * parameter is true), or when the ALSA source cannot
+			 * receive frames any more (end of stream; the ready
+			 * parameter is false). When the ready parameter is
+			 * false, the eosReason parameter indicates the reason
+			 * why the end of stream was received on the ALSA
+			 * source.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: ALSA source handle
+			 * @param ready: true if the session is ready to play,
+			 *               false otherwise
+			 * @param eosReason: end of stream reason if the ready
+			 *                   parameter is false
+			 */
+			virtual void
+			alsaSourceReadyToPlay(IPdraw *pdraw,
+					      IPdraw::IAlsaSource *source,
+					      bool ready,
+					      enum pdraw_alsa_source_eos_reason
+						      eosReason) = 0;
+
+			/**
+			 * Frame ready function, called when a video frame has
+			 * been received and before it is propagated downstream
+			 * in the pipeline. This can be used to associate
+			 * metadata with the frame.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: ALSA source handle
+			 * @param frame: frame information
+			 */
+			virtual void alsaSourceFrameReady(
+				IPdraw *pdraw,
+				IPdraw::IAlsaSource *source,
+				struct mbuf_audio_frame *frame) = 0;
+		};
+
+		/**
+		 * Destroy an ALSA source.
+		 * This function stops a running ALSA source and frees
+		 * the associated resources.
+		 */
+		virtual ~IAlsaSource(void) {}
+
+		/**
+		 * Get the ready to play status.
+		 * This function returns true if the ALSA source is ready to
+		 * start, false otherwise. The value returned by this function
+		 * is identical to the ready parameter passed to the
+		 * readyToPlay() listener function when it is called.
+		 * @return the ready to play status on success, false in case of
+		 *         error
+		 */
+		virtual bool isReadyToPlay(void) = 0;
+
+		/**
+		 * Get the pause status.
+		 * This function returns true if the ALSA source is currently
+		 * paused, false otherwise.
+		 * @return the pause status on success, false in case of error
+		 */
+		virtual bool isPaused(void) = 0;
+
+		/**
+		 * Start receiving frames on the ALSA source.
+		 * This function starts the ALSA source if it is ready to play.
+		 * Otherwise an error is returned. Receiving frames can be
+		 * halted by calling the pause() function.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int play(void) = 0;
+
+		/**
+		 * Stop receiving frames on the ALSA source.
+		 * This function halts the ALSA source to stop receiving
+		 * frames. Receiving frames can be resumed by calling the
+		 * play() function.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int pause(void) = 0;
+	};
+
+
+	/**
+	 * Create an ALSA source.
+	 * This function creates an ALSA source. Once an ALSA source
+	 * is no longer used, it must be destroyed. The hardware address must be
+	 * provided. The listener must be provided; all listener functions are
+	 * called from the pomp_loop thread.
+	 *
+	 * @param params: ALSA source parameters
+	 * @param listener: ALSA source listener functions implementation
+	 * @param retObj: ALSA source object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createAlsaSource(const struct pdraw_alsa_source_params *params,
+			 IPdraw::IAlsaSource::Listener *listener,
+			 IPdraw::IAlsaSource **retObj) = 0;
+
+
+	/**
+	 * Audio source API
+	 * @see the createAudioSource() function for the audio source
+	 * object creation
+	 */
+	class IAudioSource {
+	public:
+		/* Audio source listener object */
+		class Listener {
+		public:
+			/**
+			 * Audio source listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Audio source flushed function, called to signal
+			 * that flushing is complete after the audio source
+			 * flush() function has been called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: audio source handle
+			 */
+			virtual void
+			onAudioSourceFlushed(IPdraw *pdraw,
+					     IPdraw::IAudioSource *source) = 0;
+		};
+
+		/**
+		 * Destroy an audio source.
+		 * This function stops a running audio source and frees
+		 * the associated resources.
+		 */
+		virtual ~IAudioSource(void) {}
+
+		/**
+		 * Get the audio source frame queue.
+		 * This function returns the frame queue to use in order to
+		 * push frames to a running audio source. Frames are pushed
+		 * into the queue by using the mbuf_audio_frame_queue_push()
+		 * function.
+		 * @return a pointer on a mbuf_audio_frame_queue object on
+		 *         success, nullptr in case of error
+		 */
+		virtual struct mbuf_audio_frame_queue *getQueue(void) = 0;
+
+		/**
+		 * Audio source flush function, to be called when flushing
+		 * is required. When this function is called, all frames
+		 * previously pushed to the queue will be returned; once the
+		 * flushing is done, the onAudioSourceFlushed() listener
+		 * function will be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int flush(void) = 0;
+	};
+
+
+	/**
+	 * Create an audio source.
+	 * This function creates an audio source to push frames to. Once the
+	 * source is created, audio frames are to be pushed into the frame queue
+	 * returned by the getQueue() function. Once an audio source is no
+	 * longer used, it must be destroyed. The params structure must be
+	 * provided and must be filled. The listener must be provided and the
+	 * onAudioSourceFlushed() function is required to be implemented; all
+	 * listener functions are called from the pomp_loop thread.
+	 *
+	 * @param params: audio source parameters
+	 * @param listener: audio source listener functions implementation
+	 * @param retObj: audio source object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createAudioSource(const struct pdraw_audio_source_params *params,
+			  IPdraw::IAudioSource::Listener *listener,
+			  IPdraw::IAudioSource **retObj) = 0;
+
+
+	/**
+	 * Audio sink API
+	 * @see the createAudioSink() function for the audio sink
+	 * object creation
+	 */
+	class IAudioSink {
+	public:
+		/* Video sink listener object */
+		class Listener {
+		public:
+			/**
+			 * Audio sink listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Audio sink flush function, called when flushing
+			 * is required. When this function is called, the
+			 * application must flush the sink queue by calling
+			 * mbuf_audio_frame_queue_flush() and must return
+			 * all frames outside of the queue by calling
+			 * mbuf_raw_frame_unref(); once the flushing is done,
+			 * the queueFlushed() function must be called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: audio sink handle
+			 */
+			virtual void
+			onAudioSinkFlush(IPdraw *pdraw,
+					 IPdraw::IAudioSink *sink) = 0;
+		};
+
+		/**
+		 * Destroy an audio sink.
+		 * This function stops a running audio sink and frees the
+		 * associated resources.
+		 */
+		virtual ~IAudioSink(void) {}
+
+		/**
+		 * Get the audio sink frame queue.
+		 * This function returns the frame queue to use in order to
+		 * retrieve frames from a running audio sink. Frames are
+		 * retrieved from the queue by using the
+		 * mbuf_audio_frame_queue_pop() function.
+		 * @return a pointer on a mbuf_audio_frame_queue object on
+		 *         success, nullptr in case of error
+		 */
+		virtual struct mbuf_audio_frame_queue *getQueue(void) = 0;
+
+		/**
+		 * Signal that an audio sink has been flushed.
+		 * This function is used to signal that flushing is complete.
+		 * When the onAudioSinkFlush() audio sink listener function
+		 * is called, the application must flush the sink queue by
+		 * calling mbuf_audio_frame_queue_flush() and must return
+		 * all frames outside of the queue by calling
+		 * mbuf_audio_frame_unref(); once the flushing is complete,
+		 * this function must be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int queueFlushed(void) = 0;
+	};
+
+
+	/**
+	 * Create an audio sink.
+	 * This function creates an audio sink on a media of the given mediaId.
+	 * The media idenfifiers are known when the onMediaAdded() or
+	 * onMediaRemoved() general listener functions are called. Once the
+	 * sink is created, audio frames are retrieved by getting them from
+	 * the frame queue returned by the getQueue() function. Once an audio
+	 * sink is no longer used, it must be destroyed.
+	 * The listener must be provided and the onAudioSinkFlush() function is
+	 * required to be implemented; all listener functions are called from
+	 * the pomp_loop thread. When the onAudioSinkFlush() function is called,
+	 * the application must flush the sink queue by calling
+	 * mbuf_audio_frame_queue_flush() and must return all frames outside of
+	 * the queue by calling mbuf_audio_frame_unref(); once the flushing is
+	 * complete, the queueFlushed() function must be called.
+	 *
+	 * @note mediaId must refer to an audio media.
+	 *
+	 * @param mediaId: identifier of the media on which to create the sink
+	 * @param listener: audio sink listener functions implementation
+	 * @param retObj: audio sink object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int createAudioSink(unsigned int mediaId,
+				    IPdraw::IAudioSink::Listener *listener,
+				    IPdraw::IAudioSink **retObj) = 0;
+
+
+	/**
 	 * Video encoder API
 	 */
 	class IVideoEncoder {
@@ -1666,6 +2309,9 @@ public:
 			 * function is usually called from the pomp_loop thread,
 			 * but it may depend on the video encoder
 			 * implementation.
+			 * @warning: this function is called with a Listener
+			 * mutex locked, therefore no API function must be
+			 * called from this callback.
 			 * @param pdraw: PDrAW instance handle
 			 * @param encoder: video encoder handle
 			 * @param frame: frame information
@@ -1681,6 +2327,9 @@ public:
 			 * info and ancillary data from the frame. This function
 			 * is called from the thread that unrefs the frame; it
 			 * can be any thread.
+			 * @warning: this function is called with a Listener
+			 * mutex locked, therefore no API function must be
+			 * called from this callback.
 			 * @param pdraw: PDrAW instance handle
 			 * @param encoder: video encoder handle
 			 * @param frame: frame information
@@ -1706,6 +2355,16 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int configure(const struct venc_dyn_config *config) = 0;
+
+		/**
+		 * Get the video encoder dynamic configuration.
+		 * This function fills the config structure with the dynamic
+		 * configuration. The structure must have been previously
+		 * allocated.
+		 * @param config: video encoder configuration structure to fill
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int getConfig(struct venc_dyn_config *config) = 0;
 	};
 
 
@@ -1726,7 +2385,8 @@ public:
 	 *
 	 * @note mediaId must refer to a raw video media.
 	 *
-	 * @param mediaId: identifier of the media on which to create the sink
+	 * @param mediaId: identifier of the media on which to create the
+	 *                 video encoder
 	 * @param params: video encoder parameters
 	 * @param listener: video encoder listener functions implementation
 	 * @param retObj: video encoder object pointer (output)
@@ -1737,6 +2397,162 @@ public:
 			   const struct venc_config *params,
 			   IPdraw::IVideoEncoder::Listener *listener,
 			   IPdraw::IVideoEncoder **retObj) = 0;
+
+
+	/**
+	 * Video Scaler API
+	 */
+
+	class IVideoScaler {
+	public:
+		/* Video scaler listener object */
+		class Listener {
+		public:
+			/**
+			 * Video scaler listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Frame output function, called when a video frame is
+			 * output from the scaler. This can be used to extract
+			 * frame info and ancillary data from the frame. This
+			 * function is usually called from the pomp_loop thread,
+			 * but it may depend on the video scaler
+			 * implementation.
+			 * @param pdraw: PDrAW instance handle
+			 * @param scaler: video scaler handle
+			 * @param frame: frame information
+			 */
+			virtual void videoScalerFrameOutput(
+				IPdraw *pdraw,
+				IPdraw::IVideoScaler *scaler,
+				struct mbuf_raw_video_frame *frame) = 0;
+		};
+
+		/**
+		 * Destroy a video scaler.
+		 * This function stops a running video scaler and frees the
+		 * associated resources.
+		 */
+		virtual ~IVideoScaler(void) {}
+	};
+
+	/**
+	 * Create a video scaler.
+	 * This function creates a video scaler on a media of the given
+	 * mediaId. The media idenfifiers are known when the onMediaAdded() or
+	 * onMediaRemoved() general listener functions are called.
+	 * Once a video scaler is no longer used, it must be destroyed.
+	 * The params structure must be provided but some parameters are
+	 * optional and can be left null. The input sub-structure in the params
+	 * structure is ignored. The listener must be provided but all listener
+	 * functions are optional; the videoScalerFrameOutput() function is
+	 * usually called from the pomp_loop thread, but it may depend on the
+	 * video scaler implementation.
+	 *
+	 * @note mediaId must refer to a raw video media.
+	 *
+	 * @param mediaId: identifier of the media on which to create the sink
+	 * @param params: video scaler parameters
+	 * @param listener: video scaler listener functions implementation
+	 * @param retObj: video scaler object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int createVideoScaler(unsigned int mediaId,
+				      const struct vscale_config *params,
+				      IPdraw::IVideoScaler::Listener *listener,
+				      IPdraw::IVideoScaler **retObj) = 0;
+
+
+	/**
+	 * Audio encoder API
+	 */
+	class IAudioEncoder {
+	public:
+		/* Audio encoder listener object */
+		class Listener {
+		public:
+			/**
+			 * Audio encoder listener object destructor.
+			 */
+			virtual ~Listener(void) {}
+
+			/**
+			 * Frame output function, called when an audio frame is
+			 * output from the encoder. This can be used to extract
+			 * frame info and ancillary data from the frame. This
+			 * function is usually called from the pomp_loop thread,
+			 * but it may depend on the audio encoder
+			 * implementation.
+			 * @warning: this function is called with a Listener
+			 * mutex locked, therefore no API function must be
+			 * called from this callback.
+			 * @param pdraw: PDrAW instance handle
+			 * @param encoder: audio encoder handle
+			 * @param frame: frame information
+			 */
+			virtual void audioEncoderFrameOutput(
+				IPdraw *pdraw,
+				IPdraw::IAudioEncoder *encoder,
+				struct mbuf_audio_frame *frame) = 0;
+
+			/**
+			 * Frame pre-release function, called before an audio
+			 * frame is released. This can be used to extract frame
+			 * info and ancillary data from the frame. This function
+			 * is called from the thread that unrefs the frame; it
+			 * can be any thread.
+			 * @warning: this function is called with a Listener
+			 * mutex locked, therefore no API function must be
+			 * called from this callback.
+			 * @param pdraw: PDrAW instance handle
+			 * @param encoder: audio encoder handle
+			 * @param frame: frame information
+			 */
+			virtual void audioEncoderFramePreRelease(
+				IPdraw *pdraw,
+				IPdraw::IAudioEncoder *encoder,
+				struct mbuf_audio_frame *frame) = 0;
+		};
+
+		/**
+		 * Destroy an audio encoder.
+		 * This function stops a running audio encoder and frees the
+		 * associated resources.
+		 */
+		virtual ~IAudioEncoder(void) {}
+	};
+
+
+	/**
+	 * Create an audio encoder.
+	 * This function creates an audio encoder on a media of the given
+	 * mediaId. The media idenfifiers are known when the onMediaAdded() or
+	 * onMediaRemoved() general listener functions are called.
+	 * Once an audio encoder is no longer used, it must be destroyed.
+	 * The params structure must be provided but some parameters are
+	 * optional and can be left null. The input sub-structure in the params
+	 * structure is ignored. The listener must be provided but all listener
+	 * functions are optional; the audioEncoderFrameOutput() function is
+	 * usually called from the pomp_loop thread, but it may depend on the
+	 * audio encoder implementation. The audioEncoderFramePreRelease()
+	 * function is called from the thread that unrefs the frame; it can be
+	 * called from any thread.
+	 *
+	 * @note mediaId must refer to an audio media.
+	 *
+	 * @param mediaId: identifier of the media on which to create the sink
+	 * @param params: audio encoder parameters
+	 * @param listener: audio encoder listener functions implementation
+	 * @param retObj: audio encoder object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int
+	createAudioEncoder(unsigned int mediaId,
+			   const struct aenc_config *params,
+			   IPdraw::IAudioEncoder::Listener *listener,
+			   IPdraw::IAudioEncoder **retObj) = 0;
 
 
 	/**
@@ -1813,103 +2629,6 @@ public:
 	virtual void
 	setSoftwareVersionSetting(const std::string &softwareVersion) = 0;
 
-	/**
-	 * Get the pipeline mode setting.
-	 * This function returns the pipeline mode of a PDrAW instance. The
-	 * pipeline mode controls whether to decode the selected video media
-	 * (for full processing up to the rendering), or to disable video
-	 * decoding (e.g. when no rendering is required, only a coded video
-	 * sink).
-	 * @return the pipeline mode, or PDRAW_PIPELINE_MODE_DECODE_ALL
-	 *         in case of error
-	 */
-	virtual enum pdraw_pipeline_mode getPipelineModeSetting(void) = 0;
-
-	/**
-	 * Set the pipeline mode setting.
-	 * This function sets the pipeline mode of a PDrAW instance. This
-	 * function can be called only prior to any open operation. The pipeline
-	 * mode controls whether to decode the selected video media (for full
-	 * processing up to the rendering), or to disable video decoding (e.g.
-	 * when no rendering is required, only a coded video sink).
-	 * @param mode: pipeline mode
-	 */
-	virtual void setPipelineModeSetting(enum pdraw_pipeline_mode mode) = 0;
-
-	/**
-	 * Get the display screen settings.
-	 * This function returns the display screen settings through the xdpi,
-	 * ydpi and deviceMargin* parameters. This is only useful if HMD
-	 * distortion correction is enabled in the video rendering. The xdpi
-	 * and ydpi are pixel densities in dots per inches. The device margins
-	 * are in millimeters.
-	 * @param xdpi: horizontal pixel density (output)
-	 * @param ydpi: vertical pixel density (output)
-	 * @param deviceMarginTop: top device margin (output)
-	 * @param deviceMarginBottom: bottom device margin (output)
-	 * @param deviceMarginLeft: left device margin (output)
-	 * @param deviceMarginRight: right device margin (output)
-	 */
-	virtual void getDisplayScreenSettings(float *xdpi,
-					      float *ydpi,
-					      float *deviceMarginTop,
-					      float *deviceMarginBottom,
-					      float *deviceMarginLeft,
-					      float *deviceMarginRight) = 0;
-
-	/**
-	 * Set the display screen settings.
-	 * This function sets the display screen settings. This is only useful
-	 * if HMD distortion correction is enabled in the video rendering.
-	 * The xdpi and ydpi are pixel densities in dots per inches. The device
-	 * margins are in millimeters.
-	 * @param xdpi: horizontal pixel density
-	 * @param ydpi: vertical pixel density
-	 * @param deviceMarginTop: top device margin
-	 * @param deviceMarginBottom: bottom device margin
-	 * @param deviceMarginLeft: left device margin
-	 * @param deviceMarginRight: right device margin
-	 */
-	virtual void setDisplayScreenSettings(float xdpi,
-					      float ydpi,
-					      float deviceMarginTop,
-					      float deviceMarginBottom,
-					      float deviceMarginLeft,
-					      float deviceMarginRight) = 0;
-
-	/**
-	 * Get the HMD model setting.
-	 * This function returns the head-mounted display (HMD) model. This is
-	 * only useful if HMD distortion correction is enabled in the video
-	 * rendering.
-	 * @return the HMD model, or PDRAW_HMD_MODEL_UNKNOWN in case of error
-	 */
-	virtual enum pdraw_hmd_model getHmdModelSetting(void) = 0;
-
-	/**
-	 * Set the HMD model setting.
-	 * This function sets the head-mounted display (HMD) model. This is
-	 * only useful if HMD distortion correction is enabled in the video
-	 * rendering.
-	 * @param hmdModel: HMD model
-	 */
-	virtual void setHmdModelSetting(enum pdraw_hmd_model hmdModel) = 0;
-
-
-	/**
-	 * Platform-specific API
-	 */
-
-	/**
-	 * Set the Android JVM pointer.
-	 * This function sets the JVM pointer for internal calls to the Android
-	 * SDK API. This is only useful on Android and is ignored on other
-	 * platforms. If the JVM pointer is not provided on Android platforms,
-	 * some features may not be available.
-	 * @param jvm: JVM pointer
-	 */
-	virtual void setAndroidJvm(void *jvm) = 0;
-
 
 	/**
 	 * Debug API
@@ -1949,19 +2668,21 @@ PDRAW_API int createPdraw(struct pomp_loop *loop,
  */
 
 /**
- * ToString function for enum pdraw_hmd_model.
- * @param val: HMD model value to convert
- * @return a string description of the HMD model
- */
-PDRAW_API const char *pdrawHmdModelStr(enum pdraw_hmd_model val);
-
-
-/**
- * ToString function for enum pdraw_pipeline_mode.
+ * ToString function for enum pdraw_demuxer_autodecoding_mode.
  * @param val: pipeline mode value to convert
  * @return a string description of the pipeline mode
  */
-PDRAW_API const char *pdrawPipelineModeStr(enum pdraw_pipeline_mode val);
+PDRAW_API const char *
+pdrawDemuxerAutodecodingModeStr(enum pdraw_demuxer_autodecoding_mode val);
+
+
+/**
+ * FromString function for enum pdraw_demuxer_autodecoding_mode.
+ * @param val: string to convert
+ * @return pipeline mode converted from the string description
+ */
+PDRAW_API enum pdraw_demuxer_autodecoding_mode
+pdrawDemuxerAutodecodingModeFromStr(const char *val);
 
 
 /**
@@ -1973,6 +2694,14 @@ PDRAW_API const char *pdrawPlaybackTypeStr(enum pdraw_playback_type val);
 
 
 /**
+ * FromString function for enum pdraw_playback_type.
+ * @param val: string to convert
+ * @return playback type converted from the string description
+ */
+PDRAW_API enum pdraw_playback_type pdrawPlaybackTypeFromStr(const char *val);
+
+
+/**
  * ToString function for enum pdraw_media_type.
  * @param val: media type value to convert
  * @return a string description of the media type
@@ -1981,11 +2710,27 @@ PDRAW_API const char *pdrawMediaTypeStr(enum pdraw_media_type val);
 
 
 /**
+ * FromString function for enum pdraw_media_type.
+ * @param val: string to convert
+ * @return media type converted from the string description
+ */
+PDRAW_API enum pdraw_media_type pdrawMediaTypeFromStr(const char *val);
+
+
+/**
  * ToString function for enum pdraw_video_type.
  * @param val: video type value to convert
  * @return a string description of the video type
  */
 PDRAW_API const char *pdrawVideoTypeStr(enum pdraw_video_type val);
+
+
+/**
+ * FromString function for enum pdraw_video_type.
+ * @param val: string to convert
+ * @return video type converted from the string description
+ */
+PDRAW_API enum pdraw_video_type pdrawVideoTypeFromStr(const char *val);
 
 
 /**
@@ -1998,12 +2743,30 @@ pdrawHistogramChannelStr(enum pdraw_histogram_channel val);
 
 
 /**
+ * FromString function for enum pdraw_histogram_channel.
+ * @param val: string to convert
+ * @return histogram channel converted from the string description
+ */
+PDRAW_API enum pdraw_histogram_channel
+pdrawHistogramChannelFromStr(const char *val);
+
+
+/**
  * ToString function for enum pdraw_video_renderer_scheduling_mode.
  * @param val: video renderer scheduling mode value to convert
  * @return a string description of the video renderer scheduling mode
  */
 PDRAW_API const char *pdrawVideoRendererSchedulingModeStr(
 	enum pdraw_video_renderer_scheduling_mode val);
+
+
+/**
+ * FromString function for enum pdraw_video_renderer_scheduling_mode.
+ * @param val: string to convert
+ * @return video renderer scheduling mode converted from the string description
+ */
+PDRAW_API enum pdraw_video_renderer_scheduling_mode
+pdrawVideoRendererSchedulingModeFromStr(const char *val);
 
 
 /**
@@ -2016,6 +2779,15 @@ pdrawVideoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val);
 
 
 /**
+ * FromString function for enum pdraw_video_renderer_fill_mode.
+ * @param val: string to convert
+ * @return video renderer fill mode converted from the string description
+ */
+PDRAW_API enum pdraw_video_renderer_fill_mode
+pdrawVideoRendererFillModeFromStr(const char *val);
+
+
+/**
  * ToString function for enum pdraw_video_renderer_transition_flag.
  * @param val: video renderer transition flag value to convert
  * @return a string description of the video renderer transition flag
@@ -2025,12 +2797,31 @@ PDRAW_API const char *pdrawVideoRendererTransitionFlagStr(
 
 
 /**
+ * FromString function for enum pdraw_video_renderer_transition_flag.
+ * @param val: string to convert
+ * @return video renderer transition flag converted from the string description
+ */
+PDRAW_API enum pdraw_video_renderer_transition_flag
+pdrawVideoRendererTransitionFlagFromStr(const char *val);
+
+
+/**
  * ToString function for enum pdraw_vipc_source_eos_reason.
  * @param val: video IPC source end of stream reason value to convert
  * @return a string description of the video IPC source end of stream reason
  */
 PDRAW_API const char *
 pdrawVipcSourceEosReasonStr(enum pdraw_vipc_source_eos_reason val);
+
+
+/**
+ * FromString function for enum pdraw_vipc_source_eos_reason.
+ * @param val: string to convert
+ * @return video IPC source end of stream reason converted from the string
+ * description
+ */
+PDRAW_API enum pdraw_vipc_source_eos_reason
+pdrawVipcSourceEosReasonFromStr(const char *val);
 
 
 /**
@@ -2069,7 +2860,7 @@ PDRAW_API int pdrawVideoFrameToJsonStr(const struct pdraw_video_frame *frame,
 /**
  * Duplicate a media_info structure.
  * @param src: pointer to the media_info structure to duplicate
- * @return a pointer to the newly allocated structure or NULL on error.
+ * @return a pointer to the newly allocated structure or nullptr on error.
  */
 PDRAW_API struct pdraw_media_info *
 pdrawMediaInfoDup(const struct pdraw_media_info *src);
@@ -2080,6 +2871,19 @@ pdrawMediaInfoDup(const struct pdraw_media_info *src);
  * @param media_info: pointer to the media_info structure to free
  */
 PDRAW_API void pdrawMediaInfoFree(struct pdraw_media_info *media_info);
+
+
+/**
+ * Get the capabilities of an ALSA source.
+ * This function retrieves the capabilities of the audio capture device.
+ * The provided caps structure is filled by the function.
+ * @param address: address of the audio capture device
+ * @param caps: ALSA source capabilities (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdrawAlsaSourceGetCapabilities(const std::string &address,
+			       struct pdraw_alsa_source_caps *caps);
 
 
 } /* namespace Pdraw */

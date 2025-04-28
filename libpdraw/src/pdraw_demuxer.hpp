@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Generic demuxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -40,13 +40,23 @@
 
 namespace Pdraw {
 
-
-#define DEMUXER_OUTPUT_BUFFER_COUNT (30)
+class DemuxerWrapper;
 
 
 class Demuxer : public SourceElement {
 public:
 	virtual ~Demuxer(void);
+
+	const struct pdraw_demuxer_params *getParams(void)
+	{
+		return &mParams;
+	}
+
+	virtual int getMediaList(struct pdraw_demuxer_media **mediaList,
+				 size_t *mediaCount,
+				 uint32_t *selectedMedias);
+
+	virtual int selectMedia(uint32_t selectedMedias);
 
 	virtual int flush(void) = 0;
 
@@ -64,35 +74,30 @@ public:
 
 	virtual int seekTo(uint64_t timestamp, bool exact = false) = 0;
 
+	virtual int getChapterList(struct pdraw_chapter **chapterList,
+				   size_t *chapterCount);
+
 	virtual uint64_t getDuration(void) = 0;
 
 	virtual uint64_t getCurrentTime(void) = 0;
 
-	IPdraw::IDemuxer *getDemuxer(void)
+	IPdraw::IDemuxer *getDemuxer(void) const
 	{
 		return mDemuxer;
 	}
 
-	IPdraw::IDemuxer::Listener *getDemuxerListener(void)
+	void clearDemuxerListener(void)
 	{
-		return mDemuxerListener;
+		mDemuxerListener = nullptr;
 	}
 
 protected:
 	Demuxer(Session *session,
 		Element::Listener *elementListener,
 		Source::Listener *sourceListener,
-		IPdraw::IDemuxer *demuxer,
-		IPdraw::IDemuxer::Listener *demuxerListener) :
-			SourceElement(session,
-				      elementListener,
-				      UINT_MAX,
-				      sourceListener),
-			mDemuxer(demuxer), mDemuxerListener(demuxerListener),
-			mReadyToPlay(false), mUnrecoverableError(false),
-			mCalledOpenResp(false)
-	{
-	}
+		DemuxerWrapper *wrapper,
+		IPdraw::IDemuxer::Listener *demuxerListener,
+		const struct pdraw_demuxer_params *params);
 
 	void openResponse(int status);
 
@@ -100,7 +105,7 @@ protected:
 
 	void onUnrecoverableError(int error = -EPROTO);
 
-	int selectMedia(const struct pdraw_demuxer_media *medias, size_t count);
+	int callSelectMedia(uint32_t selectedMedia);
 
 	void readyToPlay(bool ready);
 
@@ -112,11 +117,27 @@ protected:
 
 	void seekResponse(int status, uint64_t timestamp, float speed);
 
+	int updateMediaList(
+		struct pdraw_demuxer_media *newMediaList,
+		size_t newMediaListSize,
+		std::vector<struct pdraw_demuxer_media *> &newDefaultMedias,
+		uint32_t *selectedMedias);
+
+	void clearMediaList(void);
+
+	uint32_t selectedMediasToBitfield(void);
+
 	IPdraw::IDemuxer *mDemuxer;
 	IPdraw::IDemuxer::Listener *mDemuxerListener;
+	struct pdraw_demuxer_params mParams;
 	bool mReadyToPlay;
 	bool mUnrecoverableError;
 	bool mCalledOpenResp;
+	bool mCallingSelectMedia;
+	struct pdraw_demuxer_media *mMediaList;
+	size_t mMediaListSize;
+	std::vector<struct pdraw_demuxer_media *> mDefaultMedias;
+	std::vector<struct pdraw_demuxer_media *> mSelectedMedias;
 
 	/* Demuxer listener calls from idle functions */
 	static void callOpenResponse(void *userdata);
@@ -140,6 +161,81 @@ protected:
 	std::queue<int> mSeekRespStatusArgs;
 	std::queue<uint64_t> mSeekRespTimestampArgs;
 	std::queue<float> mSeekRespSpeedArgs;
+};
+
+
+class DemuxerWrapper : public IPdraw::IDemuxer, public ElementWrapper {
+public:
+	DemuxerWrapper(Session *session,
+		       const std::string &url,
+		       struct mux_ctx *mux,
+		       const struct pdraw_demuxer_params *params,
+		       IPdraw::IDemuxer::Listener *listener);
+
+	DemuxerWrapper(Session *session,
+		       const std::string &localAddr,
+		       uint16_t localStreamPort,
+		       uint16_t localControlPort,
+		       const std::string &remoteAddr,
+		       uint16_t remoteStreamPort,
+		       uint16_t remoteControlPort,
+		       const struct pdraw_demuxer_params *params,
+		       IPdraw::IDemuxer::Listener *listener);
+
+	~DemuxerWrapper(void);
+
+	int close(void) override;
+
+	int getMediaList(struct pdraw_demuxer_media **mediaList,
+			 size_t *mediaCount,
+			 uint32_t *selectedMedias) override;
+
+	int selectMedia(uint32_t selectedMedias) override;
+
+	uint16_t getSingleStreamLocalStreamPort(void) override;
+
+	uint16_t getSingleStreamLocalControlPort(void) override;
+
+	bool isReadyToPlay(void) override;
+
+	bool isPaused(void) override;
+
+	int play(float speed = 1.0f) override;
+
+	int pause(void) override;
+
+	int previousFrame(void) override;
+
+	int nextFrame(void) override;
+
+	int seek(int64_t delta, bool exact = false) override;
+
+	int seekForward(uint64_t delta, bool exact = false) override;
+
+	int seekBack(uint64_t delta, bool exact = false) override;
+
+	int seekTo(uint64_t timestamp, bool exact = false) override;
+
+	uint64_t getDuration(void) override;
+
+	uint64_t getCurrentTime(void) override;
+
+	int getChapterList(struct pdraw_chapter **chapterList,
+			   size_t *chapterCount) override;
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+		mDemuxer = nullptr;
+	}
+
+	Demuxer *getDemuxer() const
+	{
+		return mDemuxer;
+	}
+
+private:
+	Demuxer *mDemuxer;
 };
 
 } /* namespace Pdraw */

@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
- * Broadcom VideoCore 4 EGL video renderer
+ * Parrot Drones Audio and Video Vector library
+ * Pipeline source to sink channel for audio
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,60 +28,56 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_VIDEO_VIDEOCOREEGL_HPP_
-#define _PDRAW_RENDERER_VIDEO_VIDEOCOREEGL_HPP_
+#ifndef _PDRAW_CHANNEL_AUDIO_HPP_
+#define _PDRAW_CHANNEL_AUDIO_HPP_
 
-#ifdef USE_VIDEOCOREEGL
+#include "pdraw_channel.hpp"
 
-#	include "pdraw_gles2_hmd.hpp"
-#	include "pdraw_gles2_video.hpp"
-#	include "pdraw_renderer_video_gles2.hpp"
+#include <inttypes.h>
 
-#	include <EGL/egl.h>
+#include <audio-defs/adefs.h>
+#include <libpomp.h>
+#include <media-buffers/mbuf_audio_frame.h>
 
 namespace Pdraw {
 
-
-class VideoCoreEglVideoRenderer : public Gles2VideoRenderer {
+class AudioChannel : public Channel {
 public:
-	VideoCoreEglVideoRenderer(
-		Session *session,
-		Element::Listener *listener,
-		IPdraw::IVideoRenderer *renderer,
-		IPdraw::IVideoRenderer::Listener *rndListener,
-		unsigned int mediaId,
-		const struct pdraw_rect *renderPos,
-		const struct pdraw_video_renderer_params *params,
-		struct egl_display *eglDisplay);
+	class AudioSinkListener {
+	public:
+		virtual ~AudioSinkListener(void) {}
 
-	~VideoCoreEglVideoRenderer(void);
+		virtual void
+		onAudioChannelQueue(AudioChannel *channel,
+				    struct mbuf_audio_frame *frame) = 0;
+	};
+
+	AudioChannel(Sink *owner,
+		     SinkListener *sinkListener,
+		     AudioSinkListener *audioSinkListener,
+		     struct pomp_loop *loop);
+
+	~AudioChannel(void) {}
+
+	int queue(mbuf_audio_frame *frame);
+
+	int getAudioMediaFormatCaps(const struct adef_format **caps);
+
+	void setAudioMediaFormatCaps(Sink *owner,
+				     const struct adef_format *caps,
+				     int count);
+
+	struct mbuf_audio_frame_queue *getQueue(Sink *owner);
+
+	void setQueue(Sink *owner, struct mbuf_audio_frame_queue *queue);
 
 private:
-	int setup(const struct pdraw_rect *renderPos,
-		  const struct pdraw_video_renderer_params *params,
-		  struct egl_display *eglDisplay);
-
-	int loadVideoFrame(const uint8_t *data, RawVideoMedia::Frame *frame);
-
-	int loadExternalVideoFrame(const uint8_t *data,
-				   RawVideoMedia::Frame *frame,
-				   const struct pdraw_media_info *media_info);
-
-	int renderVideoFrame(RawVideoMedia::Frame *frame,
-			     const struct pdraw_rect *renderPos,
-			     struct pdraw_rect *contentPos,
-			     Eigen::Matrix4f &viewProjMat);
-
-	int renderExternalVideoFrame(RawVideoMedia::Frame *frame,
-				     const struct pdraw_rect *renderPos,
-				     struct pdraw_rect *contentPos,
-				     Eigen::Matrix4f &viewProjMat);
-
-	EGLDisplay mDisplay;
+	AudioSinkListener *mAudioSinkListener;
+	const struct adef_format *mAudioMediaFormatCaps;
+	int mAudioMediaFormatCapsCount;
+	struct mbuf_audio_frame_queue *mQueue;
 };
 
 } /* namespace Pdraw */
 
-#endif /* USE_VIDEOCOREEGL */
-
-#endif /* !_PDRAW_RENDERER_VIDEO_VIDEOCOREEGL_HPP_ */
+#endif /* !_PDRAW_CHANNEL_AUDIO_HPP_ */

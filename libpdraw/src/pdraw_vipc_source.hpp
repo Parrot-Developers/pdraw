@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video IPC source
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -31,16 +31,16 @@
 #ifndef _PDRAW_VIPC_SOURCE_HPP_
 #define _PDRAW_VIPC_SOURCE_HPP_
 
+#include "pdraw_element.hpp"
+
+#include <string>
+
+#include <inttypes.h>
+
+#include <media-buffers/mbuf_raw_video_frame.h>
+#include <pdraw/pdraw.hpp>
+
 #ifdef BUILD_LIBVIDEO_IPC
-
-#	include "pdraw_element.hpp"
-
-#	include <string>
-
-#	include <inttypes.h>
-
-#	include <media-buffers/mbuf_raw_video_frame.h>
-#	include <pdraw/pdraw.hpp>
 #	include <video-ipc/vipc_client.h>
 #	include <video-ipc/vipc_client_cfg.h>
 
@@ -63,8 +63,14 @@
 #	if PDRAW_VIPC_BACKEND_NETWORK_CBUF
 #		include <vipc_backend_network_cbuf/vipc_backend_network_cbuf.h>
 #	endif
+#endif
 
 namespace Pdraw {
+
+
+#ifdef BUILD_LIBVIDEO_IPC
+
+class VipcSourceWrapper;
 
 
 class VipcSource : public SourceElement {
@@ -73,7 +79,7 @@ public:
 		   Element::Listener *elementListener,
 		   Source::Listener *sourceListener,
 		   IPdraw::IVipcSource::Listener *listener,
-		   IPdraw::IVipcSource *source,
+		   VipcSourceWrapper *wrapper,
 		   const struct pdraw_vipc_source_params *params);
 
 	~VipcSource(void);
@@ -93,18 +99,15 @@ public:
 	int configure(const struct vdef_dim *resolution,
 		      const struct vdef_rectf *crop);
 
+	int insertGreyFrame(uint64_t tsUs);
+
 	int setSessionMetadata(const struct vmeta_session *meta);
 
 	int getSessionMetadata(struct vmeta_session *meta);
 
-	IPdraw::IVipcSource *getVipcSource(void)
+	IPdraw::IVipcSource *getVipcSource(void) const
 	{
 		return mVipcSource;
-	}
-
-	IPdraw::IVipcSource::Listener *getVipcSourceListener(void)
-	{
-		return mVipcSourceListener;
 	}
 
 private:
@@ -131,7 +134,10 @@ private:
 
 	void onChannelUnlink(Channel *channel) override;
 
-	const char *getSourceName(void);
+	const char *getSourceName(void) const;
+
+	/* Vipc source listener calls from idle functions */
+	static void callOnMediaAdded(void *userdata);
 
 	struct FrameCtx {
 		struct vipcc_ctx *client;
@@ -178,6 +184,7 @@ private:
 
 #	if PDRAW_VIPC_BACKEND_DMABUF || PDRAW_VIPC_BACKEND_HISI ||            \
 		PDRAW_VIPC_BACKEND_NETWORK_HISI || PDRAW_VIPC_BACKEND_SHM
+	/* Can be called from any thread */
 	static void releaseFrameCb(void *data, size_t len, void *userdata);
 #	endif
 
@@ -244,10 +251,11 @@ private:
 	std::string mBackendName;
 	struct vipcc_ctx *mClient;
 	BackendType mBackendType;
-	struct vipc_status mStatus;
+	struct vipc_status *mStatus;
 	enum pdraw_vipc_source_eos_reason mLastEosReason;
 	RawVideoMedia *mOutputMedia;
 	bool mOutputMediaChanging;
+	bool mKeepMedia;
 	bool mVipcConnected;
 	bool mReady;
 	bool mWasReady;
@@ -255,15 +263,67 @@ private:
 	bool mWasRunning;
 	bool mFirstFrame;
 	unsigned int mInputFramesCount;
-	unsigned int mFrameIndex;
+	unsigned int mNextFrameIndex;
 	uint32_t mTimescale;
 	uint64_t mLastTimestamp;
 	bool mFlushPending;
 	struct pomp_timer *mWatchdogTimer;
 };
 
-} /* namespace Pdraw */
-
 #endif /* BUILD_LIBVIDEO_IPC */
+
+
+class VipcSourceWrapper : public IPdraw::IVipcSource, public ElementWrapper {
+public:
+	VipcSourceWrapper(Session *session,
+			  const struct pdraw_vipc_source_params *params,
+			  IPdraw::IVipcSource::Listener *listener);
+
+	~VipcSourceWrapper(void);
+
+	bool isReadyToPlay(void) override;
+
+	bool isPaused(void) override;
+
+	int play(void) override;
+
+	int pause(void) override;
+
+	int configure(const struct vdef_dim *resolution,
+		      const struct vdef_rectf *crop) override;
+
+	int insertGreyFrame(uint64_t tsUs) override;
+
+	int setSessionMetadata(const struct vmeta_session *meta) override;
+
+	int getSessionMetadata(struct vmeta_session *meta) override;
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+#ifdef BUILD_LIBVIDEO_IPC
+		mSource = nullptr;
+#endif
+	}
+
+#ifdef BUILD_LIBVIDEO_IPC
+	Source *getSource() const
+	{
+		return mSource;
+	}
+
+	VipcSource *getVipcSource() const
+	{
+		return mSource;
+	}
+#endif
+
+private:
+#ifdef BUILD_LIBVIDEO_IPC
+	VipcSource *mSource;
+#endif
+};
+
+} /* namespace Pdraw */
 
 #endif /* !_PDRAW_VIPC_SOURCE_HPP_ */

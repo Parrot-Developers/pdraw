@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline media source for elements
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -124,13 +124,12 @@ protected:
 	virtual void onChannelVideoPresStats(Channel *channel,
 					     VideoPresStats *stats);
 
-	int getRawVideoOutputMemory(RawVideoMedia *media,
-				    struct mbuf_mem **mem);
+	int getOutputMemory(Media *media, struct mbuf_mem **mem);
 
-	int getCodedVideoOutputMemory(CodedVideoMedia **videoMedias,
-				      unsigned int nbVideoMedias,
-				      struct mbuf_mem **mem,
-				      unsigned int *defaultMediaIndex);
+	int
+	getCodedVideoOutputMemory(std::vector<CodedVideoMedia *> &videoMedia,
+				  struct mbuf_mem **mem,
+				  unsigned int *defaultMediaIndex);
 
 	int copyCodedVideoOutputFrame(CodedVideoMedia *srcMedia,
 				      struct mbuf_coded_video_frame *srcFrame,
@@ -143,6 +142,8 @@ protected:
 	Listener *mListener;
 
 private:
+	int removeOutputPorts(bool calledFromDtor);
+
 	int destroyOutputPortMemoryPool(OutputPort *port);
 };
 

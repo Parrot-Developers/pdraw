@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW widget
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -60,16 +60,18 @@ public:
 	bool paintGL();
 
 private:
-	void onVideoRendererMediaAdded(IPdraw *pdraw,
-				       IPdraw::IVideoRenderer *renderer,
-				       const struct pdraw_media_info *info);
+	void
+	onVideoRendererMediaAdded(IPdraw *pdraw,
+				  IPdraw::IVideoRenderer *renderer,
+				  const struct pdraw_media_info *info) override;
 
 	void onVideoRendererMediaRemoved(IPdraw *pdraw,
 					 IPdraw::IVideoRenderer *renderer,
-					 const struct pdraw_media_info *info);
+					 const struct pdraw_media_info *info,
+					 bool restart) override;
 
 	void onVideoRenderReady(IPdraw *pdraw,
-				IPdraw::IVideoRenderer *renderer);
+				IPdraw::IVideoRenderer *renderer) override;
 
 	int loadVideoTexture(IPdraw *pdraw,
 			     IPdraw::IVideoRenderer *renderer,
@@ -78,18 +80,18 @@ private:
 			     const struct pdraw_media_info *mediaInfo,
 			     struct mbuf_raw_video_frame *frame,
 			     const void *frameUserdata,
-			     size_t frameUserdataLen);
+			     size_t frameUserdataLen) override;
 
-	int
-	renderVideoOverlay(IPdraw *pdraw,
-			   IPdraw::IVideoRenderer *renderer,
-			   const struct pdraw_rect *renderPos,
-			   const struct pdraw_rect *contentPos,
-			   const float *viewMat,
-			   const float *projMat,
-			   const struct pdraw_media_info *mediaInfo,
-			   struct vmeta_frame *frameMeta,
-			   const struct pdraw_video_frame_extra *frameExtra);
+	int renderVideoOverlay(
+		IPdraw *pdraw,
+		IPdraw::IVideoRenderer *renderer,
+		const struct pdraw_rect *renderPos,
+		const struct pdraw_rect *contentPos,
+		const float *viewMat,
+		const float *projMat,
+		const struct pdraw_media_info *mediaInfo,
+		struct vmeta_frame *frameMeta,
+		const struct pdraw_video_frame_extra *frameExtra) override;
 
 private slots:
 	/* Update slot, connected to the rendering timer timeout signal,

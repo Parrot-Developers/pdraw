@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline source to sink channel
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -41,20 +41,28 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-Channel::Channel(Sink *owner, SinkListener *sinkListener) :
-		mOwner(owner), mSinkListener(sinkListener),
-		mSourceListener(nullptr), mPool(nullptr), mFlushPending(false)
+Channel::Channel(Sink *owner,
+		 SinkListener *sinkListener,
+		 struct pomp_loop *loop) :
+		mOwner(owner),
+		mSinkListener(sinkListener), mSourceListener(nullptr),
+		mPool(nullptr), mLoop(loop), mFlushPending(false)
 {
 }
 
 
 Channel::~Channel(void)
 {
-	return;
+	/* Remove any leftover idle callbacks */
+	if (mLoop != nullptr) {
+		int err = pomp_loop_idle_remove_by_cookie(mLoop, this);
+		if (err < 0)
+			ULOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+	}
 }
 
 
-struct mbuf_pool *Channel::getPool(Sink *owner)
+struct mbuf_pool *Channel::getPool(const Sink *owner) const
 {
 	if (owner != mOwner) {
 		ULOGE("Channel::getPool: wrong owner");
@@ -64,7 +72,7 @@ struct mbuf_pool *Channel::getPool(Sink *owner)
 }
 
 
-void Channel::setPool(Sink *owner, struct mbuf_pool *pool)
+void Channel::setPool(const Sink *owner, struct mbuf_pool *pool)
 {
 	if (owner != mOwner) {
 		ULOGE("Channel::setPool: wrong owner");
@@ -136,6 +144,29 @@ int Channel::flushDone(void)
 		ULOG_ERRNO("pomp_msg_destroy", -res);
 
 	return 0;
+}
+
+
+int Channel::asyncFlushDone(void)
+{
+	if (mLoop == nullptr) {
+		ULOGE("invalid loop");
+		return -EPROTO;
+	}
+
+	int ret = pomp_loop_idle_add_with_cookie(
+		mLoop, &idleFlushDone, this, this);
+	if (ret < 0)
+		ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+
+	return ret;
+}
+
+
+void Channel::idleFlushDone(void *userdata)
+{
+	Channel *self = (Channel *)userdata;
+	(void)self->flushDone();
 }
 
 
@@ -307,6 +338,10 @@ const char *Channel::getDownstreamEventStr(DownstreamEvent val)
 		return "EOS";
 	case RECONFIGURE:
 		return "RECONFIGURE";
+	case RESOLUTION_CHANGE:
+		return "RESOLUTION_CHANGE";
+	case FRAMERATE_CHANGE:
+		return "FRAMERATE_CHANGE";
 	case TIMEOUT:
 		return "TIMEOUT";
 	case PHOTO_TRIGGER:

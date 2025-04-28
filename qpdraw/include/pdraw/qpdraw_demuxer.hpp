@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW demuxer object
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -56,17 +56,20 @@ public:
 	 * Open a demuxer on a URL (stream or local file).
 	 * The URL can be either an RTSP URL (starting with "rtsp://") or a
 	 * local file path (either absolute or relative).
-	 * The function returns before the actual opening is done. If the
-	 * function returns 0, the openResponse() signal will be emitted once
-	 * the open operation is successful (0 status) or has failed (negative
-	 * errno status). If the function returns a negative errno value
-	 * (immediate failure), the openResponse() signal will not be emitted.
-	 * Once a demuxer is no longer used, it must be closed and then
-	 * destroyed (@see the close() function).
+	 * The params structure must be provided but all parameters are optional
+	 * and can be left null. The function returns before the actual opening
+	 * is done. If the function returns 0, the openResponse() signal will be
+	 * emitted once the open operation is successful (0 status) or has
+	 * failed (negative errno status). If the function returns a negative
+	 * errno value (immediate failure), the openResponse() signal will not
+	 * be emitted. Once a demuxer is no longer used, it must be closed and
+	 * then destroyed (@see the close() function).
 	 * @param url: URL of the resource to open
+	 * @param params: demuxer parameters
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int open(const std::string &url);
+	int open(const std::string &url,
+		 const struct pdraw_demuxer_params *params);
 
 	/**
 	 * Open a demuxer on a single stream.
@@ -80,14 +83,24 @@ public:
 	 * will be used. The remoteAddr, remoteStreamPort and remoteControlPort
 	 * parameters can be left null/empty if unknown; they will be known once
 	 * the stream is being received.
-	 * The function returns before the actual opening is done. If the
-	 * function returns 0, the openResponse() signal will be emitted once
-	 * the open operation is successful (0 status) or has failed (negative
-	 * errno status). If the function returns a negative errno value
-	 * (immediate failure), the openResponse() signal will not be emitted.
-	 * Once a demuxer is no longer used, it must be closed and then
-	 * destroyed (@see the close() function).
-	 * @param url: URL of the resource to open
+	 * The params structure must be provided but all parameters are optional
+	 * and can be left null. The function returns before the actual opening
+	 * is done. If the function returns 0, the openResponse() signal will be
+	 * emitted once the open operation is successful (0 status) or has
+	 * failed (negative errno status). If the function returns a negative
+	 * errno value (immediate failure), the openResponse() signal will not
+	 * be emitted. Once a demuxer is no longer used, it must be closed and
+	 * then destroyed (@see the close() function).
+	 * @param localAddr: local IP address (optional, can be empty)
+	 * @param localStreamPort: local stream (RTP) port (optional, can be 0)
+	 * @param localControlPort: local control (RTCP) port (optional,
+	 *                          can be 0)
+	 * @param remoteAddr: remote IP address (optional, can be empty)
+	 * @param remoteStreamPort: remote stream (RTP) port (optional,
+	 *                          can be 0)
+	 * @param remoteControlPort: remote control (RTCP) port (optional,
+	 *                           can be 0)
+	 * @param params: demuxer parameters
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	int open(const std::string &localAddr,
@@ -95,7 +108,8 @@ public:
 		 uint16_t localControlPort,
 		 const std::string &remoteAddr,
 		 uint16_t remoteStreamPort,
-		 uint16_t remoteControlPort);
+		 uint16_t remoteControlPort,
+		 const struct pdraw_demuxer_params *params);
 
 	/**
 	 * Open a demuxer on a stream URL through a mux channel.
@@ -105,17 +119,22 @@ public:
 	 * No concurrent sessions can run on the mux channel; therefore the user
 	 * must take care of limiting the number of PDrAW instances and demuxer
 	 * objects running on the mux channel to only one.
-	 * The function returns before the actual opening is done. If the
-	 * function returns 0, the openResponse() signal will be emitted once
-	 * the open operation is successful (0 status) or has failed (negative
-	 * errno status). If the function returns a negative errno value
-	 * (immediate failure), the openResponse() signal will not be emitted.
-	 * Once a demuxer is no longer used, it must be closed and then
-	 * destroyed (@see the close() function).
+	 * The params structure must be provided but all parameters are optional
+	 * and can be left null. The function returns before the actual opening
+	 * is done. If the function returns 0, the openResponse() signal will be
+	 * emitted once the open operation is successful (0 status) or has
+	 * failed (negative errno status). If the function returns a negative
+	 * errno value (immediate failure), the openResponse() signal will not
+	 * be emitted. Once a demuxer is no longer used, it must be closed and
+	 * then destroyed (@see the close() function).
 	 * @param url: URL of the resource to open
+	 * @param mux: mux instance handle
+	 * @param params: demuxer parameters
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int open(const std::string &url, struct mux_ctx *mux);
+	int open(const std::string &url,
+		 struct mux_ctx *mux,
+		 const struct pdraw_demuxer_params *params);
 
 	/**
 	 * Close a demuxer.
@@ -129,6 +148,37 @@ public:
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	int close(void);
+
+	/**
+	 * Get the available demuxer media list.
+	 * This function returns the media list. If no media are available,
+	 * -ENOENT is returned. Otherwise, the mediaList is allocated (must be
+	 * freed once no longer used) and mediaCount is set to the number of
+	 * media.
+	 * @param mediaList: pointer to an array of struct
+	 *                   pdraw_demuxer_media (output, must be freed)
+	 * @param mediaCount: pointer to the media count (output)
+	 * @param selectedMedias: bitfield of the identifiers of the currently
+	 *                        selected medias
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	int getMediaList(struct pdraw_demuxer_media **mediaList,
+			 size_t *mediaCount,
+			 uint32_t *selectedMedias);
+
+	/**
+	 * Select media function.
+	 * This function dynamically selects the media to use from a running
+	 * demuxer. If the demuxer is opening or closing, -EPROTO is returned.
+	 * The selectedMedias parameter is a bitfield of the identifiers of the
+	 * chosen medias (from the pdraw_demuxer_media structure), or 0 to
+	 * choose the default medias. If the bitfield is invalid, -EINVAL is
+	 * returned.
+	 * @param selectedMedias: bitfield of the identifiers of the chosen
+	 *                        medias or 0 to choose the default medias
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	int selectMedia(uint32_t selectedMedias);
 
 	/**
 	 * Get the single stream local stream port.
@@ -391,15 +441,18 @@ signals:
 	 * retVal parameter is set before this function returns.
 	 * @param medias: array of demuxer media
 	 * @param count: demuxer media array element count
+	 * @param selectedMedias: bitfield of the identifiers of the currently
+	 *                        selected medias
 	 * @param retVal: a bitfield of the identifiers of the chosen chosen
 	 *                medias, 0 or -ENOSYS to choose the default media,
 	 *                -ECANCELED to choose no media and abort the open
 	 *                operation, or another negative errno value in case
 	 *                of error
 	 */
-	void selectMedia(const struct pdraw_demuxer_media *medias,
-			 unsigned int count,
-			 int *retVal);
+	void demuxerSelectMedia(const struct pdraw_demuxer_media *medias,
+				unsigned int count,
+				uint32_t selectedMedias,
+				int *retVal);
 
 	/**
 	 * Ready to play signal, emitted when the playback is ready to start.

@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer
- * Desktop application
+ * Parrot Drones Audio and Video Vector
+ * Desktop player application
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -51,9 +51,12 @@ static void user_event(struct pdraw_desktop *self, SDL_UserEvent *event)
 {
 	int status;
 	unsigned int media_id;
+	unsigned int media_type;
 	switch (event->code) {
 	case PDRAW_DESKTOP_EVENT_OPEN:
-		pdraw_desktop_open(self);
+		status = pdraw_desktop_open(self);
+		if (status < 0)
+			pdraw_desktop_close(self);
 		break;
 	case PDRAW_DESKTOP_EVENT_OPEN_RESP:
 		status = (int)(intptr_t)event->data1;
@@ -78,7 +81,11 @@ static void user_event(struct pdraw_desktop *self, SDL_UserEvent *event)
 		break;
 	case PDRAW_DESKTOP_EVENT_ADD_RENDERER:
 		media_id = (unsigned int)(intptr_t)event->data1;
-		pdraw_desktop_ui_add_media(self, media_id);
+		media_type = (unsigned int)(intptr_t)event->data2;
+		pdraw_desktop_ui_add_media(self, media_id, media_type);
+		break;
+	case PDRAW_DESKTOP_EVENT_TOGGLE_MEDIA:
+		pdraw_desktop_toggle_demuxer_media(self);
 		break;
 	default:
 		break;
@@ -110,10 +117,16 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 			pdraw_desktop_toggle_play_pause(self);
 			break;
 		case SDLK_PAGEUP:
-			pdraw_desktop_seek_back_10s(self);
+			if (self->chapter_count > 0)
+				pdraw_desktop_seek_to_next_chapter(self);
+			else
+				pdraw_desktop_seek_forward_10s(self);
 			break;
 		case SDLK_PAGEDOWN:
-			pdraw_desktop_seek_forward_10s(self);
+			if (self->chapter_count > 0)
+				pdraw_desktop_seek_to_prev_chapter(self);
+			else
+				pdraw_desktop_seek_back_10s(self);
 			break;
 		case SDLK_LEFT:
 			if (self->demuxer == NULL)
@@ -176,6 +189,12 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 		case SDLK_s:
 			pdraw_desktop_change_scheduling_mode(self);
 			break;
+		case SDLK_m:
+			pdraw_desktop_toggle_mb_status(self);
+			break;
+		case SDLK_t:
+			pdraw_desktop_toggle_demuxer_media(self);
+			break;
 		}
 		break;
 	default:
@@ -207,6 +226,12 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 	ULOGI("display mode: %dx%d %dHz", dm.w, dm.h, dm.refresh_rate);
 	self->window_width = dm.w / 2;
 	self->window_height = dm.h / 2;
+
+#if !defined(__APPLE__)
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
+			    SDL_GL_CONTEXT_PROFILE_ES);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+#endif
 
 	self->window = SDL_CreateWindow(
 		APP_NAME,
@@ -257,20 +282,38 @@ int pdraw_desktop_ui_destroy(struct pdraw_desktop *self)
 {
 	int res;
 
-	for (unsigned int i = 0; i < self->renderer_count; i++) {
-		if (self->gles2hud[i] != NULL) {
-			res = pdraw_gles2hud_destroy(self->gles2hud[i]);
+	for (unsigned int i = 0; i < self->video_renderer_count; i++) {
+		if (self->video_renderers[i].gles2hud != NULL) {
+			res = pdraw_gles2hud_destroy(
+				self->video_renderers[i].gles2hud);
 			if (res < 0)
 				ULOG_ERRNO("pdraw_gles2hud_destroy", -res);
-			self->gles2hud[i] = NULL;
+			self->video_renderers[i].gles2hud = NULL;
 		}
-		if (self->renderer[i] != NULL) {
+#ifdef BUILD_LIBPDRAW_OVERLAYER
+		if (self->video_renderers[i].overlayer != NULL) {
+			res = pdraw_overlayer_destroy(
+				self->video_renderers[i].overlayer);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_overlayer_destroy", -res);
+			self->video_renderers[i].overlayer = NULL;
+		}
+#endif
+		if (self->video_renderers[i].renderer != NULL) {
 			res = pdraw_be_video_renderer_destroy(
-				self->pdraw, self->renderer[i]);
+				self->pdraw, self->video_renderers[i].renderer);
 			if (res < 0)
 				ULOG_ERRNO("pdraw_be_video_renderer_destroy",
 					   -res);
-			self->renderer[i] = NULL;
+			self->video_renderers[i].renderer = NULL;
+		}
+		if (self->audio_renderer != NULL) {
+			res = pdraw_be_audio_renderer_destroy(
+				self->pdraw, self->audio_renderer);
+			if (res < 0)
+				ULOG_ERRNO("pdraw_be_audio_renderer_destroy",
+					   -res);
+			self->audio_renderer = NULL;
 		}
 	}
 
@@ -309,15 +352,15 @@ void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
 static void
 get_rect(struct pdraw_desktop *self, struct pdraw_rect *rect, unsigned int idx)
 {
-	unsigned int layout_idx = self->media_count - 1;
+	unsigned int layout_idx = self->video_media_count - 1;
 	unsigned int h = layout[layout_idx].h;
 	unsigned int v = layout[layout_idx].v;
 	unsigned int x = idx % h;
 	unsigned int y = v - 1 - idx / h;
 	if (idx / h == v - 1) {
 		/* Last line */
-		idx -= (self->media_count / h) * h;
-		h = self->media_count - (self->media_count / h) * h;
+		idx -= (self->video_media_count / h) * h;
+		h = self->video_media_count - (self->video_media_count / h) * h;
 		if (h == 0)
 			h = layout[layout_idx].h;
 		x = idx % h;
@@ -329,46 +372,64 @@ get_rect(struct pdraw_desktop *self, struct pdraw_rect *rect, unsigned int idx)
 }
 
 
-void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
-				unsigned int media_id)
+static void pdraw_desktop_ui_add_video_media(struct pdraw_desktop *self,
+					     unsigned int media_id)
 {
 	int res, inc;
 	unsigned int i;
+	bool pending_media =
+		(self->video_renderer_pending_media_id == media_id);
 
-	/* Try to reuse an existing renderer without media */
-	for (i = 0; i < self->renderer_count; i++) {
-		if ((self->renderer[i] == NULL) ||
-		    (self->renderer_media_id[i] != 0))
+	ULOGI("%s: media_id = %d", __func__, media_id);
+
+	/* Try to reuse an existing video renderer without media */
+	for (i = 0; i < self->video_renderer_count; i++) {
+		if ((self->video_renderers[i].renderer == NULL) ||
+		    (self->video_renderers[i].pending_media_id != 0) ||
+		    (self->video_renderers[i].media_id != 0))
 			continue;
 		res = pdraw_be_video_renderer_set_media_id(
-			self->pdraw, self->renderer[i], media_id);
+			self->pdraw,
+			self->video_renderers[i].renderer,
+			media_id);
 		if (res < 0) {
 			ULOG_ERRNO("pdraw_be_video_renderer_set_media_id",
 				   -res);
 			return;
 		}
-		self->renderer_media_id[i] = media_id;
+		self->video_renderers[i].pending_media_id = media_id;
+		ULOGI("reuse renderer[%d] for media %d", i, media_id);
+		if (pending_media)
+			self->video_renderer_pending_media_id = 0;
 		return;
 	}
 
-	/* Find a free renderer slot to use */
-	for (i = 0; i < self->renderer_count; i++) {
-		if (self->renderer[i] == NULL)
+	/* Find a free video renderer slot to use */
+	for (i = 0; i < self->video_renderer_count; i++) {
+		if (self->video_renderers[i].renderer == NULL)
 			break;
 	}
-	inc = i == self->renderer_count;
-	if (self->renderer_count >= MAX_RENDERERS)
+	inc = i == self->video_renderer_count;
+	if (self->video_renderer_count >= MAX_RENDERERS) {
+		ULOGE("video_renderer_count exceeds MAX_RENDERERS");
 		return;
-	if (self->renderer_count >= self->media_count)
+	}
+	if (self->video_renderer_count >= self->video_media_count) {
+		ULOGW("no video renderer available for the new media "
+		      "(%d video renderer(s) >= %d media(s))",
+		      self->video_renderer_count,
+		      self->video_media_count);
+		self->video_renderer_pending_media_id = media_id;
 		return;
+	}
 
-	/* Create the renderer */
+	/* Create the video renderer */
 	struct pdraw_video_renderer_params params = {0};
 	params.scheduling_mode = self->default_scheduling_mode;
 	params.fill_mode = self->default_fill_mode;
 	params.enable_transition_flags =
 		PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_ALL;
-	params.enable_hmd_distortion_correction = self->enable_hmd;
+	params.enable_auto_normalization = self->enable_norm;
 	params.enable_overexposure_zebras = self->enable_zebras;
 	params.overexposure_zebras_threshold = self->zebras_threshold;
 	params.enable_histograms =
@@ -383,22 +444,37 @@ void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
 	params.video_texture_dar_width = 2;
 	params.video_texture_dar_height = 3;
 
-	get_rect(self, &self->render_pos[i], i);
+	get_rect(self, &self->video_renderers[i].render_pos, i);
 	res = pdraw_be_video_renderer_new(self->pdraw,
 					  media_id,
-					  &self->render_pos[i],
+					  &self->video_renderers[i].render_pos,
 					  &params,
 					  &render_cbs,
 					  self,
-					  &self->renderer[i]);
+					  &self->video_renderers[i].renderer);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw_be_video_renderer_new", -res);
 		return;
 	}
-	if (self->enable_hud) {
+	if (self->enable_overlay) {
+#ifdef BUILD_LIBPDRAW_OVERLAYER
+		struct pdraw_overlayer_config overlayer_config = {
+			.layout = self->overlayer_layout,
+			.resolution = {self->window_width, self->window_height},
+			.unit_system = PDRAW_OVERLAYER_UNIT_SYSTEM_METRIC,
+			.coordinate_system =
+				PDRAW_OVERLAYER_COORDINATE_SYSTEM_DMS,
+		};
+		res = pdraw_overlayer_new(&overlayer_config,
+					  &self->video_renderers[i].overlayer);
+		if (res < 0)
+			ULOG_ERRNO("pdraw_overlayer_new", -res);
+#endif
+	} else if (self->enable_hud) {
 		struct pdraw_gles2hud_config hud_config;
 		memset(&hud_config, 0, sizeof(hud_config));
-		res = pdraw_gles2hud_new(&hud_config, &self->gles2hud[i]);
+		res = pdraw_gles2hud_new(&hud_config,
+					 &self->video_renderers[i].gles2hud);
 		if (res < 0)
 			ULOG_ERRNO("pdraw_gles2hud_new", -res);
 	}
@@ -406,18 +482,60 @@ void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
 	if (res < 0)
 		ULOG_ERRNO("pdraw_desktop_ext_tex_setup", -res);
 	if (inc)
-		self->renderer_count++;
-	self->renderer_media_id[i] = media_id;
+		self->video_renderer_count++;
+	self->video_renderers[i].pending_media_id = media_id;
+
+	if (pending_media)
+		self->video_renderer_pending_media_id = 0;
+}
+
+
+static void pdraw_desktop_ui_add_audio_media(struct pdraw_desktop *self,
+					     unsigned int media_id)
+{
+	int res;
+
+	/* Create the audio renderer */
+	struct pdraw_audio_renderer_params params = {0};
+	params.address = "default";
+
+	res = pdraw_be_audio_renderer_new(self->pdraw,
+					  media_id,
+					  &params,
+					  &audio_render_cbs,
+					  self,
+					  &self->audio_renderer);
+	if (res < 0) {
+		ULOG_ERRNO("pdraw_be_audio_renderer_new", -res);
+		return;
+	}
+}
+
+
+void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
+				unsigned int media_id,
+				unsigned int media_type)
+{
+	switch (media_type) {
+	case PDRAW_MEDIA_TYPE_VIDEO:
+		return pdraw_desktop_ui_add_video_media(self, media_id);
+	case PDRAW_MEDIA_TYPE_AUDIO:
+		return pdraw_desktop_ui_add_audio_media(self, media_id);
+	default:
+		ULOGE("invalid media type");
+	}
 }
 
 
 void pdraw_desktop_ui_resize(struct pdraw_desktop *self)
 {
-	for (unsigned int i = 0; i < self->renderer_count; i++) {
+	for (unsigned int i = 0; i < self->video_renderer_count; i++) {
 		int res;
-		get_rect(self, &self->render_pos[i], i);
+		get_rect(self, &self->video_renderers[i].render_pos, i);
 		res = pdraw_be_video_renderer_resize(
-			self->pdraw, self->renderer[i], &self->render_pos[i]);
+			self->pdraw,
+			self->video_renderers[i].renderer,
+			&self->video_renderers[i].render_pos);
 		if (res < 0)
 			ULOG_ERRNO("pdraw_be_video_renderer_resize", -res);
 	}
@@ -441,20 +559,20 @@ int pdraw_desktop_ui_loop(struct pdraw_desktop *self)
 		glViewport(0, 0, self->window_width, self->window_height);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
-		for (unsigned int i = 0; i < self->renderer_count; i++) {
-			if (self->renderer[i] == NULL)
+		for (unsigned int i = 0; i < self->video_renderer_count; i++) {
+			if (self->video_renderers[i].renderer == NULL)
 				continue;
 			pdraw_desktop_view_create_matrices(
 				self,
-				self->render_pos[i].width,
-				self->render_pos[i].height,
+				self->video_renderers[i].render_pos.width,
+				self->video_renderers[i].render_pos.height,
 				view_mat,
 				proj_mat,
 				0.1f,
 				100.f);
 			res = pdraw_be_video_renderer_render_mat(
 				self->pdraw,
-				self->renderer[i],
+				self->video_renderers[i].renderer,
 				NULL,
 				view_mat,
 				proj_mat);

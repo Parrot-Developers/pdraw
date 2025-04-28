@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video renderer interface
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -37,6 +37,9 @@
 
 namespace Pdraw {
 
+class VideoRendererWrapper;
+
+
 class VideoRenderer : public SinkElement {
 public:
 	virtual ~VideoRenderer(void);
@@ -51,8 +54,8 @@ public:
 
 	virtual unsigned int getMediaId(void) = 0;
 
-	virtual int
-	setParams(const struct pdraw_video_renderer_params *params) = 0;
+	virtual int setParams(const struct pdraw_video_renderer_params *params,
+			      bool force) = 0;
 
 	virtual int getParams(struct pdraw_video_renderer_params *params) = 0;
 
@@ -61,25 +64,23 @@ public:
 	static VideoRenderer *
 	create(Session *session,
 	       Element::Listener *listener,
-	       IPdraw::IVideoRenderer *renderer,
+	       VideoRendererWrapper *wrapper,
 	       IPdraw::IVideoRenderer::Listener *rndListener,
 	       unsigned int mediaId,
 	       const struct pdraw_rect *renderPos,
-	       const struct pdraw_video_renderer_params *params,
-	       struct egl_display *eglDisplay);
+	       const struct pdraw_video_renderer_params *params);
 
 protected:
 	VideoRenderer(Session *session,
 		      Element::Listener *listener,
-		      IPdraw::IVideoRenderer *renderer,
+		      VideoRendererWrapper *wrapper,
 		      IPdraw::IVideoRenderer::Listener *rndListener,
 		      uint32_t mediaTypeCaps,
 		      const struct vdef_raw_format *rawVideoMediaFormatCaps,
 		      int rawVideoMediaFormatCapsCount,
 		      unsigned int mediaId,
 		      const struct pdraw_rect *renderPos,
-		      const struct pdraw_video_renderer_params *params,
-		      struct egl_display *eglDisplay);
+		      const struct pdraw_video_renderer_params *params);
 
 	void removeRendererListener(void);
 
@@ -91,6 +92,51 @@ protected:
 
 private:
 	static void idleCompleteStop(void *userdata);
+};
+
+
+class VideoRendererWrapper : public IPdraw::IVideoRenderer,
+			     public ElementWrapper {
+public:
+	/* Called on the rendering thread */
+	VideoRendererWrapper(Session *session,
+			     unsigned int mediaId,
+			     const struct pdraw_rect *renderPos,
+			     const struct pdraw_video_renderer_params *params,
+			     IPdraw::IVideoRenderer::Listener *listener);
+
+	/* Called on the rendering thread */
+	~VideoRendererWrapper(void);
+
+	/* Called on the rendering thread */
+	int resize(const struct pdraw_rect *renderPos) override;
+
+	/* Called on the rendering thread */
+	int setMediaId(unsigned int mediaId) override;
+
+	/* Called on the rendering thread */
+	unsigned int getMediaId(void) override;
+
+	/* Called on the rendering thread */
+	int
+	setParams(const struct pdraw_video_renderer_params *params) override;
+
+	/* Called on the rendering thread */
+	int getParams(struct pdraw_video_renderer_params *params) override;
+
+	/* Called on the rendering thread */
+	int render(struct pdraw_rect *contentPos,
+		   const float *viewMat = nullptr,
+		   const float *projMat = nullptr) override;
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+		mRenderer = nullptr;
+	}
+
+private:
+	VideoRenderer *mRenderer;
 };
 
 } /* namespace Pdraw */

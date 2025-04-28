@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * OpenGL ES 2.0 HUD rendering library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -45,10 +45,6 @@ void pdraw_gles2hud_draw_vumeter(struct pdraw_gles2hud *self,
 {
 	x *= self->ratio_w;
 	y *= self->ratio_h;
-	if (value < val_min)
-		value = val_min;
-	if (value > val_max)
-		value = val_max;
 	float span = 4. * M_PI / 3.;
 	float start = (M_PI - span) / 2.;
 	pdraw_gles2hud_draw_arc(self,
@@ -82,6 +78,10 @@ void pdraw_gles2hud_draw_vumeter(struct pdraw_gles2hud *self,
 					critical_color,
 					2.);
 	}
+
+	if ((value < val_min) || (value > val_max))
+		return;
+
 	float angle =
 		start + (1. - (value - val_min) / (val_max - val_min)) * span;
 	float x1 = x + r * self->ratio_w * 0.4 * cosf(angle);
@@ -307,6 +307,10 @@ void pdraw_gles2hud_draw_altitude(struct pdraw_gles2hud *self,
 				  const float color[4])
 {
 	char altitude_str[20];
+
+	if (std::isnan(altitude))
+		altitude = 0.;
+
 	snprintf(altitude_str, sizeof(altitude_str), "%.1fm", altitude);
 
 	float x_offset = self->config.central_zone_size * self->ratio_w;
@@ -780,78 +784,66 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_recording_status(struct pdraw_gles2hud *self,
-					  uint64_t recording_duration,
-					  const float color[4])
+void pdraw_gles2hud_draw_cot(struct pdraw_gles2hud *self,
+			     float x,
+			     float y,
+			     const float color[4])
 {
-	float x_offset = self->config.right_zone_h_offset * self->ratio_w;
-	float y_offset = self->config.roll_zone_v_offset * self->ratio_h +
-			 0.12 * self->ratio_w * self->aspect_ratio;
-	float rec_size = 0.008 * self->ratio_w;
-	float w = 0.;
-
-	if (recording_duration > 0) {
-		unsigned int d_hrs = 0, d_min = 0, d_sec = 0, d_msec = 0;
-		pdraw_gles2hud_friendly_time_from_us(
-			recording_duration, &d_hrs, &d_min, &d_sec, &d_msec);
-		char str[20];
-		if (d_hrs) {
-			snprintf(str,
-				 sizeof(str),
-				 "REC %02d:%02d:%02d",
-				 d_hrs,
-				 d_min,
-				 d_sec);
-		} else {
-			snprintf(str,
-				 sizeof(str),
-				 "REC %02d:%02d",
-				 d_min,
-				 d_sec);
-		}
-		pdraw_gles2hud_get_text_dimensions(self,
-						   str,
-						   0.15 * self->ratio_w,
-						   1.,
-						   self->aspect_ratio,
-						   &w,
-						   nullptr);
-		w += 0.02;
-		pdraw_gles2hud_draw_filled_ellipse(self,
-						   x_offset - w - rec_size / 2.,
-						   y_offset,
-						   rec_size,
-						   rec_size *
-							   self->aspect_ratio,
-						   30,
-						   color);
-	} else {
-		pdraw_gles2hud_get_text_dimensions(self,
-						   "REC",
-						   0.15 * self->ratio_w,
-						   1.,
-						   self->aspect_ratio,
-						   &w,
-						   nullptr);
-		w += 0.03;
-		pdraw_gles2hud_draw_ellipse(self,
-					    x_offset - w - rec_size / 2.,
-					    y_offset,
-					    rec_size,
-					    rec_size * self->aspect_ratio,
-					    30,
-					    color,
-					    2.);
-		float x1, y1, x2, y2;
-		x1 = x_offset + 0.008 * self->ratio_w;
-		y1 = y_offset + rec_size * self->aspect_ratio +
-		     0.008 * self->ratio_w * self->aspect_ratio;
-		x2 = x1 - w - rec_size - 0.016 * self->ratio_w;
-		y2 = y1 - rec_size * 2. * self->aspect_ratio -
-		     0.016 * self->ratio_w * self->aspect_ratio;
-		pdraw_gles2hud_draw_line(self, x1, y1, x2, y2, color, 2.);
-		pdraw_gles2hud_draw_line(self, x1, y2, x2, y1, color, 2.);
-	}
+	pdraw_gles2hud_draw_line(self,
+				 x * 2. - 1. - 0.012 * self->ratio_w,
+				 y * 2. - 1.,
+				 x * 2. - 1. + 0.012 * self->ratio_w,
+				 y * 2. - 1.,
+				 color,
+				 2.);
+	pdraw_gles2hud_draw_line(
+		self,
+		x * 2. - 1.,
+		y * 2. - 1. - 0.012 * self->ratio_w * self->aspect_ratio,
+		x * 2. - 1.,
+		y * 2. - 1. + 0.012 * self->ratio_w * self->aspect_ratio,
+		color,
+		2.);
+	pdraw_gles2hud_draw_arc(self,
+				x * 2. - 1.,
+				y * 2. - 1.,
+				0.008 * self->ratio_w,
+				0.008 * self->ratio_w * self->aspect_ratio,
+				M_PI * 25. / 180.,
+				M_PI * 40. / 180.,
+				10,
+				color,
+				2.);
+	pdraw_gles2hud_draw_arc(self,
+				x * 2. - 1.,
+				y * 2. - 1.,
+				0.008 * self->ratio_w,
+				0.008 * self->ratio_w * self->aspect_ratio,
+				M_PI * 115. / 180.,
+				M_PI * 40. / 180.,
+				10,
+				color,
+				2.);
+	pdraw_gles2hud_draw_arc(self,
+				x * 2. - 1.,
+				y * 2. - 1.,
+				0.008 * self->ratio_w,
+				0.008 * self->ratio_w * self->aspect_ratio,
+				M_PI * 205. / 180.,
+				M_PI * 40. / 180.,
+				10,
+				color,
+				2.);
+	pdraw_gles2hud_draw_arc(self,
+				x * 2. - 1.,
+				y * 2. - 1.,
+				0.008 * self->ratio_w,
+				0.008 * self->ratio_w * self->aspect_ratio,
+				M_PI * 295. / 180.,
+				M_PI * 40. / 180.,
+				10,
+				color,
+				2.);
 }
 
 

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline media
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -39,15 +39,14 @@
 
 #include <pdraw/pdraw_defs.h>
 
-/**
- * mbuf ancillary data key for CodedVideoMedia::Frame objects
- */
+/* mbuf ancillary data key for CodedVideoMedia::Frame objects */
 #define PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME "pdraw.coded_video_media.frame"
 
-/**
- * mbuf ancillary data key for RawVideoMedia::Frame objects
- */
+/* mbuf ancillary data key for RawVideoMedia::Frame objects */
 #define PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME "pdraw.raw_video_media.frame"
+
+/* mbuf ancillary data key for AudioMedia::Frame objects */
+#define PDRAW_ANCILLARY_DATA_KEY_AUDIOMEDIAFRAME "pdraw.audio_media.frame"
 
 namespace Pdraw {
 
@@ -59,8 +58,7 @@ public:
 		UNKNOWN = 0,
 		RAW_VIDEO = (1 << 0),
 		CODED_VIDEO = (1 << 1),
-		RAW_AUDIO = (1 << 2),
-		CODED_AUDIO = (1 << 3),
+		AUDIO = (1 << 2),
 	};
 
 	Media(Session *session, Type t);
@@ -75,6 +73,16 @@ public:
 
 	void setPath(const char *name);
 
+	void setTearingDown(void)
+	{
+		mTearingDown = true;
+	}
+
+	bool isTearingDown(void)
+	{
+		return mTearingDown;
+	}
+
 	static const char *getMediaTypeStr(Type val);
 
 	virtual void fillMediaInfo(struct pdraw_media_info *minfo) = 0;
@@ -83,7 +91,6 @@ public:
 
 	Type type;
 	unsigned int id;
-	struct vmeta_session sessionMeta;
 	enum pdraw_playback_type playbackType;
 	uint64_t duration;
 
@@ -94,6 +101,7 @@ protected:
 
 private:
 	Session *mSession;
+	bool mTearingDown;
 	std::string mName;
 	std::string mPath;
 	static std::atomic<unsigned int> mIdCounter;
@@ -123,18 +131,16 @@ public:
 
 	~RawVideoMedia(void);
 
-	virtual void fillMediaInfo(struct pdraw_media_info *minfo);
+	virtual void fillMediaInfo(struct pdraw_media_info *minfo) override;
 
 	struct vdef_raw_format format;
 	struct vdef_format_info info;
+	struct vmeta_session sessionMeta;
 };
 
 
 class CodedVideoMedia : public Media {
 public:
-	struct CodedFrame {
-	};
-
 	struct Frame {
 		bool isSync;
 		bool isRef;
@@ -161,7 +167,7 @@ public:
 		  const uint8_t **sps,
 		  size_t *spsSize,
 		  const uint8_t **pps,
-		  size_t *ppsSize);
+		  size_t *ppsSize) const;
 
 	int setPs(const uint8_t *vps,
 		  size_t vpsSize,
@@ -170,10 +176,11 @@ public:
 		  const uint8_t *pps,
 		  size_t ppsSize);
 
-	virtual void fillMediaInfo(struct pdraw_media_info *minfo);
+	virtual void fillMediaInfo(struct pdraw_media_info *minfo) override;
 
 	struct vdef_coded_format format;
 	struct vdef_format_info info;
+	struct vmeta_session sessionMeta;
 
 private:
 	uint8_t *mVps;
@@ -182,6 +189,42 @@ private:
 	size_t mSpsSize;
 	uint8_t *mPps;
 	size_t mPpsSize;
+};
+
+
+class AudioMedia : public Media {
+public:
+	struct Frame {
+		uint64_t ntpTimestamp;
+		uint64_t ntpUnskewedTimestamp;
+		uint64_t ntpRawTimestamp;
+		uint64_t ntpRawUnskewedTimestamp;
+		uint64_t playTimestamp;
+		uint64_t captureTimestamp;
+		uint64_t localTimestamp;
+		uint32_t localTimestampPrecision;
+		uint64_t recvStartTimestamp;
+		uint64_t recvEndTimestamp;
+		uint64_t demuxOutputTimestamp;
+		uint64_t encoderOutputTimestamp;
+		uint64_t decoderOutputTimestamp;
+	};
+
+	AudioMedia(Session *session);
+
+	~AudioMedia(void);
+
+	int getAacAsc(const uint8_t **asc, size_t *ascSize) const;
+
+	int setAacAsc(const uint8_t *asc, size_t ascSize);
+
+	virtual void fillMediaInfo(struct pdraw_media_info *minfo) override;
+
+	struct adef_format format;
+
+private:
+	uint8_t *mAacAsc;
+	size_t mAacAscSize;
 };
 
 } /* namespace Pdraw */

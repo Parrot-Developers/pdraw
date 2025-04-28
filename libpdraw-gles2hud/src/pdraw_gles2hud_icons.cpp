@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * OpenGL ES 2.0 HUD rendering library
  *
  * Copyright (c) 2018 Parrot Drones SAS

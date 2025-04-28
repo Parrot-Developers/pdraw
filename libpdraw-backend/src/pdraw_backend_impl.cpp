@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * PDrAW back-end library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -32,6 +32,10 @@
 #include <limits.h>
 #include <pthread.h>
 
+#if defined(__APPLE__)
+#	include <TargetConditionals.h>
+#endif
+
 #define ULOG_TAG pdraw_backend
 #include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_backend);
@@ -45,6 +49,7 @@ ULOG_DECLARE_TAG(pdraw_backend);
 namespace PdrawBackend {
 
 
+#define MAX_STR_LEN 200
 #define PDRAW_STATIC_ASSERT(x) typedef char __STATIC_ASSERT__[(x) ? 1 : -1]
 
 
@@ -55,6 +60,8 @@ enum cmd_type {
 	CMD_TYPE_DEMUXER_CREATE_URL_MUX,
 	CMD_TYPE_DEMUXER_DESTROY,
 	CMD_TYPE_DEMUXER_CLOSE,
+	CMD_TYPE_DEMUXER_GET_MEDIA_LIST,
+	CMD_TYPE_DEMUXER_SELECT_MEDIA,
 	CMD_TYPE_DEMUXER_GET_SINGLE_STREAM_LOCAL_STREAM_PORT,
 	CMD_TYPE_DEMUXER_GET_SINGLE_STREAM_LOCAL_CONTROL_PORT,
 	CMD_TYPE_DEMUXER_IS_READY_TO_PLAY,
@@ -64,12 +71,19 @@ enum cmd_type {
 	CMD_TYPE_DEMUXER_NEXT_FRAME,
 	CMD_TYPE_DEMUXER_SEEK,
 	CMD_TYPE_DEMUXER_SEEK_TO,
+	CMD_TYPE_DEMUXER_GET_CHAPTER_LIST,
 	CMD_TYPE_DEMUXER_GET_CURRENT_TIME,
 	CMD_TYPE_DEMUXER_GET_DURATION,
 	CMD_TYPE_MUXER_CREATE,
 	CMD_TYPE_MUXER_DESTROY,
+	CMD_TYPE_MUXER_CLOSE,
 	CMD_TYPE_MUXER_ADD_MEDIA,
 	CMD_TYPE_MUXER_SET_THUMBNAIL,
+	CMD_TYPE_MUXER_ADD_CHAPTER,
+	CMD_TYPE_MUXER_GET_STATS,
+	CMD_TYPE_MUXER_SET_DYN_PARAMS,
+	CMD_TYPE_MUXER_GET_DYN_PARAMS,
+	CMD_TYPE_MUXER_FORCE_SYNC,
 	CMD_TYPE_VIPC_SOURCE_CREATE,
 	CMD_TYPE_VIPC_SOURCE_DESTROY,
 	CMD_TYPE_VIPC_SOURCE_IS_READY_TO_PLAY,
@@ -77,6 +91,7 @@ enum cmd_type {
 	CMD_TYPE_VIPC_SOURCE_PLAY,
 	CMD_TYPE_VIPC_SOURCE_PAUSE,
 	CMD_TYPE_VIPC_SOURCE_CONFIGURE,
+	CMD_TYPE_VIPC_SOURCE_INSERT_GREY_FRAME,
 	CMD_TYPE_VIPC_SOURCE_SET_SESSION_METADATA,
 	CMD_TYPE_VIPC_SOURCE_GET_SESSION_METADATA,
 	CMD_TYPE_CODED_VIDEO_SOURCE_CREATE,
@@ -100,22 +115,40 @@ enum cmd_type {
 	CMD_TYPE_RAW_VIDEO_SINK_DESTROY,
 	CMD_TYPE_RAW_VIDEO_SINK_GET_QUEUE,
 	CMD_TYPE_RAW_VIDEO_SINK_QUEUE_FLUSHED,
+	CMD_TYPE_ALSA_SOURCE_CREATE,
+	CMD_TYPE_ALSA_SOURCE_DESTROY,
+	CMD_TYPE_ALSA_SOURCE_IS_READY_TO_PLAY,
+	CMD_TYPE_ALSA_SOURCE_IS_PAUSED,
+	CMD_TYPE_ALSA_SOURCE_PLAY,
+	CMD_TYPE_ALSA_SOURCE_PAUSE,
+	CMD_TYPE_AUDIO_SOURCE_CREATE,
+	CMD_TYPE_AUDIO_SOURCE_DESTROY,
+	CMD_TYPE_AUDIO_SOURCE_GET_QUEUE,
+	CMD_TYPE_AUDIO_SOURCE_FLUSH,
+	CMD_TYPE_AUDIO_SINK_CREATE,
+	CMD_TYPE_AUDIO_SINK_DESTROY,
+	CMD_TYPE_AUDIO_SINK_GET_QUEUE,
+	CMD_TYPE_AUDIO_SINK_QUEUE_FLUSHED,
+	CMD_TYPE_AUDIO_RENDERER_CREATE,
+	CMD_TYPE_AUDIO_RENDERER_DESTROY,
+	CMD_TYPE_AUDIO_RENDERER_SET_MEDIA_ID,
+	CMD_TYPE_AUDIO_RENDERER_GET_MEDIA_ID,
+	CMD_TYPE_AUDIO_RENDERER_SET_PARAMS,
+	CMD_TYPE_AUDIO_RENDERER_GET_PARAMS,
 	CMD_TYPE_VIDEO_ENCODER_CREATE,
 	CMD_TYPE_VIDEO_ENCODER_DESTROY,
 	CMD_TYPE_VIDEO_ENCODER_CONFIGURE,
+	CMD_TYPE_VIDEO_ENCODER_GET_CONFIG,
+	CMD_TYPE_VIDEO_SCALER_CREATE,
+	CMD_TYPE_VIDEO_SCALER_DESTROY,
+	CMD_TYPE_AUDIO_ENCODER_CREATE,
+	CMD_TYPE_AUDIO_ENCODER_DESTROY,
 	CMD_TYPE_GET_FRIENDLY_NAME_SETTING,
 	CMD_TYPE_SET_FRIENDLY_NAME_SETTING,
 	CMD_TYPE_GET_SERIAL_NUMBER_SETTING,
 	CMD_TYPE_SET_SERIAL_NUMBER_SETTING,
 	CMD_TYPE_GET_SOFTWARE_VERSION_SETTING,
 	CMD_TYPE_SET_SOFTWARE_VERSION_SETTING,
-	CMD_TYPE_GET_PIPELINE_MODE_SETTING,
-	CMD_TYPE_SET_PIPELINE_MODE_SETTING,
-	CMD_TYPE_GET_DISPLAY_SCREEN_SETTINGS,
-	CMD_TYPE_SET_DISPLAY_SCREEN_SETTINGS,
-	CMD_TYPE_GET_HMD_MODEL_SETTING,
-	CMD_TYPE_SET_HMD_MODEL_SETTING,
-	CMD_TYPE_SET_ANDROID_JVM,
 	CMD_TYPE_DUMP_PIPELINE,
 };
 
@@ -126,30 +159,34 @@ struct cmd_msg {
 		struct {
 			union {
 				bool boolean;
+				int sint;
 				unsigned int uint;
 				uint64_t uint64;
 				int64_t int64;
 				float flt;
 				void *ptr;
-				char string[40];
+				char *string;
 			};
 		} generic;
 		struct {
-			char local_addr[16];
+			char *local_addr;
 			uint16_t local_stream_port;
 			uint16_t local_control_port;
-			char remote_addr[16];
+			char *remote_addr;
 			uint16_t remote_stream_port;
 			uint16_t remote_control_port;
+			struct pdraw_demuxer_params params;
 			IPdraw::IDemuxer::Listener *listener;
 		} demuxer_create_single;
 		struct {
-			char url[200];
+			char *url;
+			struct pdraw_demuxer_params params;
 			IPdraw::IDemuxer::Listener *listener;
 		} demuxer_create_url;
 		struct {
-			char url[200];
+			char *url;
 			struct mux_ctx *mux;
+			struct pdraw_demuxer_params params;
 			IPdraw::IDemuxer::Listener *listener;
 		} demuxer_create_url_mux;
 		struct {
@@ -167,9 +204,18 @@ struct cmd_msg {
 			bool exact;
 		} demuxer_seek_to;
 		struct {
-			char address[200];
-			char friendly_name[50];
-			char backend_name[50];
+			PdrawBackend::Demuxer *demuxer;
+			struct pdraw_chapter **chapter_list;
+			size_t *chapter_count;
+		} demuxer_get_chapter_list;
+		struct {
+			PdrawBackend::Demuxer *demuxer;
+			uint32_t selected_medias;
+		} demuxer_select_media;
+		struct {
+			char *address;
+			char *friendly_name;
+			char *backend_name;
 			IPdraw::IVipcSource::Listener *listener;
 		} vipc_source_create;
 		struct {
@@ -194,6 +240,27 @@ struct cmd_msg {
 			IPdraw::IRawVideoSink::Listener *listener;
 		} raw_video_sink_create;
 		struct {
+			struct pdraw_alsa_source_params params;
+			IPdraw::IAlsaSource::Listener *listener;
+		} alsa_source_create;
+		struct {
+			struct pdraw_audio_source_params params;
+			IPdraw::IAudioSource::Listener *listener;
+		} audio_source_create;
+		struct {
+			unsigned int media_id;
+			IPdraw::IAudioSink::Listener *listener;
+		} audio_sink_create;
+		struct {
+			unsigned int media_id;
+			struct pdraw_audio_renderer_params params;
+			IPdraw::IAudioRenderer::Listener *listener;
+		} audio_renderer_create;
+		struct {
+			PdrawBackend::AudioRenderer *renderer;
+			unsigned int media_id;
+		} audio_renderer_set_media_id;
+		struct {
 			unsigned int media_id;
 			struct venc_config params;
 			IPdraw::IVideoEncoder::Listener *listener;
@@ -203,14 +270,28 @@ struct cmd_msg {
 			struct venc_dyn_config config;
 		} video_encoder_configure;
 		struct {
-			char url[200];
+			IPdraw::IVideoEncoder *encoder;
+			struct venc_dyn_config config;
+		} video_encoder_get_config;
+		struct {
+			unsigned int media_id;
+			struct vscale_config params;
+			IPdraw::IVideoScaler::Listener *listener;
+		} video_scaler_create;
+		struct {
+			unsigned int media_id;
+			struct aenc_config params;
+			IPdraw::IAudioEncoder::Listener *listener;
+		} audio_encoder_create;
+		struct {
+			char *url;
 			struct pdraw_muxer_params params;
 			IPdraw::IMuxer::Listener *listener;
 		} muxer_create;
 		struct {
 			IPdraw::IMuxer *muxer;
 			unsigned int media_id;
-			struct pdraw_muxer_video_media_params params;
+			struct pdraw_muxer_media_params *params;
 		} muxer_add_media;
 		struct {
 			IPdraw::IMuxer *muxer;
@@ -218,6 +299,15 @@ struct cmd_msg {
 			const uint8_t *data;
 			size_t size;
 		} muxer_set_thumbnail;
+		struct {
+			IPdraw::IMuxer *muxer;
+			uint64_t timestamp;
+			char *name;
+		} muxer_add_chapter;
+		struct {
+			IPdraw::IMuxer *muxer;
+			struct pdraw_muxer_dyn_params dyn_params;
+		} muxer_set_dyn_params;
 		struct {
 			float xdpi;
 			float ydpi;
@@ -227,11 +317,34 @@ struct cmd_msg {
 			float device_margin_right;
 		} set_display_screen_settings;
 		struct {
-			char file_name[200];
+			char *file_name;
 		} dump_pipeline;
 	};
 };
 PDRAW_STATIC_ASSERT(sizeof(struct cmd_msg) <= PIPE_BUF - 1);
+
+
+/* Execution is not on main thread. mMutex must be locked before calling this
+ * function. */
+int PdrawBackend::pushCmdAndWait(const struct cmd_msg *cmd)
+{
+	int res = 0;
+
+	mRetValReady = false;
+	res = mbox_push(mMbox, cmd);
+	if (res < 0) {
+		ULOG_ERRNO("mbox_push", -res);
+		return res;
+	}
+
+	while (!mRetValReady)
+		pthread_cond_wait(&mCond, &mMutex);
+
+	mRetValReady = false;
+	res = mRetStatus;
+	mRetStatus = 0;
+	return res;
+}
 
 
 /**
@@ -269,24 +382,31 @@ PdrawBackend::PdrawBackend(IPdraw::Listener *listener)
 	mStarted = false;
 	memset(&mParamVideoSource, 0, sizeof(mParamVideoSource));
 	memset(&mParamVipcSource, 0, sizeof(mParamVipcSource));
+	memset(&mParamAudioRenderer, 0, sizeof(mParamAudioRenderer));
 	memset(&mParamVmetaSession, 0, sizeof(mParamVmetaSession));
 	mRetValReady = false;
 	mRetStatus = 0;
 	mRetBool = false;
 	mRetUint16 = 0;
+	mRetUint32 = 0;
 	mRetUint64 = 0;
-	memset(mRetFloat, 0, sizeof(mRetFloat));
-	mRetPipelineMode = PDRAW_PIPELINE_MODE_DECODE_ALL;
-	mRetHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
+	mRetSizeT = 0;
+	mRetUint = 0;
 	mRetCodedQueue = nullptr;
 	mRetRawQueue = nullptr;
-	memset(&mRetMediaInfo, 0, sizeof(mRetMediaInfo));
+	mRetAudioQueue = nullptr;
 	mRetVipcSource = nullptr;
 	mRetCodedVideoSource = nullptr;
 	mRetRawVideoSource = nullptr;
 	mRetCodedVideoSink = nullptr;
 	mRetRawVideoSink = nullptr;
+	mRetAlsaSource = nullptr;
+	mRetAudioSource = nullptr;
+	mRetAudioSink = nullptr;
+	mRetAudioRenderer = nullptr;
 	mRetVideoEncoder = nullptr;
+	mRetVideoScaler = nullptr;
+	mRetAudioEncoder = nullptr;
 	mRetDemuxer = nullptr;
 	mRetMuxer = nullptr;
 	mPdraw = nullptr;
@@ -300,9 +420,19 @@ PdrawBackend::PdrawBackend(IPdraw::Listener *listener)
 	mPendingRawVideoSourceAndListener = {};
 	mPendingCodedVideoSinkAndListener = {};
 	mPendingRawVideoSinkAndListener = {};
+	mPendingAlsaSourceAndListener = {};
+	mPendingAudioSourceAndListener = {};
+	mPendingAudioSinkAndListener = {};
+	mPendingAudioRendererAndListener = {};
 	mPendingVideoEncoderAndListener = {};
+	mPendingVideoScalerAndListener = {};
+	mPendingAudioEncoderAndListener = {};
 	mPendingRemovedElementUserdata = {};
 	memset(&mLoopThread, 0, sizeof(pthread_t));
+	memset(&mRetConfig, 0, sizeof(mRetConfig));
+	memset(&mRetMuxerStats, 0, sizeof(mRetMuxerStats));
+	memset(&mRetMuxerDynParams, 0, sizeof(mRetMuxerDynParams));
+	mRetMediaList = nullptr;
 }
 
 
@@ -314,11 +444,15 @@ PdrawBackend::~PdrawBackend(void)
 		ULOGW("destroying pdraw backend while still running");
 
 	mThreadShouldStop = true;
+	if (mMutexCreated)
+		pthread_mutex_lock(&mMutex);
 	if (mLoop != nullptr) {
 		err = pomp_loop_wakeup(mLoop);
 		if (err < 0)
 			ULOG_ERRNO("pomp_loop_wakeup", -err);
 	}
+	if (mMutexCreated)
+		pthread_mutex_unlock(&mMutex);
 	if (mLoopThreadLaunched) {
 		err = pthread_join(mLoopThread, nullptr);
 		if (err != 0)
@@ -328,12 +462,6 @@ PdrawBackend::~PdrawBackend(void)
 	if (mPdraw != nullptr) {
 		delete mPdraw;
 		mPdraw = nullptr;
-	}
-	if (mLoop != nullptr) {
-		err = pomp_loop_destroy(mLoop);
-		if (err < 0)
-			ULOG_ERRNO("pomp_loop_destroy", -err);
-		mLoop = nullptr;
 	}
 	mStarted = false;
 	if (mMbox != nullptr) {
@@ -465,7 +593,6 @@ int PdrawBackend::stop(void)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -476,18 +603,11 @@ int PdrawBackend::stop(void)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_STOP;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
-	mRetStatus = false;
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -509,16 +629,16 @@ struct pomp_loop *PdrawBackend::getLoop(void)
 
 
 int PdrawBackend::createDemuxer(const std::string &url,
+				const struct pdraw_demuxer_params *params,
 				IPdraw::IDemuxer::Listener *listener,
 				IPdraw::IDemuxer **retObj)
 {
 	int res;
 	struct cmd_msg *cmd = nullptr;
 
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(
-		url.length() > sizeof(cmd->demuxer_create_url.url) - 1,
-		ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(url.length() > MAX_STR_LEN, ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
 	pthread_mutex_lock(&mApiMutex);
@@ -526,12 +646,11 @@ int PdrawBackend::createDemuxer(const std::string &url,
 	if (pthread_self() == mLoopThread) {
 		/* Execution is on the loop thread,
 		 * call the function directly */
-		res = doCreateDemuxer(url, listener, retObj);
+		res = doCreateDemuxer(url, params, listener, retObj);
 		goto out2;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -542,28 +661,21 @@ int PdrawBackend::createDemuxer(const std::string &url,
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_CREATE_URL;
-	strncpy(cmd->demuxer_create_url.url,
-		url.c_str(),
-		sizeof(cmd->demuxer_create_url.url));
-	cmd->demuxer_create_url.url[sizeof(cmd->demuxer_create_url.url) - 1] =
-		'\0';
+	cmd->demuxer_create_url.url = strdup(url.c_str());
+	cmd->demuxer_create_url.params = *params;
 	cmd->demuxer_create_url.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetDemuxer;
-	mRetStatus = 0;
 	mRetDemuxer = nullptr;
-	mRetValReady = false;
 
 out:
+	if (cmd && cmd->demuxer_create_url.url)
+		free(cmd->demuxer_create_url.url);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -579,21 +691,17 @@ int PdrawBackend::createDemuxer(const std::string &localAddr,
 				const std::string &remoteAddr,
 				uint16_t remoteStreamPort,
 				uint16_t remoteControlPort,
+				const struct pdraw_demuxer_params *params,
 				IPdraw::IDemuxer::Listener *listener,
 				IPdraw::IDemuxer **retObj)
 {
 	int res;
 	struct cmd_msg *cmd = nullptr;
 
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(
-		localAddr.length() >
-			sizeof(cmd->demuxer_create_single.local_addr) - 1,
-		ENOBUFS);
-	ULOG_ERRNO_RETURN_ERR_IF(
-		remoteAddr.length() >
-			sizeof(cmd->demuxer_create_single.remote_addr) - 1,
-		ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(localAddr.length() > MAX_STR_LEN, ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(remoteAddr.length() > MAX_STR_LEN, ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
 	pthread_mutex_lock(&mApiMutex);
@@ -607,13 +715,13 @@ int PdrawBackend::createDemuxer(const std::string &localAddr,
 				      remoteAddr,
 				      remoteStreamPort,
 				      remoteControlPort,
+				      params,
 				      listener,
 				      retObj);
 		goto out2;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -624,40 +732,31 @@ int PdrawBackend::createDemuxer(const std::string &localAddr,
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_CREATE_SINGLE;
-	strncpy(cmd->demuxer_create_single.local_addr,
-		localAddr.c_str(),
-		sizeof(cmd->demuxer_create_single.local_addr));
-	cmd->demuxer_create_single
-		.local_addr[sizeof(cmd->demuxer_create_single.local_addr) - 1] =
-		'\0';
+	cmd->demuxer_create_single.local_addr = strdup(localAddr.c_str());
 	cmd->demuxer_create_single.local_stream_port = localStreamPort;
 	cmd->demuxer_create_single.local_control_port = localControlPort;
-	strncpy(cmd->demuxer_create_single.remote_addr,
-		remoteAddr.c_str(),
-		sizeof(cmd->demuxer_create_single.remote_addr));
-	cmd->demuxer_create_single
-		.remote_addr[sizeof(cmd->demuxer_create_single.remote_addr) -
-			     1] = '\0';
+	cmd->demuxer_create_single.remote_addr = strdup(remoteAddr.c_str());
 	cmd->demuxer_create_single.remote_stream_port = remoteStreamPort;
 	cmd->demuxer_create_single.remote_control_port = remoteControlPort;
+	cmd->demuxer_create_single.params = *params;
 	cmd->demuxer_create_single.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetDemuxer;
-	mRetStatus = 0;
 	mRetDemuxer = nullptr;
-	mRetValReady = false;
 
 out:
-	free(cmd);
+	if (cmd) {
+		if (cmd->demuxer_create_single.local_addr)
+			free(cmd->demuxer_create_single.local_addr);
+		if (cmd->demuxer_create_single.remote_addr)
+			free(cmd->demuxer_create_single.remote_addr);
+		free(cmd);
+	}
 	pthread_mutex_unlock(&mMutex);
 
 out2:
@@ -668,16 +767,16 @@ out2:
 
 int PdrawBackend::createDemuxer(const std::string &url,
 				struct mux_ctx *mux,
+				const struct pdraw_demuxer_params *params,
 				IPdraw::IDemuxer::Listener *listener,
 				IPdraw::IDemuxer **retObj)
 {
 	int res;
 	struct cmd_msg *cmd = nullptr;
 
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(
-		url.length() > sizeof(cmd->demuxer_create_url_mux.url) - 1,
-		ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(url.length() > MAX_STR_LEN, ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
 	pthread_mutex_lock(&mApiMutex);
@@ -685,12 +784,11 @@ int PdrawBackend::createDemuxer(const std::string &url,
 	if (pthread_self() == mLoopThread) {
 		/* Execution is on the loop thread,
 		 * call the function directly */
-		res = doCreateDemuxer(url, mux, listener, retObj);
+		res = doCreateDemuxer(url, mux, params, listener, retObj);
 		goto out2;
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -701,29 +799,22 @@ int PdrawBackend::createDemuxer(const std::string &url,
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_CREATE_URL_MUX;
-	strncpy(cmd->demuxer_create_url_mux.url,
-		url.c_str(),
-		sizeof(cmd->demuxer_create_url_mux.url));
-	cmd->demuxer_create_url_mux
-		.url[sizeof(cmd->demuxer_create_url_mux.url) - 1] = '\0';
+	cmd->demuxer_create_url_mux.url = strdup(url.c_str());
 	cmd->demuxer_create_url_mux.mux = mux;
+	cmd->demuxer_create_url_mux.params = *params;
 	cmd->demuxer_create_url_mux.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetDemuxer;
-	mRetStatus = 0;
 	mRetDemuxer = nullptr;
-	mRetValReady = false;
 
 out:
+	if (cmd && cmd->demuxer_create_url_mux.url)
+		free(cmd->demuxer_create_url_mux.url);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -752,7 +843,6 @@ PdrawBackend::Demuxer::~Demuxer(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -764,16 +854,11 @@ PdrawBackend::Demuxer::~Demuxer(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -803,7 +888,6 @@ int PdrawBackend::Demuxer::close(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -815,18 +899,115 @@ int PdrawBackend::Demuxer::close(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_CLOSE;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
 
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Demuxer::getMediaList(struct pdraw_demuxer_media **mediaList,
+					size_t *mediaCount,
+					uint32_t *selectedMedias)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mDemuxer->getMediaList(
+			mediaList, mediaCount, selectedMedias);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_DEMUXER_GET_MEDIA_LIST;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*mediaList = mBackend->mRetMediaList;
+	*mediaCount = mBackend->mRetSizeT;
+	*selectedMedias = mBackend->mRetUint32;
+	mBackend->mRetMediaList = nullptr;
+	mBackend->mRetSizeT = 0;
+	mBackend->mRetUint32 = 0;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Demuxer::selectMedia(uint32_t selectedMedias)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mDemuxer->selectMedia(selectedMedias);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_DEMUXER_SELECT_MEDIA;
+	cmd->demuxer_select_media.demuxer = this;
+	cmd->demuxer_select_media.selected_medias = selectedMedias;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
 
 out:
 	free(cmd);
@@ -858,7 +1039,6 @@ uint16_t PdrawBackend::Demuxer::getSingleStreamLocalStreamPort(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -870,18 +1050,14 @@ uint16_t PdrawBackend::Demuxer::getSingleStreamLocalStreamPort(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_GET_SINGLE_STREAM_LOCAL_STREAM_PORT;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetUint16;
 	mBackend->mRetUint16 = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -913,7 +1089,6 @@ uint16_t PdrawBackend::Demuxer::getSingleStreamLocalControlPort(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -925,18 +1100,14 @@ uint16_t PdrawBackend::Demuxer::getSingleStreamLocalControlPort(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_GET_SINGLE_STREAM_LOCAL_CONTROL_PORT;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetUint16;
 	mBackend->mRetUint16 = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -968,7 +1139,6 @@ bool PdrawBackend::Demuxer::isReadyToPlay(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -980,18 +1150,14 @@ bool PdrawBackend::Demuxer::isReadyToPlay(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_IS_READY_TO_PLAY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetBool;
 	mBackend->mRetBool = false;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1023,7 +1189,6 @@ bool PdrawBackend::Demuxer::isPaused(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1035,18 +1200,14 @@ bool PdrawBackend::Demuxer::isPaused(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_IS_PAUSED;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetBool;
 	mBackend->mRetBool = false;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1077,7 +1238,6 @@ int PdrawBackend::Demuxer::play(float speed)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1090,18 +1250,12 @@ int PdrawBackend::Demuxer::play(float speed)
 	cmd->type = CMD_TYPE_DEMUXER_PLAY;
 	cmd->demuxer_play.demuxer = this;
 	cmd->demuxer_play.speed = speed;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1138,7 +1292,6 @@ int PdrawBackend::Demuxer::previousFrame(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1150,18 +1303,12 @@ int PdrawBackend::Demuxer::previousFrame(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_PREVIOUS_FRAME;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1192,7 +1339,6 @@ int PdrawBackend::Demuxer::nextFrame(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1204,18 +1350,12 @@ int PdrawBackend::Demuxer::nextFrame(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_NEXT_FRAME;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1246,7 +1386,6 @@ int PdrawBackend::Demuxer::seek(int64_t delta, bool exact)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1260,18 +1399,12 @@ int PdrawBackend::Demuxer::seek(int64_t delta, bool exact)
 	cmd->demuxer_seek.demuxer = this;
 	cmd->demuxer_seek.delta = delta;
 	cmd->demuxer_seek.exact = exact;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1314,7 +1447,6 @@ int PdrawBackend::Demuxer::seekTo(uint64_t timestamp, bool exact)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1328,18 +1460,62 @@ int PdrawBackend::Demuxer::seekTo(uint64_t timestamp, bool exact)
 	cmd->demuxer_seek_to.demuxer = this;
 	cmd->demuxer_seek_to.timestamp = timestamp;
 	cmd->demuxer_seek_to.exact = exact;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
 
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Demuxer::getChapterList(struct pdraw_chapter **chapterList,
+					  size_t *chapterCount)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mDemuxer->getChapterList(chapterList, chapterCount);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_DEMUXER_GET_CHAPTER_LIST;
+	cmd->demuxer_get_chapter_list.demuxer = this;
+	cmd->demuxer_get_chapter_list.chapter_list = chapterList;
+	cmd->demuxer_get_chapter_list.chapter_count = chapterCount;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
 
 out:
 	free(cmd);
@@ -1371,7 +1547,6 @@ uint64_t PdrawBackend::Demuxer::getDuration(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1383,18 +1558,14 @@ uint64_t PdrawBackend::Demuxer::getDuration(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_GET_DURATION;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetUint64;
 	mBackend->mRetUint64 = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1426,7 +1597,6 @@ uint64_t PdrawBackend::Demuxer::getCurrentTime(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1438,18 +1608,14 @@ uint64_t PdrawBackend::Demuxer::getCurrentTime(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DEMUXER_GET_CURRENT_TIME;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetUint64;
 	mBackend->mRetUint64 = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1469,8 +1635,7 @@ int PdrawBackend::createMuxer(const std::string &url,
 	int res;
 	struct cmd_msg *cmd = nullptr;
 
-	ULOG_ERRNO_RETURN_ERR_IF(
-		url.length() > sizeof(cmd->muxer_create.url) - 1, ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(url.length() > MAX_STR_LEN, ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
@@ -1485,7 +1650,6 @@ int PdrawBackend::createMuxer(const std::string &url,
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1496,28 +1660,21 @@ int PdrawBackend::createMuxer(const std::string &url,
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_MUXER_CREATE;
-	strncpy(cmd->muxer_create.url,
-		url.c_str(),
-		sizeof(cmd->muxer_create.url));
-	cmd->muxer_create.url[sizeof(cmd->muxer_create.url) - 1] = '\0';
+	cmd->muxer_create.url = strdup(url.c_str());
 	cmd->muxer_create.params = *params;
 	cmd->muxer_create.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetMuxer;
-	mRetStatus = 0;
 	mRetMuxer = nullptr;
-	mRetValReady = false;
 
 out:
+	if (cmd && cmd->muxer_create.url)
+		free(cmd->muxer_create.url);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -1556,7 +1713,6 @@ PdrawBackend::Muxer::~Muxer(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1568,16 +1724,11 @@ PdrawBackend::Muxer::~Muxer(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_MUXER_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1588,9 +1739,54 @@ out2:
 }
 
 
-int PdrawBackend::Muxer::addMedia(
-	unsigned int mediaId,
-	const struct pdraw_muxer_video_media_params *params)
+int PdrawBackend::Muxer::close(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mMuxer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mMuxer->close();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_MUXER_CLOSE;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Muxer::addMedia(unsigned int mediaId,
+				  const struct pdraw_muxer_media_params *params)
 {
 	int res;
 	struct cmd_msg *cmd = nullptr;
@@ -1609,7 +1805,6 @@ int PdrawBackend::Muxer::addMedia(
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1622,22 +1817,38 @@ int PdrawBackend::Muxer::addMedia(
 	cmd->type = CMD_TYPE_MUXER_ADD_MEDIA;
 	cmd->muxer_add_media.muxer = this;
 	cmd->muxer_add_media.media_id = mediaId;
-	if (params != nullptr)
-		cmd->muxer_add_media.params = *params;
-	res = mbox_push(mBackend->mMbox, cmd);
+	if (params != nullptr) {
+		cmd->muxer_add_media.params =
+			(struct pdraw_muxer_media_params *)calloc(
+				1, sizeof(struct pdraw_muxer_media_params));
+		if (cmd->muxer_add_media.params == nullptr) {
+			res = -ENOMEM;
+			ULOG_ERRNO("calloc", -res);
+			goto out;
+		}
+		*cmd->muxer_add_media.params = *params;
+		if (params->track_name != nullptr) {
+			cmd->muxer_add_media.params->track_name =
+				strdup(params->track_name);
+			if (cmd->muxer_add_media.params->track_name ==
+			    nullptr) {
+				res = -ENOMEM;
+				ULOG_ERRNO("strdup", -res);
+				goto out;
+			}
+		}
+	}
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
-
 out:
+	if (cmd && cmd->muxer_add_media.params) {
+		free((void *)cmd->muxer_add_media.params->track_name);
+		free(cmd->muxer_add_media.params);
+	}
 	free(cmd);
 	pthread_mutex_unlock(&mBackend->mMutex);
 
@@ -1670,7 +1881,6 @@ int PdrawBackend::Muxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1685,18 +1895,11 @@ int PdrawBackend::Muxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 	cmd->muxer_set_thumbnail.type = type;
 	cmd->muxer_set_thumbnail.data = data;
 	cmd->muxer_set_thumbnail.size = size;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -1708,14 +1911,258 @@ out2:
 };
 
 
+int PdrawBackend::Muxer::addChapter(uint64_t timestamp, const char *name)
+{
+	int res = 0;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mMuxer == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(timestamp == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(name == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mMuxer->addChapter(timestamp, name);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_MUXER_ADD_CHAPTER;
+	cmd->muxer_add_chapter.muxer = this;
+	cmd->muxer_add_chapter.timestamp = timestamp;
+	cmd->muxer_add_chapter.name = strdup(name);
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	if (cmd)
+		free(cmd->muxer_add_chapter.name);
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Muxer::getStats(struct pdraw_muxer_stats *stats)
+{
+	int res = 0;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mMuxer == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(stats == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mMuxer->getStats(stats);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_MUXER_GET_STATS;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*stats = mBackend->mRetMuxerStats;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Muxer::setDynParams(
+	const struct pdraw_muxer_dyn_params *dyn_params)
+{
+	int res = 0;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mMuxer == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(dyn_params == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mMuxer->setDynParams(dyn_params);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_MUXER_SET_DYN_PARAMS;
+	cmd->muxer_set_dyn_params.muxer = this;
+	cmd->muxer_set_dyn_params.dyn_params = *dyn_params;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Muxer::getDynParams(struct pdraw_muxer_dyn_params *dyn_params)
+{
+	int res = 0;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mMuxer == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(dyn_params == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mMuxer->getDynParams(dyn_params);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_MUXER_GET_DYN_PARAMS;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*dyn_params = mBackend->mRetMuxerDynParams;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::Muxer::forceSync(void)
+{
+	int res = 0;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mMuxer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mMuxer->forceSync();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_MUXER_FORCE_SYNC;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
 /* Called on the rendering thread */
 int PdrawBackend::createVideoRenderer(
 	unsigned int mediaId,
 	const struct pdraw_rect *renderPos,
 	const struct pdraw_video_renderer_params *params,
 	IPdraw::IVideoRenderer::Listener *listener,
-	IPdraw::IVideoRenderer **retObj,
-	struct egl_display *eglDisplay)
+	IPdraw::IVideoRenderer **retObj)
 {
 	int res = 0;
 	PdrawBackend::VideoRenderer *renderer = nullptr;
@@ -1731,7 +2178,7 @@ int PdrawBackend::createVideoRenderer(
 	pthread_mutex_lock(&mApiMutex);
 
 	renderer = new PdrawBackend::VideoRenderer(
-		this, renderPos, params, listener, eglDisplay);
+		this, renderPos, params, listener);
 	if (renderer == nullptr)
 		goto out;
 
@@ -1741,7 +2188,7 @@ int PdrawBackend::createVideoRenderer(
 	};
 
 	res = mPdraw->createVideoRenderer(
-		mediaId, renderPos, params, this, &rnd, eglDisplay);
+		mediaId, renderPos, params, this, &rnd);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw->createVideoRenderer", -res);
 		delete renderer;
@@ -1777,8 +2224,7 @@ PdrawBackend::VideoRenderer::VideoRenderer(
 	PdrawBackend *backend,
 	const struct pdraw_rect *renderPos,
 	const struct pdraw_video_renderer_params *params,
-	IPdraw::IVideoRenderer::Listener *listener,
-	struct egl_display *eglDisplay)
+	IPdraw::IVideoRenderer::Listener *listener)
 {
 	mBackend = backend;
 	mListener = listener;
@@ -1942,19 +2388,15 @@ int PdrawBackend::createVipcSource(
 
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(params->address == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(
-		strlen(params->address) >
-			sizeof(cmd->vipc_source_create.address) - 1,
-		ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(strlen(params->address) > MAX_STR_LEN,
+				 ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(
 		(params->friendly_name != nullptr) &&
-			(strlen(params->friendly_name) >
-			 sizeof(cmd->vipc_source_create.friendly_name) - 1),
+			(strlen(params->friendly_name) > MAX_STR_LEN),
 		ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(
 		(params->backend_name != nullptr) &&
-			(strlen(params->backend_name) >
-			 sizeof(cmd->vipc_source_create.backend_name) - 1),
+			(strlen(params->backend_name) > MAX_STR_LEN),
 		ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
@@ -1969,7 +2411,6 @@ int PdrawBackend::createVipcSource(
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1981,50 +2422,40 @@ int PdrawBackend::createVipcSource(
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIPC_SOURCE_CREATE;
 	mParamVipcSource = *params;
-	strncpy(cmd->vipc_source_create.address,
-		params->address,
-		sizeof(cmd->vipc_source_create.address));
-	cmd->vipc_source_create
-		.address[sizeof(cmd->vipc_source_create.address) - 1] = '\0';
+	cmd->vipc_source_create.address = strdup(params->address);
 	mParamVipcSource.address = cmd->vipc_source_create.address;
 	if (params->friendly_name != nullptr) {
-		strncpy(cmd->vipc_source_create.friendly_name,
-			params->friendly_name,
-			sizeof(cmd->vipc_source_create.friendly_name));
-		cmd->vipc_source_create.friendly_name
-			[sizeof(cmd->vipc_source_create.friendly_name) - 1] =
-			'\0';
+		cmd->vipc_source_create.friendly_name =
+			strdup(params->friendly_name);
 		mParamVipcSource.friendly_name =
 			cmd->vipc_source_create.friendly_name;
 	}
 	if (params->backend_name != nullptr) {
-		strncpy(cmd->vipc_source_create.backend_name,
-			params->backend_name,
-			sizeof(cmd->vipc_source_create.backend_name));
-		cmd->vipc_source_create.backend_name
-			[sizeof(cmd->vipc_source_create.backend_name) - 1] =
-			'\0';
+		cmd->vipc_source_create.backend_name =
+			strdup(params->backend_name);
 		mParamVipcSource.backend_name =
 			cmd->vipc_source_create.backend_name;
 	}
 	cmd->vipc_source_create.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetVipcSource;
-	mRetStatus = 0;
 	mRetVipcSource = nullptr;
-	mRetValReady = false;
 
 out:
-	free(cmd);
+	if (cmd != nullptr) {
+		if (cmd->vipc_source_create.address != nullptr)
+			free(cmd->vipc_source_create.address);
+		if (cmd->vipc_source_create.friendly_name != nullptr)
+			free(cmd->vipc_source_create.friendly_name);
+		if (cmd->vipc_source_create.backend_name != nullptr)
+			free(cmd->vipc_source_create.backend_name);
+		free(cmd);
+	}
 	pthread_mutex_unlock(&mMutex);
 
 out2:
@@ -2061,7 +2492,6 @@ PdrawBackend::VipcSource::~VipcSource(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2073,16 +2503,11 @@ PdrawBackend::VipcSource::~VipcSource(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIPC_SOURCE_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2113,7 +2538,6 @@ bool PdrawBackend::VipcSource::isReadyToPlay(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2125,18 +2549,14 @@ bool PdrawBackend::VipcSource::isReadyToPlay(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIPC_SOURCE_IS_READY_TO_PLAY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetBool;
 	mBackend->mRetBool = false;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2168,7 +2588,6 @@ bool PdrawBackend::VipcSource::isPaused(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2180,18 +2599,14 @@ bool PdrawBackend::VipcSource::isPaused(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIPC_SOURCE_IS_PAUSED;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetBool;
 	mBackend->mRetBool = false;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2222,7 +2637,6 @@ int PdrawBackend::VipcSource::play(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2234,18 +2648,12 @@ int PdrawBackend::VipcSource::play(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIPC_SOURCE_PLAY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2276,7 +2684,6 @@ int PdrawBackend::VipcSource::pause(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2288,18 +2695,58 @@ int PdrawBackend::VipcSource::pause(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIPC_SOURCE_PAUSE;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
 
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::VipcSource::insertGreyFrame(uint64_t tsUs)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSource->insertGreyFrame(tsUs);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_VIPC_SOURCE_INSERT_GREY_FRAME;
+	cmd->generic.ptr = this;
+	cmd->generic.uint64 = tsUs;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
 
 out:
 	free(cmd);
@@ -2331,7 +2778,6 @@ int PdrawBackend::VipcSource::configure(const struct vdef_dim *resolution,
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2345,18 +2791,12 @@ int PdrawBackend::VipcSource::configure(const struct vdef_dim *resolution,
 	cmd->vipc_source_configure.source = this;
 	cmd->vipc_source_configure.resolution = *resolution;
 	cmd->vipc_source_configure.crop = *crop;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2388,7 +2828,6 @@ int PdrawBackend::VipcSource::setSessionMetadata(
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2401,18 +2840,12 @@ int PdrawBackend::VipcSource::setSessionMetadata(
 	cmd->type = CMD_TYPE_VIPC_SOURCE_SET_SESSION_METADATA;
 	cmd->generic.ptr = this;
 	mBackend->mParamVmetaSession = *meta;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2443,7 +2876,6 @@ int PdrawBackend::VipcSource::getSessionMetadata(struct vmeta_session *meta)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2455,19 +2887,13 @@ int PdrawBackend::VipcSource::getSessionMetadata(struct vmeta_session *meta)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIPC_SOURCE_GET_SESSION_METADATA;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	*meta = mBackend->mParamVmetaSession;
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2500,7 +2926,6 @@ int PdrawBackend::createCodedVideoSource(
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2513,20 +2938,14 @@ int PdrawBackend::createCodedVideoSource(
 	cmd->type = CMD_TYPE_CODED_VIDEO_SOURCE_CREATE;
 	mParamVideoSource = *params;
 	cmd->coded_video_source_create.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetCodedVideoSource;
-	mRetStatus = 0;
 	mRetCodedVideoSource = nullptr;
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2567,7 +2986,6 @@ PdrawBackend::CodedVideoSource::~CodedVideoSource(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2579,16 +2997,12 @@ PdrawBackend::CodedVideoSource::~CodedVideoSource(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SOURCE_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2620,7 +3034,6 @@ PdrawBackend::CodedVideoSource::getQueue(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2632,18 +3045,14 @@ PdrawBackend::CodedVideoSource::getQueue(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SOURCE_GET_QUEUE;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetCodedQueue;
 	mBackend->mRetCodedQueue = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2674,7 +3083,6 @@ int PdrawBackend::CodedVideoSource::flush(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2686,18 +3094,12 @@ int PdrawBackend::CodedVideoSource::flush(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SOURCE_FLUSH;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2729,7 +3131,6 @@ int PdrawBackend::CodedVideoSource::setSessionMetadata(
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2742,18 +3143,12 @@ int PdrawBackend::CodedVideoSource::setSessionMetadata(
 	cmd->type = CMD_TYPE_CODED_VIDEO_SOURCE_SET_SESSION_METADATA;
 	cmd->generic.ptr = this;
 	mBackend->mParamVmetaSession = *meta;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2785,7 +3180,6 @@ int PdrawBackend::CodedVideoSource::getSessionMetadata(
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2797,19 +3191,13 @@ int PdrawBackend::CodedVideoSource::getSessionMetadata(
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SOURCE_GET_SESSION_METADATA;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	*meta = mBackend->mParamVmetaSession;
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2842,7 +3230,6 @@ int PdrawBackend::createRawVideoSource(
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2855,20 +3242,14 @@ int PdrawBackend::createRawVideoSource(
 	cmd->type = CMD_TYPE_RAW_VIDEO_SOURCE_CREATE;
 	mParamVideoSource = *params;
 	cmd->raw_video_source_create.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetRawVideoSource;
-	mRetStatus = 0;
 	mRetRawVideoSource = nullptr;
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2909,7 +3290,6 @@ PdrawBackend::RawVideoSource::~RawVideoSource(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2921,16 +3301,12 @@ PdrawBackend::RawVideoSource::~RawVideoSource(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SOURCE_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -2961,7 +3337,6 @@ struct mbuf_raw_video_frame_queue *PdrawBackend::RawVideoSource::getQueue(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -2973,18 +3348,14 @@ struct mbuf_raw_video_frame_queue *PdrawBackend::RawVideoSource::getQueue(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SOURCE_GET_QUEUE;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetRawQueue;
 	mBackend->mRetRawQueue = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3015,7 +3386,6 @@ int PdrawBackend::RawVideoSource::flush(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3027,18 +3397,12 @@ int PdrawBackend::RawVideoSource::flush(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SOURCE_FLUSH;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3070,7 +3434,6 @@ int PdrawBackend::RawVideoSource::setSessionMetadata(
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3083,18 +3446,12 @@ int PdrawBackend::RawVideoSource::setSessionMetadata(
 	cmd->type = CMD_TYPE_RAW_VIDEO_SOURCE_SET_SESSION_METADATA;
 	cmd->generic.ptr = this;
 	mBackend->mParamVmetaSession = *meta;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3125,7 +3482,6 @@ int PdrawBackend::RawVideoSource::getSessionMetadata(struct vmeta_session *meta)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3137,19 +3493,13 @@ int PdrawBackend::RawVideoSource::getSessionMetadata(struct vmeta_session *meta)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SOURCE_GET_SESSION_METADATA;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	*meta = mBackend->mParamVmetaSession;
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3183,7 +3533,6 @@ int PdrawBackend::createCodedVideoSink(
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3197,20 +3546,14 @@ int PdrawBackend::createCodedVideoSink(
 	cmd->coded_video_sink_create.media_id = mediaId;
 	cmd->coded_video_sink_create.params = *params;
 	cmd->coded_video_sink_create.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetCodedVideoSink;
-	mRetStatus = 0;
 	mRetCodedVideoSink = nullptr;
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3253,7 +3596,6 @@ PdrawBackend::CodedVideoSink::~CodedVideoSink(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3265,16 +3607,12 @@ PdrawBackend::CodedVideoSink::~CodedVideoSink(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SINK_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3304,7 +3642,6 @@ int PdrawBackend::CodedVideoSink::resync(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3316,18 +3653,12 @@ int PdrawBackend::CodedVideoSink::resync(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SINK_RESYNC;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3360,7 +3691,6 @@ PdrawBackend::CodedVideoSink::getQueue(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3372,18 +3702,14 @@ PdrawBackend::CodedVideoSink::getQueue(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SINK_GET_QUEUE;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetCodedQueue;
 	mBackend->mRetCodedQueue = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3414,7 +3740,6 @@ int PdrawBackend::CodedVideoSink::queueFlushed(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3426,18 +3751,11 @@ int PdrawBackend::CodedVideoSink::queueFlushed(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_CODED_VIDEO_SINK_QUEUE_FLUSHED;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3471,7 +3789,6 @@ int PdrawBackend::createRawVideoSink(
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3485,20 +3802,14 @@ int PdrawBackend::createRawVideoSink(
 	cmd->raw_video_sink_create.media_id = mediaId;
 	cmd->raw_video_sink_create.params = *params;
 	cmd->raw_video_sink_create.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetRawVideoSink;
-	mRetStatus = 0;
 	mRetRawVideoSink = nullptr;
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3541,7 +3852,6 @@ PdrawBackend::RawVideoSink::~RawVideoSink(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3553,16 +3863,11 @@ PdrawBackend::RawVideoSink::~RawVideoSink(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SINK_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3593,7 +3898,6 @@ struct mbuf_raw_video_frame_queue *PdrawBackend::RawVideoSink::getQueue(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3605,18 +3909,14 @@ struct mbuf_raw_video_frame_queue *PdrawBackend::RawVideoSink::getQueue(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SINK_GET_QUEUE;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
 	ret = mBackend->mRetRawQueue;
 	mBackend->mRetRawQueue = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3647,7 +3947,6 @@ int PdrawBackend::RawVideoSink::queueFlushed(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3659,18 +3958,11 @@ int PdrawBackend::RawVideoSink::queueFlushed(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SINK_QUEUE_FLUSHED;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3679,6 +3971,1024 @@ out:
 out2:
 	pthread_mutex_unlock(&mBackend->mApiMutex);
 	return res;
+}
+
+
+int PdrawBackend::createAlsaSource(
+	const struct pdraw_alsa_source_params *params,
+	IPdraw::IAlsaSource::Listener *listener,
+	IPdraw::IAlsaSource **retObj)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params->address == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(strlen(params->address) > MAX_STR_LEN,
+				 ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
+
+	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = doCreateAlsaSource(params, listener, retObj);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_ALSA_SOURCE_CREATE;
+	cmd->alsa_source_create.params = *params;
+	cmd->alsa_source_create.params.address = strdup(params->address);
+	cmd->alsa_source_create.listener = listener;
+	res = pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*retObj = mRetAlsaSource;
+	mRetAlsaSource = nullptr;
+
+out:
+	if (cmd != nullptr)
+		free((void *)cmd->alsa_source_create.params.address);
+	free(cmd);
+	pthread_mutex_unlock(&mMutex);
+
+out2:
+	pthread_mutex_unlock(&mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::createAudioSource(
+	const struct pdraw_audio_source_params *params,
+	IPdraw::IAudioSource::Listener *listener,
+	IPdraw::IAudioSource **retObj)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
+
+	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = doCreateAudioSource(params, listener, retObj);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SOURCE_CREATE;
+	cmd->audio_source_create.params = *params;
+	cmd->audio_source_create.listener = listener;
+	res = pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*retObj = mRetAudioSource;
+	mRetAudioSource = nullptr;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mMutex);
+
+out2:
+	pthread_mutex_unlock(&mApiMutex);
+	return res;
+}
+
+
+PdrawBackend::AlsaSource::AlsaSource(PdrawBackend *backend,
+				     IPdraw::IAlsaSource::Listener *listener)
+{
+	mBackend = backend;
+	mListener = listener;
+	mSource = nullptr;
+}
+
+
+PdrawBackend::AlsaSource::~AlsaSource(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		delete mSource;
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_ALSA_SOURCE_DESTROY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+}
+
+
+bool PdrawBackend::AlsaSource::isReadyToPlay(void)
+{
+	int res;
+	bool ret = false;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_VAL_IF(mBackend == nullptr, EPROTO, false);
+	ULOG_ERRNO_RETURN_VAL_IF(!mBackend->mStarted, EPROTO, false);
+	ULOG_ERRNO_RETURN_VAL_IF(mSource == nullptr, EPROTO, false);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mSource->isReadyToPlay();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_ALSA_SOURCE_IS_READY_TO_PLAY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetBool;
+	mBackend->mRetBool = false;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
+bool PdrawBackend::AlsaSource::isPaused(void)
+{
+	int res;
+	bool ret = false;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_VAL_IF(mBackend == nullptr, EPROTO, false);
+	ULOG_ERRNO_RETURN_VAL_IF(!mBackend->mStarted, EPROTO, false);
+	ULOG_ERRNO_RETURN_VAL_IF(mSource == nullptr, EPROTO, false);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mSource->isPaused();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_ALSA_SOURCE_IS_PAUSED;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetBool;
+	mBackend->mRetBool = false;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
+int PdrawBackend::AlsaSource::play(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSource->play();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_ALSA_SOURCE_PLAY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::AlsaSource::pause(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSource->pause();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_ALSA_SOURCE_PAUSE;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+PdrawBackend::AudioSource::AudioSource(PdrawBackend *backend,
+				       IPdraw::IAudioSource::Listener *listener)
+{
+	mBackend = backend;
+	mListener = listener;
+	mSource = nullptr;
+}
+
+
+PdrawBackend::AudioSource::~AudioSource(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		delete mSource;
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SOURCE_DESTROY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+}
+
+
+struct mbuf_audio_frame_queue *PdrawBackend::AudioSource::getQueue(void)
+{
+	int res;
+	struct mbuf_audio_frame_queue *ret = nullptr;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_VAL_IF(mBackend == nullptr, EPROTO, nullptr);
+	ULOG_ERRNO_RETURN_VAL_IF(!mBackend->mStarted, EPROTO, nullptr);
+	ULOG_ERRNO_RETURN_VAL_IF(mSource == nullptr, EPROTO, nullptr);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mSource->getQueue();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SOURCE_GET_QUEUE;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetAudioQueue;
+	mBackend->mRetAudioQueue = nullptr;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
+int PdrawBackend::AudioSource::flush(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSource->flush();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SOURCE_FLUSH;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::createAudioSink(unsigned int mediaId,
+				  IPdraw::IAudioSink::Listener *listener,
+				  IPdraw::IAudioSink **retObj)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
+
+	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = doCreateAudioSink(mediaId, listener, retObj);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SINK_CREATE;
+	cmd->audio_sink_create.media_id = mediaId;
+	cmd->audio_sink_create.listener = listener;
+	res = pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*retObj = mRetAudioSink;
+	mRetAudioSink = nullptr;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mMutex);
+
+out2:
+	pthread_mutex_unlock(&mApiMutex);
+	return res;
+}
+
+
+PdrawBackend::AudioSink::AudioSink(PdrawBackend *backend,
+				   unsigned int mediaId,
+				   IPdraw::IAudioSink::Listener *listener)
+{
+	mBackend = backend;
+	mListener = listener;
+	mSink = nullptr;
+}
+
+
+PdrawBackend::AudioSink::~AudioSink(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		delete mSink;
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SINK_DESTROY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+}
+
+
+struct mbuf_audio_frame_queue *PdrawBackend::AudioSink::getQueue(void)
+{
+	int res;
+	struct mbuf_audio_frame_queue *ret = nullptr;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_VAL_IF(mBackend == nullptr, EPROTO, nullptr);
+	ULOG_ERRNO_RETURN_VAL_IF(!mBackend->mStarted, EPROTO, nullptr);
+	ULOG_ERRNO_RETURN_VAL_IF(mSink == nullptr, EPROTO, nullptr);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mSink->getQueue();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SINK_GET_QUEUE;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	mBackend->mRetAudioQueue = nullptr;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
+int PdrawBackend::AudioSink::queueFlushed(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSink->queueFlushed();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SINK_QUEUE_FLUSHED;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::createAudioRenderer(
+	unsigned int mediaId,
+	const struct pdraw_audio_renderer_params *params,
+	IPdraw::IAudioRenderer::Listener *listener,
+	IPdraw::IAudioRenderer **retObj)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
+
+	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = doCreateAudioRenderer(mediaId, params, listener, retObj);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_RENDERER_CREATE;
+	cmd->audio_renderer_create.media_id = mediaId;
+	cmd->audio_renderer_create.params = *params;
+	cmd->audio_renderer_create.listener = listener;
+	res = pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*retObj = mRetAudioRenderer;
+	mRetAudioRenderer = nullptr;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mMutex);
+
+out2:
+	pthread_mutex_unlock(&mApiMutex);
+	return res;
+}
+
+
+PdrawBackend::AudioRenderer::AudioRenderer(
+	PdrawBackend *backend,
+	IPdraw::IAudioRenderer::Listener *listener)
+{
+	mBackend = backend;
+	mListener = listener;
+	mRenderer = nullptr;
+}
+
+
+PdrawBackend::AudioRenderer::~AudioRenderer(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_IF(mRenderer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		delete mRenderer;
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_RENDERER_DESTROY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+}
+
+
+int PdrawBackend::AudioRenderer::setMediaId(unsigned int mediaId)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mRenderer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mRenderer->setMediaId(mediaId);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_RENDERER_SET_MEDIA_ID;
+	cmd->audio_renderer_set_media_id.renderer = this;
+	cmd->audio_renderer_set_media_id.media_id = mediaId;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+unsigned int PdrawBackend::AudioRenderer::getMediaId(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+	unsigned int ret = 0;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mRenderer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mRenderer->getMediaId();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_RENDERER_GET_MEDIA_ID;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetUint;
+	mBackend->mRetUint = 0;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
+int PdrawBackend::AudioRenderer::setParams(
+	const struct pdraw_audio_renderer_params *params)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mRenderer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mRenderer->setParams(params);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_RENDERER_SET_PARAMS;
+	cmd->generic.ptr = this;
+	mBackend->mParamAudioRenderer = *params;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	res = mBackend->mRetStatus;
+	mBackend->mRetStatus = 0;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::AudioRenderer::getParams(
+	struct pdraw_audio_renderer_params *params)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+	unsigned int ret = 0;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mRenderer == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mRenderer->getParams(params);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_RENDERER_GET_PARAMS;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetStatus;
+	*params = mBackend->mParamAudioRenderer;
+	mBackend->mRetStatus = 0;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
 }
 
 
@@ -3703,7 +5013,6 @@ int PdrawBackend::createVideoEncoder(unsigned int mediaId,
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3717,20 +5026,14 @@ int PdrawBackend::createVideoEncoder(unsigned int mediaId,
 	cmd->video_encoder_create.media_id = mediaId;
 	cmd->video_encoder_create.params = *params;
 	cmd->video_encoder_create.listener = listener;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
 	*retObj = mRetVideoEncoder;
-	mRetStatus = 0;
 	mRetVideoEncoder = nullptr;
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3773,7 +5076,6 @@ PdrawBackend::VideoEncoder::~VideoEncoder(void)
 	}
 
 	pthread_mutex_lock(&mBackend->mMutex);
-	mBackend->mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3785,16 +5087,12 @@ PdrawBackend::VideoEncoder::~VideoEncoder(void)
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_VIDEO_ENCODER_DESTROY;
 	cmd->generic.ptr = this;
-	res = mbox_push(mBackend->mMbox, cmd);
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	mBackend->mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3813,6 +5111,7 @@ int PdrawBackend::VideoEncoder::configure(const struct venc_dyn_config *config)
 	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(mEncoder == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(config == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mBackend->mApiMutex);
 
@@ -3820,6 +5119,54 @@ int PdrawBackend::VideoEncoder::configure(const struct venc_dyn_config *config)
 		/* Execution is on the loop thread,
 		 * call the function directly */
 		res = mEncoder->configure(config);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_VIDEO_ENCODER_CONFIGURE;
+	cmd->video_encoder_configure.encoder = this;
+	cmd->video_encoder_configure.config = *config;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::VideoEncoder::getConfig(struct venc_dyn_config *config)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mEncoder == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(config == nullptr, EINVAL);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mEncoder->getConfig(config);
 		goto out2;
 	}
 
@@ -3834,21 +5181,17 @@ int PdrawBackend::VideoEncoder::configure(const struct venc_dyn_config *config)
 	}
 
 	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_VIDEO_ENCODER_CONFIGURE;
-	cmd->video_encoder_configure.encoder = this;
-	cmd->video_encoder_configure.config = *config;
-	res = mbox_push(mBackend->mMbox, cmd);
+	cmd->type = CMD_TYPE_VIDEO_ENCODER_GET_CONFIG;
+	cmd->video_encoder_get_config.encoder = this;
+	cmd->video_encoder_get_config.config = *config;
+	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mBackend->mRetValReady)
-		pthread_cond_wait(&mBackend->mCond, &mBackend->mMutex);
-
-	res = mBackend->mRetStatus;
-	mBackend->mRetStatus = 0;
-	mBackend->mRetValReady = false;
+	*config = mBackend->mRetConfig;
+	mBackend->mRetConfig = {};
 
 out:
 	free(cmd);
@@ -3857,6 +5200,225 @@ out:
 out2:
 	pthread_mutex_unlock(&mBackend->mApiMutex);
 	return res;
+}
+
+
+int PdrawBackend::createVideoScaler(unsigned int mediaId,
+				    const struct vscale_config *params,
+				    IPdraw::IVideoScaler::Listener *listener,
+				    IPdraw::IVideoScaler **retObj)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
+
+	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = doCreateVideoScaler(mediaId, params, listener, retObj);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_VIDEO_SCALER_CREATE;
+	cmd->video_scaler_create.media_id = mediaId;
+	cmd->video_scaler_create.params = *params;
+	cmd->video_scaler_create.listener = listener;
+	res = pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*retObj = mRetVideoScaler;
+	mRetVideoScaler = nullptr;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mMutex);
+
+out2:
+	pthread_mutex_unlock(&mApiMutex);
+	return res;
+}
+
+
+PdrawBackend::VideoScaler::VideoScaler(PdrawBackend *backend,
+				       unsigned int mediaId,
+				       const struct vscale_config *params,
+				       IPdraw::IVideoScaler::Listener *listener)
+{
+	mBackend = backend;
+	mListener = listener;
+	mScaler = nullptr;
+}
+
+
+PdrawBackend::VideoScaler::~VideoScaler(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_IF(mScaler == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		delete mScaler;
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_VIDEO_SCALER_DESTROY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+}
+
+
+int PdrawBackend::createAudioEncoder(unsigned int mediaId,
+				     const struct aenc_config *params,
+				     IPdraw::IAudioEncoder::Listener *listener,
+				     IPdraw::IAudioEncoder **retObj)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
+
+	pthread_mutex_lock(&mApiMutex);
+
+	if (pthread_self() == mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = doCreateAudioEncoder(mediaId, params, listener, retObj);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_ENCODER_CREATE;
+	cmd->audio_encoder_create.media_id = mediaId;
+	cmd->audio_encoder_create.params = *params;
+	cmd->audio_encoder_create.listener = listener;
+	res = pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	*retObj = mRetAudioEncoder;
+	mRetAudioEncoder = nullptr;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mMutex);
+
+out2:
+	pthread_mutex_unlock(&mApiMutex);
+	return res;
+}
+
+
+PdrawBackend::AudioEncoder::AudioEncoder(
+	PdrawBackend *backend,
+	unsigned int mediaId,
+	const struct aenc_config *params,
+	IPdraw::IAudioEncoder::Listener *listener)
+{
+	mBackend = backend;
+	mListener = listener;
+	mEncoder = nullptr;
+}
+
+
+PdrawBackend::AudioEncoder::~AudioEncoder(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_IF(mEncoder == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		delete mEncoder;
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_ENCODER_DESTROY;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
 }
 
 
@@ -3877,7 +5439,6 @@ void PdrawBackend::getFriendlyNameSetting(std::string *friendlyName)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3888,19 +5449,15 @@ void PdrawBackend::getFriendlyNameSetting(std::string *friendlyName)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_FRIENDLY_NAME_SETTING;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
 
 	if (friendlyName)
 		*friendlyName = mRetString;
 	mRetString = "";
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -3917,9 +5474,7 @@ void PdrawBackend::setFriendlyNameSetting(const std::string &friendlyName)
 	struct cmd_msg *cmd = nullptr;
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-	ULOG_ERRNO_RETURN_IF(friendlyName.length() >
-				     sizeof(cmd->generic.string) - 1,
-			     ENOBUFS);
+	ULOG_ERRNO_RETURN_IF(friendlyName.length() > MAX_STR_LEN, ENOBUFS);
 
 	pthread_mutex_lock(&mApiMutex);
 
@@ -3931,7 +5486,6 @@ void PdrawBackend::setFriendlyNameSetting(const std::string &friendlyName)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3942,22 +5496,17 @@ void PdrawBackend::setFriendlyNameSetting(const std::string &friendlyName)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_FRIENDLY_NAME_SETTING;
-	strncpy(cmd->generic.string,
-		friendlyName.c_str(),
-		sizeof(cmd->generic.string));
-	cmd->generic.string[sizeof(cmd->generic.string) - 1] = '\0';
-	res = mbox_push(mMbox, cmd);
+	cmd->generic.string = strdup(friendlyName.c_str());
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	mRetValReady = false;
 
 out:
+	if (cmd && cmd->generic.string)
+		free(cmd->generic.string);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -3983,7 +5532,6 @@ void PdrawBackend::getSerialNumberSetting(std::string *serialNumber)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -3994,19 +5542,15 @@ void PdrawBackend::getSerialNumberSetting(std::string *serialNumber)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SERIAL_NUMBER_SETTING;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
 
 	if (serialNumber)
 		*serialNumber = mRetString;
 	mRetString = "";
-	mRetValReady = false;
 
 out:
 	free(cmd);
@@ -4023,9 +5567,7 @@ void PdrawBackend::setSerialNumberSetting(const std::string &serialNumber)
 	struct cmd_msg *cmd = nullptr;
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-	ULOG_ERRNO_RETURN_IF(serialNumber.length() >
-				     sizeof(cmd->generic.string) - 1,
-			     ENOBUFS);
+	ULOG_ERRNO_RETURN_IF(serialNumber.length() > MAX_STR_LEN, ENOBUFS);
 
 	pthread_mutex_lock(&mApiMutex);
 
@@ -4037,7 +5579,6 @@ void PdrawBackend::setSerialNumberSetting(const std::string &serialNumber)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -4048,22 +5589,17 @@ void PdrawBackend::setSerialNumberSetting(const std::string &serialNumber)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_SERIAL_NUMBER_SETTING;
-	strncpy(cmd->generic.string,
-		serialNumber.c_str(),
-		sizeof(cmd->generic.string));
-	cmd->generic.string[sizeof(cmd->generic.string) - 1] = '\0';
-	res = mbox_push(mMbox, cmd);
+	cmd->generic.string = strdup(serialNumber.c_str());
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	mRetValReady = false;
 
 out:
+	if (cmd && cmd->generic.string)
+		free(cmd->generic.string);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -4089,7 +5625,6 @@ void PdrawBackend::getSoftwareVersionSetting(std::string *softwareVersion)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -4100,21 +5635,19 @@ void PdrawBackend::getSoftwareVersionSetting(std::string *softwareVersion)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_GET_SOFTWARE_VERSION_SETTING;
-	res = mbox_push(mMbox, cmd);
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
 
 	if (softwareVersion)
 		*softwareVersion = mRetString;
 	mRetString = "";
-	mRetValReady = false;
 
 out:
+	if (cmd && cmd->generic.string)
+		free(cmd->generic.string);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -4129,9 +5662,7 @@ void PdrawBackend::setSoftwareVersionSetting(const std::string &softwareVersion)
 	struct cmd_msg *cmd = nullptr;
 
 	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-	ULOG_ERRNO_RETURN_IF(softwareVersion.length() >
-				     sizeof(cmd->generic.string) - 1,
-			     ENOBUFS);
+	ULOG_ERRNO_RETURN_IF(softwareVersion.length() > MAX_STR_LEN, ENOBUFS);
 
 	pthread_mutex_lock(&mApiMutex);
 
@@ -4143,7 +5674,6 @@ void PdrawBackend::setSoftwareVersionSetting(const std::string &softwareVersion)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -4154,411 +5684,17 @@ void PdrawBackend::setSoftwareVersionSetting(const std::string &softwareVersion)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_SET_SOFTWARE_VERSION_SETTING;
-	strncpy(cmd->generic.string,
-		softwareVersion.c_str(),
-		sizeof(cmd->generic.string));
-	cmd->generic.string[sizeof(cmd->generic.string) - 1] = '\0';
-	res = mbox_push(mMbox, cmd);
+	cmd->generic.string = strdup(softwareVersion.c_str());
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	mRetValReady = false;
 
 out:
-	free(cmd);
-	pthread_mutex_unlock(&mMutex);
-
-out2:
-	pthread_mutex_unlock(&mApiMutex);
-}
-
-
-enum pdraw_pipeline_mode PdrawBackend::getPipelineModeSetting(void)
-{
-	int res;
-	enum pdraw_pipeline_mode ret = PDRAW_PIPELINE_MODE_DECODE_ALL;
-	struct cmd_msg *cmd = nullptr;
-
-	ULOG_ERRNO_RETURN_VAL_IF(
-		!mStarted, EPROTO, PDRAW_PIPELINE_MODE_DECODE_ALL);
-
-	pthread_mutex_lock(&mApiMutex);
-
-	if (pthread_self() == mLoopThread) {
-		/* Execution is on the loop thread,
-		 * call the function directly */
-		ret = mPdraw->getPipelineModeSetting();
-		goto out2;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
-
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	if (cmd == nullptr) {
-		res = -ENOMEM;
-		ULOG_ERRNO("calloc", -res);
-		goto out;
-	}
-
-	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_GET_PIPELINE_MODE_SETTING;
-	res = mbox_push(mMbox, cmd);
-	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
-		goto out;
-	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	ret = mRetPipelineMode;
-	mRetPipelineMode = PDRAW_PIPELINE_MODE_DECODE_ALL;
-	mRetValReady = false;
-
-out:
-	free(cmd);
-	pthread_mutex_unlock(&mMutex);
-
-out2:
-	pthread_mutex_unlock(&mApiMutex);
-	return ret;
-}
-
-
-void PdrawBackend::setPipelineModeSetting(enum pdraw_pipeline_mode mode)
-{
-	int res;
-	struct cmd_msg *cmd = nullptr;
-
-	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-
-	pthread_mutex_lock(&mApiMutex);
-
-	if (pthread_self() == mLoopThread) {
-		/* Execution is on the loop thread,
-		 * call the function directly */
-		mPdraw->setPipelineModeSetting(mode);
-		goto out2;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
-
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	if (cmd == nullptr) {
-		res = -ENOMEM;
-		ULOG_ERRNO("calloc", -res);
-		goto out;
-	}
-
-	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_SET_PIPELINE_MODE_SETTING;
-	cmd->generic.uint = mode;
-	res = mbox_push(mMbox, cmd);
-	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
-		goto out;
-	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	mRetValReady = false;
-
-out:
-	free(cmd);
-	pthread_mutex_unlock(&mMutex);
-
-out2:
-	pthread_mutex_unlock(&mApiMutex);
-}
-
-
-void PdrawBackend::getDisplayScreenSettings(float *xdpi,
-					    float *ydpi,
-					    float *deviceMarginTop,
-					    float *deviceMarginBottom,
-					    float *deviceMarginLeft,
-					    float *deviceMarginRight)
-{
-	int res;
-	struct cmd_msg *cmd = nullptr;
-
-	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-
-	pthread_mutex_lock(&mApiMutex);
-
-	if (pthread_self() == mLoopThread) {
-		/* Execution is on the loop thread,
-		 * call the function directly */
-		mPdraw->getDisplayScreenSettings(xdpi,
-						 ydpi,
-						 deviceMarginTop,
-						 deviceMarginBottom,
-						 deviceMarginLeft,
-						 deviceMarginRight);
-		goto out2;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
-
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	if (cmd == nullptr) {
-		res = -ENOMEM;
-		ULOG_ERRNO("calloc", -res);
-		goto out;
-	}
-
-	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_GET_DISPLAY_SCREEN_SETTINGS;
-	res = mbox_push(mMbox, cmd);
-	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
-		goto out;
-	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	if (xdpi)
-		*xdpi = mRetFloat[0];
-	if (ydpi)
-		*ydpi = mRetFloat[1];
-	if (deviceMarginTop)
-		*deviceMarginTop = mRetFloat[2];
-	if (deviceMarginBottom)
-		*deviceMarginBottom = mRetFloat[3];
-	if (deviceMarginLeft)
-		*deviceMarginLeft = mRetFloat[4];
-	if (deviceMarginRight)
-		*deviceMarginRight = mRetFloat[5];
-	memset(mRetFloat, 0, sizeof(mRetFloat));
-	mRetValReady = false;
-
-out:
-	free(cmd);
-	pthread_mutex_unlock(&mMutex);
-
-out2:
-	pthread_mutex_unlock(&mApiMutex);
-}
-
-
-void PdrawBackend::setDisplayScreenSettings(float xdpi,
-					    float ydpi,
-					    float deviceMarginTop,
-					    float deviceMarginBottom,
-					    float deviceMarginLeft,
-					    float deviceMarginRight)
-{
-	int res;
-	struct cmd_msg *cmd = nullptr;
-
-	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-
-	pthread_mutex_lock(&mApiMutex);
-
-	if (pthread_self() == mLoopThread) {
-		/* Execution is on the loop thread,
-		 * call the function directly */
-		mPdraw->setDisplayScreenSettings(xdpi,
-						 ydpi,
-						 deviceMarginTop,
-						 deviceMarginBottom,
-						 deviceMarginLeft,
-						 deviceMarginRight);
-		goto out2;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
-
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	if (cmd == nullptr) {
-		res = -ENOMEM;
-		ULOG_ERRNO("calloc", -res);
-		goto out;
-	}
-
-	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_SET_DISPLAY_SCREEN_SETTINGS;
-	cmd->set_display_screen_settings.xdpi = xdpi;
-	cmd->set_display_screen_settings.ydpi = ydpi;
-	cmd->set_display_screen_settings.device_margin_top = deviceMarginTop;
-	cmd->set_display_screen_settings.device_margin_bottom =
-		deviceMarginBottom;
-	cmd->set_display_screen_settings.device_margin_left = deviceMarginLeft;
-	cmd->set_display_screen_settings.device_margin_right =
-		deviceMarginRight;
-	res = mbox_push(mMbox, cmd);
-	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
-		goto out;
-	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	mRetValReady = false;
-
-out:
-	free(cmd);
-	pthread_mutex_unlock(&mMutex);
-
-out2:
-	pthread_mutex_unlock(&mApiMutex);
-}
-
-
-enum pdraw_hmd_model PdrawBackend::getHmdModelSetting(void)
-{
-	int res;
-	enum pdraw_hmd_model ret = PDRAW_HMD_MODEL_UNKNOWN;
-	struct cmd_msg *cmd = nullptr;
-
-	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, ret);
-
-	pthread_mutex_lock(&mApiMutex);
-
-	if (pthread_self() == mLoopThread) {
-		/* Execution is on the loop thread,
-		 * call the function directly */
-		ret = mPdraw->getHmdModelSetting();
-		goto out2;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
-
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	if (cmd == nullptr) {
-		res = -ENOMEM;
-		ULOG_ERRNO("calloc", -res);
-		goto out;
-	}
-
-	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_GET_HMD_MODEL_SETTING;
-	res = mbox_push(mMbox, cmd);
-	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
-		goto out;
-	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	ret = mRetHmdModel;
-	mRetHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
-	mRetValReady = false;
-
-out:
-	free(cmd);
-	pthread_mutex_unlock(&mMutex);
-
-out2:
-	pthread_mutex_unlock(&mApiMutex);
-	return ret;
-}
-
-
-void PdrawBackend::setHmdModelSetting(enum pdraw_hmd_model hmdModel)
-{
-	int res;
-	struct cmd_msg *cmd = nullptr;
-
-	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-
-	pthread_mutex_lock(&mApiMutex);
-
-	if (pthread_self() == mLoopThread) {
-		/* Execution is on the loop thread,
-		 * call the function directly */
-		mPdraw->setHmdModelSetting(hmdModel);
-		goto out2;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
-
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	if (cmd == nullptr) {
-		res = -ENOMEM;
-		ULOG_ERRNO("calloc", -res);
-		goto out;
-	}
-
-	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_SET_HMD_MODEL_SETTING;
-	cmd->generic.uint = hmdModel;
-	res = mbox_push(mMbox, cmd);
-	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
-		goto out;
-	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	mRetValReady = false;
-
-out:
-	free(cmd);
-	pthread_mutex_unlock(&mMutex);
-
-out2:
-	pthread_mutex_unlock(&mApiMutex);
-}
-
-
-void PdrawBackend::setAndroidJvm(void *jvm)
-{
-	int res;
-	struct cmd_msg *cmd = nullptr;
-
-	ULOG_ERRNO_RETURN_IF(!mStarted, EPROTO);
-
-	pthread_mutex_lock(&mApiMutex);
-
-	if (pthread_self() == mLoopThread) {
-		/* Execution is on the loop thread,
-		 * call the function directly */
-		mPdraw->setAndroidJvm(jvm);
-		goto out2;
-	}
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
-
-	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
-	if (cmd == nullptr) {
-		res = -ENOMEM;
-		ULOG_ERRNO("calloc", -res);
-		goto out;
-	}
-
-	/* Send a message to the loop */
-	cmd->type = CMD_TYPE_SET_ANDROID_JVM;
-	cmd->generic.ptr = jvm;
-	res = mbox_push(mMbox, cmd);
-	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
-		goto out;
-	}
-
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	mRetValReady = false;
-
-out:
+	if (cmd && cmd->generic.string)
+		free(cmd->generic.string);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -4572,9 +5708,7 @@ int PdrawBackend::dumpPipeline(const std::string &fileName)
 	int res;
 	struct cmd_msg *cmd = nullptr;
 
-	ULOG_ERRNO_RETURN_ERR_IF(
-		fileName.length() > sizeof(cmd->dump_pipeline.file_name) - 1,
-		ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(fileName.length() > MAX_STR_LEN, ENOBUFS);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
 	pthread_mutex_lock(&mApiMutex);
@@ -4587,7 +5721,6 @@ int PdrawBackend::dumpPipeline(const std::string &fileName)
 	}
 
 	pthread_mutex_lock(&mMutex);
-	mRetValReady = false;
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -4598,25 +5731,16 @@ int PdrawBackend::dumpPipeline(const std::string &fileName)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_DUMP_PIPELINE;
-	strncpy(cmd->dump_pipeline.file_name,
-		fileName.c_str(),
-		sizeof(cmd->dump_pipeline.file_name));
-	cmd->dump_pipeline.file_name[sizeof(cmd->dump_pipeline.file_name) - 1] =
-		'\0';
-	res = mbox_push(mMbox, cmd);
+	cmd->dump_pipeline.file_name = strdup(fileName.c_str());
+	res = pushCmdAndWait(cmd);
 	if (res < 0) {
-		ULOG_ERRNO("mbox_push", -res);
+		ULOG_ERRNO("pushCmdAndWait", -res);
 		goto out;
 	}
 
-	while (!mRetValReady)
-		pthread_cond_wait(&mCond, &mMutex);
-
-	res = mRetStatus;
-	mRetStatus = 0;
-	mRetValReady = false;
-
 out:
+	if (cmd && cmd->dump_pipeline.file_name)
+		free(cmd->dump_pipeline.file_name);
 	free(cmd);
 	pthread_mutex_unlock(&mMutex);
 
@@ -4649,11 +5773,6 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 				void *elementUserData)
 {
 	bool found = false;
-
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
-
-	pthread_mutex_lock(&mMapsMutex);
 	std::map<IPdraw::IDemuxer *, struct demuxerAndListener>::iterator it1;
 	struct demuxerAndListener sl1;
 	std::map<IPdraw::IMuxer *, struct muxerAndListener>::iterator it2;
@@ -4670,6 +5789,26 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 	std::map<IPdraw::IVideoEncoder *,
 		 struct videoEncoderAndListener>::iterator it6;
 	struct videoEncoderAndListener sl6;
+	std::map<IPdraw::IVideoScaler *,
+		 struct videoScalerAndListener>::iterator it7;
+	struct videoScalerAndListener sl7;
+	std::map<IPdraw::IAlsaSource *, struct alsaSourceAndListener>::iterator
+		it8;
+	struct alsaSourceAndListener sl8;
+	std::map<IPdraw::IAudioSource *,
+		 struct audioSourceAndListener>::iterator it9;
+	struct audioSourceAndListener sl9;
+	std::map<IPdraw::IAudioEncoder *,
+		 struct audioEncoderAndListener>::iterator it10;
+	struct audioEncoderAndListener sl10;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	if (elementUserData == nullptr)
+		goto cb;
+
+	pthread_mutex_lock(&mMapsMutex);
 
 	it1 = mDemuxerListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IDemuxer *>(elementUserData));
@@ -4677,7 +5816,7 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 		sl1 = it1->second;
 		elementUserData = sl1.d;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it2 = mMuxerListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(elementUserData));
@@ -4685,7 +5824,7 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 		sl2 = it2->second;
 		elementUserData = sl2.m;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it3 = mVipcSourceListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(
@@ -4694,7 +5833,7 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 		sl3 = it3->second;
 		elementUserData = sl3.s;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it4 = mCodedVideoSourceListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(
@@ -4703,7 +5842,7 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 		sl4 = it4->second;
 		elementUserData = sl4.s;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it5 = mRawVideoSourceListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(
@@ -4712,7 +5851,7 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 		sl5 = it5->second;
 		elementUserData = sl5.s;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it6 = mVideoEncoderListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IVideoEncoder *>(
@@ -4721,7 +5860,43 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 		sl6 = it6->second;
 		elementUserData = sl6.e;
 		found = true;
-		goto cb;
+		goto cb_unlock;
+	}
+	it7 = mVideoScalerListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IVideoScaler *>(
+			elementUserData));
+	if (it7 != mVideoScalerListenersMap.end()) {
+		sl7 = it7->second;
+		elementUserData = sl7.s;
+		found = true;
+		goto cb_unlock;
+	}
+	it8 = mAlsaSourceListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IAlsaSource *>(
+			elementUserData));
+	if (it8 != mAlsaSourceListenersMap.end()) {
+		sl8 = it8->second;
+		elementUserData = sl8.s;
+		found = true;
+		goto cb_unlock;
+	}
+	it9 = mAudioSourceListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IAudioSource *>(
+			elementUserData));
+	if (it9 != mAudioSourceListenersMap.end()) {
+		sl9 = it9->second;
+		elementUserData = sl9.s;
+		found = true;
+		goto cb_unlock;
+	}
+	it10 = mAudioEncoderListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IAudioEncoder *>(
+			elementUserData));
+	if (it10 != mAudioEncoderListenersMap.end()) {
+		sl10 = it10->second;
+		elementUserData = sl10.e;
+		found = true;
+		goto cb_unlock;
 	}
 
 	if (!found) {
@@ -4729,8 +5904,9 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 		elementUserData = nullptr;
 	}
 
-cb:
+cb_unlock:
 	pthread_mutex_unlock(&mMapsMutex);
+cb:
 	mListener->onMediaAdded(this, info, elementUserData);
 }
 
@@ -4740,11 +5916,6 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 				  void *elementUserData)
 {
 	bool found = false;
-
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
-
-	pthread_mutex_lock(&mMapsMutex);
 	std::map<IPdraw::IDemuxer *, struct demuxerAndListener>::iterator it1;
 	struct demuxerAndListener sl1;
 	std::map<IPdraw::IMuxer *, struct muxerAndListener>::iterator it2;
@@ -4761,6 +5932,26 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 	std::map<IPdraw::IVideoEncoder *,
 		 struct videoEncoderAndListener>::iterator it6;
 	struct videoEncoderAndListener sl6;
+	std::map<IPdraw::IVideoScaler *,
+		 struct videoScalerAndListener>::iterator it7;
+	struct videoScalerAndListener sl7;
+	std::map<IPdraw::IAlsaSource *, struct alsaSourceAndListener>::iterator
+		it8;
+	struct alsaSourceAndListener sl8;
+	std::map<IPdraw::IAudioSource *,
+		 struct audioSourceAndListener>::iterator it9;
+	struct audioSourceAndListener sl9;
+	std::map<IPdraw::IAudioEncoder *,
+		 struct audioEncoderAndListener>::iterator it10;
+	struct audioEncoderAndListener sl10;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	if (elementUserData == nullptr)
+		goto cb;
+
+	pthread_mutex_lock(&mMapsMutex);
 
 	it1 = mDemuxerListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IDemuxer *>(elementUserData));
@@ -4768,7 +5959,7 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 		sl1 = it1->second;
 		elementUserData = sl1.d;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it2 = mMuxerListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(elementUserData));
@@ -4776,7 +5967,7 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 		sl2 = it2->second;
 		elementUserData = sl2.m;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it3 = mVipcSourceListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(
@@ -4785,7 +5976,7 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 		sl3 = it3->second;
 		elementUserData = sl3.s;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it4 = mCodedVideoSourceListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(
@@ -4794,7 +5985,7 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 		sl4 = it4->second;
 		elementUserData = sl4.s;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it5 = mRawVideoSourceListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(
@@ -4803,7 +5994,7 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 		sl5 = it5->second;
 		elementUserData = sl5.s;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 	it6 = mVideoEncoderListenersMap.find(
 		reinterpret_cast<Pdraw::IPdraw::IVideoEncoder *>(
@@ -4812,12 +6003,48 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 		sl6 = it6->second;
 		elementUserData = sl6.e;
 		found = true;
-		goto cb;
+		goto cb_unlock;
+	}
+	it7 = mVideoScalerListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IVideoScaler *>(
+			elementUserData));
+	if (it7 != mVideoScalerListenersMap.end()) {
+		sl7 = it7->second;
+		elementUserData = sl7.s;
+		found = true;
+		goto cb_unlock;
+	}
+	it8 = mAlsaSourceListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IAlsaSource *>(
+			elementUserData));
+	if (it8 != mAlsaSourceListenersMap.end()) {
+		sl8 = it8->second;
+		elementUserData = sl8.s;
+		found = true;
+		goto cb_unlock;
+	}
+	it9 = mAudioSourceListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IAudioSource *>(
+			elementUserData));
+	if (it9 != mAudioSourceListenersMap.end()) {
+		sl9 = it9->second;
+		elementUserData = sl9.s;
+		found = true;
+		goto cb_unlock;
+	}
+	it10 = mAudioEncoderListenersMap.find(
+		reinterpret_cast<Pdraw::IPdraw::IAudioEncoder *>(
+			elementUserData));
+	if (it10 != mAudioEncoderListenersMap.end()) {
+		sl10 = it10->second;
+		elementUserData = sl10.e;
+		found = true;
+		goto cb_unlock;
 	}
 	if (elementUserData == mPendingRemovedElementUserdata.internal) {
 		elementUserData = mPendingRemovedElementUserdata.external;
 		found = true;
-		goto cb;
+		goto cb_unlock;
 	}
 
 	if (!found) {
@@ -4825,8 +6052,9 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 		elementUserData = nullptr;
 	}
 
-cb:
+cb_unlock:
 	pthread_mutex_unlock(&mMapsMutex);
+cb:
 	mListener->onMediaRemoved(this, info, elementUserData);
 }
 
@@ -4937,7 +6165,8 @@ void PdrawBackend::onDemuxerUnrecoverableError(IPdraw *pdraw,
 int PdrawBackend::demuxerSelectMedia(IPdraw *pdraw,
 				     IPdraw::IDemuxer *demuxer,
 				     const struct pdraw_demuxer_media *medias,
-				     size_t count)
+				     size_t count,
+				     uint32_t selectedMedias)
 {
 	std::map<IPdraw::IDemuxer *, struct demuxerAndListener>::iterator it;
 	struct demuxerAndListener dl;
@@ -4963,7 +6192,8 @@ int PdrawBackend::demuxerSelectMedia(IPdraw *pdraw,
 		return -ENOENT;
 	}
 
-	return dl.l->demuxerSelectMedia(this, dl.d, medias, count);
+	return dl.l->demuxerSelectMedia(
+		this, dl.d, medias, count, selectedMedias);
 }
 
 
@@ -5132,10 +6362,11 @@ void PdrawBackend::demuxerSeekResponse(IPdraw *pdraw,
 }
 
 
-void PdrawBackend::onMuxerNoSpaceLeft(IPdraw *pdraw,
-				      IPdraw::IMuxer *muxer,
-				      size_t limit,
-				      size_t left)
+void PdrawBackend::onMuxerConnectionStateChanged(
+	IPdraw *pdraw,
+	IPdraw::IMuxer *muxer,
+	enum pdraw_muxer_connection_state connectionState,
+	enum pdraw_muxer_disconnection_reason disconnectionReason)
 {
 	std::map<IPdraw::IMuxer *, struct muxerAndListener>::iterator it;
 	struct muxerAndListener ml;
@@ -5161,7 +6392,72 @@ void PdrawBackend::onMuxerNoSpaceLeft(IPdraw *pdraw,
 		return;
 	}
 
-	ml.l->onMuxerNoSpaceLeft(this, ml.m, limit, left);
+	ml.l->onMuxerConnectionStateChanged(
+		this, ml.m, connectionState, disconnectionReason);
+}
+
+
+void PdrawBackend::onMuxerUnrecoverableError(IPdraw *pdraw,
+					     IPdraw::IMuxer *muxer,
+					     int status)
+{
+	std::map<IPdraw::IMuxer *, struct muxerAndListener>::iterator it;
+	struct muxerAndListener ml;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mMuxerListenersMap.find(muxer);
+	if (it == mMuxerListenersMap.end()) {
+		ml = mPendingMuxerAndListener;
+	} else {
+		ml = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (ml.l == nullptr) {
+		ULOGE("%s: failed to find the muxer listener in the map",
+		      __func__);
+		return;
+	}
+	if (ml.m == nullptr) {
+		ULOGE("%s: failed to find the muxer in the map", __func__);
+		return;
+	}
+
+	ml.l->onMuxerUnrecoverableError(this, ml.m, status);
+}
+
+
+void PdrawBackend::muxerCloseResponse(IPdraw *pdraw,
+				      IPdraw::IMuxer *muxer,
+				      int status)
+{
+	std::map<IPdraw::IMuxer *, struct muxerAndListener>::iterator it;
+	struct muxerAndListener ml;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mMuxerListenersMap.find(muxer);
+	if (it == mMuxerListenersMap.end()) {
+		ml = mPendingMuxerAndListener;
+	} else {
+		ml = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (ml.l == nullptr) {
+		ULOGE("%s: failed to find the muxer listener in the map",
+		      __func__);
+		return;
+	}
+	if (ml.m == nullptr) {
+		ULOGE("%s: failed to find the muxer in the map", __func__);
+		return;
+	}
+
+	ml.l->muxerCloseResponse(this, ml.m, status);
 }
 
 
@@ -5204,7 +6500,8 @@ void PdrawBackend::onVideoRendererMediaAdded(
 void PdrawBackend::onVideoRendererMediaRemoved(
 	Pdraw::IPdraw *pdraw,
 	Pdraw::IPdraw::IVideoRenderer *renderer,
-	const struct pdraw_media_info *info)
+	const struct pdraw_media_info *info,
+	bool restart)
 {
 	std::map<IPdraw::IVideoRenderer *,
 		 struct videoRendererAndListener>::iterator it;
@@ -5233,7 +6530,7 @@ void PdrawBackend::onVideoRendererMediaRemoved(
 		return;
 	}
 
-	rl.l->onVideoRendererMediaRemoved(this, rl.r, info);
+	rl.l->onVideoRendererMediaRemoved(this, rl.r, info, restart);
 }
 
 
@@ -5362,6 +6659,78 @@ int PdrawBackend::renderVideoOverlay(
 }
 
 
+void PdrawBackend::onAudioRendererMediaAdded(
+	Pdraw::IPdraw *pdraw,
+	Pdraw::IPdraw::IAudioRenderer *renderer,
+	const struct pdraw_media_info *info)
+{
+	std::map<IPdraw::IAudioRenderer *,
+		 struct audioRendererAndListener>::iterator it;
+	struct audioRendererAndListener rl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioRendererListenersMap.find(renderer);
+	if (it == mAudioRendererListenersMap.end()) {
+		rl = mPendingAudioRendererAndListener;
+	} else {
+		rl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (rl.l == nullptr) {
+		ULOGE("%s: failed to find the audio renderer "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (rl.r == nullptr) {
+		ULOGE("%s: failed to find the audio renderer in the map",
+		      __func__);
+		return;
+	}
+
+	rl.l->onAudioRendererMediaAdded(this, rl.r, info);
+}
+
+
+void PdrawBackend::onAudioRendererMediaRemoved(
+	Pdraw::IPdraw *pdraw,
+	Pdraw::IPdraw::IAudioRenderer *renderer,
+	const struct pdraw_media_info *info)
+{
+	std::map<IPdraw::IAudioRenderer *,
+		 struct audioRendererAndListener>::iterator it;
+	struct audioRendererAndListener rl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioRendererListenersMap.find(renderer);
+	if (it == mAudioRendererListenersMap.end()) {
+		rl = mPendingAudioRendererAndListener;
+	} else {
+		rl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (rl.l == nullptr) {
+		ULOGE("%s: failed to find the audio renderer "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (rl.r == nullptr) {
+		ULOGE("%s: failed to find the audio renderer in the map",
+		      __func__);
+		return;
+	}
+
+	rl.l->onAudioRendererMediaRemoved(this, rl.r, info);
+}
+
+
 void PdrawBackend::vipcSourceReadyToPlay(
 	IPdraw *pdraw,
 	IPdraw::IVipcSource *source,
@@ -5395,6 +6764,43 @@ void PdrawBackend::vipcSourceReadyToPlay(
 	}
 
 	sl.l->vipcSourceReadyToPlay(this, sl.s, ready, eosReason);
+}
+
+
+bool PdrawBackend::vipcSourceFramerateChanged(
+	Pdraw::IPdraw *pdraw,
+	Pdraw::IPdraw::IVipcSource *source,
+	const struct vdef_frac *prevFramerate,
+	const struct vdef_frac *newFramerate)
+{
+	std::map<IPdraw::IVipcSource *, struct vipcSourceAndListener>::iterator
+		it;
+	struct vipcSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mVipcSourceListenersMap.find(source);
+	if (it == mVipcSourceListenersMap.end())
+		sl = mPendingVipcSourceAndListener;
+	else
+		sl = it->second;
+
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video source listener in the map",
+		      __func__);
+		return false;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video source in the map",
+		      __func__);
+		return false;
+	}
+
+	return sl.l->vipcSourceFramerateChanged(
+		this, sl.s, prevFramerate, newFramerate);
 }
 
 
@@ -5465,6 +6871,41 @@ void PdrawBackend::vipcSourceFrameReady(IPdraw *pdraw,
 	}
 
 	sl.l->vipcSourceFrameReady(this, sl.s, frame);
+}
+
+
+bool PdrawBackend::vipcSourceEndOfStream(
+	IPdraw *pdraw,
+	IPdraw::IVipcSource *source,
+	enum pdraw_vipc_source_eos_reason eosReason)
+{
+	std::map<IPdraw::IVipcSource *, struct vipcSourceAndListener>::iterator
+		it;
+	struct vipcSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mVipcSourceListenersMap.find(source);
+	if (it == mVipcSourceListenersMap.end())
+		sl = mPendingVipcSourceAndListener;
+	else
+		sl = it->second;
+
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video source listener in the map",
+		      __func__);
+		return false;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video source in the map",
+		      __func__);
+		return false;
+	}
+
+	return sl.l->vipcSourceEndOfStream(this, sl.s, eosReason);
 }
 
 
@@ -5566,6 +7007,40 @@ void PdrawBackend::onCodedVideoSinkFlush(IPdraw *pdraw,
 }
 
 
+void PdrawBackend::onCodedVideoSinkSessionMetaUpdate(
+	IPdraw *pdraw,
+	IPdraw::ICodedVideoSink *sink,
+	const struct vmeta_session *meta)
+{
+	std::map<IPdraw::ICodedVideoSink *,
+		 struct codedVideoSinkAndListener>::iterator it;
+	struct codedVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mCodedVideoSinkListenersMap.find(sink);
+	if (it == mCodedVideoSinkListenersMap.end()) {
+		sl = mPendingCodedVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video sink listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onCodedVideoSinkSessionMetaUpdate(this, sl.s, meta);
+}
+
+
 void PdrawBackend::onRawVideoSinkFlush(IPdraw *pdraw,
 				       IPdraw::IRawVideoSink *sink)
 {
@@ -5598,6 +7073,174 @@ void PdrawBackend::onRawVideoSinkFlush(IPdraw *pdraw,
 }
 
 
+void PdrawBackend::onRawVideoSinkSessionMetaUpdate(
+	IPdraw *pdraw,
+	IPdraw::IRawVideoSink *sink,
+	const struct vmeta_session *meta)
+{
+	std::map<IPdraw::IRawVideoSink *,
+		 struct rawVideoSinkAndListener>::iterator it;
+	struct rawVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mRawVideoSinkListenersMap.find(sink);
+	if (it == mRawVideoSinkListenersMap.end()) {
+		sl = mPendingRawVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video sink listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onRawVideoSinkSessionMetaUpdate(this, sl.s, meta);
+}
+
+
+void PdrawBackend::alsaSourceReadyToPlay(
+	IPdraw *pdraw,
+	IPdraw::IAlsaSource *source,
+	bool ready,
+	enum pdraw_alsa_source_eos_reason eosReason)
+{
+	std::map<IPdraw::IAlsaSource *, struct alsaSourceAndListener>::iterator
+		it;
+	struct alsaSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAlsaSourceListenersMap.find(source);
+	if (it == mAlsaSourceListenersMap.end())
+		sl = mPendingAlsaSourceAndListener;
+	else
+		sl = it->second;
+
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the ALSA source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the ALSA source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->alsaSourceReadyToPlay(this, sl.s, ready, eosReason);
+}
+
+
+void PdrawBackend::alsaSourceFrameReady(IPdraw *pdraw,
+					IPdraw::IAlsaSource *source,
+					struct mbuf_audio_frame *frame)
+{
+	std::map<IPdraw::IAlsaSource *, struct alsaSourceAndListener>::iterator
+		it;
+	struct alsaSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAlsaSourceListenersMap.find(source);
+	if (it == mAlsaSourceListenersMap.end()) {
+		sl = mPendingAlsaSourceAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the ALSA source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the ALSA source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->alsaSourceFrameReady(this, sl.s, frame);
+}
+
+
+void PdrawBackend::onAudioSourceFlushed(IPdraw *pdraw,
+					IPdraw::IAudioSource *source)
+{
+	std::map<IPdraw::IAudioSource *,
+		 struct audioSourceAndListener>::iterator it;
+	struct audioSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioSourceListenersMap.find(source);
+	if (it == mAudioSourceListenersMap.end()) {
+		sl = mPendingAudioSourceAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the audio source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the audio source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->onAudioSourceFlushed(this, sl.s);
+}
+
+
+void PdrawBackend::onAudioSinkFlush(IPdraw *pdraw, IPdraw::IAudioSink *sink)
+{
+	std::map<IPdraw::IAudioSink *, struct audioSinkAndListener>::iterator
+		it;
+	struct audioSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioSinkListenersMap.find(sink);
+	if (it == mAudioSinkListenersMap.end()) {
+		sl = mPendingAudioSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the audio sink listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the audio sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onAudioSinkFlush(this, sl.s);
+}
+
+
 void PdrawBackend::videoEncoderFrameOutput(IPdraw *pdraw,
 					   IPdraw::IVideoEncoder *encoder,
 					   struct mbuf_coded_video_frame *frame)
@@ -5605,9 +7248,6 @@ void PdrawBackend::videoEncoderFrameOutput(IPdraw *pdraw,
 	std::map<IPdraw::IVideoEncoder *,
 		 struct videoEncoderAndListener>::iterator it;
 	struct videoEncoderAndListener el;
-
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
 
 	pthread_mutex_lock(&mMapsMutex);
 	it = mVideoEncoderListenersMap.find(encoder);
@@ -5642,9 +7282,6 @@ void PdrawBackend::videoEncoderFramePreRelease(
 		 struct videoEncoderAndListener>::iterator it;
 	struct videoEncoderAndListener el;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
-
 	pthread_mutex_lock(&mMapsMutex);
 	it = mVideoEncoderListenersMap.find(encoder);
 	if (it == mVideoEncoderListenersMap.end()) {
@@ -5654,7 +7291,7 @@ void PdrawBackend::videoEncoderFramePreRelease(
 	}
 	pthread_mutex_unlock(&mMapsMutex);
 	if (el.l == nullptr) {
-		ULOGE("%s: failed to find the video encoder listener "
+		ULOGD("%s: failed to find the video encoder listener "
 		      "in the map",
 		      __func__);
 		return;
@@ -5669,10 +7306,118 @@ void PdrawBackend::videoEncoderFramePreRelease(
 }
 
 
+void PdrawBackend::videoScalerFrameOutput(IPdraw *pdraw,
+					  IPdraw::IVideoScaler *scaler,
+					  struct mbuf_raw_video_frame *frame)
+{
+	std::map<IPdraw::IVideoScaler *,
+		 struct videoScalerAndListener>::iterator it;
+	struct videoScalerAndListener sl;
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mVideoScalerListenersMap.find(scaler);
+	if (it == mVideoScalerListenersMap.end()) {
+		sl = mPendingVideoScalerAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video scaler listener "
+		      "in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video scaler in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->videoScalerFrameOutput(this, sl.s, frame);
+}
+
+
+void PdrawBackend::audioEncoderFrameOutput(IPdraw *pdraw,
+					   IPdraw::IAudioEncoder *encoder,
+					   struct mbuf_audio_frame *frame)
+{
+	std::map<IPdraw::IAudioEncoder *,
+		 struct audioEncoderAndListener>::iterator it;
+	struct audioEncoderAndListener el;
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioEncoderListenersMap.find(encoder);
+	if (it == mAudioEncoderListenersMap.end()) {
+		el = mPendingAudioEncoderAndListener;
+	} else {
+		el = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (el.l == nullptr) {
+		ULOGE("%s: failed to find the audio encoder listener "
+		      "in the map",
+		      __func__);
+		return;
+	}
+	if (el.e == nullptr) {
+		ULOGE("%s: failed to find the audio encoder in the map",
+		      __func__);
+		return;
+	}
+
+	el.l->audioEncoderFrameOutput(this, el.e, frame);
+}
+
+
+void PdrawBackend::audioEncoderFramePreRelease(IPdraw *pdraw,
+					       IPdraw::IAudioEncoder *encoder,
+					       struct mbuf_audio_frame *frame)
+{
+	std::map<IPdraw::IAudioEncoder *,
+		 struct audioEncoderAndListener>::iterator it;
+	struct audioEncoderAndListener el;
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioEncoderListenersMap.find(encoder);
+	if (it == mAudioEncoderListenersMap.end()) {
+		el = mPendingAudioEncoderAndListener;
+	} else {
+		el = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (el.l == nullptr) {
+		ULOGE("%s: failed to find the audio encoder listener "
+		      "in the map",
+		      __func__);
+		return;
+	}
+	if (el.e == nullptr) {
+		ULOGE("%s: failed to find the audio encoder in the map",
+		      __func__);
+		return;
+	}
+
+	el.l->audioEncoderFramePreRelease(this, el.e, frame);
+}
+
+
 void *PdrawBackend::loopThread(void *ptr)
 {
 	PdrawBackend *self = (PdrawBackend *)ptr;
 	int res = 0, err;
+
+#if defined(__APPLE__)
+#	if !TARGET_OS_IPHONE
+	err = pthread_setname_np("pdraw_backend");
+	if (err != 0)
+		ULOG_ERRNO("pthread_setname_np", err);
+#	endif
+#else
+	err = pthread_setname_np(pthread_self(), "pdraw_backend");
+	if (err != 0)
+		ULOG_ERRNO("pthread_setname_np", err);
+#endif
 
 	pthread_mutex_lock(&self->mMutex);
 
@@ -5711,7 +7456,9 @@ void *PdrawBackend::loopThread(void *ptr)
 	pthread_cond_signal(&self->mCond);
 
 	while (!self->mThreadShouldStop) {
-		pomp_loop_wait_and_process(self->mLoop, -1);
+		err = pomp_loop_wait_and_process(self->mLoop, -1);
+		if (err < 0)
+			ULOG_ERRNO("pomp_loop_wait_and_process", -err);
 	}
 
 	goto out;
@@ -5721,7 +7468,9 @@ error:
 	self->mRetValReady = true;
 	pthread_mutex_unlock(&self->mMutex);
 	pthread_cond_signal(&self->mCond);
+
 out:
+	pthread_mutex_lock(&self->mMutex);
 	if (self->mPdraw != nullptr) {
 		delete self->mPdraw;
 		self->mPdraw = nullptr;
@@ -5743,6 +7492,7 @@ out:
 			res = err;
 		self->mLoop = nullptr;
 	}
+	pthread_mutex_unlock(&self->mMutex);
 
 	return (void *)(intptr_t)res;
 }
@@ -5786,13 +7536,16 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 				r,
 				msg->demuxer_create_single.remote_stream_port,
 				msg->demuxer_create_single.remote_control_port,
+				&msg->demuxer_create_single.params,
 				msg->demuxer_create_single.listener);
 			break;
 		}
 		case CMD_TYPE_DEMUXER_CREATE_URL: {
 			std::string u(msg->demuxer_create_url.url);
 			self->internalDemuxerCreate(
-				u, msg->demuxer_create_url.listener);
+				u,
+				&msg->demuxer_create_url.params,
+				msg->demuxer_create_url.listener);
 			break;
 		}
 		case CMD_TYPE_DEMUXER_CREATE_URL_MUX: {
@@ -5800,6 +7553,7 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 			self->internalDemuxerCreate(
 				u,
 				msg->demuxer_create_url_mux.mux,
+				&msg->demuxer_create_url_mux.params,
 				msg->demuxer_create_url_mux.listener);
 			break;
 		}
@@ -5813,6 +7567,18 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 			self->internalDemuxerClose(
 				reinterpret_cast<PdrawBackend::Demuxer *>(
 					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_DEMUXER_GET_MEDIA_LIST: {
+			self->internalDemuxerGetMediaList(
+				reinterpret_cast<PdrawBackend::Demuxer *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_DEMUXER_SELECT_MEDIA: {
+			self->internalDemuxerSelectMedia(
+				msg->demuxer_select_media.demuxer,
+				msg->demuxer_select_media.selected_medias);
 			break;
 		}
 		case CMD_TYPE_DEMUXER_GET_SINGLE_STREAM_LOCAL_STREAM_PORT: {
@@ -5869,6 +7635,13 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 				msg->demuxer_seek_to.exact);
 			break;
 		}
+		case CMD_TYPE_DEMUXER_GET_CHAPTER_LIST: {
+			self->internalDemuxerGetChapterList(
+				msg->demuxer_get_chapter_list.demuxer,
+				msg->demuxer_get_chapter_list.chapter_list,
+				msg->demuxer_get_chapter_list.chapter_count);
+			break;
+		}
 		case CMD_TYPE_DEMUXER_GET_DURATION: {
 			self->internalDemuxerGetDuration(
 				reinterpret_cast<PdrawBackend::Demuxer *>(
@@ -5894,12 +7667,18 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 					msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_MUXER_CLOSE: {
+			self->internalMuxerClose(
+				reinterpret_cast<PdrawBackend::Muxer *>(
+					msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_MUXER_ADD_MEDIA: {
 			self->internalMuxerAddMedia(
 				reinterpret_cast<PdrawBackend::Muxer *>(
 					msg->muxer_add_media.muxer),
 				msg->muxer_add_media.media_id,
-				&msg->muxer_add_media.params);
+				msg->muxer_add_media.params);
 			break;
 		}
 		case CMD_TYPE_MUXER_SET_THUMBNAIL: {
@@ -5909,6 +7688,39 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 				msg->muxer_set_thumbnail.type,
 				msg->muxer_set_thumbnail.data,
 				msg->muxer_set_thumbnail.size);
+			break;
+		}
+		case CMD_TYPE_MUXER_ADD_CHAPTER: {
+			self->internalMuxerAddChapter(
+				reinterpret_cast<PdrawBackend::Muxer *>(
+					msg->muxer_add_chapter.muxer),
+				msg->muxer_add_chapter.timestamp,
+				msg->muxer_add_chapter.name);
+			break;
+		}
+		case CMD_TYPE_MUXER_GET_STATS: {
+			self->internalMuxerGetStats(
+				reinterpret_cast<PdrawBackend::Muxer *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_MUXER_SET_DYN_PARAMS: {
+			self->internalMuxerSetDynParams(
+				reinterpret_cast<PdrawBackend::Muxer *>(
+					msg->muxer_set_dyn_params.muxer),
+				msg->muxer_set_dyn_params.dyn_params);
+			break;
+		}
+		case CMD_TYPE_MUXER_GET_DYN_PARAMS: {
+			self->internalMuxerGetDynParams(
+				reinterpret_cast<PdrawBackend::Muxer *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_MUXER_FORCE_SYNC: {
+			self->internalMuxerForceSync(
+				reinterpret_cast<PdrawBackend::Muxer *>(
+					msg->generic.ptr));
 			break;
 		}
 		case CMD_TYPE_VIPC_SOURCE_CREATE: {
@@ -5952,6 +7764,13 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 					msg->vipc_source_configure.source),
 				&msg->vipc_source_configure.resolution,
 				&msg->vipc_source_configure.crop);
+			break;
+		}
+		case CMD_TYPE_VIPC_SOURCE_INSERT_GREY_FRAME: {
+			self->internalVipcSourceInsertGreyFrame(
+				reinterpret_cast<PdrawBackend::VipcSource *>(
+					msg->generic.ptr),
+				msg->generic.uint64);
 			break;
 		}
 		case CMD_TYPE_VIPC_SOURCE_SET_SESSION_METADATA: {
@@ -6092,6 +7911,127 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 					msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_ALSA_SOURCE_CREATE: {
+			self->internalAlsaSourceCreate(
+				&msg->alsa_source_create.params,
+				msg->alsa_source_create.listener);
+			break;
+		}
+		case CMD_TYPE_ALSA_SOURCE_DESTROY: {
+			self->internalAlsaSourceDestroy(
+				reinterpret_cast<PdrawBackend::AlsaSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_ALSA_SOURCE_IS_READY_TO_PLAY: {
+			self->internalAlsaSourceIsReadyToPlay(
+				reinterpret_cast<PdrawBackend::AlsaSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_ALSA_SOURCE_IS_PAUSED: {
+			self->internalAlsaSourceIsPaused(
+				reinterpret_cast<PdrawBackend::AlsaSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_ALSA_SOURCE_PLAY: {
+			self->internalAlsaSourcePlay(
+				reinterpret_cast<PdrawBackend::AlsaSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_ALSA_SOURCE_PAUSE: {
+			self->internalAlsaSourcePause(
+				reinterpret_cast<PdrawBackend::AlsaSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_SOURCE_CREATE: {
+			self->internalAudioSourceCreate(
+				&msg->audio_source_create.params,
+				msg->audio_source_create.listener);
+			break;
+		}
+		case CMD_TYPE_AUDIO_SOURCE_DESTROY: {
+			self->internalAudioSourceDestroy(
+				reinterpret_cast<PdrawBackend::AudioSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_SOURCE_GET_QUEUE: {
+			self->internalAudioSourceGetQueue(
+				reinterpret_cast<PdrawBackend::AudioSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_SOURCE_FLUSH: {
+			self->internalAudioSourceFlush(
+				reinterpret_cast<PdrawBackend::AudioSource *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_SINK_CREATE: {
+			self->internalAudioSinkCreate(
+				msg->audio_sink_create.media_id,
+				msg->audio_sink_create.listener);
+			break;
+		}
+		case CMD_TYPE_AUDIO_SINK_DESTROY: {
+			self->internalAudioSinkDestroy(
+				reinterpret_cast<PdrawBackend::AudioSink *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_SINK_GET_QUEUE: {
+			self->internalAudioSinkGetQueue(
+				reinterpret_cast<PdrawBackend::AudioSink *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_SINK_QUEUE_FLUSHED: {
+			self->internalAudioSinkQueueFlushed(
+				reinterpret_cast<PdrawBackend::AudioSink *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_RENDERER_CREATE: {
+			self->internalAudioRendererCreate(
+				msg->audio_renderer_create.media_id,
+				&msg->audio_renderer_create.params,
+				msg->audio_renderer_create.listener);
+			break;
+		}
+		case CMD_TYPE_AUDIO_RENDERER_DESTROY: {
+			self->internalAudioRendererDestroy(
+				reinterpret_cast<PdrawBackend::AudioRenderer *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_RENDERER_SET_MEDIA_ID: {
+			self->internalAudioRendererSetMediaId(
+				msg->audio_renderer_set_media_id.renderer,
+				msg->audio_renderer_set_media_id.media_id);
+			break;
+		}
+		case CMD_TYPE_AUDIO_RENDERER_GET_MEDIA_ID: {
+			self->internalAudioRendererGetMediaId(
+				reinterpret_cast<PdrawBackend::AudioRenderer *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_RENDERER_SET_PARAMS: {
+			self->internalAudioRendererSetParams(
+				reinterpret_cast<PdrawBackend::AudioRenderer *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_RENDERER_GET_PARAMS: {
+			self->internalAudioRendererGetParams(
+				reinterpret_cast<PdrawBackend::AudioRenderer *>(
+					msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_VIDEO_ENCODER_CREATE: {
 			self->internalVideoEncoderCreate(
 				msg->video_encoder_create.media_id,
@@ -6110,6 +8050,26 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 				reinterpret_cast<PdrawBackend::VideoEncoder *>(
 					msg->video_encoder_configure.encoder),
 				&msg->video_encoder_configure.config);
+			break;
+		}
+		case CMD_TYPE_VIDEO_ENCODER_GET_CONFIG: {
+			self->internalVideoEncoderGetConfig(
+				reinterpret_cast<PdrawBackend::VideoEncoder *>(
+					msg->video_encoder_get_config.encoder),
+				&msg->video_encoder_get_config.config);
+			break;
+		}
+		case CMD_TYPE_VIDEO_SCALER_CREATE: {
+			self->internalVideoScalerCreate(
+				msg->video_scaler_create.media_id,
+				&msg->video_scaler_create.params,
+				msg->video_scaler_create.listener);
+			break;
+		}
+		case CMD_TYPE_VIDEO_SCALER_DESTROY: {
+			self->internalVideoScalerDestroy(
+				reinterpret_cast<PdrawBackend::VideoScaler *>(
+					msg->generic.ptr));
 			break;
 		}
 		case CMD_TYPE_GET_FRIENDLY_NAME_SETTING: {
@@ -6139,46 +8099,6 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 			self->internalSetSoftwareVersionSetting(str);
 			break;
 		}
-		case CMD_TYPE_GET_PIPELINE_MODE_SETTING: {
-			self->internalGetPipelineModeSetting();
-			break;
-		}
-		case CMD_TYPE_SET_PIPELINE_MODE_SETTING: {
-			self->internalSetPipelineModeSetting(
-				(enum pdraw_pipeline_mode)msg->generic.uint);
-			break;
-		}
-		case CMD_TYPE_GET_DISPLAY_SCREEN_SETTINGS: {
-			self->internalGetDisplayScreenSettings();
-			break;
-		}
-		case CMD_TYPE_SET_DISPLAY_SCREEN_SETTINGS: {
-			self->internalSetDisplayScreenSettings(
-				msg->set_display_screen_settings.xdpi,
-				msg->set_display_screen_settings.ydpi,
-				msg->set_display_screen_settings
-					.device_margin_top,
-				msg->set_display_screen_settings
-					.device_margin_bottom,
-				msg->set_display_screen_settings
-					.device_margin_left,
-				msg->set_display_screen_settings
-					.device_margin_right);
-			break;
-		}
-		case CMD_TYPE_GET_HMD_MODEL_SETTING: {
-			self->internalGetHmdModelSetting();
-			break;
-		}
-		case CMD_TYPE_SET_HMD_MODEL_SETTING: {
-			self->internalSetHmdModelSetting(
-				(enum pdraw_hmd_model)msg->generic.uint);
-			break;
-		}
-		case CMD_TYPE_SET_ANDROID_JVM: {
-			self->internalSetAndroidJvm(msg->generic.ptr);
-			break;
-		}
 		case CMD_TYPE_DUMP_PIPELINE: {
 			std::string f(msg->dump_pipeline.file_name);
 			self->internalDumpPipeline(f);
@@ -6195,6 +8115,7 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 
 
 int PdrawBackend::doCreateDemuxer(const std::string &url,
+				  const struct pdraw_demuxer_params *params,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj)
 {
@@ -6218,7 +8139,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &url,
 		.l = listener,
 	};
 
-	res = mPdraw->createDemuxer(url, this, &d);
+	res = mPdraw->createDemuxer(url, params, this, &d);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw->createDemuxer", -res);
 		delete demuxer;
@@ -6235,6 +8156,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &url,
 		ULOGW("failed to insert the demuxer listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingDemuxerAndListener = {};
 	*retObj = demuxer;
 	return 0;
 }
@@ -6246,6 +8168,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &localAddr,
 				  const std::string &remoteAddr,
 				  uint16_t remoteStreamPort,
 				  uint16_t remoteControlPort,
+				  const struct pdraw_demuxer_params *params,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj)
 {
@@ -6275,6 +8198,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &localAddr,
 				    remoteAddr,
 				    remoteStreamPort,
 				    remoteControlPort,
+				    params,
 				    this,
 				    &d);
 	if (res < 0) {
@@ -6293,6 +8217,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &localAddr,
 		ULOGW("failed to insert the demuxer listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingDemuxerAndListener = {};
 	*retObj = demuxer;
 	return 0;
 }
@@ -6300,6 +8225,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &localAddr,
 
 int PdrawBackend::doCreateDemuxer(const std::string &url,
 				  struct mux_ctx *mux,
+				  const struct pdraw_demuxer_params *params,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj)
 {
@@ -6323,7 +8249,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &url,
 		.l = listener,
 	};
 
-	res = mPdraw->createDemuxer(url, mux, this, &d);
+	res = mPdraw->createDemuxer(url, mux, params, this, &d);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw->createDemuxer", -res);
 		delete demuxer;
@@ -6340,6 +8266,7 @@ int PdrawBackend::doCreateDemuxer(const std::string &url,
 		ULOGW("failed to insert the demuxer listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingDemuxerAndListener = {};
 	*retObj = demuxer;
 	return 0;
 }
@@ -6369,7 +8296,7 @@ int PdrawBackend::doCreateMuxer(const std::string &url,
 		.l = listener,
 	};
 
-	res = mPdraw->createMuxer(url, params, listener, &m);
+	res = mPdraw->createMuxer(url, params, this, &m);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw->createMuxer", -res);
 		delete muxer;
@@ -6386,6 +8313,7 @@ int PdrawBackend::doCreateMuxer(const std::string &url,
 		ULOGW("failed to insert the muxer listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingMuxerAndListener = {};
 	*retObj = muxer;
 	return 0;
 }
@@ -6434,6 +8362,7 @@ int PdrawBackend::doCreateVipcSource(
 		ULOGW("failed to insert the VIPC source listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingVipcSourceAndListener = {};
 	*retObj = source;
 	return 0;
 }
@@ -6483,6 +8412,7 @@ int PdrawBackend::doCreateCodedVideoSource(
 		ULOGW("failed to insert the video source listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingCodedVideoSourceAndListener = {};
 	*retObj = source;
 	return 0;
 }
@@ -6532,6 +8462,7 @@ int PdrawBackend::doCreateRawVideoSource(
 		ULOGW("failed to insert the video source listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingRawVideoSourceAndListener = {};
 	*retObj = source;
 	return 0;
 }
@@ -6583,6 +8514,7 @@ int PdrawBackend::doCreateCodedVideoSink(
 		ULOGW("failed to insert the video sink listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingCodedVideoSinkAndListener = {};
 	*retObj = sink;
 	return 0;
 }
@@ -6633,7 +8565,205 @@ int PdrawBackend::doCreateRawVideoSink(
 		ULOGW("failed to insert the video sink listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingRawVideoSinkAndListener = {};
 	*retObj = sink;
+	return 0;
+}
+
+
+int PdrawBackend::doCreateAlsaSource(
+	const struct pdraw_alsa_source_params *params,
+	IPdraw::IAlsaSource::Listener *listener,
+	IPdraw::IAlsaSource **retObj)
+{
+	int res;
+	PdrawBackend::AlsaSource *source = nullptr;
+	IPdraw::IAlsaSource *s = nullptr;
+	std::pair<std::map<IPdraw::IAlsaSource *,
+			   struct alsaSourceAndListener>::iterator,
+		  bool>
+		inserted;
+
+	source = new PdrawBackend::AlsaSource(this, listener);
+	if (source == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("PdrawBackend::AlsaSource", -res);
+		return res;
+	}
+
+	mPendingAlsaSourceAndListener = {
+		.s = source,
+		.l = listener,
+	};
+
+	res = mPdraw->createAlsaSource(params, this, &s);
+	if (res < 0) {
+		ULOG_ERRNO("pdraw->createAlsaSource", -res);
+		delete source;
+		source = nullptr;
+		return res;
+	}
+	source->setAlsaSource(s);
+
+	pthread_mutex_lock(&mMapsMutex);
+	inserted = mAlsaSourceListenersMap.insert(
+		std::pair<IPdraw::IAlsaSource *, struct alsaSourceAndListener>(
+			source->getAlsaSource(),
+			mPendingAlsaSourceAndListener));
+	if (inserted.second == false)
+		ULOGW("failed to insert the ALSA source listener in the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	mPendingAlsaSourceAndListener = {};
+	*retObj = source;
+	return 0;
+}
+
+
+int PdrawBackend::doCreateAudioSource(
+	const struct pdraw_audio_source_params *params,
+	IPdraw::IAudioSource::Listener *listener,
+	IPdraw::IAudioSource **retObj)
+{
+	int res;
+	PdrawBackend::AudioSource *source = nullptr;
+	IPdraw::IAudioSource *s = nullptr;
+	std::pair<std::map<IPdraw::IAudioSource *,
+			   struct audioSourceAndListener>::iterator,
+		  bool>
+		inserted;
+
+	source = new PdrawBackend::AudioSource(this, listener);
+	if (source == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("PdrawBackend::AudioSource", -res);
+		return res;
+	}
+
+	mPendingAudioSourceAndListener = {
+		.s = source,
+		.l = listener,
+	};
+
+	res = mPdraw->createAudioSource(params, this, &s);
+	if (res < 0) {
+		ULOG_ERRNO("IPdraw::createAudioSource", -res);
+		delete source;
+		source = nullptr;
+		return res;
+	}
+	source->setAudioSource(s);
+
+	pthread_mutex_lock(&mMapsMutex);
+	inserted = mAudioSourceListenersMap.insert(
+		std::pair<IPdraw::IAudioSource *,
+			  struct audioSourceAndListener>(
+			source->getAudioSource(),
+			mPendingAudioSourceAndListener));
+	if (inserted.second == false)
+		ULOGW("failed to insert the audio source listener in the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	mPendingAudioSourceAndListener = {};
+	*retObj = source;
+	return 0;
+}
+
+
+int PdrawBackend::doCreateAudioSink(unsigned int mediaId,
+				    IPdraw::IAudioSink::Listener *listener,
+				    IPdraw::IAudioSink **retObj)
+{
+	int res;
+	PdrawBackend::AudioSink *sink = nullptr;
+	IPdraw::IAudioSink *s = nullptr;
+	std::pair<std::map<IPdraw::IAudioSink *,
+			   struct audioSinkAndListener>::iterator,
+		  bool>
+		inserted;
+
+	sink = new PdrawBackend::AudioSink(this, mediaId, listener);
+	if (sink == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("PdrawBackend::AudioSink", -res);
+		return res;
+	}
+
+	mPendingAudioSinkAndListener = {
+		.s = sink,
+		.l = listener,
+	};
+
+	res = mPdraw->createAudioSink(mediaId, this, &s);
+	if (res < 0) {
+		ULOG_ERRNO("IPdraw::createAudioSink", -res);
+		delete sink;
+		sink = nullptr;
+		return res;
+	}
+	sink->setAudioSink(s);
+
+	pthread_mutex_lock(&mMapsMutex);
+	inserted = mAudioSinkListenersMap.insert(
+		std::pair<IPdraw::IAudioSink *, struct audioSinkAndListener>(
+			sink->getAudioSink(), mPendingAudioSinkAndListener));
+	if (inserted.second == false)
+		ULOGW("failed to insert the audio sink listener in the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	mPendingAudioSinkAndListener = {};
+	*retObj = sink;
+	return 0;
+}
+
+
+int PdrawBackend::doCreateAudioRenderer(
+	unsigned int mediaId,
+	const struct pdraw_audio_renderer_params *params,
+	IPdraw::IAudioRenderer::Listener *listener,
+	IPdraw::IAudioRenderer **retObj)
+{
+	int res;
+	PdrawBackend::AudioRenderer *renderer = nullptr;
+	IPdraw::IAudioRenderer *r = nullptr;
+	std::pair<std::map<IPdraw::IAudioRenderer *,
+			   struct audioRendererAndListener>::iterator,
+		  bool>
+		inserted;
+
+	renderer = new PdrawBackend::AudioRenderer(this, listener);
+	if (renderer == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("PdrawBackend::AudioRenderer", -res);
+		return res;
+	}
+
+	mPendingAudioRendererAndListener = {
+		.r = renderer,
+		.l = listener,
+	};
+
+	res = mPdraw->createAudioRenderer(mediaId, params, this, &r);
+	if (res < 0) {
+		ULOG_ERRNO("IPdraw::createAudioRenderer", -res);
+		delete renderer;
+		renderer = nullptr;
+		return res;
+	}
+	renderer->setAudioRenderer(r);
+
+	pthread_mutex_lock(&mMapsMutex);
+	inserted = mAudioRendererListenersMap.insert(
+		std::pair<IPdraw::IAudioRenderer *,
+			  struct audioRendererAndListener>(
+			renderer->getAudioRenderer(),
+			mPendingAudioRendererAndListener));
+	if (inserted.second == false)
+		ULOGW("failed to insert the audio sink listener in the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	mPendingAudioRendererAndListener = {};
+	*retObj = renderer;
 	return 0;
 }
 
@@ -6665,7 +8795,7 @@ int PdrawBackend::doCreateVideoEncoder(
 		.l = listener,
 	};
 
-	res = mPdraw->createVideoEncoder(mediaId, params, listener, &e);
+	res = mPdraw->createVideoEncoder(mediaId, params, this, &e);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw->createVideoEncoder", -res);
 		delete encoder;
@@ -6684,6 +8814,109 @@ int PdrawBackend::doCreateVideoEncoder(
 		ULOGW("failed to insert the video encoder listener in the map");
 	pthread_mutex_unlock(&mMapsMutex);
 
+	mPendingVideoEncoderAndListener = {};
+	*retObj = encoder;
+	return 0;
+}
+
+
+int PdrawBackend::doCreateVideoScaler(unsigned int mediaId,
+				      const struct vscale_config *params,
+				      IPdraw::IVideoScaler::Listener *listener,
+				      IPdraw::IVideoScaler **retObj)
+{
+	int res;
+	PdrawBackend::VideoScaler *scaler = nullptr;
+	IPdraw::IVideoScaler *s = nullptr;
+	std::pair<std::map<IPdraw::IVideoScaler *,
+			   struct videoScalerAndListener>::iterator,
+		  bool>
+		inserted;
+
+	scaler = new PdrawBackend::VideoScaler(this, mediaId, params, listener);
+	if (scaler == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("PdrawBackend::VideoScaler", -res);
+		return res;
+	}
+
+	mPendingVideoScalerAndListener = {
+		.s = scaler,
+		.l = listener,
+	};
+
+	res = mPdraw->createVideoScaler(mediaId, params, this, &s);
+	if (res < 0) {
+		ULOG_ERRNO("pdraw->createVideoScaler", -res);
+		delete scaler;
+		scaler = nullptr;
+		return res;
+	}
+	scaler->setVideoScaler(s);
+
+	pthread_mutex_lock(&mMapsMutex);
+	inserted = mVideoScalerListenersMap.insert(
+		std::pair<IPdraw::IVideoScaler *,
+			  struct videoScalerAndListener>(
+			scaler->getVideoScaler(),
+			mPendingVideoScalerAndListener));
+	if (inserted.second == false)
+		ULOGW("failed to insert the video scaler listener in the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	mPendingVideoScalerAndListener = {};
+	*retObj = scaler;
+	return 0;
+}
+
+
+int PdrawBackend::doCreateAudioEncoder(
+	unsigned int mediaId,
+	const struct aenc_config *params,
+	IPdraw::IAudioEncoder::Listener *listener,
+	IPdraw::IAudioEncoder **retObj)
+{
+	int res;
+	PdrawBackend::AudioEncoder *encoder = nullptr;
+	IPdraw::IAudioEncoder *e = nullptr;
+	std::pair<std::map<IPdraw::IAudioEncoder *,
+			   struct audioEncoderAndListener>::iterator,
+		  bool>
+		inserted;
+
+	encoder =
+		new PdrawBackend::AudioEncoder(this, mediaId, params, listener);
+	if (encoder == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("PdrawBackend::AudioEncoder", -res);
+		return res;
+	}
+
+	mPendingAudioEncoderAndListener = {
+		.e = encoder,
+		.l = listener,
+	};
+
+	res = mPdraw->createAudioEncoder(mediaId, params, listener, &e);
+	if (res < 0) {
+		ULOG_ERRNO("pdraw->createAudioEncoder", -res);
+		delete encoder;
+		encoder = nullptr;
+		return res;
+	}
+	encoder->setAudioEncoder(e);
+
+	pthread_mutex_lock(&mMapsMutex);
+	inserted = mAudioEncoderListenersMap.insert(
+		std::pair<IPdraw::IAudioEncoder *,
+			  struct audioEncoderAndListener>(
+			encoder->getAudioEncoder(),
+			mPendingAudioEncoderAndListener));
+	if (inserted.second == false)
+		ULOGW("failed to insert the audio encoder listener in the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	mPendingAudioEncoderAndListener = {};
 	*retObj = encoder;
 	return 0;
 }
@@ -6701,13 +8934,15 @@ void PdrawBackend::internalStop()
 }
 
 
-void PdrawBackend::internalDemuxerCreate(const std::string &url,
-					 IPdraw::IDemuxer::Listener *listener)
+void PdrawBackend::internalDemuxerCreate(
+	const std::string &url,
+	const struct pdraw_demuxer_params *params,
+	IPdraw::IDemuxer::Listener *listener)
 {
 	int res;
 	IPdraw::IDemuxer *demuxer = nullptr;
 
-	res = doCreateDemuxer(url, listener, &demuxer);
+	res = doCreateDemuxer(url, params, listener, &demuxer);
 
 	mPendingDemuxerAndListener = {};
 	pthread_mutex_lock(&mMutex);
@@ -6719,13 +8954,15 @@ void PdrawBackend::internalDemuxerCreate(const std::string &url,
 }
 
 
-void PdrawBackend::internalDemuxerCreate(const std::string &localAddr,
-					 uint16_t localStreamPort,
-					 uint16_t localControlPort,
-					 const std::string &remoteAddr,
-					 uint16_t remoteStreamPort,
-					 uint16_t remoteControlPort,
-					 IPdraw::IDemuxer::Listener *listener)
+void PdrawBackend::internalDemuxerCreate(
+	const std::string &localAddr,
+	uint16_t localStreamPort,
+	uint16_t localControlPort,
+	const std::string &remoteAddr,
+	uint16_t remoteStreamPort,
+	uint16_t remoteControlPort,
+	const struct pdraw_demuxer_params *params,
+	IPdraw::IDemuxer::Listener *listener)
 {
 	int res;
 	IPdraw::IDemuxer *demuxer = nullptr;
@@ -6736,6 +8973,7 @@ void PdrawBackend::internalDemuxerCreate(const std::string &localAddr,
 			      remoteAddr,
 			      remoteStreamPort,
 			      remoteControlPort,
+			      params,
 			      listener,
 			      &demuxer);
 
@@ -6749,14 +8987,16 @@ void PdrawBackend::internalDemuxerCreate(const std::string &localAddr,
 }
 
 
-void PdrawBackend::internalDemuxerCreate(const std::string &url,
-					 struct mux_ctx *mux,
-					 IPdraw::IDemuxer::Listener *listener)
+void PdrawBackend::internalDemuxerCreate(
+	const std::string &url,
+	struct mux_ctx *mux,
+	const struct pdraw_demuxer_params *params,
+	IPdraw::IDemuxer::Listener *listener)
 {
 	int res;
 	IPdraw::IDemuxer *demuxer = nullptr;
 
-	res = doCreateDemuxer(url, mux, listener, &demuxer);
+	res = doCreateDemuxer(url, mux, params, listener, &demuxer);
 
 	mPendingDemuxerAndListener = {};
 	pthread_mutex_lock(&mMutex);
@@ -6773,14 +9013,19 @@ void PdrawBackend::internalDemuxerDestroy(PdrawBackend::Demuxer *demuxer)
 	size_t erased;
 
 	pthread_mutex_lock(&mMapsMutex);
-	auto dl = mDemuxerListenersMap.find(demuxer->getDemuxer())->second;
-	mPendingRemovedElementUserdata = {
-		.internal = demuxer->getDemuxer(),
-		.external = dl.d,
-	};
-	erased = mDemuxerListenersMap.erase(demuxer->getDemuxer());
-	if (erased != 1)
-		ULOGW("failed to erase the demuxer listener from the map");
+	auto it = mDemuxerListenersMap.find(demuxer->getDemuxer());
+	if (it != mDemuxerListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = demuxer->getDemuxer(),
+			.external = it->second.d,
+		};
+		erased = mDemuxerListenersMap.erase(demuxer->getDemuxer());
+		if (erased != 1)
+			ULOGW("failed to erase the demuxer listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the demuxer in the map");
+	}
 	pthread_mutex_unlock(&mMapsMutex);
 
 	delete demuxer->getDemuxer();
@@ -6920,6 +9165,22 @@ void PdrawBackend::internalDemuxerSeekTo(PdrawBackend::Demuxer *demuxer,
 }
 
 
+void PdrawBackend::internalDemuxerGetChapterList(
+	PdrawBackend::Demuxer *demuxer,
+	struct pdraw_chapter **chapterList,
+	size_t *chapterCount)
+{
+	int res = demuxer->getDemuxer()->getChapterList(chapterList,
+							chapterCount);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalDemuxerGetDuration(PdrawBackend::Demuxer *demuxer)
 {
 	uint64_t res = demuxer->getDemuxer()->getDuration();
@@ -6938,6 +9199,39 @@ void PdrawBackend::internalDemuxerGetCurrentTime(PdrawBackend::Demuxer *demuxer)
 
 	pthread_mutex_lock(&mMutex);
 	mRetUint64 = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalDemuxerGetMediaList(PdrawBackend::Demuxer *demuxer)
+{
+	struct pdraw_demuxer_media *media_list = nullptr;
+	size_t media_count = 0;
+	uint32_t selected_medias = 0;
+
+	int res = demuxer->getDemuxer()->getMediaList(
+		&media_list, &media_count, &selected_medias);
+
+	pthread_mutex_lock(&mMutex);
+	mRetMediaList = media_list;
+	mRetSizeT = media_count;
+	mRetUint32 = selected_medias;
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalDemuxerSelectMedia(PdrawBackend::Demuxer *demuxer,
+					      uint32_t selectedMedias)
+{
+	int res = demuxer->getDemuxer()->selectMedia(selectedMedias);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
 	mRetValReady = true;
 	pthread_mutex_unlock(&mMutex);
 	pthread_cond_signal(&mCond);
@@ -6968,14 +9262,19 @@ void PdrawBackend::internalMuxerDestroy(PdrawBackend::Muxer *muxer)
 	size_t erased;
 
 	pthread_mutex_lock(&mMapsMutex);
-	auto sl = mMuxerListenersMap.find(muxer->getMuxer())->second;
-	mPendingRemovedElementUserdata = {
-		.internal = muxer->getMuxer(),
-		.external = sl.m,
-	};
-	erased = mMuxerListenersMap.erase(muxer->getMuxer());
-	if (erased != 1)
-		ULOGW("failed to erase the muxer from the map");
+	auto it = mMuxerListenersMap.find(muxer->getMuxer());
+	if (it != mMuxerListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = muxer->getMuxer(),
+			.external = it->second.m,
+		};
+		erased = mMuxerListenersMap.erase(muxer->getMuxer());
+		if (erased != 1)
+			ULOGW("failed to erase the muxer listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the muxer in the map");
+	}
 	pthread_mutex_unlock(&mMapsMutex);
 
 	delete muxer->getMuxer();
@@ -6988,10 +9287,22 @@ void PdrawBackend::internalMuxerDestroy(PdrawBackend::Muxer *muxer)
 }
 
 
+void PdrawBackend::internalMuxerClose(PdrawBackend::Muxer *muxer)
+{
+	int res = muxer->getMuxer()->close();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalMuxerAddMedia(
 	PdrawBackend::Muxer *muxer,
 	unsigned int mediaId,
-	const struct pdraw_muxer_video_media_params *params)
+	const struct pdraw_muxer_media_params *params)
 {
 	int res = muxer->getMuxer()->addMedia(mediaId, params);
 
@@ -7010,6 +9321,75 @@ void PdrawBackend::internalMuxerSetThumbnail(
 	size_t size)
 {
 	int res = muxer->getMuxer()->setThumbnail(type, data, size);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalMuxerAddChapter(PdrawBackend::Muxer *muxer,
+					   uint64_t timestamp,
+					   const char *name)
+{
+	int res = muxer->getMuxer()->addChapter(timestamp, name);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalMuxerGetStats(PdrawBackend::Muxer *muxer)
+{
+	struct pdraw_muxer_stats stats;
+	int res = muxer->getMuxer()->getStats(&stats);
+
+	pthread_mutex_lock(&mMutex);
+	mRetMuxerStats = stats;
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalMuxerSetDynParams(
+	PdrawBackend::Muxer *muxer,
+	struct pdraw_muxer_dyn_params dyn_params)
+{
+	int res = muxer->getMuxer()->setDynParams(&dyn_params);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalMuxerGetDynParams(PdrawBackend::Muxer *muxer)
+{
+
+	struct pdraw_muxer_dyn_params dyn_params;
+	int res = muxer->getMuxer()->getDynParams(&dyn_params);
+
+	pthread_mutex_lock(&mMutex);
+	mRetMuxerDynParams = dyn_params;
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalMuxerForceSync(PdrawBackend::Muxer *muxer)
+{
+	int res = muxer->getMuxer()->forceSync();
 
 	pthread_mutex_lock(&mMutex);
 	mRetStatus = res;
@@ -7047,14 +9427,19 @@ void PdrawBackend::internalVipcSourceDestroy(PdrawBackend::VipcSource *source)
 	size_t erased;
 
 	pthread_mutex_lock(&mMapsMutex);
-	auto sl = mVipcSourceListenersMap.find(source->getVipcSource())->second;
-	mPendingRemovedElementUserdata = {
-		.internal = source->getVipcSource(),
-		.external = sl.s,
-	};
-	erased = mVipcSourceListenersMap.erase(source->getVipcSource());
-	if (erased != 1)
-		ULOGW("failed to erase the VIPC source listener from the map");
+	auto it = mVipcSourceListenersMap.find(source->getVipcSource());
+	if (it != mVipcSourceListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = source->getVipcSource(),
+			.external = it->second.s,
+		};
+		erased = mVipcSourceListenersMap.erase(source->getVipcSource());
+		if (erased != 1)
+			ULOGW("failed to erase the VIPC source listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the VIPC source in the map");
+	}
 	pthread_mutex_unlock(&mMapsMutex);
 
 	delete source->getVipcSource();
@@ -7131,6 +9516,20 @@ void PdrawBackend::internalVipcSourceConfigure(
 }
 
 
+void PdrawBackend::internalVipcSourceInsertGreyFrame(
+	PdrawBackend::VipcSource *source,
+	uint64_t tsUs)
+{
+	int res = source->getVipcSource()->insertGreyFrame(tsUs);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalVipcSourceSetSessionMetadata(
 	PdrawBackend::VipcSource *source)
 {
@@ -7195,17 +9594,21 @@ void PdrawBackend::internalCodedVideoSourceDestroy(
 	size_t erased;
 
 	pthread_mutex_lock(&mMapsMutex);
-	auto sl = mCodedVideoSourceListenersMap
-			  .find(source->getCodedVideoSource())
-			  ->second;
-	mPendingRemovedElementUserdata = {
-		.internal = source->getCodedVideoSource(),
-		.external = sl.s,
-	};
-	erased = mCodedVideoSourceListenersMap.erase(
+	auto it = mCodedVideoSourceListenersMap.find(
 		source->getCodedVideoSource());
-	if (erased != 1)
-		ULOGW("failed to erase the video source listener from the map");
+	if (it != mCodedVideoSourceListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = source->getCodedVideoSource(),
+			.external = it->second.s,
+		};
+		erased = mCodedVideoSourceListenersMap.erase(
+			source->getCodedVideoSource());
+		if (erased != 1)
+			ULOGW("failed to erase the video source listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the video source in the map");
+	}
 	pthread_mutex_unlock(&mMapsMutex);
 
 	delete source->getCodedVideoSource();
@@ -7309,15 +9712,20 @@ void PdrawBackend::internalRawVideoSourceDestroy(
 	size_t erased;
 
 	pthread_mutex_lock(&mMapsMutex);
-	auto sl = mRawVideoSourceListenersMap.find(source->getRawVideoSource())
-			  ->second;
-	mPendingRemovedElementUserdata = {
-		.internal = source->getRawVideoSource(),
-		.external = sl.s,
-	};
-	erased = mRawVideoSourceListenersMap.erase(source->getRawVideoSource());
-	if (erased != 1)
-		ULOGW("failed to erase the video source listener from the map");
+	auto it = mRawVideoSourceListenersMap.find(source->getRawVideoSource());
+	if (it != mRawVideoSourceListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = source->getRawVideoSource(),
+			.external = it->second.s,
+		};
+		erased = mRawVideoSourceListenersMap.erase(
+			source->getRawVideoSource());
+		if (erased != 1)
+			ULOGW("failed to erase the video source listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the video source in the map");
+	}
 	pthread_mutex_unlock(&mMapsMutex);
 
 	delete source->getRawVideoSource();
@@ -7540,6 +9948,348 @@ void PdrawBackend::internalRawVideoSinkQueueFlushed(
 }
 
 
+void PdrawBackend::internalAlsaSourceCreate(
+	const struct pdraw_alsa_source_params *params,
+	IPdraw::IAlsaSource::Listener *listener)
+{
+	int res;
+	IPdraw::IAlsaSource *source = nullptr;
+
+	res = doCreateAlsaSource(params, listener, &source);
+
+	mPendingAlsaSourceAndListener = {};
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetAlsaSource = source;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAlsaSourceDestroy(PdrawBackend::AlsaSource *source)
+{
+	size_t erased;
+
+	pthread_mutex_lock(&mMapsMutex);
+	auto it = mAlsaSourceListenersMap.find(source->getAlsaSource());
+	if (it != mAlsaSourceListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = source->getAlsaSource(),
+			.external = it->second.s,
+		};
+		erased = mAlsaSourceListenersMap.erase(source->getAlsaSource());
+		if (erased != 1)
+			ULOGW("failed to erase the ALSA source listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the ALSA source in the map");
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+
+	delete source->getAlsaSource();
+	source->setAlsaSource(nullptr);
+
+	pthread_mutex_lock(&mMutex);
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAlsaSourceIsReadyToPlay(
+	PdrawBackend::AlsaSource *source)
+{
+	bool res = source->getAlsaSource()->isReadyToPlay();
+
+	pthread_mutex_lock(&mMutex);
+	mRetBool = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAlsaSourceIsPaused(PdrawBackend::AlsaSource *source)
+{
+	bool res = source->getAlsaSource()->isPaused();
+
+	pthread_mutex_lock(&mMutex);
+	mRetBool = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAlsaSourcePlay(PdrawBackend::AlsaSource *source)
+{
+	int res = source->getAlsaSource()->play();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAlsaSourcePause(PdrawBackend::AlsaSource *source)
+{
+	int res = source->getAlsaSource()->pause();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSourceCreate(
+	const struct pdraw_audio_source_params *params,
+	IPdraw::IAudioSource::Listener *listener)
+{
+	int res;
+	IPdraw::IAudioSource *source = nullptr;
+
+	res = doCreateAudioSource(params, listener, &source);
+
+	mPendingAudioSourceAndListener = {};
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetAudioSource = source;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSourceDestroy(PdrawBackend::AudioSource *source)
+{
+	size_t erased;
+
+	pthread_mutex_lock(&mMapsMutex);
+	auto it = mAudioSourceListenersMap.find(source->getAudioSource());
+	if (it != mAudioSourceListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = source->getAudioSource(),
+			.external = it->second.s,
+		};
+		erased = mAudioSourceListenersMap.erase(
+			source->getAudioSource());
+		if (erased != 1)
+			ULOGW("failed to erase the audio source listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the audio source in the map");
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+
+	delete source->getAudioSource();
+	source->setAudioSource(nullptr);
+
+	pthread_mutex_lock(&mMutex);
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSourceGetQueue(
+	PdrawBackend::AudioSource *source)
+{
+	struct mbuf_audio_frame_queue *res =
+		source->getAudioSource()->getQueue();
+
+	pthread_mutex_lock(&mMutex);
+	mRetAudioQueue = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSourceFlush(PdrawBackend::AudioSource *source)
+{
+	int res = source->getAudioSource()->flush();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSinkCreate(
+	unsigned int mediaId,
+	IPdraw::IAudioSink::Listener *listener)
+{
+	int res;
+	IPdraw::IAudioSink *sink = nullptr;
+
+	res = doCreateAudioSink(mediaId, listener, &sink);
+
+	mPendingAudioSinkAndListener = {};
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetAudioSink = sink;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSinkDestroy(PdrawBackend::AudioSink *sink)
+{
+	size_t erased;
+
+	pthread_mutex_lock(&mMapsMutex);
+	erased = mAudioSinkListenersMap.erase(sink->getAudioSink());
+	if (erased != 1)
+		ULOGW("failed to erase the audio sink listener from the map");
+	pthread_mutex_unlock(&mMapsMutex);
+
+	delete sink->getAudioSink();
+	sink->setAudioSink(nullptr);
+
+	pthread_mutex_lock(&mMutex);
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSinkGetQueue(PdrawBackend::AudioSink *sink)
+{
+	struct mbuf_audio_frame_queue *res = sink->getAudioSink()->getQueue();
+
+	pthread_mutex_lock(&mMutex);
+	mRetAudioQueue = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSinkQueueFlushed(PdrawBackend::AudioSink *sink)
+{
+	int res = sink->getAudioSink()->queueFlushed();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioRendererCreate(
+	unsigned int mediaId,
+	const struct pdraw_audio_renderer_params *params,
+	IPdraw::IAudioRenderer::Listener *listener)
+{
+	int res;
+	IPdraw::IAudioRenderer *renderer = nullptr;
+
+	res = doCreateAudioRenderer(mediaId, params, listener, &renderer);
+
+	mPendingAudioRendererAndListener = {};
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetAudioRenderer = renderer;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioRendererDestroy(
+	PdrawBackend::AudioRenderer *renderer)
+{
+	size_t erased;
+
+	pthread_mutex_lock(&mMapsMutex);
+	erased = mAudioRendererListenersMap.erase(renderer->getAudioRenderer());
+	if (erased != 1) {
+		ULOGW("failed to erase the audio renderer "
+		      "listener from the map");
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+
+	delete renderer->getAudioRenderer();
+	renderer->setAudioRenderer(nullptr);
+
+	pthread_mutex_lock(&mMutex);
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioRendererSetMediaId(
+	PdrawBackend::AudioRenderer *renderer,
+	unsigned int mediaId)
+{
+	int res = renderer->getAudioRenderer()->setMediaId(mediaId);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioRendererGetMediaId(
+	PdrawBackend::AudioRenderer *renderer)
+{
+	unsigned int res = renderer->getAudioRenderer()->getMediaId();
+
+	pthread_mutex_lock(&mMutex);
+	mRetUint = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioRendererSetParams(
+	PdrawBackend::AudioRenderer *renderer)
+{
+	struct pdraw_audio_renderer_params params;
+
+	pthread_mutex_lock(&mMutex);
+	params = mParamAudioRenderer;
+	pthread_mutex_unlock(&mMutex);
+
+	int res = renderer->getAudioRenderer()->setParams(&params);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioRendererGetParams(
+	PdrawBackend::AudioRenderer *renderer)
+{
+	struct pdraw_audio_renderer_params params;
+
+	int res = renderer->getAudioRenderer()->getParams(&params);
+
+	pthread_mutex_lock(&mMutex);
+	mParamAudioRenderer = params;
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalVideoEncoderCreate(
 	unsigned int mediaId,
 	const struct venc_config *params,
@@ -7566,15 +10316,20 @@ void PdrawBackend::internalVideoEncoderDestroy(
 	size_t erased;
 
 	pthread_mutex_lock(&mMapsMutex);
-	auto el = mVideoEncoderListenersMap.find(encoder->getVideoEncoder())
-			  ->second;
-	mPendingRemovedElementUserdata = {
-		.internal = encoder->getVideoEncoder(),
-		.external = el.e,
-	};
-	erased = mVideoEncoderListenersMap.erase(encoder->getVideoEncoder());
-	if (erased != 1)
-		ULOGW("failed to erase the video encoder from the map");
+	auto it = mVideoEncoderListenersMap.find(encoder->getVideoEncoder());
+	if (it != mVideoEncoderListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = encoder->getVideoEncoder(),
+			.external = it->second.e,
+		};
+		erased = mVideoEncoderListenersMap.erase(
+			encoder->getVideoEncoder());
+		if (erased != 1)
+			ULOGW("failed to erase the video encoder listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the video encoder in the map");
+	}
 	pthread_mutex_unlock(&mMapsMutex);
 
 	delete encoder->getVideoEncoder();
@@ -7601,13 +10356,131 @@ void PdrawBackend::internalVideoEncoderConfigure(
 }
 
 
+void PdrawBackend::internalVideoEncoderGetConfig(
+	PdrawBackend::VideoEncoder *encoder,
+	struct venc_dyn_config *config)
+{
+	int res = encoder->getVideoEncoder()->getConfig(config);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	mRetConfig = *config;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalVideoScalerCreate(
+	unsigned int mediaId,
+	const struct vscale_config *params,
+	IPdraw::IVideoScaler::Listener *listener)
+{
+	int res;
+	IPdraw::IVideoScaler *scaler = nullptr;
+
+	res = doCreateVideoScaler(mediaId, params, listener, &scaler);
+
+	mPendingVideoScalerAndListener = {};
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetVideoScaler = scaler;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalVideoScalerDestroy(PdrawBackend::VideoScaler *scaler)
+{
+	size_t erased;
+
+	pthread_mutex_lock(&mMapsMutex);
+	auto it = mVideoScalerListenersMap.find(scaler->getVideoScaler());
+	if (it != mVideoScalerListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = scaler->getVideoScaler(),
+			.external = it->second.s,
+		};
+		erased = mVideoScalerListenersMap.erase(
+			scaler->getVideoScaler());
+		if (erased != 1)
+			ULOGW("failed to erase the video scaler listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the video scaler in the map");
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+
+	delete scaler->getVideoScaler();
+	scaler->setVideoScaler(nullptr);
+
+	pthread_mutex_lock(&mMutex);
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioEncoderCreate(
+	unsigned int mediaId,
+	const struct aenc_config *params,
+	IPdraw::IAudioEncoder::Listener *listener)
+{
+	int res;
+	IPdraw::IAudioEncoder *encoder = nullptr;
+
+	res = doCreateAudioEncoder(mediaId, params, listener, &encoder);
+
+	mPendingAudioEncoderAndListener = {};
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetAudioEncoder = encoder;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioEncoderDestroy(
+	PdrawBackend::AudioEncoder *encoder)
+{
+	size_t erased;
+
+	pthread_mutex_lock(&mMapsMutex);
+	auto it = mAudioEncoderListenersMap.find(encoder->getAudioEncoder());
+	if (it != mAudioEncoderListenersMap.end()) {
+		mPendingRemovedElementUserdata = {
+			.internal = encoder->getAudioEncoder(),
+			.external = it->second.e,
+		};
+		erased = mAudioEncoderListenersMap.erase(
+			encoder->getAudioEncoder());
+		if (erased != 1)
+			ULOGW("failed to erase the audio encoder listener "
+			      "from the map");
+	} else {
+		ULOGE("failed to find the audio encoder in the map");
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+
+	delete encoder->getAudioEncoder();
+	encoder->setAudioEncoder(nullptr);
+
+	pthread_mutex_lock(&mMutex);
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalGetFriendlyNameSetting(void)
 {
 	std::string friendlyName;
 	mPdraw->getFriendlyNameSetting(&friendlyName);
 
 	pthread_mutex_lock(&mMutex);
-	mRetString = friendlyName;
+	mRetString = std::move(friendlyName);
 	mRetValReady = true;
 	pthread_mutex_unlock(&mMutex);
 	pthread_cond_signal(&mCond);
@@ -7632,7 +10505,7 @@ void PdrawBackend::internalGetSerialNumberSetting(void)
 	mPdraw->getSerialNumberSetting(&serialNumber);
 
 	pthread_mutex_lock(&mMutex);
-	mRetString = serialNumber;
+	mRetString = std::move(serialNumber);
 	mRetValReady = true;
 	pthread_mutex_unlock(&mMutex);
 	pthread_cond_signal(&mCond);
@@ -7657,7 +10530,7 @@ void PdrawBackend::internalGetSoftwareVersionSetting(void)
 	mPdraw->getSoftwareVersionSetting(&softwareVersion);
 
 	pthread_mutex_lock(&mMutex);
-	mRetString = softwareVersion;
+	mRetString = std::move(softwareVersion);
 	mRetValReady = true;
 	pthread_mutex_unlock(&mMutex);
 	pthread_cond_signal(&mCond);
@@ -7668,109 +10541,6 @@ void PdrawBackend::internalSetSoftwareVersionSetting(
 	const std::string &softwareVersion)
 {
 	mPdraw->setSoftwareVersionSetting(softwareVersion);
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = true;
-	pthread_mutex_unlock(&mMutex);
-	pthread_cond_signal(&mCond);
-}
-
-
-void PdrawBackend::internalGetPipelineModeSetting(void)
-{
-	enum pdraw_pipeline_mode res = mPdraw->getPipelineModeSetting();
-
-	pthread_mutex_lock(&mMutex);
-	mRetPipelineMode = res;
-	mRetValReady = true;
-	pthread_mutex_unlock(&mMutex);
-	pthread_cond_signal(&mCond);
-}
-
-
-void PdrawBackend::internalSetPipelineModeSetting(enum pdraw_pipeline_mode mode)
-{
-	mPdraw->setPipelineModeSetting(mode);
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = true;
-	pthread_mutex_unlock(&mMutex);
-	pthread_cond_signal(&mCond);
-}
-
-
-void PdrawBackend::internalGetDisplayScreenSettings(void)
-{
-	float xdpi = 0.f, ydpi = 0.f;
-	float deviceMarginTop = 0.f, deviceMarginBottom = 0.f;
-	float deviceMarginLeft = 0.f, deviceMarginRight = 0.f;
-	mPdraw->getDisplayScreenSettings(&xdpi,
-					 &ydpi,
-					 &deviceMarginTop,
-					 &deviceMarginBottom,
-					 &deviceMarginLeft,
-					 &deviceMarginRight);
-
-	pthread_mutex_lock(&mMutex);
-	mRetFloat[0] = xdpi;
-	mRetFloat[1] = ydpi;
-	mRetFloat[2] = deviceMarginTop;
-	mRetFloat[3] = deviceMarginBottom;
-	mRetFloat[4] = deviceMarginLeft;
-	mRetFloat[5] = deviceMarginRight;
-	mRetValReady = true;
-	pthread_mutex_unlock(&mMutex);
-	pthread_cond_signal(&mCond);
-}
-
-
-void PdrawBackend::internalSetDisplayScreenSettings(float xdpi,
-						    float ydpi,
-						    float deviceMarginTop,
-						    float deviceMarginBottom,
-						    float deviceMarginLeft,
-						    float deviceMarginRight)
-{
-	mPdraw->setDisplayScreenSettings(xdpi,
-					 ydpi,
-					 deviceMarginTop,
-					 deviceMarginBottom,
-					 deviceMarginLeft,
-					 deviceMarginRight);
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = true;
-	pthread_mutex_unlock(&mMutex);
-	pthread_cond_signal(&mCond);
-}
-
-
-void PdrawBackend::internalGetHmdModelSetting(void)
-{
-	enum pdraw_hmd_model res = mPdraw->getHmdModelSetting();
-
-	pthread_mutex_lock(&mMutex);
-	mRetHmdModel = res;
-	mRetValReady = true;
-	pthread_mutex_unlock(&mMutex);
-	pthread_cond_signal(&mCond);
-}
-
-
-void PdrawBackend::internalSetHmdModelSetting(enum pdraw_hmd_model hmdModel)
-{
-	mPdraw->setHmdModelSetting(hmdModel);
-
-	pthread_mutex_lock(&mMutex);
-	mRetValReady = true;
-	pthread_mutex_unlock(&mMutex);
-	pthread_cond_signal(&mCond);
-}
-
-
-void PdrawBackend::internalSetAndroidJvm(void *jvm)
-{
-	mPdraw->setAndroidJvm(jvm);
 
 	pthread_mutex_lock(&mMutex);
 	mRetValReady = true;

@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
- * OpenGL ES 2.0 common header
+ * Parrot Drones Audio and Video Vector library
+ * OpenGL common header
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,32 +28,30 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_GLES2_COMMON_HPP_
-#define _PDRAW_GLES2_COMMON_HPP_
+#ifndef _PDRAW_GL_COMMON_HPP_
+#define _PDRAW_GL_COMMON_HPP_
 
-#ifdef USE_GLES2
+#ifdef PDRAW_USE_GL
 
 #	if defined(__APPLE__)
 #		include <TargetConditionals.h>
 #		if TARGET_OS_IPHONE
 #			include <OpenGLES/ES2/gl.h>
 #			include <OpenGLES/ES2/glext.h>
-#		elif defined(USE_GLFW3)
-#			include <GLFW/glfw3.h>
+#		else
+#			define GL_GLEXT_PROTOTYPES
 #			include <OpenGL/OpenGL.h>
+#			include <OpenGL/gl.h>
 #			include <OpenGL/glext.h>
 #		endif
 #	elif defined(_WIN32)
 #		include <epoxy/gl.h>
-#	elif defined(USE_GLFW3)
-#		define GLFW_INCLUDE_ES2
-#		include <GLFW/glfw3.h>
 #	else
 #		include <GLES2/gl2.h>
 #	endif
 
 /* Uncomment to enable extra GL error checking */
-//#	define CHECK_GL_ERRORS
+// #	define CHECK_GL_ERRORS
 #	if defined(CHECK_GL_ERRORS)
 #		warning CHECK_GL_ERRORS is enabled
 #		include <assert.h>
@@ -74,6 +72,6 @@
 #		define GLCHK(X) X
 #	endif /* CHECK_GL_ERRORS */
 
-#endif /* USE_GLES2 */
+#endif /* PDRAW_USE_GL */
 
-#endif /* !_PDRAW_GLES2_COMMON_HPP_ */
+#endif /* !_PDRAW_GL_COMMON_HPP_ */

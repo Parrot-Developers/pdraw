@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW widget
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -124,8 +124,10 @@ signals:
 	 * Media removed signal, called when a media has been removed internally
 	 * from the renderer. Medias are raw video medias.
 	 * @param info: information on the media
+	 * @param restart: true if a new media should follow shortly
+	 *                 (reconfiguration, resolution change...)
 	 */
-	void mediaRemoved(const struct pdraw_media_info info);
+	void mediaRemoved(const struct pdraw_media_info info, bool restart);
 
 	/**
 	 * External texture loading signal. This signal is emitted before the
@@ -157,12 +159,10 @@ signals:
 	/**
 	 * Overlay rendering signal. This signal is emitted after the rendering
 	 * of the video frame in order to render an application overlay on top
-	 * of the video. When HMD distorsion correction is enabled in the
-	 * renderer, it is applied after the overlay rendering. This signal is
-	 * emitted from the rendering thread. If no implementation of this
-	 * function is required by the application, the retVal value must be set
-	 * to -ENOSYS (before checking input values, so that implementation can
-	 * be tested with all arguments null).
+	 * of the video. This signal is emitted from the rendering thread. If no
+	 * implementation of this function is required by the application, the
+	 * retVal value must be set to -ENOSYS (before checking input values, so
+	 * that implementation can be tested with all arguments null).
 	 * @param renderPos: rendering position
 	 * @param contentPos: video content position
 	 * @param viewMat: 4x4 view matrix

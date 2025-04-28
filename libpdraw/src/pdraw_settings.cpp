@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * User settings
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -42,15 +42,6 @@ Settings::Settings(void)
 	int res;
 	pthread_mutexattr_t attr;
 	bool attr_created = false;
-
-	mPipelineMode = PDRAW_PIPELINE_MODE_DECODE_ALL;
-	mDisplayXdpi = SETTINGS_DISPLAY_XDPI;
-	mDisplayYdpi = SETTINGS_DISPLAY_YDPI;
-	mDisplayDeviceMarginTop = SETTINGS_DISPLAY_DEVICE_MARGIN;
-	mDisplayDeviceMarginBottom = SETTINGS_DISPLAY_DEVICE_MARGIN;
-	mDisplayDeviceMarginLeft = SETTINGS_DISPLAY_DEVICE_MARGIN;
-	mDisplayDeviceMarginRight = SETTINGS_DISPLAY_DEVICE_MARGIN;
-	mHmdModel = PDRAW_HMD_MODEL_UNKNOWN;
 
 	res = pthread_mutexattr_init(&attr);
 	if (res != 0) {
@@ -151,82 +142,6 @@ void Settings::setSoftwareVersion(const std::string &softwareVersion)
 {
 	pthread_mutex_lock(&mMutex);
 	mSoftwareVersion = softwareVersion;
-	pthread_mutex_unlock(&mMutex);
-}
-
-
-enum pdraw_pipeline_mode Settings::getPipelineMode(void)
-{
-	pthread_mutex_lock(&mMutex);
-	enum pdraw_pipeline_mode ret = mPipelineMode;
-	pthread_mutex_unlock(&mMutex);
-	return ret;
-}
-
-
-void Settings::setPipelineMode(enum pdraw_pipeline_mode mode)
-{
-	pthread_mutex_lock(&mMutex);
-	mPipelineMode = mode;
-	pthread_mutex_unlock(&mMutex);
-}
-
-
-void Settings::getDisplayScreenSettings(float *xdpi,
-					float *ydpi,
-					float *deviceMarginTop,
-					float *deviceMarginBottom,
-					float *deviceMarginLeft,
-					float *deviceMarginRight)
-{
-	pthread_mutex_lock(&mMutex);
-	if (xdpi)
-		*xdpi = mDisplayXdpi;
-	if (ydpi)
-		*ydpi = mDisplayYdpi;
-	if (deviceMarginTop)
-		*deviceMarginTop = mDisplayDeviceMarginTop;
-	if (deviceMarginTop)
-		*deviceMarginBottom = mDisplayDeviceMarginBottom;
-	if (deviceMarginTop)
-		*deviceMarginLeft = mDisplayDeviceMarginLeft;
-	if (deviceMarginTop)
-		*deviceMarginRight = mDisplayDeviceMarginRight;
-	pthread_mutex_unlock(&mMutex);
-}
-
-
-void Settings::setDisplayScreenSettings(float xdpi,
-					float ydpi,
-					float deviceMarginTop,
-					float deviceMarginBottom,
-					float deviceMarginLeft,
-					float deviceMarginRight)
-{
-	pthread_mutex_lock(&mMutex);
-	mDisplayXdpi = xdpi;
-	mDisplayYdpi = ydpi;
-	mDisplayDeviceMarginTop = deviceMarginTop;
-	mDisplayDeviceMarginBottom = deviceMarginBottom;
-	mDisplayDeviceMarginLeft = deviceMarginLeft;
-	mDisplayDeviceMarginRight = deviceMarginRight;
-	pthread_mutex_unlock(&mMutex);
-}
-
-
-enum pdraw_hmd_model Settings::getHmdModelSetting(void)
-{
-	pthread_mutex_lock(&mMutex);
-	enum pdraw_hmd_model ret = mHmdModel;
-	pthread_mutex_unlock(&mMutex);
-	return ret;
-}
-
-
-void Settings::setHmdModelSetting(enum pdraw_hmd_model hmdModel)
-{
-	pthread_mutex_lock(&mMutex);
-	mHmdModel = hmdModel;
 	pthread_mutex_unlock(&mMutex);
 }
 

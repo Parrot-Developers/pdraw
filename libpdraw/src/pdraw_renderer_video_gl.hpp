@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
- * OpenGL ES 2.0 video renderer
+ * Parrot Drones Audio and Video Vector library
+ * OpenGL video renderer
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -28,57 +28,56 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_VIDEO_GLES2_HPP_
-#define _PDRAW_RENDERER_VIDEO_GLES2_HPP_
+#ifndef _PDRAW_RENDERER_VIDEO_GL_HPP_
+#define _PDRAW_RENDERER_VIDEO_GL_HPP_
 
-#ifdef USE_GLES2
+#ifdef PDRAW_USE_GL
 
-#	include "pdraw_gles2_hmd.hpp"
-#	include "pdraw_gles2_video.hpp"
+#	include "pdraw_gl_video.hpp"
 #	include "pdraw_renderer_video.hpp"
 #	include <atomic>
 
 namespace Pdraw {
 
-class Gles2VideoRenderer : public VideoRenderer {
+class GlVideoRenderer : public VideoRenderer {
 public:
-	Gles2VideoRenderer(Session *session,
-			   Element::Listener *listener,
-			   IPdraw::IVideoRenderer *renderer,
-			   IPdraw::IVideoRenderer::Listener *rndListener,
-			   unsigned int mediaId,
-			   const struct pdraw_rect *renderPos,
-			   const struct pdraw_video_renderer_params *params,
-			   struct egl_display *eglDisplay);
+	GlVideoRenderer(Session *session,
+			Element::Listener *listener,
+			VideoRendererWrapper *wrapper,
+			IPdraw::IVideoRenderer::Listener *rndListener,
+			unsigned int mediaId,
+			const struct pdraw_rect *renderPos,
+			const struct pdraw_video_renderer_params *params);
 
-	~Gles2VideoRenderer(void);
+	~GlVideoRenderer(void);
 
-	int start(void);
+	int start(void) override;
 
-	int stop(void);
+	int stop(void) override;
 
 	int render(struct pdraw_rect *contentPos,
 		   const float *viewMat = nullptr,
-		   const float *projMat = nullptr);
+		   const float *projMat = nullptr) override;
 
-	int resize(const struct pdraw_rect *renderPos);
+	int resize(const struct pdraw_rect *renderPos) override;
 
-	int setMediaId(unsigned int mediaId);
+	int setMediaId(unsigned int mediaId) override;
 
-	unsigned int getMediaId(void);
+	unsigned int getMediaId(void) override;
 
-	int setParams(const struct pdraw_video_renderer_params *params);
+	int setParams(const struct pdraw_video_renderer_params *params,
+		      bool force) override;
 
 
-	int getParams(struct pdraw_video_renderer_params *params);
+	int getParams(struct pdraw_video_renderer_params *params) override;
 
-	int addInputMedia(Media *media);
+	int addInputMedia(Media *media) override;
 
-	int removeInputMedia(Media *media);
+	int removeInputMedia(Media *media) override;
 
-	int removeInputMedias(void);
+	int removeInputMedias(void) override;
 
-	void completeStop(void);
+	void completeStop(void) override;
 
 protected:
 	enum Transition {
@@ -91,35 +90,33 @@ protected:
 	};
 
 	virtual int setup(const struct pdraw_rect *renderPos,
-			  const struct pdraw_video_renderer_params *params,
-			  struct egl_display *eglDisplay);
-
-	int startHmd(void);
-
-	int stopHmd(void);
+			  const struct pdraw_video_renderer_params *params);
 
 	int startExtLoad(void);
 
 	int stopExtLoad(void);
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlush(Channel *channel) override;
 
-	void onChannelSos(Channel *channel);
+	void onChannelSos(Channel *channel) override;
 
-	void onChannelEos(Channel *channel);
+	void onChannelEos(Channel *channel) override;
 
-	void onChannelReconfigure(Channel *channel);
+	void onChannelReconfigure(Channel *channel) override;
 
-	void onChannelTimeout(Channel *channel);
+	void onChannelResolutionChange(Channel *channel) override;
 
-	void onChannelPhotoTrigger(Channel *channel);
+	void onChannelFramerateChange(Channel *channel) override;
+
+	void onChannelTimeout(Channel *channel) override;
+
+	void onChannelPhotoTrigger(Channel *channel) override;
 
 	int doTransition(uint64_t timestamp, bool frameReady, bool *loadFrame);
 
 	void abortTransition(void);
 
-	virtual int loadVideoFrame(struct mbuf_raw_video_frame *mbufFrame,
-				   RawVideoMedia::Frame *frame);
+	virtual int loadVideoFrame(struct mbuf_raw_video_frame *frame);
 
 	void createProjMatrix(Eigen::Matrix4f &projMat,
 			      float aspectRatio,
@@ -130,8 +127,7 @@ protected:
 				  vmeta_frame *meta);
 
 	virtual int
-	loadExternalVideoFrame(struct mbuf_raw_video_frame *mbufFrame,
-			       RawVideoMedia::Frame *frame,
+	loadExternalVideoFrame(struct mbuf_raw_video_frame *frame,
 			       const struct pdraw_media_info *mediaInfo);
 
 	virtual int renderVideoFrame(const struct pdraw_rect *renderPos,
@@ -153,26 +149,20 @@ protected:
 
 	int removeQueueFdFromPomp(struct mbuf_raw_video_frame_queue *queue);
 
-	unsigned int mMediaId;
-	unsigned int mCurrentMediaId;
-	bool mRunning;
+	unsigned int mTargetPrimaryMediaId;
+	unsigned int mPrimaryMediaId;
+	std::atomic_bool mRunning;
 	struct mbuf_raw_video_frame *mCurrentFrame;
 	RawVideoMedia::Frame mCurrentFrameData;
 	struct vdef_raw_frame mCurrentFrameInfo;
 	struct vmeta_frame *mCurrentFrameMetadata;
-	RawVideoMedia *mLastAddedMedia;
+	RawVideoMedia *mPrimaryMedia;
 	struct pdraw_media_info mMediaInfo;
 	struct vmeta_session mMediaInfoSessionMeta;
 	struct pomp_timer *mTimer;
-	Gles2Hmd *mGles2Hmd;
-	unsigned int mGles2HmdFirstTexUnit;
-	Gles2Video *mGles2Video;
-	unsigned int mGles2VideoFirstTexUnit;
+	GlVideo *mGlVideo;
+	unsigned int mGlVideoFirstTexUnit;
 	GLint mDefaultFbo;
-	unsigned int mHmdFboSize;
-	GLuint mHmdFbo;
-	GLuint mHmdFboTexture;
-	GLuint mHmdFboRenderBuffer;
 	GLuint mExtLoadFbo;
 	GLuint mExtLoadFboTexture;
 	int mX;
@@ -190,13 +180,18 @@ protected:
 	bool mRenderVideoOverlay;
 	bool mFirstFrame;
 	bool mFrameLoaded;
+	uint64_t mLastLoadTimestamp;
 	uint64_t mLastRenderTimestamp;
+	float mAvgRenderRate;
 	uint64_t mLastFrameTimestamp;
 	VideoPresStats mVideoPresStats;
 	struct pomp_timer *mVideoPresStatsTimer;
 	uint64_t mSchedLastInputTimestamp;
 	uint64_t mSchedLastOutputTimestamp;
+	bool mSchedInitialBuffering;
 	bool mRenderReadyScheduled;
+	bool mPendingRestart;
+	std::string mAncillaryKey;
 
 	/* Logging-related variables */
 	/* previous mFrameLoaded value logged */
@@ -205,10 +200,14 @@ protected:
 	 * amount of time */
 	struct pomp_timer *mWatchdogTimer;
 	std::atomic_bool mWatchdogTriggered;
+	std::atomic_bool mEos;
+	bool mPendingResize;
+	bool mMbStatusOverlay;
 
 private:
-	int setupExtTexture(const struct vdef_raw_frame *frameInfo,
-			    const RawVideoMedia::Frame *frame);
+	int setupExtTexture(const struct vdef_raw_frame *frameInfo);
+
+	void setNormalization(void);
 
 	static bool queueFilter(struct mbuf_raw_video_frame *frame,
 				void *userdata);
@@ -216,12 +215,15 @@ private:
 	static uint64_t getFrameU64(struct mbuf_raw_video_frame *frame,
 				    const char *key);
 
-	struct mbuf_raw_video_frame_queue *getLastAddedMediaQueue(void);
+	unsigned int getPrimaryMediaFrameIntervalMs(void);
+
+	struct mbuf_raw_video_frame_queue *getPrimaryMediaQueue(void);
 
 	int getNextFrameDelay(mbuf_raw_video_frame_queue *queue,
 			      uint64_t curTime,
 			      bool allowDrop,
 			      bool *shouldBreak,
+			      bool *processAnyway,
 			      uint64_t *delayUs,
 			      int64_t *compensationUs,
 			      int64_t *timingErrorUs,
@@ -234,10 +236,12 @@ private:
 	static void idleRenewMedia(void *userdata);
 
 	static void idleStart(void *renderer);
+
+	void onChannelSessionMetaUpdate(Channel *channel) override;
 };
 
 } /* namespace Pdraw */
 
-#endif /* USE_GLES2 */
+#endif /* PDRAW_USE_GL */
 
-#endif /* !_PDRAW_RENDERER_VIDEO_GLES2_HPP_ */
+#endif /* !_PDRAW_RENDERER_VIDEO_GL_HPP_ */

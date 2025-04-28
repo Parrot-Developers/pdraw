@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Utilities
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -43,7 +43,112 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 extern "C" {
 const char *PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME = "pdraw.video.frame";
+const char *PDRAW_ANCILLARY_DATA_KEY_AUDIOFRAME = "pdraw.audio.frame";
+const char *PDRAW_VIDEO_RENDERER_DBG_FLAGS = "PDRAW_VIDEO_RENDERER_DBG_FLAGS";
 }
+
+
+static const std::map<enum pdraw_demuxer_autodecoding_mode, const char *>
+	pdraw_demuxer_autodecoding_mode_map{
+		{PDRAW_DEMUXER_AUTODECODING_MODE_DECODE_ALL, "DECODE_ALL"},
+		{PDRAW_DEMUXER_AUTODECODING_MODE_DECODE_NONE, "DECODE_NONE"},
+	};
+
+
+static const std::map<enum pdraw_playback_type, const char *>
+	pdraw_playback_type_map{
+		{PDRAW_PLAYBACK_TYPE_UNKNOWN, "UNKNOWN"},
+		{PDRAW_PLAYBACK_TYPE_LIVE, "LIVE"},
+		{PDRAW_PLAYBACK_TYPE_REPLAY, "REPLAY"},
+	};
+
+
+static const std::map<enum pdraw_media_type, const char *> pdraw_media_type_map{
+	{PDRAW_MEDIA_TYPE_UNKNOWN, "UNKNOWN"},
+	{PDRAW_MEDIA_TYPE_VIDEO, "VIDEO"},
+	{PDRAW_MEDIA_TYPE_AUDIO, "AUDIO"},
+};
+
+
+static const std::map<enum pdraw_muxer_connection_state, const char *>
+	pdraw_muxer_connection_state_map{
+		{PDRAW_MUXER_CONNECTION_STATE_UNKNOWN, "UNKNOWN"},
+		{PDRAW_MUXER_CONNECTION_STATE_DISCONNECTED, "DISCONNECTED"},
+		{PDRAW_MUXER_CONNECTION_STATE_CONNECTING, "CONNECTING"},
+		{PDRAW_MUXER_CONNECTION_STATE_CONNECTED, "CONNECTED"},
+	};
+
+
+static const std::map<enum pdraw_muxer_disconnection_reason, const char *>
+	pdraw_muxer_disconnection_reason_map{
+		{PDRAW_MUXER_DISCONNECTION_REASON_UNKNOWN, "UNKNOWN"},
+		{PDRAW_MUXER_DISCONNECTION_REASON_CLIENT_REQUEST,
+		 "CLIENT_REQUEST"},
+		{PDRAW_MUXER_DISCONNECTION_REASON_SERVER_REQUEST,
+		 "SERVER_REQUEST"},
+		{PDRAW_MUXER_DISCONNECTION_REASON_NETWORK_ERROR,
+		 "NETWORK_ERROR"},
+		{PDRAW_MUXER_DISCONNECTION_REASON_REFUSED, "REFUSED"},
+		{PDRAW_MUXER_DISCONNECTION_REASON_ALREADY_IN_USE,
+		 "ALREADY_IN_USE"},
+		{PDRAW_MUXER_DISCONNECTION_REASON_TIMEOUT, "TIMEOUT"},
+		{PDRAW_MUXER_DISCONNECTION_REASON_INTERNAL_ERROR,
+		 "INTERNAL_ERROR"},
+	};
+
+
+static const std::map<enum pdraw_video_type, const char *> pdraw_video_type_map{
+	{PDRAW_VIDEO_TYPE_DEFAULT_CAMERA, "DEFAULT_CAMERA"},
+};
+
+
+static const std::map<enum pdraw_histogram_channel, const char *>
+	pdraw_histogram_channel_map{
+		{PDRAW_HISTOGRAM_CHANNEL_RED, "RED"},
+		{PDRAW_HISTOGRAM_CHANNEL_GREEN, "GREEN"},
+		{PDRAW_HISTOGRAM_CHANNEL_BLUE, "BLUE"},
+		{PDRAW_HISTOGRAM_CHANNEL_LUMA, "LUMA"},
+	};
+
+static const std::map<enum pdraw_video_renderer_scheduling_mode, const char *>
+	pdraw_video_renderer_scheduling_mode_map{
+		{PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP, "ASAP"},
+		{PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP_SIGNAL_ONCE,
+		 "ASAP_SIGNAL_ONCE"},
+		{PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE, "ADAPTIVE"},
+	};
+
+
+static const std::map<enum pdraw_video_renderer_fill_mode, const char *>
+	pdraw_video_renderer_fill_mode_map{
+		{PDRAW_VIDEO_RENDERER_FILL_MODE_FIT, "FIT"},
+		{PDRAW_VIDEO_RENDERER_FILL_MODE_CROP, "CROP"},
+		{PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_CROP,
+		 "FIT_PAD_BLUR_CROP"},
+		{PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND,
+		 "FIT_PAD_BLUR_EXTEND"},
+	};
+
+static const std::map<enum pdraw_video_renderer_transition_flag, const char *>
+	pdraw_video_renderer_transition_flag_map{
+		{PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_SOS, "SOS"},
+		{PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_EOS, "EOS"},
+		{PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_RECONFIGURE,
+		 "RECONFIGURE"},
+		{PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_TIMEOUT, "TIMEOUT"},
+		{PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_PHOTO_TRIGGER,
+		 "PHOTO_TRIGGER"},
+	};
+
+
+static const std::map<enum pdraw_vipc_source_eos_reason, const char *>
+	pdraw_vipc_source_eos_reason_map{
+		{PDRAW_VIPC_SOURCE_EOS_REASON_NONE, "NONE"},
+		{PDRAW_VIPC_SOURCE_EOS_REASON_RESTART, "RESTART"},
+		{PDRAW_VIPC_SOURCE_EOS_REASON_CONFIGURATION, "CONFIGURATION"},
+		{PDRAW_VIPC_SOURCE_EOS_REASON_TIMEOUT, "TIMEOUT"},
+	};
+
 
 /* Approximation without the Simphson integration;
  * see http://dev.theomader.com/gaussian-kernel-calculator/ */
@@ -117,151 +222,287 @@ void pdraw_friendlyTimeFromUs(uint64_t time,
 }
 
 
-const char *pdraw_hmdModelStr(enum pdraw_hmd_model val)
+const char *
+pdraw_demuxerAutodecodingModeStr(enum pdraw_demuxer_autodecoding_mode val)
 {
-	switch (val) {
-	default:
-	case PDRAW_HMD_MODEL_COCKPITGLASSES:
-		return "COCKPITGLASSES";
-	case PDRAW_HMD_MODEL_COCKPITGLASSES_2:
-		return "COCKPITGLASSES_2";
-	}
+	auto search = pdraw_demuxer_autodecoding_mode_map.find(val);
+
+	if (search != pdraw_demuxer_autodecoding_mode_map.end())
+		return search->second;
+
+	ULOGW("invalid demuxer autodecoding mode: %d", val);
+	return "INVALID";
 }
 
 
-const char *pdraw_pipelineModeStr(enum pdraw_pipeline_mode val)
+enum pdraw_demuxer_autodecoding_mode
+pdraw_demuxerAutodecodingModeFromStr(const char *val)
 {
-	switch (val) {
-	default:
-	case PDRAW_PIPELINE_MODE_DECODE_ALL:
-		return "DECODE_ALL";
-	case PDRAW_PIPELINE_MODE_DECODE_NONE:
-		return "DECODE_NONE";
+	enum pdraw_demuxer_autodecoding_mode ret =
+		pdraw_demuxer_autodecoding_mode_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_demuxer_autodecoding_mode_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
 const char *pdraw_playbackTypeStr(enum pdraw_playback_type val)
 {
-	switch (val) {
-	default:
-	case PDRAW_PLAYBACK_TYPE_UNKNOWN:
-		return "UNKNOWN";
-	case PDRAW_PLAYBACK_TYPE_LIVE:
-		return "LIVE";
-	case PDRAW_PLAYBACK_TYPE_REPLAY:
-		return "REPLAY";
+	auto search = pdraw_playback_type_map.find(val);
+
+	if (search != pdraw_playback_type_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_playback_type: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_playback_type pdraw_playbackTypeFromStr(const char *val)
+{
+	enum pdraw_playback_type ret = pdraw_playback_type_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_playback_type_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
 const char *pdraw_mediaTypeStr(enum pdraw_media_type val)
 {
-	switch (val) {
-	default:
-	case PDRAW_MEDIA_TYPE_UNKNOWN:
-		return "UNKNOWN";
-	case PDRAW_MEDIA_TYPE_VIDEO:
-		return "VIDEO";
+	auto search = pdraw_media_type_map.find(val);
+
+	if (search != pdraw_media_type_map.end())
+		return search->second;
+
+
+	ULOGW("invalid pdraw_media_type: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_media_type pdraw_mediaTypeFromStr(const char *val)
+{
+	enum pdraw_media_type ret = pdraw_media_type_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_media_type_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
+}
+
+
+const char *pdraw_muxerConnectionStateStr(enum pdraw_muxer_connection_state val)
+{
+	auto search = pdraw_muxer_connection_state_map.find(val);
+
+	if (search != pdraw_muxer_connection_state_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_muxer_connection_state: %d", val);
+	return "INVALID";
+}
+
+
+const char *
+pdraw_muxerDisconnectionReasonStr(enum pdraw_muxer_disconnection_reason val)
+{
+	auto search = pdraw_muxer_disconnection_reason_map.find(val);
+
+	if (search != pdraw_muxer_disconnection_reason_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_muxer_disconnection_reason: %d", val);
+	return "INVALID";
 }
 
 
 const char *pdraw_videoTypeStr(enum pdraw_video_type val)
 {
-	switch (val) {
-	default:
-	case PDRAW_VIDEO_TYPE_DEFAULT_CAMERA:
-		return "DEFAULT_CAMERA";
+	auto search = pdraw_video_type_map.find(val);
+
+	if (search != pdraw_video_type_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_video_type: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_video_type pdraw_videoTypeFromStr(const char *val)
+{
+	enum pdraw_video_type ret = pdraw_video_type_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_video_type_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
 const char *pdraw_histogramChannelStr(enum pdraw_histogram_channel val)
 {
-	switch (val) {
-	default:
-		return "UNKNOWN";
-	case PDRAW_HISTOGRAM_CHANNEL_RED:
-		return "RED";
-	case PDRAW_HISTOGRAM_CHANNEL_GREEN:
-		return "GREEN";
-	case PDRAW_HISTOGRAM_CHANNEL_BLUE:
-		return "BLUE";
-	case PDRAW_HISTOGRAM_CHANNEL_LUMA:
-		return "LUMA";
+	auto search = pdraw_histogram_channel_map.find(val);
+
+	if (search != pdraw_histogram_channel_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_histogram_channel: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_histogram_channel pdraw_histogramChannelFromStr(const char *val)
+{
+	enum pdraw_histogram_channel ret =
+		pdraw_histogram_channel_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_histogram_channel_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
 const char *pdraw_videoRendererSchedulingModeStr(
 	enum pdraw_video_renderer_scheduling_mode val)
 {
-	switch (val) {
-	case PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP:
-		return "ASAP";
-	case PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE:
-		return "ADAPTIVE";
-	case PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_MAX:
-	default:
-		return "UNKNOWN";
+	auto search = pdraw_video_renderer_scheduling_mode_map.find(val);
+
+	if (search != pdraw_video_renderer_scheduling_mode_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_video_renderer_scheduling_mode: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_video_renderer_scheduling_mode
+pdraw_videoRendererSchedulingModeFromStr(const char *val)
+{
+	enum pdraw_video_renderer_scheduling_mode ret =
+		pdraw_video_renderer_scheduling_mode_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_video_renderer_scheduling_mode_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
 const char *
 pdraw_videoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val)
 {
-	switch (val) {
-	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT:
-		return "FIT";
-	case PDRAW_VIDEO_RENDERER_FILL_MODE_CROP:
-		return "CROP";
-	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_CROP:
-		return "FIT_PAD_BLUR_CROP";
-	case PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND:
-		return "FIT_PAD_BLUR_EXTEND";
-	case PDRAW_VIDEO_RENDERER_FILL_MODE_MAX:
-	default:
-		return "UNKNOWN";
+	auto search = pdraw_video_renderer_fill_mode_map.find(val);
+
+	if (search != pdraw_video_renderer_fill_mode_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_video_renderer_fill_mode: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_video_renderer_fill_mode
+pdraw_videoRendererFillModeFromStr(const char *val)
+{
+	enum pdraw_video_renderer_fill_mode ret =
+		pdraw_video_renderer_fill_mode_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_video_renderer_fill_mode_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
 const char *pdraw_videoRendererTransitionFlagStr(
 	enum pdraw_video_renderer_transition_flag val)
 {
-	switch (val) {
-	default:
-		return "NONE";
-	case PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_SOS:
-		return "SOS";
-	case PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_EOS:
-		return "EOS";
-	case PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_RECONFIGURE:
-		return "RECONFIGURE";
-	case PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_TIMEOUT:
-		return "TIMEOUT";
-	case PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_PHOTO_TRIGGER:
-		return "PHOTO_TRIGGER";
+	auto search = pdraw_video_renderer_transition_flag_map.find(val);
+
+	if (search != pdraw_video_renderer_transition_flag_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_video_renderer_transition_flag: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_video_renderer_transition_flag
+pdraw_videoRendererTransitionFlagFromStr(const char *val)
+{
+	enum pdraw_video_renderer_transition_flag ret =
+		pdraw_video_renderer_transition_flag_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_video_renderer_transition_flag_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
 const char *pdraw_vipcSourceEosReasonStr(enum pdraw_vipc_source_eos_reason val)
 {
-	switch (val) {
-	case PDRAW_VIPC_SOURCE_EOS_REASON_NONE:
-		return "NONE";
-	case PDRAW_VIPC_SOURCE_EOS_REASON_RESTART:
-		return "RESTART";
-	case PDRAW_VIPC_SOURCE_EOS_REASON_CONFIGURATION:
-		return "CONFIGURATION";
-	case PDRAW_VIPC_SOURCE_EOS_REASON_TIMEOUT:
-		return "TIMEOUT";
-	default:
-		return "UNKNOWN";
+	auto search = pdraw_vipc_source_eos_reason_map.find(val);
+
+	if (search != pdraw_vipc_source_eos_reason_map.end())
+		return search->second;
+
+	ULOGW("invalid pdraw_vipc_source_eos_reason: %d", val);
+	return "INVALID";
+}
+
+
+enum pdraw_vipc_source_eos_reason
+pdraw_vipcSourceEosReasonFromStr(const char *val)
+{
+	enum pdraw_vipc_source_eos_reason ret =
+		pdraw_vipc_source_eos_reason_map.begin()->first;
+
+	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
+
+	for (auto i : pdraw_vipc_source_eos_reason_map) {
+		if (strcmp(i.second, val) == 0)
+			return i.first;
 	}
+	ULOGW("invalid input: %s", val);
+	return ret;
 }
 
 
@@ -609,29 +850,53 @@ out:
 }
 
 
+uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_audio_frame *frame,
+					 const char *key)
+{
+	int res;
+	struct mbuf_ancillary_data *data;
+	uint64_t ts = 0;
+	const void *raw_data;
+	size_t len;
+
+	res = mbuf_audio_frame_get_ancillary_data(frame, key, &data);
+	if (res < 0)
+		return 0;
+
+	raw_data = mbuf_ancillary_data_get_buffer(data, &len);
+	if (!raw_data || len != sizeof(ts))
+		goto out;
+	memcpy(&ts, raw_data, sizeof(ts));
+
+out:
+	mbuf_ancillary_data_unref(data);
+	return ts;
+}
+
+
 struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src)
 {
 	struct pdraw_media_info *dst;
 
-	ULOG_ERRNO_RETURN_VAL_IF(src == NULL, EINVAL, NULL);
+	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
 
 	dst = (pdraw_media_info *)malloc(sizeof(*src));
-	if (dst == NULL) {
+	if (dst == nullptr) {
 		ULOG_ERRNO("calloc", ENOMEM);
-		return NULL;
+		return nullptr;
 	}
 	*dst = *src;
 
-	dst->name = NULL;
-	dst->path = NULL;
+	dst->name = nullptr;
+	dst->path = nullptr;
 
 	dst->name = strdup(src->name);
-	if (dst->name == NULL) {
+	if (dst->name == nullptr) {
 		ULOG_ERRNO("strdup", ENOMEM);
 		goto failure;
 	}
 	dst->path = strdup(src->path);
-	if (dst->path == NULL) {
+	if (dst->path == nullptr) {
 		ULOG_ERRNO("strdup", ENOMEM);
 		goto failure;
 	}
@@ -642,13 +907,13 @@ failure:
 	free((void *)dst->name);
 	free((void *)dst->path);
 	free(dst);
-	return NULL;
+	return nullptr;
 }
 
 
 void pdraw_mediaInfoFree(struct pdraw_media_info *media_info)
 {
-	if (media_info == NULL)
+	if (media_info == nullptr)
 		return;
 
 	free((void *)media_info->name);

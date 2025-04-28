@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline source to sink channel for raw video
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -42,8 +42,9 @@ namespace Pdraw {
 
 RawVideoChannel::RawVideoChannel(Sink *owner,
 				 SinkListener *sinkListener,
-				 RawVideoSinkListener *rawVideoSinkListener) :
-		Channel(owner, sinkListener),
+				 RawVideoSinkListener *rawVideoSinkListener,
+				 struct pomp_loop *loop) :
+		Channel(owner, sinkListener, loop),
 		mRawVideoSinkListener(rawVideoSinkListener),
 		mRawVideoMediaFormatCaps(nullptr),
 		mRawVideoMediaFormatCapsCount(0), mQueue(nullptr)
@@ -52,7 +53,7 @@ RawVideoChannel::RawVideoChannel(Sink *owner,
 
 
 int RawVideoChannel::getRawVideoMediaFormatCaps(
-	const struct vdef_raw_format **caps)
+	const struct vdef_raw_format **caps) const
 {
 	if (caps == nullptr)
 		return -EINVAL;
@@ -62,7 +63,7 @@ int RawVideoChannel::getRawVideoMediaFormatCaps(
 
 
 void RawVideoChannel::setRawVideoMediaFormatCaps(
-	Sink *owner,
+	const Sink *owner,
 	const struct vdef_raw_format *caps,
 	int count)
 {
@@ -76,7 +77,8 @@ void RawVideoChannel::setRawVideoMediaFormatCaps(
 }
 
 
-struct mbuf_raw_video_frame_queue *RawVideoChannel::getQueue(Sink *owner)
+struct mbuf_raw_video_frame_queue *
+RawVideoChannel::getQueue(const Sink *owner) const
 {
 	if (owner != mOwner) {
 		ULOGE("RawVideoChannel::getQueue: wrong owner");
@@ -86,7 +88,7 @@ struct mbuf_raw_video_frame_queue *RawVideoChannel::getQueue(Sink *owner)
 }
 
 
-void RawVideoChannel::setQueue(Sink *owner,
+void RawVideoChannel::setQueue(const Sink *owner,
 			       struct mbuf_raw_video_frame_queue *queue)
 {
 	if (owner != mOwner) {

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Streaming demuxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -55,8 +55,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-#define DEMUXER_STREAM_TIMER_INTERVAL_MS 50
-#define DEMUXER_STREAM_FRAME_TIMEOUT_US 2000000
+#define DEMUXER_STREAM_FRAME_TIMEOUT_MS 2000
 
 #define DEMUXER_STREAM_GOODBYE_REASON_USER "user disconnection"
 #define DEMUXER_STREAM_GOODBYE_REASON_RECONFIGURE "configuration change"
@@ -74,6 +73,7 @@ const struct rtsp_client_cbs StreamDemuxer::mRtspClientCbs = {
 	.pause_resp = &StreamDemuxer::onRtspPauseResp,
 	.teardown_resp = &StreamDemuxer::onRtspTeardownResp,
 	.announce = &StreamDemuxer::onRtspAnnounce,
+	.teardown = &StreamDemuxer::onRtspForcedTeardown,
 };
 
 
@@ -116,15 +116,18 @@ const struct h264_ctx_cbs StreamDemuxer::VideoMedia::mH264Cbs = {
 StreamDemuxer::StreamDemuxer(Session *session,
 			     Element::Listener *elementListener,
 			     Source::Listener *sourceListener,
-			     IPdraw::IDemuxer *demuxer,
-			     IPdraw::IDemuxer::Listener *demuxerListener) :
+			     DemuxerWrapper *wrapper,
+			     IPdraw::IDemuxer::Listener *demuxerListener,
+			     const struct pdraw_demuxer_params *params) :
 		Demuxer(session,
 			elementListener,
 			sourceListener,
-			demuxer,
-			demuxerListener),
-		mContentBase(nullptr), mSessionProtocol(NONE),
-		mSetupRequestsCount(0), mSessionMetaFromSdp({}),
+			wrapper,
+			demuxerListener,
+			params),
+		mServerPort(0), mContentBase(nullptr), mSessionProtocol(NONE),
+		mSetupRequestsCount(0), mTeardownRequestsCount(0),
+		mSdpSession(nullptr), mSessionMetaFromSdp({}),
 		mChannelsReadyForStop(false), mNetworkReadyForStop(false),
 		mRtspState(DISCONNECTED), mRtspClient(nullptr),
 		mRtspSessionId(nullptr), mRunning(false), mFlushing(false),
@@ -145,6 +148,11 @@ StreamDemuxer::~StreamDemuxer(void)
 	if (mState != STOPPED && mState != CREATED)
 		PDRAW_LOGW("demuxer is still running");
 
+	if (mSdpSession != nullptr)
+		sdp_session_destroy(mSdpSession);
+
+	cleanupRtspRequests();
+
 	destroyAllVideoMedias();
 
 	if (mRtspClient != nullptr) {
@@ -153,6 +161,7 @@ StreamDemuxer::~StreamDemuxer(void)
 			PDRAW_LOG_ERRNO("rtsp_client_destroy", -ret);
 	}
 
+	/* Remove any leftover idle callbacks */
 	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
@@ -210,7 +219,51 @@ void StreamDemuxer::sessionMetadataFromSdp(const struct sdp_session *session,
 }
 
 
-int StreamDemuxer::processSetupRequests(void)
+int StreamDemuxer::processRtspRequests(void)
+{
+	int res;
+
+	if (!mSetupRequests.empty()) {
+		res = processSetupRequest();
+		if (res < 0) {
+			if (res != -EBUSY)
+				onUnrecoverableError(res);
+			return res;
+		}
+	}
+
+	if (!mTeardownRequests.empty() && (mSetupRequestsCount == 0)) {
+		res = processTeardownRequest();
+		if (res < 0) {
+			if (res != -EBUSY)
+				onUnrecoverableError(res);
+			return res;
+		}
+	}
+
+	return 0;
+}
+
+
+void StreamDemuxer::cleanupRtspRequests(void)
+{
+	while (!mSetupRequests.empty()) {
+		SetupRequest req = mSetupRequests.front();
+		mSetupRequests.pop();
+		mSetupRequestsCount--;
+		free(req.controlUrl);
+	}
+
+	while (!mTeardownRequests.empty()) {
+		TeardownRequest req = mTeardownRequests.front();
+		mTeardownRequests.pop();
+		mTeardownRequestsCount--;
+		free(req.controlUrl);
+	}
+}
+
+
+int StreamDemuxer::processSetupRequest(void)
 {
 	int res;
 
@@ -222,7 +275,7 @@ int StreamDemuxer::processSetupRequests(void)
 			 * not yet in the queue) */
 			return -EBUSY;
 		} else {
-			/* All setup requests have benn processed; nothing
+			/* All setup requests have been processed; nothing
 			 * more to do */
 			return 0;
 		}
@@ -263,13 +316,82 @@ int StreamDemuxer::processSetupRequests(void)
 }
 
 
+int StreamDemuxer::processTeardownRequest(void)
+{
+	int res;
+
+	if (mTeardownRequests.empty()) {
+		if (mTeardownRequestsCount > 0) {
+			/* Returning -EBUSY here to notify that there are still
+			 * teardown requests in progress (for example
+			 * asynchronous requests from the StreamDemuxerMux
+			 * subclass that are not yet in the queue) */
+			return -EBUSY;
+		} else {
+			/* All teardown requests have been processed; nothing
+			 * more to do */
+			return 0;
+		}
+	}
+
+	/* Process the next teardown request */
+	TeardownRequest req = mTeardownRequests.front();
+
+	res = rtsp_client_teardown(mRtspClient,
+				   req.controlUrl,
+				   mRtspSessionId,
+				   nullptr,
+				   0,
+				   req.media,
+				   RTSP_CLIENT_DEFAULT_RESP_TIMEOUT_MS);
+	if (res == -EBUSY) {
+		/* Another teardown request is already in progress, the current
+		 * teardown request will be processed later (i.e. chained in the
+		 * teardown response callback function) */
+		return 0;
+	} else if (res < 0) {
+		PDRAW_LOG_ERRNO("rtsp_client_teardown", -res);
+	} else {
+		/* Success: returning -EBUSY here to notify that there are
+		 * still teardown requests in progress */
+		res = -EBUSY;
+	}
+
+	mTeardownRequests.pop();
+	mTeardownRequestsCount--;
+	free(req.controlUrl);
+	return res;
+}
+
+
+void StreamDemuxer::teardownVideoMedia(StreamDemuxer::VideoMedia *media)
+{
+	PDRAW_LOG_ERRNO_RETURN_IF(media == nullptr, EINVAL);
+
+	if (media->isTearingDown())
+		return;
+
+	media->sendDownstreamEvent(Channel::DownstreamEvent::EOS);
+	media->setTearingDown();
+	media->flush(true);
+	asyncCompleteTeardown();
+}
+
+
+void StreamDemuxer::teardownAllVideoMedias(void)
+{
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
+		teardownVideoMedia((*p));
+	}
+}
+
+
 void StreamDemuxer::destroyAllVideoMedias(void)
 {
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++)
 		delete *p;
-		p++;
-	}
 	mVideoMedias.clear();
 }
 
@@ -286,48 +408,46 @@ void StreamDemuxer::onRtspConnectionState(struct rtsp_client *client,
 					  enum rtsp_client_conn_state state,
 					  void *userdata)
 {
+	int err = 0;
 	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
-	int res = 0;
 
 	PDRAW_LOGI("RTSP client %s", rtsp_client_conn_state_str(state));
 
 	switch (state) {
 	case RTSP_CLIENT_CONN_STATE_DISCONNECTED:
-		self->mRtspState = DISCONNECTED;
-		PDRAW_LOGD("RTSP state change to %s",
-			   getRtspStateStr(self->mRtspState));
-		/* TODO? pomp_timer_clear(self->mFrameTimer); */
+		self->setRtspState(DISCONNECTED);
+		for (auto p = self->mVideoMedias.begin();
+		     p != self->mVideoMedias.end();
+		     p++) {
+			if ((*p)->isTearingDown())
+				continue;
+			(*p)->resetFrameTimer(false);
+		}
 		self->mRunning = false;
 		self->mNetworkReadyForStop = true;
 
-		/* If channels are also ready, set the state to stopped */
-		if (self->mChannelsReadyForStop) {
-			self->mChannelsReadyForStop = false;
-			self->mNetworkReadyForStop = false;
-			self->closeResponse(0);
-			self->setStateAsyncNotify(STOPPED);
-		}
+		if (self->mState == STOPPING)
+			self->tryCompleteStop();
 		break;
 	case RTSP_CLIENT_CONN_STATE_CONNECTED:
 		/* If previous RTSP state is not DISCONNECTED, do not
 		 * send OPTIONS request */
 		if (self->mRtspState != DISCONNECTED)
 			break;
-		self->mRtspState = CONNECTED;
-		PDRAW_LOGD("RTSP state change to %s",
-			   getRtspStateStr(self->mRtspState));
+		self->setRtspState(CONNECTED);
 
-		res = rtsp_client_options(self->mRtspClient,
+		err = rtsp_client_options(self->mRtspClient,
 					  nullptr,
 					  0,
 					  nullptr,
 					  RTSP_CLIENT_DEFAULT_RESP_TIMEOUT_MS);
-		if (res < 0) {
-			PDRAW_LOG_ERRNO("rtsp_client_options", -res);
-		}
+		if (err < 0)
+			PDRAW_LOG_ERRNO("rtsp_client_options", -err);
 		break;
 	case RTSP_CLIENT_CONN_STATE_CONNECTING:
 	case RTSP_CLIENT_CONN_STATE_DISCONNECTING:
+		if (self->mState == STOPPING)
+			self->asyncRtspDisconnect();
 		break;
 	default:
 		PDRAW_LOGW("unhandled RTSP connection state: (%d: %s)",
@@ -364,26 +484,14 @@ void StreamDemuxer::onRtspSessionRemoved(struct rtsp_client *client,
 		 session_id ? session_id : "",
 		 self->mRtspPath.c_str());
 
-	auto p = self->mVideoMedias.begin();
-	while (p != self->mVideoMedias.end()) {
-		(*p)->sendDownstreamEvent(Channel::DownstreamEvent::EOS);
-		p++;
-	}
+	self->teardownAllVideoMedias();
 
+	if (self->mRtspState != DISCONNECTED)
+		self->setRtspState(OPTIONS_DONE);
 
 	if (self->mState == STOPPING) {
-		/* If we are stopping, continue with rtsp disconnection */
-		self->mRtspState = OPTIONS_DONE;
-		PDRAW_LOGD("RTSP state change to %s",
-			   getRtspStateStr(self->mRtspState));
-
-		int res = pomp_loop_idle_add_with_cookie(
-			self->mSession->getLoop(),
-			&idleRtspDisconnect,
-			self,
-			self);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -res);
+		if (self->mRtspState != DISCONNECTED)
+			self->asyncRtspDisconnect();
 	} else {
 		/* We used to call stop() here; this is no longer the case
 		 * because now a demuxer must not stop itself; we call
@@ -455,9 +563,7 @@ void StreamDemuxer::onRtspOptionsResp(struct rtsp_client *client,
 		 strerror(-res),
 		 self->mRtspPath.c_str());
 
-	self->mRtspState = OPTIONS_DONE;
-	PDRAW_LOGD("RTSP state change to %s",
-		   getRtspStateStr(self->mRtspState));
+	self->setRtspState(OPTIONS_DONE);
 
 	res = rtsp_client_describe(self->mRtspClient,
 				   self->mRtspPath.c_str(),
@@ -549,7 +655,7 @@ void StreamDemuxer::onRtspSetupResp(struct rtsp_client *client,
 				    void *req_userdata)
 {
 	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
-	VideoMedia *media = (VideoMedia *)req_userdata;
+	VideoMedia *media = reinterpret_cast<VideoMedia *>(req_userdata);
 	int res = 0;
 	const char *proxy_session = nullptr;
 
@@ -653,21 +759,24 @@ void StreamDemuxer::onRtspSetupResp(struct rtsp_client *client,
 		return;
 	}
 
-	res = self->processSetupRequests();
+	self->setRtspState(SETUP_DONE);
+
+	if (!self->mCalledOpenResp)
+		self->openResponse(0);
+
+	self->readyToPlay(true);
+
+	if (self->mRunning) {
+		/* Play newly setup medias */
+		self->internalPlay(self->mSpeed);
+	}
+
+	res = self->processRtspRequests();
 	if (res < 0) {
 		if (res != -EBUSY)
 			self->onUnrecoverableError(res);
 		return;
 	}
-
-	self->mRtspState = SETUP_DONE;
-	PDRAW_LOGD("RTSP state change to %s",
-		   getRtspStateStr(self->mRtspState));
-
-	/* If the setup is a success, we always need to be in STARTED state */
-	self->setState(STARTED);
-	self->openResponse(0);
-	self->readyToPlay(true);
 }
 
 
@@ -822,6 +931,13 @@ void StreamDemuxer::onRtspPlayResp(struct rtsp_client *client,
 			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -res);
 		self->mSeeking = false;
 	}
+
+	res = self->processRtspRequests();
+	if (res < 0) {
+		if (res != -EBUSY)
+			self->onUnrecoverableError(res);
+		return;
+	}
 }
 
 
@@ -923,6 +1039,13 @@ void StreamDemuxer::onRtspPauseResp(struct rtsp_client *client,
 
 	self->mPausePoint = start;
 	self->pauseResponse(0, self->mPausePoint);
+
+	res = self->processRtspRequests();
+	if (res < 0) {
+		if (res != -EBUSY)
+			self->onUnrecoverableError(res);
+		return;
+	}
 }
 
 
@@ -936,6 +1059,7 @@ void StreamDemuxer::onRtspTeardownResp(struct rtsp_client *client,
 				       void *req_userdata)
 {
 	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	VideoMedia *media = reinterpret_cast<VideoMedia *>(req_userdata);
 	int res = 0;
 	const char *proxy_session = nullptr;
 
@@ -947,6 +1071,12 @@ void StreamDemuxer::onRtspTeardownResp(struct rtsp_client *client,
 		}
 	}
 
+	if (std::find(self->mVideoMedias.begin(),
+		      self->mVideoMedias.end(),
+		      media) == self->mVideoMedias.end()) {
+		/* Media not found */
+		media = nullptr;
+	}
 
 	switch (req_status) {
 	case RTSP_CLIENT_REQ_STATUS_OK:
@@ -993,7 +1123,7 @@ void StreamDemuxer::onRtspTeardownResp(struct rtsp_client *client,
 	ULOG_EVT("STREAM",
 		 "event='client_teardown_resp';element='%s';"
 		 "status=%d;status_str='%s';session='%s'%s%s%s;"
-		 "res='%s'",
+		 "res='%s';media='%s'",
 		 self->getCName(),
 		 res,
 		 strerror(-res),
@@ -1001,7 +1131,18 @@ void StreamDemuxer::onRtspTeardownResp(struct rtsp_client *client,
 		 proxy_session ? ";proxy_session='" : "",
 		 proxy_session ? proxy_session : "",
 		 proxy_session ? "'" : "",
-		 self->mRtspPath.c_str());
+		 self->mRtspPath.c_str(),
+		 media ? media->getControlUrl() : "?");
+
+	if (media != nullptr)
+		self->teardownVideoMedia(media);
+
+	res = self->processRtspRequests();
+	if (res < 0) {
+		if (res != -EBUSY)
+			self->onUnrecoverableError(res);
+		return;
+	}
 }
 
 
@@ -1033,10 +1174,82 @@ void StreamDemuxer::onRtspAnnounce(struct rtsp_client *client,
 }
 
 
+void StreamDemuxer::onRtspForcedTeardown(struct rtsp_client *client,
+					 const char *path,
+					 const char *session_id,
+					 const struct rtsp_header_ext *ext,
+					 size_t ext_count,
+					 void *userdata)
+{
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	VideoMedia *media = nullptr;
+	int res = 0;
+	const char *proxy_session = nullptr;
+
+	for (size_t i = 0; i < ext_count; i++) {
+		if (strcasecmp(ext[i].key,
+			       RTSP_HEADER_EXT_PARROT_PROXY_SESSION) == 0) {
+			proxy_session = ext[i].value;
+			break;
+		}
+	}
+
+	if (xstrcmp(session_id, self->mRtspSessionId) != 0) {
+		PDRAW_LOGE(
+			"RTSP forced teardown for a wrong session"
+			" (%s instead of %s)",
+			session_id,
+			self->mRtspSessionId);
+		return;
+	}
+
+	for (auto p = self->mVideoMedias.begin(); p != self->mVideoMedias.end();
+	     p++) {
+		std::string mediaPath = std::string(self->mContentBase) + "/" +
+					std::string((*p)->getControlUrl());
+		if ((*p)->isTearingDown())
+			continue;
+		if (xstrcmp(mediaPath.c_str(), path) == 0) {
+			media = (*p);
+			break;
+		}
+	}
+
+	ULOG_EVT("STREAM",
+		 "event='forced_teardown';element='%s';"
+		 "status=%d;status_str='%s';session='%s'%s%s%s;"
+		 "res='%s';media='%s'",
+		 self->getCName(),
+		 res,
+		 strerror(-res),
+		 session_id ? session_id : "",
+		 proxy_session ? ";proxy_session='" : "",
+		 proxy_session ? proxy_session : "",
+		 proxy_session ? "'" : "",
+		 self->mRtspPath.c_str(),
+		 media ? media->getControlUrl() : "?");
+
+	if (media != nullptr)
+		self->teardownVideoMedia(media);
+}
+
+
+void StreamDemuxer::asyncRtspDisconnect(void)
+{
+	int err = pomp_loop_idle_add_with_cookie(
+		this->mSession->getLoop(), idleRtspDisconnect, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+}
+
+
 void StreamDemuxer::idleRtspDisconnect(void *userdata)
 {
 	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
 	int res;
+
+	if (self->mRtspState == DISCONNECTED)
+		return;
 
 	res = rtsp_client_disconnect(self->mRtspClient);
 	if (res < 0) {
@@ -1068,6 +1281,16 @@ int StreamDemuxer::startRtsp(const std::string &url)
 	mServerAddr = url.substr(7, n - 7);
 	mRtspAddr = url.substr(0, n);
 	mRtspPath = url.substr(n + 1);
+
+	/* Find first ':' in mServerAddr */
+	n = mServerAddr.find(":");
+	if (n != std::string::npos) {
+		mServerIpAddr = mServerAddr.substr(0, n);
+		mServerPort = std::stoi(mServerAddr.substr(n + 1));
+	} else {
+		mServerIpAddr = mServerAddr;
+		mServerPort = 0; /* 0 means defaut */
+	}
 
 	mSessionProtocol = RTSP;
 
@@ -1123,7 +1346,9 @@ int StreamDemuxer::start(void)
 			return -ENOSYS;
 		}
 
-		setState(STARTED);
+		/* Do not call openResponse now, it will be called when
+		 * receiving a response to the RTSP SETUP request. */
+		tryCompleteStart(false);
 	} else {
 		/* TODO create VideoMedia and setup */
 		if (mVideoMedias.size() >= 1) {
@@ -1134,8 +1359,7 @@ int StreamDemuxer::start(void)
 			}
 		}
 
-		setState(STARTED);
-		openResponse(0);
+		tryCompleteStart();
 		readyToPlay(true);
 	}
 
@@ -1146,6 +1370,7 @@ int StreamDemuxer::start(void)
 int StreamDemuxer::stop(void)
 {
 	int ret = 0;
+	bool disconnect = false;
 
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
@@ -1154,36 +1379,36 @@ int StreamDemuxer::stop(void)
 		return -EPROTO;
 	}
 	setState(STOPPING);
+
+	/* Note: the demuxer listener is not cleared here to allow calling
+	 * the IDemuxer::Listener::demuxerCloseResponse listener function when
+	 * the IDemuxer::close function was called; clearing the listener when
+	 * deleting the API object is done by calling
+	 * Demuxer::clearDemuxerListener in the API object destructor prior
+	 * to calling Demuxer::stop */
+
 	readyToPlay(false);
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++)
 		(*p)->sendDownstreamEvent(Channel::DownstreamEvent::EOS);
-		p++;
-	}
 
 	mChannelsReadyForStop = false;
 	mNetworkReadyForStop = false;
 	if (mSessionProtocol == RTSP) {
 		if (mRtspState == SETUP_DONE) {
-			ret = rtsp_client_teardown(
-				mRtspClient,
-				mRtspSessionId,
-				nullptr,
-				0,
-				nullptr,
-				RTSP_CLIENT_DEFAULT_RESP_TIMEOUT_MS);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("rtsp_client_teardown", -ret);
-				/* disconnect directly the rstp */
-				ret = rtsp_client_disconnect(mRtspClient);
-				if (ret < 0) {
-					PDRAW_LOG_ERRNO(
-						"rtsp_client_disconnect", -ret);
-					return ret;
+			for (auto p = mVideoMedias.begin();
+			     p != mVideoMedias.end();
+			     p++) {
+				(*p)->teardown();
+				if (mUnrecoverableError) {
+					disconnect = true;
+					break;
 				}
 			}
 		} else {
+			disconnect = true;
+		}
+		if (disconnect) {
 			ret = rtsp_client_disconnect(mRtspClient);
 			if (ret < 0) {
 				PDRAW_LOG_ERRNO("rtsp_client_disconnect", -ret);
@@ -1200,19 +1425,31 @@ int StreamDemuxer::stop(void)
 	Source::lock();
 
 	ret = flush();
-	if (ret < 0)
+	if ((ret < 0) && (ret != -EALREADY))
 		PDRAW_LOG_ERRNO("flush", -ret);
 
 	Source::unlock();
 
-	if (mNetworkReadyForStop && mChannelsReadyForStop) {
-		mChannelsReadyForStop = false;
-		mNetworkReadyForStop = false;
-		closeResponse(0);
-		setStateAsyncNotify(STOPPED);
-	}
+	tryCompleteStop();
 
 	return ret;
+}
+
+
+void StreamDemuxer::tryCompleteStop(void)
+{
+	if (mState != STOPPING)
+		return;
+
+	if (!mNetworkReadyForStop || !mChannelsReadyForStop)
+		return;
+
+	destroyAllVideoMedias();
+
+	mChannelsReadyForStop = false;
+	mNetworkReadyForStop = false;
+	closeResponse(0);
+	setStateAsyncNotify(STOPPED);
 }
 
 
@@ -1240,11 +1477,8 @@ int StreamDemuxer::flush(bool destroyMedias)
 
 	mFlushChannelCount = 0;
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++)
 		(*p)->flush();
-		p++;
-	}
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
@@ -1271,6 +1505,8 @@ int StreamDemuxer::flush(bool destroyMedias)
 
 void StreamDemuxer::onChannelFlushed(Channel *channel)
 {
+	bool destroyMedia = false;
+
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
@@ -1280,7 +1516,7 @@ void StreamDemuxer::onChannelFlushed(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		Source::unlock();
 		return;
 	}
@@ -1289,16 +1525,15 @@ void StreamDemuxer::onChannelFlushed(Channel *channel)
 		   media->getName().c_str(),
 		   channel->getOwner());
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
 		if ((*p)->hasMedia(media)) {
 			(*p)->channelFlushed(channel);
+			destroyMedia = (*p)->getDestroyAfterFlush();
 			break;
 		}
-		p++;
 	}
 
-	if (mState == STOPPING || mDestroyMediasAfterFlush) {
+	if (mState == STOPPING || mDestroyMediasAfterFlush || destroyMedia) {
 		int ret = channel->teardown();
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("channel->teardown", -ret);
@@ -1322,7 +1557,7 @@ void StreamDemuxer::onChannelUnlink(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 
@@ -1330,25 +1565,35 @@ void StreamDemuxer::onChannelUnlink(Channel *channel)
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("removeOutputChannel", -ret);
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
 		if ((*p)->hasMedia(media)) {
 			(*p)->channelUnlink(channel);
+			if ((*p)->getMediaCount() == 0 &&
+			    (*p)->isTearingDown()) {
+				delete *p;
+				mVideoMedias.erase(p);
+			}
 			break;
 		}
-		p++;
 	}
 
-	ret = pomp_loop_idle_add_with_cookie(
-		this->mSession->getLoop(), completeTeardownAsync, this, this);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+	asyncCompleteTeardown();
 }
 
 
-void StreamDemuxer::completeTeardownAsync(void *userdata)
+void StreamDemuxer::asyncCompleteTeardown(void)
 {
-	StreamDemuxer *self = (StreamDemuxer *)userdata;
+	int err = pomp_loop_idle_add_with_cookie(
+		this->mSession->getLoop(), idleCompleteTeardown, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+}
+
+
+void StreamDemuxer::idleCompleteTeardown(void *userdata)
+{
+	StreamDemuxer *self = reinterpret_cast<StreamDemuxer *>(userdata);
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	self->completeTeardown();
 }
 
@@ -1366,12 +1611,14 @@ void StreamDemuxer::completeTeardown(void)
 		}
 	}
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
-		delete *p;
-		p++;
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
+		if (!(*p)->isTearingDown()) {
+			Source::unlock();
+			return;
+		}
 	}
-	mVideoMedias.clear();
+
+	destroyAllVideoMedias();
 
 	Source::unlock();
 
@@ -1379,12 +1626,7 @@ void StreamDemuxer::completeTeardown(void)
 		mChannelsReadyForStop = true;
 
 		/* If network is also ready, set the state to stopped */
-		if (mNetworkReadyForStop && mChannelsReadyForStop) {
-			mChannelsReadyForStop = false;
-			mNetworkReadyForStop = false;
-			closeResponse(0);
-			setStateAsyncNotify(STOPPED);
-		}
+		tryCompleteStop();
 #if 0 /* TODO: this should be re-enabled on a per-media basis */
 	} else if (mCodecInfoChanging) {
 		PDRAW_LOGI("new output media");
@@ -1410,7 +1652,7 @@ void StreamDemuxer::onChannelResync(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		Source::unlock();
 		return;
 	}
@@ -1419,14 +1661,12 @@ void StreamDemuxer::onChannelResync(Channel *channel)
 		   media->getName().c_str(),
 		   channel->getOwner());
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
-		if ((*p)->hasMedia(media)) {
-			(*p)->stop();
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
+		if (!(*p)->isTearingDown() && (*p)->hasMedia(media)) {
+			(*p)->resync();
 			Source::unlock();
 			return;
 		}
-		p++;
 	}
 
 	Source::unlock();
@@ -1451,21 +1691,114 @@ void StreamDemuxer::onChannelVideoPresStats(Channel *channel,
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		Source::unlock();
 		return;
 	}
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
-		if ((*p)->hasMedia(media)) {
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
+		if (!(*p)->isTearingDown() && (*p)->hasMedia(media)) {
 			(*p)->channelSendVideoPresStats(channel, stats);
 			break;
 		}
-		p++;
 	}
 
 	Source::unlock();
+}
+
+
+int StreamDemuxer::processSelectedMedias(void)
+{
+	int res = 0;
+	bool noError = false;
+	struct sdp_media *media = nullptr;
+
+	for (auto m = mSelectedMedias.begin(); m != mSelectedMedias.end();
+	     m++) {
+		bool found = false;
+		media = nullptr;
+		int idx = 0;
+		list_walk_entry_forward(&mSdpSession->medias, media, node)
+		{
+			if (idx == (*m)->idx) {
+				found = true;
+				break;
+			}
+			idx++;
+		}
+		if (!found) {
+			PDRAW_LOGE(
+				"failed to find the selected "
+				"media in the list");
+			goto stop;
+		}
+		found = false;
+		for (auto p = mVideoMedias.begin(); p != mVideoMedias.end();
+		     p++) {
+			if ((*p)->isTearingDown())
+				continue;
+			if (xstrcmp((*p)->getControlUrl(),
+				    media->control_url) == 0) {
+				PDRAW_LOGI("media '%s' is already set up",
+					   media->control_url);
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			StreamDemuxer::VideoMedia *videoMedia =
+				createVideoMedia();
+			res = videoMedia->setup(media);
+			if (res < 0) {
+				PDRAW_LOG_ERRNO("VideoMedia::setup", -res);
+				delete videoMedia;
+				goto stop;
+			}
+			PDRAW_LOGI("media '%s' not set up, setting up",
+				   media->control_url);
+			mVideoMedias.push_back(videoMedia);
+		}
+	}
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
+		bool found = false;
+		for (auto m = mSelectedMedias.begin();
+		     m != mSelectedMedias.end();
+		     m++) {
+			std::string name1 = (*m)->uri;
+			std::string name2 = (*p)->getControlUrl();
+			if (name1 == name2) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			PDRAW_LOGI(
+				"media '%s' not selected anymore, "
+				"tear it down",
+				(*p)->getControlUrl());
+			(*p)->teardown();
+		}
+	}
+
+	res = 0;
+
+	goto exit;
+
+stop:
+	if (!noError)
+		onUnrecoverableError();
+	readyToPlay(false);
+	if (mRtspState == SETUP_DONE) {
+		for (auto p = mVideoMedias.begin(); p != mVideoMedias.end();
+		     p++)
+			(*p)->stopRtpAvp();
+	}
+	setRtspState(OPTIONS_DONE);
+
+exit:
+	return res;
 }
 
 
@@ -1474,11 +1807,13 @@ void StreamDemuxer::onNewSdp(const char *content_base, const char *sdp)
 	int res = 0;
 	struct sdp_session *session = nullptr;
 	char *remoteAddr = nullptr;
-	struct pdraw_demuxer_media *medias = nullptr;
-	std::vector<struct pdraw_demuxer_media *> selectedMedias;
-	std::vector<struct pdraw_demuxer_media *>::iterator m;
 	size_t mediasCount = 0, i;
-	bool found, noError = false;
+	bool noError = false;
+	struct sdp_media *media = nullptr;
+	uint32_t selectedMedias = 0;
+	struct pdraw_demuxer_media *newMediaList = NULL;
+	size_t newMediaListSize = 0;
+	std::vector<struct pdraw_demuxer_media *> newDefaultMedias;
 
 	if (mState == STOPPING) {
 		PDRAW_LOGI("new SDP while stopping, ignore it");
@@ -1490,29 +1825,43 @@ void StreamDemuxer::onNewSdp(const char *content_base, const char *sdp)
 		PDRAW_LOG_ERRNO("sdp_description_read", -res);
 		return;
 	}
-	if (session->deletion)
+
+	if (mSdpSession != nullptr) {
+		res = sdp_session_compare(session, mSdpSession);
+		if (res == 0) {
+			PDRAW_LOGI("sdp is identical, ignore it");
+			goto exit;
+		}
+		sdp_session_destroy(mSdpSession);
+	}
+	mSdpSession = session;
+
+	if (mSdpSession->deletion)
 		PDRAW_LOGW("sdp refers to a no longer existing session");
 
 	if ((!mContentBase) && (content_base))
 		mContentBase = strdup(content_base);
 
 	/* Session-level metadata */
-	sessionMetadataFromSdp(session, &mSessionMetaFromSdp);
+	sessionMetadataFromSdp(mSdpSession, &mSessionMetaFromSdp);
 
-	struct sdp_media *media = nullptr;
-
-	list_walk_entry_forward(&session->medias, media, node)
+	list_walk_entry_forward(&mSdpSession->medias, media, node)
 	{
 		if (media->type != SDP_MEDIA_TYPE_VIDEO || !media->control_url)
 			continue;
 		mediasCount++;
 	}
+
+	newMediaList = (struct pdraw_demuxer_media *)calloc(
+		mediasCount, sizeof(*newMediaList));
+	if (newMediaList == nullptr) {
+		PDRAW_LOGE("calloc");
+		goto exit;
+	}
+	newMediaListSize = mediasCount;
+
 	i = 0;
-	medias = (struct pdraw_demuxer_media *)calloc(mediasCount,
-						      sizeof(*medias));
-	if (medias == nullptr)
-		goto stop;
-	list_walk_entry_forward(&session->medias, media, node)
+	list_walk_entry_forward(&mSdpSession->medias, media, node)
 	{
 		if (media->type != SDP_MEDIA_TYPE_VIDEO || !media->control_url)
 			continue;
@@ -1546,24 +1895,37 @@ void StreamDemuxer::onNewSdp(const char *content_base, const char *sdp)
 #endif
 		mRtpClockRate = media->clock_rate;
 
-		struct pdraw_demuxer_media *current = &medias[i];
+		struct pdraw_demuxer_media *current = &newMediaList[i];
 		current->media_id = i + 1;
 		current->idx = i;
+		switch (media->type) {
+		case SDP_MEDIA_TYPE_VIDEO:
+			current->type = PDRAW_MEDIA_TYPE_VIDEO;
+			break;
+		case SDP_MEDIA_TYPE_AUDIO:
+			current->type = PDRAW_MEDIA_TYPE_AUDIO;
+			break;
+		default:
+			current->type = PDRAW_MEDIA_TYPE_UNKNOWN;
+			break;
+		}
 		current->name = xstrdup(media->media_title);
 		if (current->name == nullptr)
 			current->name = xstrdup(media->control_url);
 		current->uri = xstrdup(media->control_url);
 		StreamDemuxer::VideoMedia::sessionMetadataFromSdp(
-			media, &mSessionMetaFromSdp, &current->session_meta);
-		current->is_default = current->session_meta.default_media;
+			media,
+			&mSessionMetaFromSdp,
+			&current->video.session_meta);
+		current->is_default = current->video.session_meta.default_media;
 		if (current->is_default)
-			selectedMedias.push_back(current);
+			newDefaultMedias.push_back(current);
 		i++;
 	}
 
-	if (mediasCount == 1 && selectedMedias.empty()) {
-		medias[0].is_default = 1;
-		selectedMedias.push_back(&medias[0]);
+	if (mediasCount == 1 && newDefaultMedias.empty()) {
+		newMediaList[0].is_default = 1;
+		newDefaultMedias.push_back(&newMediaList[0]);
 	} else if (mediasCount == 0) {
 		/* Empty SDP */
 		PDRAW_LOGI("empty SDP, no stream");
@@ -1573,129 +1935,84 @@ void StreamDemuxer::onNewSdp(const char *content_base, const char *sdp)
 		 * the media. Otherwise, wait for the setup response before
 		 * setting the state. If we have any media, remove them */
 		flush(true);
-		setState(STARTED);
-		openResponse(0);
+		tryCompleteStart();
 		noError = true;
 		goto stop;
-	} else if (selectedMedias.empty()) {
+	} else if (newDefaultMedias.empty()) {
 		/* If no default media, check for a media with camera_type ==
 		 * VMETA_CAMERA_TYPE_FRONT, and flag it as the default media */
 		for (i = 0; i < mediasCount; i++) {
-			struct pdraw_demuxer_media *current = &medias[i];
-			if (current->session_meta.camera_type !=
+			struct pdraw_demuxer_media *current = &newMediaList[i];
+			if (current->video.session_meta.camera_type !=
 			    VMETA_CAMERA_TYPE_FRONT)
 				continue;
 			current->is_default = 1;
-			selectedMedias.push_back(current);
+			newDefaultMedias.push_back(current);
 		}
 	}
 
-	res = selectMedia(medias, mediasCount);
-	if (res == 0 || res == -ENOSYS) {
-		if (selectedMedias.empty()) {
-			PDRAW_LOGE(
-				"application requested default media, "
-				"but no default media found");
-			res = -ENOENT;
-			goto stop;
-		}
-		if (selectedMedias.size() == 1) {
-			PDRAW_LOGI("auto-selecting media %d (%s)",
-				   selectedMedias.back()->media_id,
-				   selectedMedias.back()->name);
-		} else {
-			PDRAW_LOGI("audo-selecting medias {");
-			m = selectedMedias.begin();
-			while (m != selectedMedias.end()) {
-				PDRAW_LOGI(" - %d (%s)",
-					   (*m)->media_id,
-					   (*m)->name);
-				m++;
-			}
-			PDRAW_LOGI("}");
-		}
+	res = updateMediaList(newMediaList,
+			      newMediaListSize,
+			      newDefaultMedias,
+			      &selectedMedias);
+	if (res < 0) {
+		PDRAW_LOG_ERRNO("updateMediaList", -res);
+		goto stop;
+	}
+
+	newMediaList = nullptr;
+	newMediaListSize = 0;
+	newDefaultMedias.clear();
+
+	res = callSelectMedia(selectedMedias);
+	if (res >= 0) {
+		selectedMedias = res;
+	} else if (res == -ENOSYS) {
+		selectedMedias = 0;
 	} else if (res == -ECANCELED) {
 		PDRAW_LOGI("application cancelled the media selection");
-		setState(STARTED);
-		openResponse(0);
+		tryCompleteStart();
+		noError = true;
 		goto stop;
 	} else if (res < 0) {
-		PDRAW_LOGE("application failed to select a video media");
-		/* Selecting a wrong video media is an error, stop the demuxer
+		PDRAW_LOGE("application failed to select a media");
+		/* Selecting a wrong media is an error, stop the demuxer
 		 * to either report an open response, or an unrecoverable error
 		 * to the application */
 		goto stop;
-	} else {
-		selectedMedias.clear();
-		for (i = 0; i < mediasCount; i++) {
-			if (!(res & (1 << medias[i].media_id)))
-				continue;
-			selectedMedias.push_back(&medias[i]);
-			PDRAW_LOGI("application selected media %d (%s)",
-				   selectedMedias.back()->media_id,
-				   selectedMedias.back()->name);
-		}
-		if (selectedMedias.empty()) {
-			PDRAW_LOGE("the application requested no valid media");
-			res = -ENOENT;
-			goto stop;
-		}
 	}
 
-	if (session->connection_addr &&
-	    strcmp(session->connection_addr, "0.0.0.0") != 0)
-		remoteAddr = strdup(session->connection_addr);
-	else if (session->server_addr &&
-		 strcmp(session->server_addr, "0.0.0.0") != 0)
-		remoteAddr = strdup(session->server_addr);
-	else if (mServerAddr.length() > 0)
-		remoteAddr = strdup(mServerAddr.c_str());
+	res = Demuxer::selectMedia(selectedMedias);
+	if (res < 0)
+		goto stop;
+
+	if (mSdpSession->connection_addr &&
+	    strcmp(mSdpSession->connection_addr, "0.0.0.0") != 0)
+		remoteAddr = strdup(mSdpSession->connection_addr);
+	else if (mSdpSession->server_addr &&
+		 strcmp(mSdpSession->server_addr, "0.0.0.0") != 0)
+		remoteAddr = strdup(mSdpSession->server_addr);
+	else if (mServerIpAddr.length() > 0)
+		remoteAddr = strdup(mServerIpAddr.c_str());
 	if (remoteAddr == nullptr) {
 		PDRAW_LOGE("failed to get server address");
 		goto stop;
 	}
 
-	if (session->range.start.format == SDP_TIME_FORMAT_NPT) {
-		mDuration = (uint64_t)session->range.stop.npt.sec * 1000000 +
-			    (uint64_t)session->range.stop.npt.usec;
+	if (mSdpSession->range.start.format == SDP_TIME_FORMAT_NPT) {
+		mDuration =
+			(uint64_t)mSdpSession->range.stop.npt.sec * 1000000 +
+			(uint64_t)mSdpSession->range.stop.npt.usec;
 		mTrackDuration = mDuration;
 	}
 
-	mRtspState = DESCRIBE_DONE;
-	PDRAW_LOGD("RTSP state change to %s", getRtspStateStr(mRtspState));
+	if (mRtspState != SETUP_DONE)
+		setRtspState(DESCRIBE_DONE);
 
 	mLocalAddr = "0.0.0.0";
 	mRemoteAddr = std::string(remoteAddr);
 
-	m = selectedMedias.begin();
-	while (m != selectedMedias.end()) {
-		found = false;
-		media = nullptr;
-		int idx = 0;
-		list_walk_entry_forward(&session->medias, media, node)
-		{
-			if (idx == (*m)->idx) {
-				found = true;
-				break;
-			}
-			idx++;
-		}
-		if (!found) {
-			PDRAW_LOGE(
-				"failed to find the selected "
-				"media in the list");
-			goto stop;
-		}
-		StreamDemuxer::VideoMedia *videoMedia = createVideoMedia();
-		res = videoMedia->setup(media);
-		if (res < 0) {
-			PDRAW_LOG_ERRNO("VideoMedia::setup", -res);
-			delete videoMedia;
-			goto stop;
-		}
-		mVideoMedias.push_back(videoMedia);
-		m++;
-	}
+	processSelectedMedias();
 
 	goto exit;
 
@@ -1704,26 +2021,33 @@ stop:
 		onUnrecoverableError();
 	readyToPlay(false);
 	if (mRtspState == SETUP_DONE) {
-		auto p = mVideoMedias.begin();
-		while (p != mVideoMedias.end()) {
+		for (auto p = mVideoMedias.begin(); p != mVideoMedias.end();
+		     p++)
 			(*p)->stopRtpAvp();
-			p++;
-		}
 	}
-	mRtspState = OPTIONS_DONE;
-	PDRAW_LOGD("RTSP state change to %s", getRtspStateStr(mRtspState));
+	setRtspState(OPTIONS_DONE);
 
 exit:
-	if (medias != nullptr) {
-		for (i = 0; i < mediasCount; i++) {
-			free((char *)medias[i].name);
-			free((char *)medias[i].uri);
-		}
+	for (size_t i = 0; i < newMediaListSize; i++) {
+		free((void *)newMediaList[i].name);
+		free((void *)newMediaList[i].uri);
 	}
-	free(medias);
-	sdp_session_destroy(session);
+	free(newMediaList);
 	free(remoteAddr);
 }
+
+
+void StreamDemuxer::tryCompleteStart(bool callOpenResp)
+{
+	if (mState != STARTING)
+		return;
+
+	setState(STARTED);
+
+	if (callOpenResp && !mCalledOpenResp)
+		openResponse(0);
+}
+
 
 int StreamDemuxer::internalPlay(float speed)
 {
@@ -1792,11 +2116,18 @@ int StreamDemuxer::play(float speed)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
-		(*p)->play();
-		p++;
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
+		if (speed != 0.)
+			(*p)->play();
+		else
+			(*p)->pause();
 	}
 
 	if (speed == 0.)
@@ -1836,7 +2167,10 @@ int StreamDemuxer::previous(void)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
-
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 	if (!mFrameByFrame) {
 		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
@@ -1906,7 +2240,10 @@ int StreamDemuxer::next(void)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
-
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 	if (!mFrameByFrame) {
 		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
@@ -1963,6 +2300,10 @@ int StreamDemuxer::seek(int64_t delta, bool exact)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 
 	int64_t ts = (int64_t)mCurrentTime + delta;
 	if (ts < 0)
@@ -1978,6 +2319,10 @@ int StreamDemuxer::seekTo(uint64_t timestamp, bool exact)
 {
 	if (mState != STARTED) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
+		return -EPROTO;
+	}
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
 		return -EPROTO;
 	}
 
@@ -2022,10 +2367,10 @@ int StreamDemuxer::seekTo(uint64_t timestamp, bool exact)
 	}
 	mSeeking = true;
 	mEndOfRangeNotified = false;
-	auto p = mVideoMedias.begin();
-	while (p != mVideoMedias.end()) {
+	for (auto p = mVideoMedias.begin(); p != mVideoMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
 		(*p)->play();
-		p++;
 	}
 
 	return 0;
@@ -2044,6 +2389,18 @@ uint64_t StreamDemuxer::getCurrentTime(void)
 		return mCurrentTime;
 	else
 		return (mStartTime != 0) ? mCurrentTime - mStartTime : 0;
+}
+
+
+void StreamDemuxer::setRtspState(StreamDemuxer::RtspState state)
+{
+	StreamDemuxer::RtspState curState = mRtspState;
+
+	if (state != curState) {
+		mRtspState = state;
+		PDRAW_LOGI("RTSP state change to %s",
+			   getRtspStateStr(mRtspState));
+	}
 }
 
 
@@ -2066,13 +2423,42 @@ const char *StreamDemuxer::getRtspStateStr(StreamDemuxer::RtspState val)
 }
 
 
+int StreamDemuxer::selectMedia(uint32_t selectedMedias)
+{
+	int ret = 0;
+
+	ret = Demuxer::selectMedia(selectedMedias);
+	if (ret < 0)
+		goto stop;
+
+	if (mRtspState != SETUP_DONE)
+		setRtspState(DESCRIBE_DONE);
+
+	processSelectedMedias();
+
+	return 0;
+
+stop:
+	readyToPlay(false);
+	if (mRtspState == SETUP_DONE) {
+		for (auto p = mVideoMedias.begin(); p != mVideoMedias.end();
+		     p++)
+			(*p)->stopRtpAvp();
+	}
+	setRtspState(OPTIONS_DONE);
+
+	return ret;
+}
+
+
 StreamDemuxer::VideoMedia::VideoMedia(StreamDemuxer *demuxer) :
 		mDemuxer(demuxer), mReceiver(nullptr), mLocalStreamPort(0),
 		mLocalControlPort(0), mRemoteStreamPort(0),
 		mRemoteControlPort(0), mVideoMedias(nullptr), mNbVideoMedias(0),
 		mSdpMedia(nullptr), mH264Reader(nullptr), mFrameTimer(nullptr),
 		mRangeTimer(nullptr), mSsrc(0), mFlushing(false),
-		mFlushChannelCount(0), mFirstFrame(true),
+		mDestroyAfterFlush(false), mPendingTearDown(false),
+		mTearingDown(false), mFlushChannelCount(0), mFirstFrame(true),
 		mLastFrameReceiveTime(0), mFrameIndex(0), mCodecInfo({}),
 		mWaitForCodecInfo(false), mCodecInfoChanging(false),
 		mWaitForSync(false), mRecoveryFrameCount(0),
@@ -2091,7 +2477,8 @@ StreamDemuxer::VideoMedia::~VideoMedia(void)
 
 	teardownMedia();
 
-	sdp_media_destroy(mSdpMedia);
+	if (mSdpMedia != nullptr)
+		sdp_media_destroy(mSdpMedia);
 
 	/* Clear any pending frames (received while the previous media
 	 * was being torn down */
@@ -2114,9 +2501,7 @@ StreamDemuxer::VideoMedia::~VideoMedia(void)
 	}
 
 	if (mFrameTimer != nullptr) {
-		ret = pomp_timer_clear(mFrameTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
+		resetFrameTimer(false);
 		ret = pomp_timer_destroy(mFrameTimer);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
@@ -2199,6 +2584,7 @@ int StreamDemuxer::VideoMedia::setup(const struct sdp_media *media)
 	return 0;
 }
 
+
 void StreamDemuxer::VideoMedia::finishSetup(void)
 {
 	if (mSdpMedia != nullptr) {
@@ -2218,8 +2604,50 @@ void StreamDemuxer::VideoMedia::finishSetup(void)
 		};
 		mDemuxer->mSetupRequests.push(req);
 
-		(void)mDemuxer->processSetupRequests();
+		(void)mDemuxer->processRtspRequests();
 	}
+}
+
+
+int StreamDemuxer::VideoMedia::teardown(void)
+{
+	if (mTearingDown)
+		return -EALREADY;
+
+	if (mPendingTearDown)
+		return -EBUSY;
+
+	mPendingTearDown = true;
+
+	finishTeardown();
+	return 0;
+}
+
+
+void StreamDemuxer::VideoMedia::finishTeardown(void)
+{
+	if (getControlUrl() == nullptr)
+		return;
+
+	/* Media-level metadata */
+	TeardownRequest req = {
+		.media = this,
+		.controlUrl = strdup(getControlUrl()),
+	};
+	mDemuxer->mTeardownRequests.push(req);
+	mDemuxer->mTeardownRequestsCount++;
+
+	(void)mDemuxer->processRtspRequests();
+}
+
+
+void StreamDemuxer::VideoMedia::setTearingDown(void)
+{
+	mPendingTearDown = false;
+	mTearingDown = true;
+	/* Needed to close sockets */
+	stopRtpAvp();
+	/* TODO: remove TEARDOWN request from the queue? */
 }
 
 
@@ -2327,7 +2755,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 	 * owns the buffers pool will be the last destroyed */
 	ret = mDemuxer->createOutputPortMemoryPool(
 		mVideoMedias[1],
-		DEMUXER_OUTPUT_BUFFER_COUNT,
+		DEMUXER_STREAM_OUTPUT_BUFFER_COUNT,
 		mVideoMedias[1]->info.resolution.width *
 			mVideoMedias[1]->info.resolution.height * 3 / 4);
 	if (ret < 0) {
@@ -2346,8 +2774,7 @@ int StreamDemuxer::VideoMedia::setupMedia(void)
 	}
 
 	/* New synchronization is needed */
-	mWaitForSync = true;
-	mRecoveryFrameCount = 0;
+	resync();
 
 	mDemuxer->Source::unlock();
 
@@ -2423,6 +2850,7 @@ int StreamDemuxer::VideoMedia::createReceiver(void)
 	/* Create the stream receiver */
 	cfg->loop = mDemuxer->mSession->getLoop();
 	cfg->flags = VSTRM_RECEIVER_FLAGS_H264_GEN_CONCEALMENT_SLICE |
+		     VSTRM_RECEIVER_FLAGS_H264_GEN_CONCEALMENT_FRAME |
 		     VSTRM_RECEIVER_FLAGS_ENABLE_RTCP |
 		     VSTRM_RECEIVER_FLAGS_ENABLE_RTCP_EXT;
 	mDemuxer->mSession->getSettings()->getFriendlyName(&fn);
@@ -2485,46 +2913,84 @@ int StreamDemuxer::VideoMedia::destroyReceiver(void)
 
 void StreamDemuxer::VideoMedia::play(void)
 {
-	int ret;
-	ret = pomp_timer_clear(mFrameTimer);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-	ret = pomp_timer_clear(mRangeTimer);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
+	int err;
+	/* Rearm the frame timer only when running */
+	resetFrameTimer(mDemuxer->mRunning);
+	err = pomp_timer_clear(mRangeTimer);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
 }
 
 
-void StreamDemuxer::VideoMedia::stop(void)
+void StreamDemuxer::VideoMedia::pause(void)
 {
-	pomp_timer_clear(mFrameTimer);
+	resetFrameTimer(false);
 
-	if (mCurrentFrame != nullptr) {
-		int ret = mbuf_coded_video_frame_unref(mCurrentFrame);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -ret);
-		mCurrentFrame = nullptr;
-	}
+	vstrm_receiver_clear(mReceiver);
+	/* A flush is needed to discard all pending frames that will be
+	 * processed when re-playing later on, leading to issues such as large
+	 * rendering timing error. */
+	flush();
+}
 
-	if (mCurrentMem != nullptr) {
-		int ret = mbuf_mem_unref(mCurrentMem);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
-		mCurrentMem = nullptr;
-	}
 
+void StreamDemuxer::VideoMedia::resync(void)
+{
 	mWaitForSync = true;
 	mRecoveryFrameCount = 0;
 }
 
 
-void StreamDemuxer::VideoMedia::flush(void)
+void StreamDemuxer::VideoMedia::stop(void)
+{
+	resetFrameTimer(false);
+
+	mDemuxer->Source::lock();
+
+	if (mCurrentFrame != nullptr) {
+		int err = mbuf_coded_video_frame_unref(mCurrentFrame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -err);
+		mCurrentFrame = nullptr;
+	}
+
+	if (mCurrentMem != nullptr) {
+		int err = mbuf_mem_unref(mCurrentMem);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_mem_unref", -err);
+		mCurrentMem = nullptr;
+	}
+
+	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
+		if (mVideoMedias[i] != nullptr)
+			mVideoMedias[i]->setTearingDown();
+	}
+
+	mDemuxer->Source::unlock();
+}
+
+
+void StreamDemuxer::VideoMedia::flush(bool destroy)
 {
 	mDemuxer->Source::lock();
 
-	stop();
 	mFlushing = true;
 	mFlushChannelCount = 0;
+	mDestroyAfterFlush = destroy;
+
+	if (mCurrentFrame != nullptr) {
+		int err = mbuf_coded_video_frame_unref(mCurrentFrame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -err);
+		mCurrentFrame = nullptr;
+	}
+
+	if (mCurrentMem != nullptr) {
+		int err = mbuf_mem_unref(mCurrentMem);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_mem_unref", -err);
+		mCurrentMem = nullptr;
+	}
 
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
 		unsigned int outputChannelCount =
@@ -2540,9 +3006,9 @@ void StreamDemuxer::VideoMedia::flush(void)
 					   j);
 				continue;
 			}
-			int ret = channel->flush();
-			if (ret < 0)
-				PDRAW_LOG_ERRNO("channel->flush", -ret);
+			int err = channel->flush();
+			if (err < 0)
+				PDRAW_LOG_ERRNO("channel->flush", -err);
 		}
 	}
 
@@ -2582,6 +3048,24 @@ void StreamDemuxer::VideoMedia::channelUnlink(Channel *channel)
 			PDRAW_LOG_ERRNO("setupMedia", -ret);
 			return;
 		}
+	} else if (mTearingDown) {
+		teardownMedia();
+	}
+}
+
+
+void StreamDemuxer::VideoMedia::resetFrameTimer(bool rearm)
+{
+	int err;
+	if (rearm) {
+		err = pomp_timer_set(mFrameTimer,
+				     DEMUXER_STREAM_FRAME_TIMEOUT_MS);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_set", err);
+	} else {
+		err = pomp_timer_clear(mFrameTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
 	}
 }
 
@@ -2589,6 +3073,18 @@ void StreamDemuxer::VideoMedia::channelUnlink(Channel *channel)
 void StreamDemuxer::VideoMedia::sendDownstreamEvent(
 	Channel::DownstreamEvent event)
 {
+	switch (event) {
+	case Channel::DownstreamEvent::SOS:
+		mFirstFrame = false;
+		break;
+	case Channel::DownstreamEvent::EOS:
+		/* Always clear frame timer on EOS */
+		resetFrameTimer(false);
+		mFirstFrame = true;
+		break;
+	default:
+		break;
+	}
 	for (unsigned int i = 0; i < mNbVideoMedias; i++) {
 		int res = mDemuxer->Source::sendDownstreamEvent(mVideoMedias[i],
 								event);
@@ -2612,11 +3108,13 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 	uint64_t remainingPlayTime = 0;
 	unsigned int requiredMediaIndex;
 	CodedVideoMedia *requiredMedia;
-	struct vdef_coded_frame frameInfo;
+	struct vdef_coded_frame frameInfo = {};
 	struct mbuf_coded_video_frame *outputFrame = nullptr;
 	unsigned int sliceCount = 0;
 	int64_t clock_delta = 0;
 	uint32_t precision = UINT32_MAX;
+	struct vstrm_video_stats_dyn *videoStatsDyn = nullptr;
+	struct mbuf_ancillary_data_cbs cbs = {};
 
 	mDemuxer->Source::lock();
 
@@ -2633,10 +3131,11 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 			PDRAW_LOG_ERRNO("mbuf_mem_unref", -ret);
 		mCurrentMem = nullptr;
 	}
-	ret = mDemuxer->getCodedVideoOutputMemory(mVideoMedias,
-						  mNbVideoMedias,
-						  &mCurrentMem,
-						  &requiredMediaIndex);
+	std::vector<CodedVideoMedia *> codedMedias;
+	for (size_t i = 0; i < mNbVideoMedias; i++)
+		codedMedias.push_back(mVideoMedias[i]);
+	ret = mDemuxer->getCodedVideoOutputMemory(
+		codedMedias, &mCurrentMem, &requiredMediaIndex);
 	if ((ret < 0) || (mCurrentMem == nullptr)) {
 		mDemuxer->Source::unlock();
 		PDRAW_LOGW("failed to get an output memory (%d)", ret);
@@ -2838,7 +3337,7 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 		}
 	}
 
-	/* update the frame info */
+	/* Update the frame info */
 	ret = mbuf_coded_video_frame_set_frame_info(mCurrentFrame, &frameInfo);
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_set_frame_info", -ret);
@@ -2850,6 +3349,59 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 		PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME,
 		&data,
 		sizeof(data));
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
+				-ret);
+		goto out;
+	}
+
+	/* Attach the video stats and MB status */
+	ret = mbuf_coded_video_frame_add_ancillary_buffer(
+		mCurrentFrame,
+		VSTRM_ANCILLARY_KEY_VIDEO_STATS,
+		&frame->video_stats,
+		sizeof(frame->video_stats));
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
+				-ret);
+		goto out;
+	}
+	videoStatsDyn = (struct vstrm_video_stats_dyn *)calloc(
+		1, sizeof(*videoStatsDyn));
+	if (videoStatsDyn == nullptr) {
+		ret = -ENOMEM;
+		PDRAW_LOG_ERRNO("calloc", -ret);
+		goto out;
+	}
+	ret = vstrm_video_stats_dyn_copy(videoStatsDyn,
+					 &frame->video_stats_dyn);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("vstrm_video_stats_dyn_copy", -ret);
+		goto out;
+	}
+	cbs = (struct mbuf_ancillary_data_cbs){
+		.cleaner = &videoStatsDynCleaner,
+		.cleaner_userdata = videoStatsDyn,
+	};
+	ret = mbuf_coded_video_frame_add_ancillary_buffer_with_cbs(
+		mCurrentFrame,
+		VSTRM_ANCILLARY_KEY_VIDEO_STATS_DYN,
+		&videoStatsDyn,
+		sizeof(videoStatsDyn),
+		&cbs);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO(
+			"mbuf_coded_video_frame_add_ancillary_buffer_with_cbs",
+			-ret);
+		goto out;
+	}
+	/* videoStatsDyn will be freed by the videoStatsDynCleaner */
+	videoStatsDyn = nullptr;
+	ret = mbuf_coded_video_frame_add_ancillary_buffer(
+		mCurrentFrame,
+		VSTRM_ANCILLARY_KEY_MB_STATUS,
+		frame->info.mb_status,
+		frame->info.mb_total * sizeof(uint8_t));
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
 				-ret);
@@ -2933,7 +3485,6 @@ int StreamDemuxer::VideoMedia::processFrame(struct vstrm_frame *frame)
 	if ((mFirstFrame) &&
 	    (!(frameInfo.info.flags & VDEF_FRAME_FLAG_SILENT))) {
 		sendDownstreamEvent(Channel::DownstreamEvent::SOS);
-		mFirstFrame = false;
 	}
 
 out:
@@ -2941,6 +3492,7 @@ out:
 	mCurrentMem = nullptr;
 	mbuf_coded_video_frame_unref(mCurrentFrame);
 	mCurrentFrame = nullptr;
+	free(videoStatsDyn);
 
 	mDemuxer->Source::unlock();
 	return ret;
@@ -3129,10 +3681,8 @@ void StreamDemuxer::VideoMedia::codecInfoChangedCb(
 
 	if ((!self->mCodecInfoChanging) &&
 	    (!memcmp(&self->mCodecInfo, info, sizeof(self->mCodecInfo)))) {
-		PDRAW_LOGI(
-			"codec info changed; no change in PS, "
-			"just flush and resync");
-		self->flush();
+		PDRAW_LOGI("codec info changed; no change in PS, just resync");
+		self->resync();
 		return;
 	}
 	self->mCodecInfo = *info;
@@ -3198,8 +3748,8 @@ void StreamDemuxer::VideoMedia::recvFrameCb(struct vstrm_receiver *stream,
 					    struct vstrm_frame *frame,
 					    void *userdata)
 {
+	int err;
 	VideoMedia *self = (VideoMedia *)userdata;
-	int ret;
 
 	if ((self == nullptr) || (frame == nullptr))
 		return;
@@ -3210,14 +3760,28 @@ void StreamDemuxer::VideoMedia::recvFrameCb(struct vstrm_receiver *stream,
 		return;
 
 	if (demuxer->mRunning) {
-		pomp_timer_set(self->mFrameTimer,
-			       DEMUXER_STREAM_TIMER_INTERVAL_MS);
+		self->resetFrameTimer(true);
 	} else if (demuxer->mSessionProtocol != RTSP) {
 		/* just ignore the frames */
 		return;
 	}
 
+	if (self->mTearingDown) {
+		/* Media is tearing down, ignore frames */
+		return;
+	}
+
 	if (self->mCodecInfoChanging) {
+		/* Keep at most DEMUXER_STREAM_TEMP_QUEUE_MAX_SIZE frames in the
+		 * tempQueue, discard the oldest frame. */
+		if (self->mTempQueue.size() >=
+		    DEMUXER_STREAM_TEMP_QUEUE_MAX_SIZE) {
+			struct vstrm_frame *tempFrame =
+				self->mTempQueue.front();
+			PDRAW_LOGW("temp queue is full, dropping frame");
+			self->mTempQueue.pop();
+			vstrm_frame_unref(tempFrame);
+		}
 		/* Queue the frame to process later */
 		vstrm_frame_ref(frame);
 		self->mTempQueue.push(frame);
@@ -3228,10 +3792,10 @@ void StreamDemuxer::VideoMedia::recvFrameCb(struct vstrm_receiver *stream,
 		return;
 
 	/* Process the incoming frame */
-	ret = self->processFrame(frame);
-	if (ret < 0) {
-		if (ret != -EAGAIN)
-			PDRAW_LOG_ERRNO("processFrame", -ret);
+	err = self->processFrame(frame);
+	if (err < 0) {
+		if (err != -EAGAIN)
+			PDRAW_LOG_ERRNO("processFrame", -err);
 		return;
 	}
 }
@@ -3251,8 +3815,16 @@ void StreamDemuxer::VideoMedia::sessionMetadataPeerChangedCb(
 
 	self->mDemuxer->Source::lock();
 
-	for (unsigned int i = 0; i < self->mNbVideoMedias; i++)
+	for (unsigned int i = 0; i < self->mNbVideoMedias; i++) {
 		self->mVideoMedias[i]->sessionMeta = *meta;
+		/* FIXME: to be discussed */
+		self->mSessionMetaFromSdp = *meta;
+		int err = self->mDemuxer->sendDownstreamEvent(
+			self->mVideoMedias[i],
+			Channel::DownstreamEvent::SESSION_META_UPDATE);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
+	}
 
 	self->mDemuxer->Source::unlock();
 }
@@ -3283,7 +3855,11 @@ void StreamDemuxer::VideoMedia::eventCb(struct vstrm_receiver *stream,
 		sendEvent = true;
 		break;
 	case VSTRM_EVENT_RESOLUTION_CHANGE:
-		evt = Channel::DownstreamEvent::TIMEOUT;
+		evt = Channel::DownstreamEvent::RESOLUTION_CHANGE;
+		sendEvent = true;
+		break;
+	case VSTRM_EVENT_FRAMERATE_CHANGE:
+		evt = Channel::DownstreamEvent::FRAMERATE_CHANGE;
 		sendEvent = true;
 		break;
 	case VSTRM_EVENT_PHOTO_TRIGGER:
@@ -3322,7 +3898,7 @@ void StreamDemuxer::VideoMedia::goodbyeCb(struct vstrm_receiver *stream,
 	if (demuxer->mState != STARTED)
 		return;
 
-	pomp_timer_clear(self->mFrameTimer);
+	self->resetFrameTimer(false);
 
 	/* Wait for new codec info */
 	self->mWaitForCodecInfo = true;
@@ -3341,7 +3917,6 @@ void StreamDemuxer::VideoMedia::goodbyeCb(struct vstrm_receiver *stream,
 		} else {
 			event = Channel::DownstreamEvent::EOS;
 			sendEvent = true;
-			self->mFirstFrame = true;
 			if (demuxer->mSessionProtocol == RTSP &&
 			    (strcmp(reason,
 				    DEMUXER_STREAM_GOODBYE_REASON_USER) ||
@@ -3350,8 +3925,18 @@ void StreamDemuxer::VideoMedia::goodbyeCb(struct vstrm_receiver *stream,
 				/* We either received an unknown RTCP goodbye
 				 * packet, or an unexpected (not initiated by a
 				 * teardown) user_disconnection packet. Notify
-				 * the application of an unrecoverable error */
-				demuxer->onUnrecoverableError();
+				 * the application of an unrecoverable error
+				 * only when a single media is selected. */
+				unsigned int count = 0;
+				for (auto p = demuxer->mVideoMedias.begin();
+				     p != demuxer->mVideoMedias.end();
+				     p++) {
+					if ((*p)->isTearingDown())
+						continue;
+					count++;
+				}
+				if (count == 1)
+					demuxer->onUnrecoverableError();
 			}
 		}
 
@@ -3389,7 +3974,7 @@ void StreamDemuxer::VideoMedia::frameTimeoutCb(struct pomp_timer *timer,
 
 	demuxer->Source::lock();
 	if (curTime >
-	    self->mLastFrameReceiveTime + DEMUXER_STREAM_FRAME_TIMEOUT_US) {
+	    self->mLastFrameReceiveTime + DEMUXER_STREAM_FRAME_TIMEOUT_MS) {
 		self->sendDownstreamEvent(Channel::DownstreamEvent::TIMEOUT);
 	}
 	demuxer->Source::unlock();
@@ -3434,6 +4019,18 @@ void StreamDemuxer::idleEndOfRangeNotification(void *userdata)
 		self->onEndOfRange(self->mCurrentTime);
 		self->mEndOfRangeNotified = true;
 	}
+}
+
+
+void StreamDemuxer::videoStatsDynCleaner(struct mbuf_ancillary_data *data,
+					 void *userdata)
+{
+	struct vstrm_video_stats_dyn *dyn =
+		reinterpret_cast<struct vstrm_video_stats_dyn *>(userdata);
+	if (dyn == nullptr)
+		return;
+	vstrm_video_stats_dyn_clear(dyn);
+	free(dyn);
 }
 
 } /* namespace Pdraw */

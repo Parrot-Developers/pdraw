@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * OpenGL ES 2.0 HUD rendering library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -50,16 +50,15 @@
 #	include <TargetConditionals.h>
 #	if TARGET_OS_IPHONE
 #		include <OpenGLES/ES2/gl.h>
-#	elif defined(USE_GLFW3)
-#		include <GLFW/glfw3.h>
+#		include <OpenGLES/ES2/glext.h>
+#	else
+#		define GL_GLEXT_PROTOTYPES
 #		include <OpenGL/OpenGL.h>
+#		include <OpenGL/gl.h>
 #		include <OpenGL/glext.h>
 #	endif
 #elif defined(_WIN32)
 #	include <epoxy/gl.h>
-#elif defined(USE_GLFW3)
-#	define GLFW_INCLUDE_ES2
-#	include <GLFW/glfw3.h>
 #else
 #	include <GLES2/gl2.h>
 #endif
@@ -329,9 +328,10 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 					 const float color[4]);
 
 
-void pdraw_gles2hud_draw_recording_status(struct pdraw_gles2hud *self,
-					  uint64_t recording_duration,
-					  const float color[4]);
+void pdraw_gles2hud_draw_cot(struct pdraw_gles2hud *self,
+			     float x,
+			     float y,
+			     const float color[4]);
 
 
 void pdraw_gles2hud_draw_flight_path_vector(struct pdraw_gles2hud *self,

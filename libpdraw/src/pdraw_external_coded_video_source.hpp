@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Application external coded video source
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -40,6 +40,8 @@
 
 namespace Pdraw {
 
+class CodedVideoSourceWrapper;
+
 
 class ExternalCodedVideoSource : public SourceElement {
 public:
@@ -48,7 +50,7 @@ public:
 		Element::Listener *elementListener,
 		Source::Listener *sourceListener,
 		IPdraw::ICodedVideoSource::Listener *listener,
-		IPdraw::ICodedVideoSource *source,
+		CodedVideoSourceWrapper *wrapper,
 		const struct pdraw_video_source_params *params);
 
 	~ExternalCodedVideoSource(void);
@@ -61,21 +63,16 @@ public:
 
 	int setSessionMetadata(const struct vmeta_session *meta);
 
-	int getSessionMetadata(struct vmeta_session *meta);
+	int getSessionMetadata(struct vmeta_session *meta) const;
 
-	struct mbuf_coded_video_frame_queue *getQueue(void)
+	struct mbuf_coded_video_frame_queue *getQueue(void) const
 	{
 		return mFrameQueue;
 	}
 
-	IPdraw::ICodedVideoSource *getVideoSource(void)
+	IPdraw::ICodedVideoSource *getVideoSource(void) const
 	{
 		return mVideoSource;
-	}
-
-	IPdraw::ICodedVideoSource::Listener *getVideoSourceListener(void)
-	{
-		return mVideoSourceListener;
 	}
 
 private:
@@ -108,6 +105,44 @@ private:
 	CodedVideoMedia *mOutputMedia;
 	uint64_t mLastTimestamp;
 	bool mFlushPending;
+};
+
+
+class CodedVideoSourceWrapper : public IPdraw::ICodedVideoSource,
+				public ElementWrapper {
+public:
+	CodedVideoSourceWrapper(Session *session,
+				const struct pdraw_video_source_params *params,
+				IPdraw::ICodedVideoSource::Listener *listener);
+
+	~CodedVideoSourceWrapper(void);
+
+	struct mbuf_coded_video_frame_queue *getQueue(void) override;
+
+	int flush(void) override;
+
+	int setSessionMetadata(const struct vmeta_session *meta) override;
+
+	int getSessionMetadata(struct vmeta_session *meta) override;
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+		mSource = nullptr;
+	}
+
+	Source *getSource() const
+	{
+		return mSource;
+	}
+
+	ExternalCodedVideoSource *getCodedVideoSource() const
+	{
+		return mSource;
+	}
+
+private:
+	ExternalCodedVideoSource *mSource;
 };
 
 } /* namespace Pdraw */

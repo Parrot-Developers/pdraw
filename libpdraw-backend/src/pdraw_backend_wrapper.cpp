@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * PDrAW back-end library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -148,7 +148,8 @@ public:
 	int demuxerSelectMedia(Pdraw::IPdraw *pdraw,
 			       Pdraw::IPdraw::IDemuxer *demuxer,
 			       const struct pdraw_demuxer_media *medias,
-			       size_t count)
+			       size_t count,
+			       uint32_t selectedMedias)
 	{
 		if (mCbs.select_media) {
 			return (*mCbs.select_media)(
@@ -157,6 +158,7 @@ public:
 					demuxer),
 				medias,
 				count,
+				selectedMedias,
 				mUserdata);
 		}
 		return -ENOSYS;
@@ -272,17 +274,45 @@ public:
 
 	~PdrawBackendMuxerListener() {}
 
-	void onMuxerNoSpaceLeft(Pdraw::IPdraw *pdraw,
-				Pdraw::IPdraw::IMuxer *muxer,
-				size_t limit,
-				size_t left)
+	void onMuxerConnectionStateChanged(
+		Pdraw::IPdraw *pdraw,
+		Pdraw::IPdraw::IMuxer *muxer,
+		enum pdraw_muxer_connection_state connectionState,
+		enum pdraw_muxer_disconnection_reason disconnectionReason)
+		override
 	{
-		if (mCbs.no_space_left) {
-			(*mCbs.no_space_left)(
+		if (mCbs.connection_state_changed) {
+			(*mCbs.connection_state_changed)(
 				mPdraw,
 				reinterpret_cast<struct pdraw_muxer *>(muxer),
-				limit,
-				left,
+				connectionState,
+				disconnectionReason,
+				mUserdata);
+		}
+	}
+
+	void onMuxerUnrecoverableError(Pdraw::IPdraw *pdraw,
+				       Pdraw::IPdraw::IMuxer *muxer,
+				       int status) override
+	{
+		if (mCbs.unrecoverable_error) {
+			(*mCbs.unrecoverable_error)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_muxer *>(muxer),
+				status,
+				mUserdata);
+		}
+	}
+
+	void muxerCloseResponse(Pdraw::IPdraw *pdraw,
+				Pdraw::IPdraw::IMuxer *muxer,
+				int status) override
+	{
+		if (mCbs.close_resp) {
+			(*mCbs.close_resp)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_muxer *>(muxer),
+				status,
 				mUserdata);
 		}
 	}
@@ -335,7 +365,8 @@ public:
 	void
 	onVideoRendererMediaRemoved(Pdraw::IPdraw *pdraw,
 				    Pdraw::IPdraw::IVideoRenderer *renderer,
-				    const struct pdraw_media_info *info)
+				    const struct pdraw_media_info *info,
+				    bool restart)
 	{
 		if (mCbs.media_removed)
 			(*mCbs.media_removed)(
@@ -343,6 +374,7 @@ public:
 				reinterpret_cast<struct pdraw_video_renderer *>(
 					renderer),
 				info,
+				restart ? 1 : 0,
 				mUserdata);
 	}
 
@@ -395,7 +427,7 @@ public:
 			return -ENOSYS;
 		if ((renderer == nullptr) || (renderPos == nullptr) ||
 		    (contentPos == nullptr) || (viewMat == nullptr) ||
-		    (projMat == nullptr) || (mediaInfo == nullptr))
+		    (projMat == nullptr))
 			return -EINVAL;
 		(*mCbs.render_overlay)(
 			mPdraw,
@@ -430,6 +462,65 @@ private:
 };
 
 
+class PdrawBackendAudioRendererListener
+		: public Pdraw::IPdraw::IAudioRenderer::Listener {
+public:
+	PdrawBackendAudioRendererListener(
+		struct pdraw_backend *pdraw,
+		const struct pdraw_backend_audio_renderer_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mRenderer(nullptr)
+	{
+	}
+
+	~PdrawBackendAudioRendererListener() {}
+
+	void onAudioRendererMediaAdded(Pdraw::IPdraw *pdraw,
+				       Pdraw::IPdraw::IAudioRenderer *renderer,
+				       const struct pdraw_media_info *info)
+	{
+		if (mCbs.media_added)
+			(*mCbs.media_added)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_renderer *>(
+					renderer),
+				info,
+				mUserdata);
+	}
+
+	void
+	onAudioRendererMediaRemoved(Pdraw::IPdraw *pdraw,
+				    Pdraw::IPdraw::IAudioRenderer *renderer,
+				    const struct pdraw_media_info *info)
+	{
+		if (mCbs.media_removed)
+			(*mCbs.media_removed)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_renderer *>(
+					renderer),
+				info,
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IAudioRenderer *getAudioRenderer()
+	{
+		return mRenderer;
+	}
+
+	void setAudioRenderer(Pdraw::IPdraw::IAudioRenderer *renderer)
+	{
+		mRenderer = renderer;
+	}
+
+private:
+	struct pdraw_backend *mPdraw;
+	struct pdraw_backend_audio_renderer_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IAudioRenderer *mRenderer;
+};
+
+
 class PdrawBackendVipcSourceListener
 		: public Pdraw::IPdraw::IVipcSource::Listener {
 public:
@@ -457,6 +548,22 @@ public:
 				(int)ready,
 				eosReason,
 				mUserdata);
+	}
+
+	bool vipcSourceFramerateChanged(Pdraw::IPdraw *pdraw,
+					Pdraw::IPdraw::IVipcSource *source,
+					const struct vdef_frac *prevFramerate,
+					const struct vdef_frac *newFramerate)
+	{
+		if (mCbs.framerate_changed)
+			return (*mCbs.framerate_changed)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_vipc_source *>(
+					source),
+				prevFramerate,
+				newFramerate,
+				mUserdata);
+		return false;
 	}
 
 	void vipcSourceConfigured(IPdraw *pdraw,
@@ -487,6 +594,20 @@ public:
 					source),
 				frame,
 				mUserdata);
+	}
+
+	bool vipcSourceEndOfStream(IPdraw *pdraw,
+				   IPdraw::IVipcSource *source,
+				   enum pdraw_vipc_source_eos_reason eosReason)
+	{
+		if (mCbs.end_of_stream)
+			return (*mCbs.end_of_stream)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_vipc_source *>(
+					source),
+				eosReason,
+				mUserdata);
+		return false;
 	}
 
 	Pdraw::IPdraw::IVipcSource *getVipcSource()
@@ -618,6 +739,19 @@ public:
 				mUserdata);
 	}
 
+	void onCodedVideoSinkSessionMetaUpdate(IPdraw *pdraw,
+					       IPdraw::ICodedVideoSink *sink,
+					       const struct vmeta_session *meta)
+	{
+		if (mCbs.session_metadata_update)
+			(*mCbs.session_metadata_update)(
+				mPdraw,
+				reinterpret_cast<
+					struct pdraw_coded_video_sink *>(sink),
+				meta,
+				mUserdata);
+	}
+
 	Pdraw::IPdraw::ICodedVideoSink *getCodedVideoSink()
 	{
 		return mSink;
@@ -661,6 +795,19 @@ public:
 				mUserdata);
 	}
 
+	void onRawVideoSinkSessionMetaUpdate(IPdraw *pdraw,
+					     IPdraw::IRawVideoSink *sink,
+					     const struct vmeta_session *meta)
+	{
+		if (mCbs.session_metadata_update)
+			(*mCbs.session_metadata_update)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_raw_video_sink *>(
+					sink),
+				meta,
+				mUserdata);
+	}
+
 	Pdraw::IPdraw::IRawVideoSink *getRawVideoSink()
 	{
 		return mSink;
@@ -676,6 +823,152 @@ private:
 	struct pdraw_backend_raw_video_sink_cbs mCbs;
 	void *mUserdata;
 	Pdraw::IPdraw::IRawVideoSink *mSink;
+};
+
+
+class PdrawBackendAlsaSourceListener
+		: public Pdraw::IPdraw::IAlsaSource::Listener {
+public:
+	PdrawBackendAlsaSourceListener(
+		struct pdraw_backend *pdraw,
+		const struct pdraw_backend_alsa_source_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mSource(nullptr)
+	{
+	}
+
+	~PdrawBackendAlsaSourceListener() {}
+
+	void alsaSourceReadyToPlay(IPdraw *pdraw,
+				   IPdraw::IAlsaSource *source,
+				   bool ready,
+				   enum pdraw_alsa_source_eos_reason eosReason)
+	{
+		if (mCbs.ready_to_play)
+			(*mCbs.ready_to_play)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_alsa_source *>(
+					source),
+				(int)ready,
+				eosReason,
+				mUserdata);
+	}
+
+	void alsaSourceFrameReady(IPdraw *pdraw,
+				  IPdraw::IAlsaSource *source,
+				  struct mbuf_audio_frame *frame)
+	{
+		if (mCbs.frame_ready)
+			(*mCbs.frame_ready)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_alsa_source *>(
+					source),
+				frame,
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IAlsaSource *getAlsaSource()
+	{
+		return mSource;
+	}
+
+	void setAlsaSource(Pdraw::IPdraw::IAlsaSource *source)
+	{
+		mSource = source;
+	}
+
+private:
+	struct pdraw_backend *mPdraw;
+	struct pdraw_backend_alsa_source_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IAlsaSource *mSource;
+};
+
+
+class PdrawBackendAudioSourceListener
+		: public Pdraw::IPdraw::IAudioSource::Listener {
+public:
+	PdrawBackendAudioSourceListener(
+		struct pdraw_backend *pdraw,
+		const struct pdraw_backend_audio_source_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mSource(nullptr)
+	{
+	}
+
+	~PdrawBackendAudioSourceListener() {}
+
+	void onAudioSourceFlushed(Pdraw::IPdraw *pdraw,
+				  Pdraw::IPdraw::IAudioSource *source)
+	{
+		if (mCbs.flushed)
+			(*mCbs.flushed)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_source *>(
+					source),
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IAudioSource *getAudioSource()
+	{
+		return mSource;
+	}
+
+	void setAudioSource(Pdraw::IPdraw::IAudioSource *source)
+	{
+		mSource = source;
+	}
+
+private:
+	struct pdraw_backend *mPdraw;
+	struct pdraw_backend_audio_source_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IAudioSource *mSource;
+};
+
+
+class PdrawBackendAudioSinkListener
+		: public Pdraw::IPdraw::IAudioSink::Listener {
+public:
+	PdrawBackendAudioSinkListener(
+		struct pdraw_backend *pdraw,
+		const struct pdraw_backend_audio_sink_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mSink(nullptr)
+	{
+	}
+
+	~PdrawBackendAudioSinkListener() {}
+
+	void onAudioSinkFlush(Pdraw::IPdraw *pdraw,
+			      Pdraw::IPdraw::IAudioSink *sink)
+	{
+		if (mCbs.flush)
+			(*mCbs.flush)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_sink *>(
+					sink),
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IAudioSink *getAudioSink()
+	{
+		return mSink;
+	}
+
+	void setAudioSink(Pdraw::IPdraw::IAudioSink *sink)
+	{
+		mSink = sink;
+	}
+
+private:
+	struct pdraw_backend *mPdraw;
+	struct pdraw_backend_audio_sink_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IAudioSink *mSink;
 };
 
 
@@ -737,6 +1030,109 @@ private:
 };
 
 
+class PdrawBackendVideoScalerListener
+		: public Pdraw::IPdraw::IVideoScaler::Listener {
+public:
+	PdrawBackendVideoScalerListener(
+		struct pdraw_backend *pdraw,
+		const struct pdraw_backend_video_scaler_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mScaler(nullptr)
+	{
+	}
+
+	~PdrawBackendVideoScalerListener() {}
+
+	void videoScalerFrameOutput(IPdraw *pdraw,
+				    IPdraw::IVideoScaler *scaler,
+				    struct mbuf_raw_video_frame *frame)
+	{
+		if (mCbs.frame_output)
+			(*mCbs.frame_output)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_video_scaler *>(
+					scaler),
+				frame,
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IVideoScaler *getVideoScaler()
+	{
+		return mScaler;
+	}
+
+	void setVideoScaler(Pdraw::IPdraw::IVideoScaler *scaler)
+	{
+		mScaler = scaler;
+	}
+
+private:
+	struct pdraw_backend *mPdraw;
+	struct pdraw_backend_video_scaler_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IVideoScaler *mScaler;
+};
+
+
+class PdrawBackendAudioEncoderListener
+		: public Pdraw::IPdraw::IAudioEncoder::Listener {
+public:
+	PdrawBackendAudioEncoderListener(
+		struct pdraw_backend *pdraw,
+		const struct pdraw_backend_audio_encoder_cbs *cbs,
+		void *userdata) :
+			mPdraw(pdraw),
+			mCbs(*cbs), mUserdata(userdata), mEncoder(nullptr)
+	{
+	}
+
+	~PdrawBackendAudioEncoderListener() {}
+
+	void audioEncoderFrameOutput(IPdraw *pdraw,
+				     IPdraw::IAudioEncoder *encoder,
+				     struct mbuf_audio_frame *frame)
+	{
+		if (mCbs.frame_output)
+			(*mCbs.frame_output)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_encoder *>(
+					encoder),
+				frame,
+				mUserdata);
+	}
+
+	void audioEncoderFramePreRelease(IPdraw *pdraw,
+					 IPdraw::IAudioEncoder *encoder,
+					 struct mbuf_audio_frame *frame)
+	{
+		if (mCbs.frame_pre_release)
+			(*mCbs.frame_pre_release)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_encoder *>(
+					encoder),
+				frame,
+				mUserdata);
+	}
+
+	Pdraw::IPdraw::IAudioEncoder *getAudioEncoder()
+	{
+		return mEncoder;
+	}
+
+	void setAudioEncoder(Pdraw::IPdraw::IAudioEncoder *encoder)
+	{
+		mEncoder = encoder;
+	}
+
+private:
+	struct pdraw_backend *mPdraw;
+	struct pdraw_backend_audio_encoder_cbs mCbs;
+	void *mUserdata;
+	Pdraw::IPdraw::IAudioEncoder *mEncoder;
+};
+
+
 struct pdraw_backend {
 	PdrawBackend::IPdrawBackend *pdraw;
 	PdrawBackendListener *listener;
@@ -744,6 +1140,8 @@ struct pdraw_backend {
 	std::vector<PdrawBackendMuxerListener *> *muxerListeners;
 	std::vector<PdrawBackendVideoRendererListener *>
 		*videoRendererListeners;
+	std::vector<PdrawBackendAudioRendererListener *>
+		*audioRendererListeners;
 	std::vector<PdrawBackendVipcSourceListener *> *vipcSourceListeners;
 	std::vector<PdrawBackendCodedVideoSourceListener *>
 		*codedVideoSourceListeners;
@@ -752,7 +1150,12 @@ struct pdraw_backend {
 	std::vector<PdrawBackendCodedVideoSinkListener *>
 		*codedVideoSinkListeners;
 	std::vector<PdrawBackendRawVideoSinkListener *> *rawVideoSinkListeners;
+	std::vector<PdrawBackendAlsaSourceListener *> *alsaSourceListeners;
+	std::vector<PdrawBackendAudioSourceListener *> *audioSourceListeners;
+	std::vector<PdrawBackendAudioSinkListener *> *audioSinkListeners;
 	std::vector<PdrawBackendVideoEncoderListener *> *videoEncoderListeners;
+	std::vector<PdrawBackendVideoScalerListener *> *videoScalerListeners;
+	std::vector<PdrawBackendAudioEncoderListener *> *audioEncoderListeners;
 };
 
 
@@ -786,6 +1189,13 @@ int pdraw_be_new(const struct pdraw_backend_cbs *cbs,
 	self->videoRendererListeners =
 		new std::vector<PdrawBackendVideoRendererListener *>();
 	if (self->videoRendererListeners == nullptr) {
+		res = -ENOMEM;
+		goto error;
+	}
+
+	self->audioRendererListeners =
+		new std::vector<PdrawBackendAudioRendererListener *>();
+	if (self->audioRendererListeners == nullptr) {
 		res = -ENOMEM;
 		goto error;
 	}
@@ -825,9 +1235,44 @@ int pdraw_be_new(const struct pdraw_backend_cbs *cbs,
 		goto error;
 	}
 
+	self->alsaSourceListeners =
+		new std::vector<PdrawBackendAlsaSourceListener *>();
+	if (self->alsaSourceListeners == nullptr) {
+		res = -ENOMEM;
+		goto error;
+	}
+
+	self->audioSourceListeners =
+		new std::vector<PdrawBackendAudioSourceListener *>();
+	if (self->audioSourceListeners == nullptr) {
+		res = -ENOMEM;
+		goto error;
+	}
+
+	self->audioSinkListeners =
+		new std::vector<PdrawBackendAudioSinkListener *>();
+	if (self->audioSinkListeners == nullptr) {
+		res = -ENOMEM;
+		goto error;
+	}
+
 	self->videoEncoderListeners =
 		new std::vector<PdrawBackendVideoEncoderListener *>();
 	if (self->videoEncoderListeners == nullptr) {
+		res = -ENOMEM;
+		goto error;
+	}
+
+	self->videoScalerListeners =
+		new std::vector<PdrawBackendVideoScalerListener *>();
+	if (self->videoScalerListeners == nullptr) {
+		res = -ENOMEM;
+		goto error;
+	}
+
+	self->audioEncoderListeners =
+		new std::vector<PdrawBackendAudioEncoderListener *>();
+	if (self->audioEncoderListeners == nullptr) {
 		res = -ENOMEM;
 		goto error;
 	}
@@ -930,6 +1375,42 @@ int pdraw_be_destroy(struct pdraw_backend *self)
 		delete self->rawVideoSinkListeners;
 	}
 
+	if (self->alsaSourceListeners != nullptr) {
+		std::vector<PdrawBackendAlsaSourceListener *>::iterator l =
+			self->alsaSourceListeners->begin();
+		while (l != self->alsaSourceListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		self->alsaSourceListeners->clear();
+		delete self->alsaSourceListeners;
+	}
+
+	if (self->audioSourceListeners != nullptr) {
+		std::vector<PdrawBackendAudioSourceListener *>::iterator l =
+			self->audioSourceListeners->begin();
+		while (l != self->audioSourceListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		self->audioSourceListeners->clear();
+		delete self->audioSourceListeners;
+	}
+
+	if (self->audioSinkListeners != nullptr) {
+		std::vector<PdrawBackendAudioSinkListener *>::iterator l =
+			self->audioSinkListeners->begin();
+		while (l != self->audioSinkListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		self->audioSinkListeners->clear();
+		delete self->audioSinkListeners;
+	}
+
 	if (self->videoEncoderListeners != nullptr) {
 		std::vector<PdrawBackendVideoEncoderListener *>::iterator l =
 			self->videoEncoderListeners->begin();
@@ -940,6 +1421,42 @@ int pdraw_be_destroy(struct pdraw_backend *self)
 		}
 		self->videoEncoderListeners->clear();
 		delete self->videoEncoderListeners;
+	}
+
+	if (self->videoScalerListeners != nullptr) {
+		std::vector<PdrawBackendVideoScalerListener *>::iterator l =
+			self->videoScalerListeners->begin();
+		while (l != self->videoScalerListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		self->videoScalerListeners->clear();
+		delete self->videoScalerListeners;
+	}
+
+	if (self->audioEncoderListeners != nullptr) {
+		std::vector<PdrawBackendAudioEncoderListener *>::iterator l =
+			self->audioEncoderListeners->begin();
+		while (l != self->audioEncoderListeners->end()) {
+			if (*l != nullptr)
+				delete (*l);
+			l++;
+		}
+		self->audioEncoderListeners->clear();
+		delete self->audioEncoderListeners;
+	}
+
+	if (self->audioRendererListeners != nullptr) {
+		std::vector<PdrawBackendAudioRendererListener *>::iterator r =
+			self->audioRendererListeners->begin();
+		while (r != self->audioRendererListeners->end()) {
+			if (*r != nullptr)
+				delete (*r);
+			r++;
+		}
+		self->audioRendererListeners->clear();
+		delete self->audioRendererListeners;
 	}
 
 	if (self->videoRendererListeners != nullptr) {
@@ -1001,6 +1518,7 @@ struct pomp_loop *pdraw_be_get_loop(struct pdraw_backend *self)
 
 int pdraw_be_demuxer_new_from_url(struct pdraw_backend *self,
 				  const char *url,
+				  const struct pdraw_demuxer_params *params,
 				  const struct pdraw_backend_demuxer_cbs *cbs,
 				  void *userdata,
 				  struct pdraw_demuxer **ret_obj)
@@ -1009,6 +1527,7 @@ int pdraw_be_demuxer_new_from_url(struct pdraw_backend *self,
 	Pdraw::IPdraw::IDemuxer *demuxer = nullptr;
 
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
@@ -1020,7 +1539,7 @@ int pdraw_be_demuxer_new_from_url(struct pdraw_backend *self,
 	}
 
 	std::string u(url ? url : "");
-	res = self->pdraw->createDemuxer(u, l, &demuxer);
+	res = self->pdraw->createDemuxer(u, params, l, &demuxer);
 	if (res < 0) {
 		delete l;
 		return res;
@@ -1042,6 +1561,7 @@ int pdraw_be_demuxer_new_single_stream(
 	const char *remote_addr,
 	uint16_t remote_stream_port,
 	uint16_t remote_control_port,
+	const struct pdraw_demuxer_params *params,
 	const struct pdraw_backend_demuxer_cbs *cbs,
 	void *userdata,
 	struct pdraw_demuxer **ret_obj)
@@ -1050,6 +1570,7 @@ int pdraw_be_demuxer_new_single_stream(
 	Pdraw::IPdraw::IDemuxer *demuxer = nullptr;
 
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
@@ -1068,6 +1589,7 @@ int pdraw_be_demuxer_new_single_stream(
 					 remote,
 					 remote_stream_port,
 					 remote_control_port,
+					 params,
 					 l,
 					 &demuxer);
 	if (res < 0) {
@@ -1087,6 +1609,7 @@ int pdraw_be_demuxer_new_from_url_on_mux(
 	struct pdraw_backend *self,
 	const char *url,
 	struct mux_ctx *mux,
+	const struct pdraw_demuxer_params *params,
 	const struct pdraw_backend_demuxer_cbs *cbs,
 	void *userdata,
 	struct pdraw_demuxer **ret_obj)
@@ -1095,6 +1618,7 @@ int pdraw_be_demuxer_new_from_url_on_mux(
 	Pdraw::IPdraw::IDemuxer *demuxer = nullptr;
 
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
@@ -1106,7 +1630,7 @@ int pdraw_be_demuxer_new_from_url_on_mux(
 	}
 
 	std::string u(url ? url : "");
-	res = self->pdraw->createDemuxer(u, mux, l, &demuxer);
+	res = self->pdraw->createDemuxer(u, mux, params, l, &demuxer);
 	if (res < 0) {
 		delete l;
 		return res;
@@ -1158,6 +1682,36 @@ int pdraw_be_demuxer_close(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(demuxer == nullptr, EINVAL);
 
 	return d->close();
+}
+
+
+int pdraw_be_demuxer_get_media_list(struct pdraw_backend *self,
+				    struct pdraw_demuxer *demuxer,
+				    struct pdraw_demuxer_media **media_list,
+				    size_t *media_count,
+				    uint32_t *selected_medias)
+{
+	Pdraw::IPdraw::IDemuxer *d =
+		reinterpret_cast<Pdraw::IPdraw::IDemuxer *>(demuxer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(demuxer == nullptr, EINVAL);
+
+	return d->getMediaList(media_list, media_count, selected_medias);
+}
+
+
+int pdraw_be_demuxer_select_media(struct pdraw_backend *self,
+				  struct pdraw_demuxer *demuxer,
+				  uint32_t selected_medias)
+{
+	Pdraw::IPdraw::IDemuxer *d =
+		reinterpret_cast<Pdraw::IPdraw::IDemuxer *>(demuxer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(demuxer == nullptr, EINVAL);
+
+	return d->selectMedia(selected_medias);
 }
 
 
@@ -1341,6 +1895,21 @@ int pdraw_be_demuxer_seek_to(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_demuxer_get_chapter_list(struct pdraw_backend *self,
+				      struct pdraw_demuxer *demuxer,
+				      struct pdraw_chapter **chapter_list,
+				      size_t *chapter_count)
+{
+	Pdraw::IPdraw::IDemuxer *d =
+		reinterpret_cast<Pdraw::IPdraw::IDemuxer *>(demuxer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(demuxer == nullptr, EINVAL);
+
+	return d->getChapterList(chapter_list, chapter_count);
+}
+
+
 uint64_t pdraw_be_demuxer_get_duration(struct pdraw_backend *self,
 				       struct pdraw_demuxer *demuxer)
 {
@@ -1433,11 +2002,22 @@ int pdraw_be_muxer_destroy(struct pdraw_backend *self,
 }
 
 
-int pdraw_be_muxer_add_media(
-	struct pdraw_backend *self,
-	struct pdraw_muxer *muxer,
-	unsigned int media_id,
-	const struct pdraw_muxer_video_media_params *params)
+int pdraw_be_muxer_close(struct pdraw_backend *self, struct pdraw_muxer *muxer)
+{
+	Pdraw::IPdraw::IMuxer *m =
+		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(muxer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(muxer == nullptr, EINVAL);
+
+	return m->close();
+}
+
+
+int pdraw_be_muxer_add_media(struct pdraw_backend *self,
+			     struct pdraw_muxer *muxer,
+			     unsigned int media_id,
+			     const struct pdraw_muxer_media_params *params)
 {
 	Pdraw::IPdraw::IMuxer *m =
 		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(muxer);
@@ -1465,6 +2045,35 @@ int pdraw_be_muxer_set_thumbnail(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_muxer_add_chapter(struct pdraw_backend *self,
+			       struct pdraw_muxer *muxer,
+			       uint64_t timestamp,
+			       const char *name)
+{
+	Pdraw::IPdraw::IMuxer *m =
+		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(muxer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(muxer == nullptr, EINVAL);
+
+	return m->addChapter(timestamp, name);
+}
+
+
+int pdraw_be_muxer_get_stats(struct pdraw_backend *self,
+			     struct pdraw_muxer *muxer,
+			     struct pdraw_muxer_stats *stats)
+{
+	Pdraw::IPdraw::IMuxer *m =
+		reinterpret_cast<Pdraw::IPdraw::IMuxer *>(muxer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(muxer == nullptr, EINVAL);
+
+	return m->getStats(stats);
+}
+
+
 int pdraw_be_video_renderer_new(
 	struct pdraw_backend *self,
 	unsigned int media_id,
@@ -1472,27 +2081,6 @@ int pdraw_be_video_renderer_new(
 	const struct pdraw_video_renderer_params *params,
 	const struct pdraw_backend_video_renderer_cbs *cbs,
 	void *userdata,
-	struct pdraw_video_renderer **ret_obj)
-{
-	return pdraw_be_video_renderer_new_egl(self,
-					       media_id,
-					       render_pos,
-					       params,
-					       cbs,
-					       userdata,
-					       nullptr,
-					       ret_obj);
-}
-
-
-int pdraw_be_video_renderer_new_egl(
-	struct pdraw_backend *self,
-	unsigned int media_id,
-	const struct pdraw_rect *render_pos,
-	const struct pdraw_video_renderer_params *params,
-	const struct pdraw_backend_video_renderer_cbs *cbs,
-	void *userdata,
-	struct egl_display *egl_display,
 	struct pdraw_video_renderer **ret_obj)
 {
 	int res;
@@ -1509,7 +2097,7 @@ int pdraw_be_video_renderer_new_egl(
 	}
 
 	res = self->pdraw->createVideoRenderer(
-		media_id, render_pos, params, l, &renderer, egl_display);
+		media_id, render_pos, params, l, &renderer);
 	if (res < 0) {
 		delete l;
 		return res;
@@ -1653,6 +2241,127 @@ int pdraw_be_video_renderer_render_mat(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_audio_renderer_new(
+	struct pdraw_backend *self,
+	unsigned int media_id,
+	const struct pdraw_audio_renderer_params *params,
+	const struct pdraw_backend_audio_renderer_cbs *cbs,
+	void *userdata,
+	struct pdraw_audio_renderer **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IAudioRenderer *renderer = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
+
+	PdrawBackendAudioRendererListener *l =
+		new PdrawBackendAudioRendererListener(self, cbs, userdata);
+	if (l == nullptr) {
+		ULOGE("failed to create audio renderer listener");
+		return -ENOMEM;
+	}
+
+	res = self->pdraw->createAudioRenderer(media_id, params, l, &renderer);
+	if (res < 0) {
+		delete l;
+		return res;
+	}
+
+	self->audioRendererListeners->push_back(l);
+	l->setAudioRenderer(renderer);
+
+	*ret_obj = reinterpret_cast<struct pdraw_audio_renderer *>(renderer);
+	return 0;
+}
+
+
+int pdraw_be_audio_renderer_destroy(struct pdraw_backend *self,
+				    struct pdraw_audio_renderer *renderer)
+{
+	Pdraw::IPdraw::IAudioRenderer *rnd =
+		reinterpret_cast<Pdraw::IPdraw::IAudioRenderer *>(renderer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(renderer == nullptr, EINVAL);
+
+	/* The object must be destroyed before the listener */
+	delete rnd;
+
+	std::vector<PdrawBackendAudioRendererListener *>::iterator l =
+		self->audioRendererListeners->begin();
+	while (l != self->audioRendererListeners->end()) {
+		if ((*l)->getAudioRenderer() != rnd) {
+			l++;
+			continue;
+		}
+		delete *l;
+		self->audioRendererListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+int pdraw_be_audio_renderer_set_media_id(struct pdraw_backend *self,
+					 struct pdraw_audio_renderer *renderer,
+					 unsigned int media_id)
+{
+	Pdraw::IPdraw::IAudioRenderer *rnd =
+		reinterpret_cast<Pdraw::IPdraw::IAudioRenderer *>(renderer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(renderer == nullptr, EINVAL);
+
+	return rnd->setMediaId(media_id);
+}
+
+
+unsigned int
+pdraw_be_audio_renderer_get_media_id(struct pdraw_backend *self,
+				     struct pdraw_audio_renderer *renderer)
+{
+	Pdraw::IPdraw::IAudioRenderer *rnd =
+		reinterpret_cast<Pdraw::IPdraw::IAudioRenderer *>(renderer);
+
+	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(renderer == nullptr, EINVAL, 0);
+
+	return rnd->getMediaId();
+}
+
+
+int pdraw_be_audio_renderer_set_params(
+	struct pdraw_backend *self,
+	struct pdraw_audio_renderer *renderer,
+	const struct pdraw_audio_renderer_params *params)
+{
+	Pdraw::IPdraw::IAudioRenderer *rnd =
+		reinterpret_cast<Pdraw::IPdraw::IAudioRenderer *>(renderer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(renderer == nullptr, EINVAL);
+
+	return rnd->setParams(params);
+}
+
+
+int pdraw_be_audio_renderer_get_params(
+	struct pdraw_backend *self,
+	struct pdraw_audio_renderer *renderer,
+	struct pdraw_audio_renderer_params *params)
+{
+	Pdraw::IPdraw::IAudioRenderer *rnd =
+		reinterpret_cast<Pdraw::IPdraw::IAudioRenderer *>(renderer);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(renderer == nullptr, EINVAL);
+
+	return rnd->getParams(params);
+}
+
+
 int pdraw_be_vipc_source_new(struct pdraw_backend *self,
 			     const struct pdraw_vipc_source_params *params,
 			     const struct pdraw_backend_vipc_source_cbs *cbs,
@@ -1780,6 +2489,20 @@ int pdraw_be_vipc_source_configure(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
 
 	return s->configure(resolution, crop);
+}
+
+
+int pdraw_be_vipc_source_insert_grey_frame(struct pdraw_backend *self,
+					   struct pdraw_vipc_source *source,
+					   uint64_t ts_us)
+{
+	Pdraw::IPdraw::IVipcSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IVipcSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	return s->insertGreyFrame(ts_us);
 }
 
 
@@ -2254,6 +2977,302 @@ int pdraw_be_raw_video_sink_queue_flushed(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_alsa_source_new(struct pdraw_backend *self,
+			     const struct pdraw_alsa_source_params *params,
+			     const struct pdraw_backend_alsa_source_cbs *cbs,
+			     void *userdata,
+			     struct pdraw_alsa_source **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IAlsaSource *source = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
+
+	PdrawBackendAlsaSourceListener *l =
+		new PdrawBackendAlsaSourceListener(self, cbs, userdata);
+	if (l == nullptr) {
+		ULOGE("failed to create ALSA source listener");
+		return -ENOMEM;
+	}
+
+	res = self->pdraw->createAlsaSource(params, l, &source);
+	if (res < 0) {
+		delete l;
+		return res;
+	}
+
+	l->setAlsaSource(source);
+	self->alsaSourceListeners->push_back(l);
+
+	*ret_obj = reinterpret_cast<struct pdraw_alsa_source *>(source);
+	return 0;
+}
+
+
+int pdraw_be_alsa_source_destroy(struct pdraw_backend *self,
+				 struct pdraw_alsa_source *source)
+{
+	std::vector<PdrawBackendAlsaSourceListener *>::iterator l;
+	Pdraw::IPdraw::IAlsaSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAlsaSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	/* The object must be destroyed before the listener */
+	delete s;
+
+	l = self->alsaSourceListeners->begin();
+	while (l != self->alsaSourceListeners->end()) {
+		if ((*l)->getAlsaSource() != s) {
+			l++;
+			continue;
+		}
+		delete *l;
+		self->alsaSourceListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+int pdraw_be_alsa_source_is_ready_to_play(struct pdraw_backend *self,
+					  struct pdraw_alsa_source *source)
+{
+	Pdraw::IPdraw::IAlsaSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAlsaSource *>(source);
+
+	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(source == nullptr, EINVAL, 0);
+
+	return s->isReadyToPlay() ? 1 : 0;
+}
+
+
+int pdraw_be_alsa_source_is_paused(struct pdraw_backend *self,
+				   struct pdraw_alsa_source *source)
+{
+	Pdraw::IPdraw::IAlsaSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAlsaSource *>(source);
+
+	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(source == nullptr, EINVAL, 0);
+
+	return s->isPaused() ? 1 : 0;
+}
+
+
+int pdraw_be_alsa_source_play(struct pdraw_backend *self,
+			      struct pdraw_alsa_source *source)
+{
+	Pdraw::IPdraw::IAlsaSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAlsaSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	return s->play();
+}
+
+
+int pdraw_be_alsa_source_pause(struct pdraw_backend *self,
+			       struct pdraw_alsa_source *source)
+{
+	Pdraw::IPdraw::IAlsaSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAlsaSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	return s->pause();
+}
+
+
+int pdraw_be_audio_source_new(struct pdraw_backend *self,
+			      const struct pdraw_audio_source_params *params,
+			      const struct pdraw_backend_audio_source_cbs *cbs,
+			      void *userdata,
+			      struct pdraw_audio_source **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IAudioSource *source = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->flushed == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
+
+	PdrawBackendAudioSourceListener *l =
+		new PdrawBackendAudioSourceListener(self, cbs, userdata);
+	if (l == nullptr) {
+		ULOGE("failed to create audio source listener");
+		return -ENOMEM;
+	}
+
+	res = self->pdraw->createAudioSource(params, l, &source);
+	if (res < 0) {
+		delete l;
+		return res;
+	}
+
+	l->setAudioSource(source);
+	self->audioSourceListeners->push_back(l);
+
+	*ret_obj = reinterpret_cast<struct pdraw_audio_source *>(source);
+	return 0;
+}
+
+
+int pdraw_be_audio_source_destroy(struct pdraw_backend *self,
+				  struct pdraw_audio_source *source)
+{
+	std::vector<PdrawBackendAudioSourceListener *>::iterator l;
+	Pdraw::IPdraw::IAudioSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	/* The object must be destroyed before the listener */
+	delete s;
+
+	l = self->audioSourceListeners->begin();
+	while (l != self->audioSourceListeners->end()) {
+		if ((*l)->getAudioSource() != s) {
+			l++;
+			continue;
+		}
+		delete *l;
+		self->audioSourceListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+struct mbuf_audio_frame_queue *
+pdraw_be_audio_source_get_queue(struct pdraw_backend *self,
+				struct pdraw_audio_source *source)
+{
+	Pdraw::IPdraw::IAudioSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSource *>(source);
+
+	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, nullptr);
+	ULOG_ERRNO_RETURN_VAL_IF(source == nullptr, EINVAL, nullptr);
+
+	return s->getQueue();
+}
+
+
+int pdraw_be_audio_source_flush(struct pdraw_backend *self,
+				struct pdraw_audio_source *source)
+{
+	Pdraw::IPdraw::IAudioSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	return s->flush();
+}
+
+
+int pdraw_be_audio_sink_new(struct pdraw_backend *self,
+			    unsigned int media_id,
+			    const struct pdraw_backend_audio_sink_cbs *cbs,
+			    void *userdata,
+			    struct pdraw_audio_sink **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IAudioSink *sink = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->flush == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
+
+	PdrawBackendAudioSinkListener *l =
+		new PdrawBackendAudioSinkListener(self, cbs, userdata);
+	if (l == nullptr) {
+		ULOGE("failed to create audio sink listener");
+		return -ENOMEM;
+	}
+
+	res = self->pdraw->createAudioSink(media_id, l, &sink);
+	if (res < 0) {
+		delete l;
+		return res;
+	}
+
+	l->setAudioSink(sink);
+	self->audioSinkListeners->push_back(l);
+
+	*ret_obj = reinterpret_cast<struct pdraw_audio_sink *>(sink);
+	return 0;
+}
+
+
+int pdraw_be_audio_sink_destroy(struct pdraw_backend *self,
+				struct pdraw_audio_sink *sink)
+{
+	std::vector<PdrawBackendAudioSinkListener *>::iterator l;
+	Pdraw::IPdraw::IAudioSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	/* The object must be destroyed before the listener */
+	delete s;
+
+	l = self->audioSinkListeners->begin();
+	while (l != self->audioSinkListeners->end()) {
+		if ((*l)->getAudioSink() != s) {
+			l++;
+			continue;
+		}
+		delete *l;
+		self->audioSinkListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+struct mbuf_audio_frame_queue *
+pdraw_be_audio_sink_get_queue(struct pdraw_backend *self,
+			      struct pdraw_audio_sink *sink)
+{
+	Pdraw::IPdraw::IAudioSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSink *>(sink);
+
+	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, nullptr);
+	ULOG_ERRNO_RETURN_VAL_IF(sink == nullptr, EINVAL, nullptr);
+
+	return s->getQueue();
+}
+
+
+int pdraw_be_audio_sink_queue_flushed(struct pdraw_backend *self,
+				      struct pdraw_audio_sink *sink)
+{
+	Pdraw::IPdraw::IAudioSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	return s->queueFlushed();
+}
+
+
 int pdraw_be_video_encoder_new(
 	struct pdraw_backend *self,
 	unsigned int media_id,
@@ -2330,6 +3349,149 @@ int pdraw_be_video_encoder_configure(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(encoder == nullptr, EINVAL);
 
 	return e->configure(config);
+}
+
+
+int pdraw_be_video_encoder_get_config(struct pdraw_backend *self,
+				      struct pdraw_video_encoder *encoder,
+				      struct venc_dyn_config *config)
+{
+	Pdraw::IPdraw::IVideoEncoder *e =
+		reinterpret_cast<Pdraw::IPdraw::IVideoEncoder *>(encoder);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(encoder == nullptr, EINVAL);
+
+	return e->getConfig(config);
+}
+
+
+int pdraw_be_video_scaler_new(struct pdraw_backend *self,
+			      unsigned int media_id,
+			      const struct vscale_config *params,
+			      const struct pdraw_backend_video_scaler_cbs *cbs,
+			      void *userdata,
+			      struct pdraw_video_scaler **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IVideoScaler *scaler = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
+
+	PdrawBackendVideoScalerListener *l =
+		new PdrawBackendVideoScalerListener(self, cbs, userdata);
+	if (l == nullptr) {
+		ULOGE("failed to create video scaler listener");
+		return -ENOMEM;
+	}
+
+	res = self->pdraw->createVideoScaler(media_id, params, l, &scaler);
+	if (res < 0) {
+		delete l;
+		return res;
+	}
+
+	l->setVideoScaler(scaler);
+	self->videoScalerListeners->push_back(l);
+
+	*ret_obj = reinterpret_cast<struct pdraw_video_scaler *>(scaler);
+	return 0;
+}
+
+
+int pdraw_be_video_scaler_destroy(struct pdraw_backend *self,
+				  struct pdraw_video_scaler *scaler)
+{
+	std::vector<PdrawBackendVideoScalerListener *>::iterator l;
+	Pdraw::IPdraw::IVideoScaler *e =
+		reinterpret_cast<Pdraw::IPdraw::IVideoScaler *>(scaler);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(scaler == nullptr, EINVAL);
+
+	/* The object must be destroyed before the listener */
+	delete e;
+
+	l = self->videoScalerListeners->begin();
+	while (l != self->videoScalerListeners->end()) {
+		if ((*l)->getVideoScaler() != e) {
+			l++;
+			continue;
+		}
+		delete *l;
+		self->videoScalerListeners->erase(l);
+		break;
+	}
+
+	return 0;
+}
+
+
+int pdraw_be_audio_encoder_new(
+	struct pdraw_backend *self,
+	unsigned int media_id,
+	const struct aenc_config *params,
+	const struct pdraw_backend_audio_encoder_cbs *cbs,
+	void *userdata,
+	struct pdraw_audio_encoder **ret_obj)
+{
+	int res;
+	Pdraw::IPdraw::IAudioEncoder *encoder = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
+
+	PdrawBackendAudioEncoderListener *l =
+		new PdrawBackendAudioEncoderListener(self, cbs, userdata);
+	if (l == nullptr) {
+		ULOGE("failed to create audio encoder listener");
+		return -ENOMEM;
+	}
+
+	res = self->pdraw->createAudioEncoder(media_id, params, l, &encoder);
+	if (res < 0) {
+		delete l;
+		return res;
+	}
+
+	l->setAudioEncoder(encoder);
+	self->audioEncoderListeners->push_back(l);
+
+	*ret_obj = reinterpret_cast<struct pdraw_audio_encoder *>(encoder);
+	return 0;
+}
+
+
+int pdraw_be_audio_encoder_destroy(struct pdraw_backend *self,
+				   struct pdraw_audio_encoder *encoder)
+{
+	std::vector<PdrawBackendAudioEncoderListener *>::iterator l;
+	Pdraw::IPdraw::IAudioEncoder *e =
+		reinterpret_cast<Pdraw::IPdraw::IAudioEncoder *>(encoder);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(encoder == nullptr, EINVAL);
+
+	/* The object must be destroyed before the listener */
+	delete e;
+
+	l = self->audioEncoderListeners->begin();
+	while (l != self->audioEncoderListeners->end()) {
+		if ((*l)->getAudioEncoder() != e) {
+			l++;
+			continue;
+		}
+		delete *l;
+		self->audioEncoderListeners->erase(l);
+		break;
+	}
+
+	return 0;
 }
 
 
@@ -2416,94 +3578,6 @@ int pdraw_be_set_software_version_setting(struct pdraw_backend *self,
 
 	std::string sv(software_version);
 	self->pdraw->setSoftwareVersionSetting(sv);
-	return 0;
-}
-
-
-enum pdraw_pipeline_mode
-pdraw_be_get_pipeline_mode_setting(struct pdraw_backend *self)
-{
-	ULOG_ERRNO_RETURN_VAL_IF(
-		self == nullptr, EINVAL, PDRAW_PIPELINE_MODE_DECODE_ALL);
-
-	return self->pdraw->getPipelineModeSetting();
-}
-
-
-int pdraw_be_set_pipeline_mode_setting(struct pdraw_backend *self,
-				       enum pdraw_pipeline_mode mode)
-{
-	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-
-	self->pdraw->setPipelineModeSetting(mode);
-	return 0;
-}
-
-
-int pdraw_be_get_display_screen_settings(struct pdraw_backend *self,
-					 float *xdpi,
-					 float *ydpi,
-					 float *device_margin_top,
-					 float *device_margin_bottom,
-					 float *device_margin_left,
-					 float *device_margin_right)
-{
-	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-
-	self->pdraw->getDisplayScreenSettings(xdpi,
-					      ydpi,
-					      device_margin_top,
-					      device_margin_bottom,
-					      device_margin_left,
-					      device_margin_right);
-	return 0;
-}
-
-
-int pdraw_be_set_display_screen_settings(struct pdraw_backend *self,
-					 float xdpi,
-					 float ydpi,
-					 float device_margin_top,
-					 float device_margin_bottom,
-					 float device_margin_left,
-					 float device_margin_right)
-{
-	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-
-	self->pdraw->setDisplayScreenSettings(xdpi,
-					      ydpi,
-					      device_margin_top,
-					      device_margin_bottom,
-					      device_margin_left,
-					      device_margin_right);
-	return 0;
-}
-
-
-enum pdraw_hmd_model pdraw_be_get_hmd_model_setting(struct pdraw_backend *self)
-{
-	ULOG_ERRNO_RETURN_VAL_IF(
-		self == nullptr, EINVAL, PDRAW_HMD_MODEL_UNKNOWN);
-
-	return self->pdraw->getHmdModelSetting();
-}
-
-
-int pdraw_be_set_hmd_model_setting(struct pdraw_backend *self,
-				   enum pdraw_hmd_model hmd_model)
-{
-	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-
-	self->pdraw->setHmdModelSetting(hmd_model);
-	return 0;
-}
-
-
-int pdraw_be_set_android_jvm(struct pdraw_backend *self, void *jvm)
-{
-	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-
-	self->pdraw->setAndroidJvm(jvm);
 	return 0;
 }
 

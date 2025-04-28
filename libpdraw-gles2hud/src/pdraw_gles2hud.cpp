@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * OpenGL ES 2.0 HUD rendering library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -37,6 +37,9 @@ ULOG_DECLARE_TAG(pdraw_gles2hud);
 #endif
 
 
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+
+
 enum drone_model {
 	/* Unknown drone model */
 	DRONE_MODEL_UNKNOWN = 0,
@@ -53,23 +56,28 @@ enum drone_model {
 	/* Parrot Bluegrass */
 	DRONE_MODEL_BLUEGRASS,
 
-	/* Parrot Anafi */
-	DRONE_MODEL_ANAFI,
+	/* Parrot ANAFI 4K */
+	DRONE_MODEL_ANAFI_4K,
 
-	/* Parrot Anafi Thermal */
+	/* Parrot ANAFI Thermal */
 	DRONE_MODEL_ANAFI_THERMAL,
+
+	/* Parrot ANAFI UA */
+	DRONE_MODEL_ANAFI_UA,
+
+	/* Parrot ANAFI USA */
+	DRONE_MODEL_ANAFI_USA,
+
+	/* Parrot ANAFI Ai */
+	DRONE_MODEL_ANAFI_AI,
+
+	/* Parrot ANAFI3 MIL */
+	DRONE_MODEL_ANAFI3_MIL,
+
+	/* Parrot ANAFI3 GOV */
+	DRONE_MODEL_ANAFI3_GOV,
 };
 
-
-static const int drone_model_icon_index[] = {
-	2,
-	0,
-	2,
-	1,
-	2,
-	2,
-	2,
-};
 
 static const char *heading_str[] = {
 	".N.",
@@ -98,50 +106,129 @@ static const char *piloting_mode_str[] = {
 	"FOLLOW ME",
 };
 
+static const char *link_type_str[] = {
+	"",
+	"LO",
+	"LAN",
+	"WLAN",
+	"CELL",
+};
+
 static const float color_green[4] = {0.0f, 0.9f, 0.0f, 1.0f};
 
 static const float color_dark_green[4] = {0.0f, 0.5f, 0.0f, 1.0f};
 
 static const float color_black_alpha[4] = {0.0f, 0.0f, 0.0f, 0.66f};
 
+static const float color_dark_blue[4] = {0.0f, 0.0f, 0.54f, 1.0f};
+
+
+static const struct {
+	const char *model_id;
+	const char *model_str;
+	const char *friendly_name;
+	int icon_index;
+} drone_model_info[] = {
+	{"", "", "", -1}, /* DRONE_MODEL_UNKNOWN */
+	{"0901", "Bebop", "Parrot Bebop", 0}, /* DRONE_MODEL_BEBOP */
+	{"090c", "Bebop 2", "Parrot Bebop 2", 2}, /* DRONE_MODEL_BEBOP2 */
+	{"090e", "Disco", "Parrot Disco", 1}, /* DRONE_MODEL_DISCO */
+	{"0916", "Bluegrass", nullptr, 2}, /* DRONE_MODEL_BLUEGRASS */
+	{"0914", "Anafi", nullptr, 2}, /* DRONE_MODEL_ANAFI_4K */
+	{"0919", "AnafiThermal", nullptr, 2}, /* DRONE_MODEL_ANAFI_THERMAL */
+	{"091b", "AnafiUA", nullptr, 2}, /* DRONE_MODEL_ANAFI_UA */
+	{"091e", "AnafiUSA", nullptr, 2}, /* DRONE_MODEL_ANAFI_USA */
+	{"091a", "ANAFI Ai", nullptr, 2}, /* DRONE_MODEL_ANAFI_AI */
+	{"0920", "ANAFI3-MIL", nullptr, 2}, /* DRONE_MODEL_ANAFI3_MIL */
+	{"0920", "ANAFI3-GOV", nullptr, 2}, /* DRONE_MODEL_ANAFI3_GOV
+					       TODO: model_id not
+					       available yet */
+};
+
 
 static enum drone_model
 get_drone_model(const struct vmeta_session *session_meta)
 {
-	if (strcmp(session_meta->model_id, "0901") == 0)
-		return DRONE_MODEL_BEBOP;
-	else if (strcmp(session_meta->model_id, "090c") == 0)
-		return DRONE_MODEL_BEBOP2;
-	else if (strcmp(session_meta->model_id, "090e") == 0)
-		return DRONE_MODEL_DISCO;
-	else if (strcmp(session_meta->model_id, "0916") == 0)
-		return DRONE_MODEL_BLUEGRASS;
-	else if (strcmp(session_meta->model_id, "0914") == 0)
-		return DRONE_MODEL_ANAFI;
-	else if (strcmp(session_meta->model_id, "0919") == 0)
-		return DRONE_MODEL_ANAFI_THERMAL;
-	else if (strcmp(session_meta->model, "Bebop") == 0)
-		return DRONE_MODEL_BEBOP;
-	else if (strcmp(session_meta->model, "Bebop 2") == 0)
-		return DRONE_MODEL_BEBOP2;
-	else if (strcmp(session_meta->model, "Disco") == 0)
-		return DRONE_MODEL_DISCO;
-	else if (strcmp(session_meta->model, "Bluegrass") == 0)
-		return DRONE_MODEL_BLUEGRASS;
-	else if (strcmp(session_meta->model, "ANAFI") == 0)
-		return DRONE_MODEL_ANAFI;
-	else if (strcmp(session_meta->model, "Anafi") == 0)
-		return DRONE_MODEL_ANAFI;
-	else if (strcmp(session_meta->model, "AnafiThermal") == 0)
-		return DRONE_MODEL_ANAFI_THERMAL;
-	else if (strcmp(session_meta->friendly_name, "Parrot Bebop") == 0)
-		return DRONE_MODEL_BEBOP;
-	else if (strcmp(session_meta->friendly_name, "Parrot Bebop 2") == 0)
-		return DRONE_MODEL_BEBOP2;
-	else if (strcmp(session_meta->friendly_name, "Parrot Disco") == 0)
-		return DRONE_MODEL_DISCO;
-	else
-		return DRONE_MODEL_UNKNOWN;
+	ULOG_ERRNO_RETURN_VAL_IF(
+		session_meta == nullptr, EINVAL, DRONE_MODEL_UNKNOWN);
+
+	for (size_t i = 0; i < ARRAY_SIZE(drone_model_info); i++) {
+		bool found = strcasecmp(drone_model_info[i].model_id,
+					session_meta->model_id) == 0;
+		found |= strcasecmp(drone_model_info[i].model_str,
+				    session_meta->model) == 0;
+		found |= drone_model_info[i].friendly_name != nullptr &&
+			 strcasecmp(drone_model_info[i].friendly_name,
+				    session_meta->friendly_name) == 0;
+		if (found)
+			return (enum drone_model)i;
+	}
+	return DRONE_MODEL_UNKNOWN;
+}
+
+
+static const char *get_active_link(struct vmeta_frame *meta)
+{
+	int res = 0, count = 0;
+	const char *ret = "";
+	const Vmeta__TimedMetadata *tm;
+	const Vmeta__LinkMetadata *link;
+	size_t i;
+
+	if (meta->type != VMETA_FRAME_TYPE_PROTO)
+		return link_type_str[VMETA__LINK_TYPE__LINK_TYPE_WLAN];
+
+	res = vmeta_frame_proto_get_unpacked(meta, &tm);
+	if (res < 0)
+		return "";
+
+	if (tm->n_links != 1)
+		goto out;
+
+	link = tm->links[0];
+	if (link->protocol_case != VMETA__LINK_METADATA__PROTOCOL_STARFISH) {
+		ret = link_type_str[VMETA__LINK_TYPE__LINK_TYPE_WLAN];
+		goto out;
+	}
+
+	for (i = 0; i < link->starfish->n_links; i++) {
+		if (!link->starfish->links[i]->active)
+			continue;
+		count++;
+		ret = link_type_str[link->starfish->links[i]->type];
+	}
+
+	if (count > 1)
+		ret = "";
+
+out:
+	vmeta_frame_proto_release_unpacked(meta, tm);
+	return ret;
+}
+
+static const struct {
+	const char *object_name;
+	enum _Vmeta__TrackingClass object_class;
+} tracking_object_map[] = {
+	{"Undefined", VMETA__TRACKING_CLASS__TC_UNDEFINED},
+	{"Person", VMETA__TRACKING_CLASS__TC_PERSON},
+	{"Animal", VMETA__TRACKING_CLASS__TC_ANIMAL},
+	{"Bicycle", VMETA__TRACKING_CLASS__TC_BICYCLE},
+	{"Boat", VMETA__TRACKING_CLASS__TC_BOAT},
+	{"Car", VMETA__TRACKING_CLASS__TC_CAR},
+	{"Horse", VMETA__TRACKING_CLASS__TC_HORSE},
+	{"Motorbike", VMETA__TRACKING_CLASS__TC_MOTORBIKE},
+};
+
+
+static const char *
+get_tracking_object(const enum _Vmeta__TrackingClass object_class)
+{
+	for (size_t i = 0; i < ARRAY_SIZE(tracking_object_map); i++) {
+		if (object_class == tracking_object_map[i].object_class)
+			return tracking_object_map[i].object_name;
+	}
+	return tracking_object_map[0].object_name;
 }
 
 
@@ -195,6 +282,14 @@ int pdraw_gles2hud_new(const struct pdraw_gles2hud_config *config,
 	}
 	if (self->config.text_size <= 0.) {
 		self->config.text_size = PDRAW_GLES2HUD_DEFAULT_TEXT_SIZE;
+	}
+	if (self->config.text_size_tracking <= 0.) {
+		self->config.text_size_tracking =
+			PDRAW_GLES2HUD_DEFAULT_TEXT_SIZE_TRACKING;
+	}
+	if (self->config.text_tracking_v_offset <= 0.) {
+		self->config.text_tracking_v_offset =
+			PDRAW_GLES2HUD_DEFAULT_TEXT_TRACKING_V_OFFSET;
 	}
 	if (self->config.small_icon_size <= 0.) {
 		self->config.small_icon_size =
@@ -361,8 +456,7 @@ static int pdraw_gles2hud_render_piloting(
 	const struct pdraw_media_info *media_info,
 	struct vmeta_frame *frame_meta,
 	const struct pdraw_video_frame_extra *frame_extra,
-	const struct pdraw_gles2hud_controller_meta *ctrl_meta,
-	const struct pdraw_gles2hud_drone_meta *drone_meta)
+	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
 {
 	int i, j, steps, angle_deg;
 	float cy, delta_x, delta_y, angle;
@@ -374,27 +468,11 @@ static int pdraw_gles2hud_render_piloting(
 			view_proj(i, j) = view_proj_mat[i * 4 + j];
 	}
 
-	if (self == nullptr)
-		return -EINVAL;
-	if ((render_pos == nullptr) || (render_pos->width == 0) ||
-	    (render_pos->height == 0))
-		return -EINVAL;
-	if ((content_pos == nullptr) || (content_pos->width == 0) ||
-	    (content_pos->height == 0))
-		return -EINVAL;
-	if (media_info == nullptr)
-		return -EINVAL;
-	if (frame_meta == nullptr)
-		return -EINVAL;
-	if (frame_extra == nullptr)
-		return -EINVAL;
-	if (ctrl_meta == nullptr)
-		return -EINVAL;
-	if (drone_meta == nullptr)
-		return -EINVAL;
-
 	uint8_t battery_percentage;
 	vmeta_frame_get_battery_percentage(frame_meta, &battery_percentage);
+	const char *active_link = get_active_link(frame_meta);
+	uint8_t link_quality;
+	vmeta_frame_get_link_quality(frame_meta, &link_quality);
 	int8_t wifi_rssi;
 	vmeta_frame_get_wifi_rssi(frame_meta, &wifi_rssi);
 	enum vmeta_flying_state flying_state;
@@ -402,8 +480,8 @@ static int pdraw_gles2hud_render_piloting(
 	enum vmeta_piloting_mode piloting_mode;
 	vmeta_frame_get_piloting_mode(frame_meta, &piloting_mode);
 	enum drone_model drone_model =
-		get_drone_model(media_info->session_meta);
-	int drone_model_icon = drone_model_icon_index[drone_model];
+		get_drone_model(media_info->video.session_meta);
+	int drone_model_icon = drone_model_info[drone_model].icon_index;
 
 	/* Drone location and ground distance */
 	struct vmeta_location location;
@@ -411,9 +489,9 @@ static int pdraw_gles2hud_render_piloting(
 	double ground_distance;
 	vmeta_frame_get_ground_distance(frame_meta, &ground_distance);
 	if ((drone_model == DRONE_MODEL_DISCO) && (location.valid) &&
-	    (media_info->session_meta->takeoff_loc.valid)) {
+	    (media_info->video.session_meta->takeoff_loc.valid)) {
 		ground_distance = location.altitude_egm96amsl -
-				  media_info->session_meta->takeoff_loc
+				  media_info->video.session_meta->takeoff_loc
 					  .altitude_egm96amsl;
 	}
 
@@ -439,31 +517,34 @@ static int pdraw_gles2hud_render_piloting(
 	int heading_int = ((int)(drone_attitude.psi * RAD_TO_DEG) + 360) % 360;
 
 	/* Picture field of view */
-	pdraw_gles2hud_get_fov(self, media_info->session_meta, frame_meta);
+	pdraw_gles2hud_get_fov(
+		self, media_info->video.session_meta, frame_meta);
 
 	/* Distace to take-off */
 	double takeoff_distance = 0.;
 	double takeoff_bearing = 0.;
 	double takeoff_elevation = 0.;
-	if ((location.valid) && (media_info->session_meta->takeoff_loc.valid)) {
+	if ((location.valid) &&
+	    (media_info->video.session_meta->takeoff_loc.valid)) {
 		pdraw_gles2hud_coords_distance_and_bearing(
 			location.latitude,
 			location.longitude,
-			media_info->session_meta->takeoff_loc.latitude,
-			media_info->session_meta->takeoff_loc.longitude,
+			media_info->video.session_meta->takeoff_loc.latitude,
+			media_info->video.session_meta->takeoff_loc.longitude,
 			&takeoff_distance,
 			&takeoff_bearing);
 		double alt_diff = 0.;
-		if (!std::isnan(media_info->session_meta->takeoff_loc
+		if (!std::isnan(media_info->video.session_meta->takeoff_loc
 					.altitude_wgs84ellipsoid) &&
-		    !std::isnan(location.altitude_wgs84ellipsoid != NAN)) {
-			alt_diff = media_info->session_meta->takeoff_loc
+		    !std::isnan(location.altitude_wgs84ellipsoid)) {
+			alt_diff = media_info->video.session_meta->takeoff_loc
 					   .altitude_wgs84ellipsoid -
 				   location.altitude_wgs84ellipsoid;
-		} else if (!std::isnan(media_info->session_meta->takeoff_loc
-					       .altitude_egm96amsl) &&
+		} else if (!std::isnan(
+				   media_info->video.session_meta->takeoff_loc
+					   .altitude_egm96amsl) &&
 			   !std::isnan(location.altitude_egm96amsl)) {
-			alt_diff = media_info->session_meta->takeoff_loc
+			alt_diff = media_info->video.session_meta->takeoff_loc
 					   .altitude_egm96amsl -
 				   location.altitude_egm96amsl;
 		}
@@ -495,6 +576,19 @@ static int pdraw_gles2hud_render_piloting(
 		}
 		self_elevation = atan2(alt_diff, self_distance);
 	}
+
+	/* Cursor on Target */
+	struct vmeta_location lfic_loc;
+	float lfic_x;
+	float lfic_y;
+	double lfic_estimated_precision;
+	double lfic_grid_precision;
+	vmeta_frame_get_lfic(frame_meta,
+			     &lfic_loc,
+			     &lfic_x,
+			     &lfic_y,
+			     &lfic_estimated_precision,
+			     &lfic_grid_precision);
 
 	/* Controller orientation */
 	struct vmeta_euler ctrl_orientation;
@@ -538,11 +632,17 @@ static int pdraw_gles2hud_render_piloting(
 				    horizontal_speed,
 				    speed_psi,
 				    color_green);
-	double altitude = 0.;
-	if (!std::isnan(location.altitude_wgs84ellipsoid))
-		altitude = location.altitude_wgs84ellipsoid;
-	else if (!std::isnan(location.altitude_egm96amsl))
-		altitude = location.altitude_egm96amsl;
+	double altitude = NAN;
+	const char *altitude_ref = "";
+	if (location.valid) {
+		if (!std::isnan(location.altitude_egm96amsl)) {
+			altitude = location.altitude_egm96amsl;
+			altitude_ref = " (EGM96)";
+		} else if (!std::isnan(location.altitude_wgs84ellipsoid)) {
+			altitude = location.altitude_wgs84ellipsoid;
+			altitude_ref = " (WGS84)";
+		}
+	}
 	pdraw_gles2hud_draw_altitude(
 		self, altitude, ground_distance, speed.down, color_green);
 	pdraw_gles2hud_draw_speed(self, horizontal_speed, color_green);
@@ -577,9 +677,6 @@ static int pdraw_gles2hud_render_piloting(
 						    frame_extra->play_timestamp,
 						    media_info->duration,
 						    color_green);
-	} else if (media_info->playback_type == PDRAW_PLAYBACK_TYPE_LIVE) {
-		pdraw_gles2hud_draw_recording_status(
-			self, drone_meta->recording_duration, color_green);
 	}
 	pdraw_gles2hud_draw_vumeter(self,
 				    self->config.vu_meter_zone_h_offset,
@@ -597,12 +694,39 @@ static int pdraw_gles2hud_render_piloting(
 				    0.0,
 				    0.05,
 				    wifi_rssi,
-				    -90.,
+				    -100.,
 				    -20.,
-				    -90.,
+				    -100.,
 				    -70.,
 				    color_green,
 				    color_dark_green);
+	for (i = 0; i < link_quality; i++) {
+		pdraw_gles2hud_draw_filled_rect(
+			self,
+			(self->config.vu_meter_zone_h_offset + i * 0.015 -
+			 0.035) *
+				self->ratio_w,
+			(0.0 - 0.025) * self->ratio_w * self->aspect_ratio,
+			(self->config.vu_meter_zone_h_offset + i * 0.015 -
+			 0.025) *
+				self->ratio_w,
+			(0.0 - 0.035) * self->ratio_w * self->aspect_ratio,
+			color_green);
+	}
+	for (; link_quality > 0 && i < 5; i++) {
+		pdraw_gles2hud_draw_rect(
+			self,
+			(self->config.vu_meter_zone_h_offset + i * 0.015 -
+			 0.035) *
+				self->ratio_w,
+			(0.0 - 0.025) * self->ratio_w * self->aspect_ratio,
+			(self->config.vu_meter_zone_h_offset + i * 0.015 -
+			 0.025) *
+				self->ratio_w,
+			(0.0 - 0.035) * self->ratio_w * self->aspect_ratio,
+			color_green,
+			2.);
+	}
 	pdraw_gles2hud_draw_vumeter(self,
 				    self->config.vu_meter_zone_h_offset,
 				    self->config.vu_meter_v_interval,
@@ -614,6 +738,10 @@ static int pdraw_gles2hud_render_piloting(
 				    5.,
 				    color_green,
 				    color_dark_green);
+
+	/* Cursor on Target cross */
+	if (lfic_loc.valid)
+		pdraw_gles2hud_draw_cot(self, lfic_x, lfic_y, color_green);
 
 	GLCHK(glDisableVertexAttribArray(self->position_handle));
 	GLCHK(glDisableVertexAttribArray(self->color_handle));
@@ -672,7 +800,7 @@ static int pdraw_gles2hud_render_piloting(
 	}
 	float friendly_name_x_offset =
 		(self->config.vu_meter_zone_h_offset - 0.05) * self->ratio_w;
-	if ((strlen(media_info->session_meta->friendly_name) > 0) &&
+	if ((strlen(media_info->video.session_meta->friendly_name) > 0) &&
 	    (drone_model != DRONE_MODEL_UNKNOWN)) {
 		pdraw_gles2hud_draw_icon(
 			self,
@@ -776,7 +904,7 @@ static int pdraw_gles2hud_render_piloting(
 		self->tex_transform_matrix_handle, 1, false, view_proj_mat));
 
 	char str[20];
-	snprintf(str, sizeof(str), "%d%%", battery_percentage);
+	snprintf(str, sizeof(str), "BAT: %d%%", battery_percentage);
 	pdraw_gles2hud_draw_text(
 		self,
 		str,
@@ -788,19 +916,36 @@ static int pdraw_gles2hud_render_piloting(
 		PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
 		PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
 		color_green);
-	snprintf(str, sizeof(str), "%ddBm", wifi_rssi);
+	str[0] = '\0';
+	if (strlen(active_link)) {
+		char str_rssi[20] = "";
+		if (wifi_rssi != 0) {
+			snprintf(str_rssi,
+				 sizeof(str_rssi),
+				 " %ddBm",
+				 wifi_rssi);
+		}
+		snprintf(str, sizeof(str), "%s%s", active_link, str_rssi);
+	} else if (wifi_rssi != 0) {
+		snprintf(str, sizeof(str), "%ddBm", wifi_rssi);
+	} else {
+		snprintf(str, sizeof(str), "N/A");
+	}
 	pdraw_gles2hud_draw_text(self,
 				 str,
 				 self->config.vu_meter_zone_h_offset *
 					 self->ratio_w,
-				 (0.0 - 0.07) * self->ratio_h,
+				 (0.0 - 0.08) * self->ratio_h,
 				 self->config.text_size * self->ratio_w,
 				 1.,
 				 self->aspect_ratio,
 				 PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
 				 PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
 				 color_green);
-	snprintf(str, sizeof(str), "%d", location.sv_count);
+	if (location.valid)
+		snprintf(str, sizeof(str), "SAT: %d", location.sv_count);
+	else
+		snprintf(str, sizeof(str), "SAT: N/A");
 	pdraw_gles2hud_draw_text(
 		self,
 		str,
@@ -812,7 +957,7 @@ static int pdraw_gles2hud_render_piloting(
 		PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
 		PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
 		color_green);
-	snprintf(str, sizeof(str), "ALT");
+	snprintf(str, sizeof(str), "ALT%s", altitude_ref);
 	pdraw_gles2hud_draw_text(self,
 				 str,
 				 self->config.central_zone_size * self->ratio_w,
@@ -824,7 +969,10 @@ static int pdraw_gles2hud_render_piloting(
 				 PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
 				 PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM,
 				 color_green);
-	snprintf(str, sizeof(str), "%.1fm", altitude);
+	if (!std::isnan(altitude))
+		snprintf(str, sizeof(str), "%.1fm", altitude);
+	else
+		snprintf(str, sizeof(str), "N/A");
 	pdraw_gles2hud_draw_text(self,
 				 str,
 				 (self->config.central_zone_size + 0.04) *
@@ -838,20 +986,23 @@ static int pdraw_gles2hud_render_piloting(
 				 color_green);
 	if (drone_model == DRONE_MODEL_DISCO) {
 		if ((location.valid) &&
-		    (media_info->session_meta->takeoff_loc.valid)) {
+		    (media_info->video.session_meta->takeoff_loc.valid)) {
 			double alt_diff = 0.;
-			if (!std::isnan(media_info->session_meta->takeoff_loc
-						.altitude_wgs84ellipsoid) &&
+			if (!std::isnan(
+				    media_info->video.session_meta->takeoff_loc
+					    .altitude_wgs84ellipsoid) &&
 			    !std::isnan(location.altitude_wgs84ellipsoid)) {
 				alt_diff = location.altitude_wgs84ellipsoid -
-					   media_info->session_meta->takeoff_loc
+					   media_info->video.session_meta
+						   ->takeoff_loc
 						   .altitude_wgs84ellipsoid;
-			} else if (!std::isnan(
-					   media_info->session_meta->takeoff_loc
-						   .altitude_egm96amsl) &&
+			} else if (!std::isnan(media_info->video.session_meta
+						       ->takeoff_loc
+						       .altitude_egm96amsl) &&
 				   !std::isnan(location.altitude_egm96amsl)) {
 				alt_diff = location.altitude_egm96amsl -
-					   media_info->session_meta->takeoff_loc
+					   media_info->video.session_meta
+						   ->takeoff_loc
 						   .altitude_egm96amsl;
 			}
 			snprintf(str, sizeof(str), "DELTA: %+.1fm", alt_diff);
@@ -993,7 +1144,7 @@ static int pdraw_gles2hud_render_piloting(
 		snprintf(str,
 			 sizeof(str),
 			 "CTRL LOC: %s",
-			 (ctrl_meta->location.valid) ? "OK" : "NOK");
+			 (ctrl_meta->location.valid) ? "OK" : "N/A");
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
@@ -1006,10 +1157,10 @@ static int pdraw_gles2hud_render_piloting(
 			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
 			color_green);
 	}
-	if (strlen(media_info->session_meta->friendly_name) > 0)
+	if (strlen(media_info->video.session_meta->friendly_name) > 0) {
 		pdraw_gles2hud_draw_text(
 			self,
-			media_info->session_meta->friendly_name,
+			media_info->video.session_meta->friendly_name,
 			friendly_name_x_offset,
 			self->config.roll_zone_v_offset * self->ratio_h +
 				0.12 * self->ratio_w * self->aspect_ratio,
@@ -1019,6 +1170,50 @@ static int pdraw_gles2hud_render_piloting(
 			PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
 			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
 			color_green);
+	}
+
+	/* Cursor on Target text */
+	if (lfic_loc.valid) {
+		snprintf(str, sizeof(str), "COT:");
+		pdraw_gles2hud_draw_text(
+			self,
+			str,
+			self->config.right_zone_h_offset * self->ratio_w,
+			self->config.heading_zone_v_offset * self->ratio_h +
+				0.04 * self->ratio_w * self->aspect_ratio,
+			self->config.text_size * self->ratio_w,
+			1.,
+			self->aspect_ratio,
+			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
+			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			color_green);
+		snprintf(str, sizeof(str), "%+.8f", lfic_loc.latitude);
+		pdraw_gles2hud_draw_text(
+			self,
+			str,
+			self->config.right_zone_h_offset * self->ratio_w,
+			self->config.heading_zone_v_offset * self->ratio_h +
+				0.02 * self->ratio_w * self->aspect_ratio,
+			self->config.text_size * self->ratio_w,
+			1.,
+			self->aspect_ratio,
+			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
+			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			color_green);
+		snprintf(str, sizeof(str), "%+.8f", lfic_loc.longitude);
+		pdraw_gles2hud_draw_text(
+			self,
+			str,
+			self->config.right_zone_h_offset * self->ratio_w,
+			self->config.heading_zone_v_offset * self->ratio_h,
+			self->config.text_size * self->ratio_w,
+			1.,
+			self->aspect_ratio,
+			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
+			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			color_green);
+	}
+
 	if ((frame_extra->play_timestamp > 0) &&
 	    (frame_extra->play_timestamp != (uint64_t)-1) &&
 	    (media_info->duration > 0) &&
@@ -1122,62 +1317,6 @@ static int pdraw_gles2hud_render_piloting(
 			PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
 			PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
 			color_green);
-	} else if (media_info->playback_type == PDRAW_PLAYBACK_TYPE_LIVE) {
-		if (drone_meta->recording_duration > 0) {
-			unsigned int d_hrs = 0, d_min = 0;
-			unsigned int d_sec = 0, d_msec = 0;
-			pdraw_gles2hud_friendly_time_from_us(
-				drone_meta->recording_duration,
-				&d_hrs,
-				&d_min,
-				&d_sec,
-				&d_msec);
-			if (d_hrs) {
-				snprintf(str,
-					 sizeof(str),
-					 "REC %02d:%02d:%02d",
-					 d_hrs,
-					 d_min,
-					 d_sec);
-			} else {
-				snprintf(str,
-					 sizeof(str),
-					 "REC %02d:%02d",
-					 d_min,
-					 d_sec);
-			}
-			pdraw_gles2hud_draw_text(
-				self,
-				str,
-				self->config.right_zone_h_offset *
-					self->ratio_w,
-				self->config.roll_zone_v_offset *
-						self->ratio_h +
-					0.12 * self->ratio_w *
-						self->aspect_ratio,
-				self->config.text_size * self->ratio_w,
-				1.,
-				self->aspect_ratio,
-				PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-				PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
-				color_green);
-		} else {
-			pdraw_gles2hud_draw_text(
-				self,
-				"REC",
-				self->config.right_zone_h_offset *
-					self->ratio_w,
-				self->config.roll_zone_v_offset *
-						self->ratio_h +
-					0.12 * self->ratio_w *
-						self->aspect_ratio,
-				self->config.text_size * self->ratio_w,
-				1.,
-				self->aspect_ratio,
-				PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-				PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
-				color_green);
-		}
 	}
 	snprintf(str, sizeof(str), "%03d", heading_int);
 	pdraw_gles2hud_draw_text(self,
@@ -1276,7 +1415,7 @@ static int pdraw_gles2hud_render_piloting(
 				heading_str[i],
 				0.,
 				cy,
-				self->config.text_size,
+				self->config.text_size * self->ratio_w,
 				1.,
 				1.,
 				PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
@@ -1340,30 +1479,14 @@ static int pdraw_gles2hud_render_imaging(
 	const struct pdraw_media_info *media_info,
 	struct vmeta_frame *frame_meta,
 	const struct pdraw_video_frame_extra *frame_extra,
-	const struct pdraw_gles2hud_controller_meta *ctrl_meta,
-	const struct pdraw_gles2hud_drone_meta *drone_meta)
+	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
 {
-	if (self == nullptr)
-		return -EINVAL;
-	if ((render_pos == nullptr) || (render_pos->width == 0) ||
-	    (render_pos->height == 0))
-		return -EINVAL;
-	if ((content_pos == nullptr) || (content_pos->width == 0) ||
-	    (content_pos->height == 0))
-		return -EINVAL;
-	if (media_info == nullptr)
-		return -EINVAL;
-	if (frame_meta == nullptr)
-		return -EINVAL;
-	if (frame_extra == nullptr)
-		return -EINVAL;
-	if (ctrl_meta == nullptr)
-		return -EINVAL;
-	if (drone_meta == nullptr)
-		return -EINVAL;
+	int err;
+	struct vmeta_rectf mask = {};
 
 	/* Picture field of view */
-	pdraw_gles2hud_get_fov(self, media_info->session_meta, frame_meta);
+	pdraw_gles2hud_get_fov(
+		self, media_info->video.session_meta, frame_meta);
 
 	self->ratio_w = (float)content_pos->width / render_pos->width *
 			self->config.scale;
@@ -1383,10 +1506,186 @@ static int pdraw_gles2hud_render_imaging(
 
 	pdraw_gles2hud_draw_framing_grid(
 		self, render_pos, content_pos, color_black_alpha);
+
+	err = vmeta_frame_get_thermal_mask(frame_meta, &mask);
+	if (err == 0) {
+		float x1 = (mask.left - 0.5) * 2;
+		float y1 = -(mask.top - 0.5) * 2;
+		float x2 = x1 + mask.width * 2;
+		float y2 = y1 - mask.height * 2;
+		pdraw_gles2hud_draw_rect(self,
+					 x1 * self->ratio_w,
+					 y1 * self->ratio_h,
+					 x2 * self->ratio_w,
+					 y2 * self->ratio_h,
+					 color_black_alpha,
+					 5.0);
+	}
+
 	pdraw_gles2hud_draw_histograms(self, frame_extra);
 
 	GLCHK(glDisableVertexAttribArray(self->position_handle));
 	GLCHK(glDisableVertexAttribArray(self->color_handle));
+
+	return 0;
+}
+
+static int pdraw_gles2hud_render_tracking(
+	struct pdraw_gles2hud *self,
+	const struct pdraw_rect *render_pos,
+	const struct pdraw_rect *content_pos,
+	const float view_proj_mat[16],
+	const struct pdraw_media_info *media_info,
+	struct vmeta_frame *frame_meta,
+	const struct pdraw_video_frame_extra *frame_extra,
+	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
+{
+	int res = 0;
+	size_t i;
+	float x1;
+	float y1;
+	float x2;
+	float y2;
+	char str[20];
+	const Vmeta__TimedMetadata *tm;
+
+	/* Picture field of view */
+	pdraw_gles2hud_get_fov(
+		self, media_info->video.session_meta, frame_meta);
+
+	self->ratio_w = (float)content_pos->width / render_pos->width *
+			self->config.scale;
+	self->ratio_h = (float)content_pos->height / render_pos->height *
+			self->config.scale;
+	self->aspect_ratio = (float)render_pos->width / render_pos->height;
+
+	res = vmeta_frame_proto_get_unpacked(frame_meta, &tm);
+	if (res < 0)
+		return 0;
+
+	if (tm->proposal == nullptr && tm->tracking == nullptr)
+		goto out;
+
+	GLCHK(glUseProgram(self->program));
+
+	GLCHK(glEnableVertexAttribArray(self->position_handle));
+	GLCHK(glEnableVertexAttribArray(self->color_handle));
+
+	GLCHK(glUniformMatrix4fv(
+		self->transform_matrix_handle, 1, false, view_proj_mat));
+
+	if (tm->proposal) {
+		for (i = 0; i < tm->proposal->n_proposals; i++) {
+			x1 = (tm->proposal->proposals[i]->x - 0.5) * 2;
+			y1 = -(tm->proposal->proposals[i]->y - 0.5) * 2;
+			x2 = x1 + tm->proposal->proposals[i]->width * 2;
+			y2 = y1 - tm->proposal->proposals[i]->height * 2;
+
+			pdraw_gles2hud_draw_rect(self,
+						 x1 * self->ratio_w,
+						 y1 * self->ratio_h,
+						 x2 * self->ratio_w,
+						 y2 * self->ratio_h,
+						 color_dark_green,
+						 5.0);
+		}
+	}
+
+	if (tm->tracking &&
+	    tm->tracking->state == VMETA__TRACKING_STATE__TS_TRACKING) {
+		x1 = (tm->tracking->target->x - 0.5) * 2;
+		y1 = -(tm->tracking->target->y - 0.5) * 2;
+		x2 = x1 + tm->tracking->target->width * 2;
+		y2 = y1 - tm->tracking->target->height * 2;
+
+		pdraw_gles2hud_draw_rect(self,
+					 x1 * self->ratio_w,
+					 y1 * self->ratio_h,
+					 x2 * self->ratio_w,
+					 y2 * self->ratio_h,
+					 color_dark_blue,
+					 5.0);
+	}
+
+	GLCHK(glDisableVertexAttribArray(self->position_handle));
+	GLCHK(glDisableVertexAttribArray(self->color_handle));
+
+	GLCHK(glEnable(GL_BLEND));
+	GLCHK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+
+	GLCHK(glUseProgram(self->tex_program));
+	GLCHK(glUniformMatrix4fv(
+		self->tex_transform_matrix_handle, 1, false, view_proj_mat));
+
+	GLCHK(glEnableVertexAttribArray(self->tex_position_handle));
+	GLCHK(glEnableVertexAttribArray(self->tex_texcoord_handle));
+
+	GLCHK(glActiveTexture(GL_TEXTURE0 + self->text_texunit));
+	GLCHK(glBindTexture(GL_TEXTURE_2D, self->text_texture));
+	GLCHK(glUniform1i(self->tex_uniform_sampler, self->text_texunit));
+
+	GLCHK(glUniformMatrix4fv(
+		self->tex_transform_matrix_handle, 1, false, view_proj_mat));
+
+	if (tm->proposal) {
+		for (i = 0; i < tm->proposal->n_proposals; i++) {
+			x1 = (tm->proposal->proposals[i]->x - 0.5) * 2;
+			y1 = -(tm->proposal->proposals[i]->y - 0.5) * 2;
+
+			snprintf(str,
+				 sizeof(str),
+				 "[%d]%s %.2f",
+				 tm->proposal->proposals[i]->uid,
+				 get_tracking_object(tm->proposal->proposals[i]
+							     ->object_class),
+				 tm->proposal->proposals[i]->confidence);
+
+			pdraw_gles2hud_draw_text(
+				self,
+				str,
+				x1 * self->ratio_w,
+				(y1 + self->config.text_tracking_v_offset) *
+					self->ratio_h,
+				self->config.text_size_tracking * self->ratio_w,
+				1.,
+				self->aspect_ratio,
+				PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
+				PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+				color_black_alpha);
+		}
+	}
+
+	if (tm->tracking &&
+	    tm->tracking->state == VMETA__TRACKING_STATE__TS_TRACKING) {
+		x1 = (tm->tracking->target->x - 0.5) * 2;
+		y1 = -(tm->tracking->target->y - 0.5) * 2;
+
+		snprintf(
+			str,
+			sizeof(str),
+			"[%d]%s %.2f",
+			tm->tracking->target->uid,
+			get_tracking_object(tm->tracking->target->object_class),
+			tm->tracking->target->confidence);
+		pdraw_gles2hud_draw_text(
+			self,
+			str,
+			x1 * self->ratio_w,
+			(y1 + self->config.text_tracking_v_offset) *
+				self->ratio_h,
+			self->config.text_size_tracking * self->ratio_w,
+			1.,
+			self->aspect_ratio,
+			PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
+			PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+			color_dark_blue);
+	}
+
+	GLCHK(glDisableVertexAttribArray(self->tex_position_handle));
+	GLCHK(glDisableVertexAttribArray(self->tex_texcoord_handle));
+
+out:
+	vmeta_frame_proto_release_unpacked(frame_meta, tm);
 
 	return 0;
 }
@@ -1401,9 +1700,21 @@ int pdraw_gles2hud_render(
 	const struct pdraw_media_info *media_info,
 	struct vmeta_frame *frame_meta,
 	const struct pdraw_video_frame_extra *frame_extra,
-	const struct pdraw_gles2hud_controller_meta *ctrl_meta,
-	const struct pdraw_gles2hud_drone_meta *drone_meta)
+	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
 {
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(render_pos == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(render_pos->width == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(render_pos->height == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(content_pos == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(content_pos->width == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(content_pos->height == 0, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(media_info == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(frame_meta == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(frame_extra == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(ctrl_meta == nullptr, EINVAL);
+
 	switch (type) {
 	case PDRAW_GLES2HUD_TYPE_PILOTING:
 		return pdraw_gles2hud_render_piloting(self,
@@ -1413,8 +1724,7 @@ int pdraw_gles2hud_render(
 						      media_info,
 						      frame_meta,
 						      frame_extra,
-						      ctrl_meta,
-						      drone_meta);
+						      ctrl_meta);
 	case PDRAW_GLES2HUD_TYPE_IMAGING:
 		return pdraw_gles2hud_render_imaging(self,
 						     render_pos,
@@ -1423,8 +1733,16 @@ int pdraw_gles2hud_render(
 						     media_info,
 						     frame_meta,
 						     frame_extra,
-						     ctrl_meta,
-						     drone_meta);
+						     ctrl_meta);
+	case PDRAW_GLES2HUD_TYPE_TRACKING:
+		return pdraw_gles2hud_render_tracking(self,
+						      render_pos,
+						      content_pos,
+						      view_proj_mat,
+						      media_info,
+						      frame_meta,
+						      frame_extra,
+						      ctrl_meta);
 	default:
 		ULOGE("unsupported HUD type: %d", type);
 		return -ENOSYS;

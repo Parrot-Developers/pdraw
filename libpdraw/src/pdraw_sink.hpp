@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline media sink for elements
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -32,6 +32,7 @@
 #define _PDRAW_SINK_HPP_
 
 #include "pdraw_channel.hpp"
+#include "pdraw_channel_audio.hpp"
 #include "pdraw_channel_coded_video.hpp"
 #include "pdraw_channel_raw_video.hpp"
 #include "pdraw_media.hpp"
@@ -40,9 +41,13 @@
 
 namespace Pdraw {
 
+class Session;
+
+
 class Sink : public Channel::SinkListener,
 	     public CodedVideoChannel::CodedVideoSinkListener,
-	     public RawVideoChannel::RawVideoSinkListener {
+	     public RawVideoChannel::RawVideoSinkListener,
+	     public AudioChannel::AudioSinkListener {
 public:
 	virtual ~Sink(void);
 
@@ -52,7 +57,8 @@ public:
 
 	virtual std::string &getName(void) = 0;
 
-	int getCodedVideoMediaFormatCaps(const struct vdef_coded_format **caps)
+	int getCodedVideoMediaFormatCaps(
+		const struct vdef_coded_format **caps) const
 	{
 		if (caps == nullptr)
 			return -EINVAL;
@@ -60,12 +66,21 @@ public:
 		return mCodedVideoMediaFormatCapsCount;
 	}
 
-	int getRawVideoMediaFormatCaps(const struct vdef_raw_format **caps)
+	int
+	getRawVideoMediaFormatCaps(const struct vdef_raw_format **caps) const
 	{
 		if (caps == nullptr)
 			return -EINVAL;
 		*caps = mRawVideoMediaFormatCaps;
 		return mRawVideoMediaFormatCapsCount;
+	}
+
+	int getAudioMediaFormatCaps(const struct adef_format **caps)
+	{
+		if (caps == nullptr)
+			return -EINVAL;
+		*caps = mAudioMediaFormatCaps;
+		return mAudioMediaFormatCapsCount;
 	}
 
 	unsigned int getInputMediaCount(void);
@@ -86,11 +101,14 @@ protected:
 		Channel *channel;
 	};
 
-	Sink(unsigned int maxInputMedias,
+	Sink(Session *session,
+	     unsigned int maxInputMedias,
 	     const struct vdef_coded_format *codedVideoMediaFormatCaps,
 	     int codedVideoMediaFormatCapsCount,
 	     const struct vdef_raw_format *rawVideoMediaFormatCaps,
-	     int rawVideoMediaFormatCapsCount);
+	     int rawVideoMediaFormatCapsCount,
+	     const struct adef_format *audioMediaFormatCaps,
+	     int audioMediaFormatCapsCount);
 
 	void setCodedVideoMediaFormatCaps(const struct vdef_coded_format *caps,
 					  int count)
@@ -106,6 +124,12 @@ protected:
 		mRawVideoMediaFormatCapsCount = count;
 	}
 
+	void setAudioMediaFormatCaps(const struct adef_format *caps, int count)
+	{
+		mAudioMediaFormatCaps = caps;
+		mAudioMediaFormatCapsCount = count;
+	}
+
 	InputPort *getInputPort(Media *media);
 
 	virtual int removeInputMedias(void);
@@ -116,6 +140,9 @@ protected:
 
 	virtual void onRawVideoChannelQueue(RawVideoChannel *channel,
 					    struct mbuf_raw_video_frame *frame);
+
+	virtual void onAudioChannelQueue(AudioChannel *channel,
+					 struct mbuf_audio_frame *frame);
 
 	virtual void onChannelDownstreamEvent(Channel *channel,
 					      const struct pomp_msg *event);
@@ -130,12 +157,17 @@ protected:
 
 	virtual void onChannelReconfigure(Channel *channel);
 
+	virtual void onChannelResolutionChange(Channel *channel);
+
+	virtual void onChannelFramerateChange(Channel *channel);
+
 	virtual void onChannelTimeout(Channel *channel);
 
 	virtual void onChannelPhotoTrigger(Channel *channel);
 
 	virtual void onChannelSessionMetaUpdate(Channel *channel);
 
+	struct pomp_loop *mLoop;
 	pthread_mutex_t mMutex;
 	unsigned int mMaxInputMedias;
 	std::vector<InputPort> mInputPorts;
@@ -143,6 +175,8 @@ protected:
 	int mCodedVideoMediaFormatCapsCount;
 	const struct vdef_raw_format *mRawVideoMediaFormatCaps;
 	int mRawVideoMediaFormatCapsCount;
+	const struct adef_format *mAudioMediaFormatCaps;
+	int mAudioMediaFormatCapsCount;
 };
 
 } /* namespace Pdraw */

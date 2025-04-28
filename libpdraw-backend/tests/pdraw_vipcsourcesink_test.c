@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Video IPC source to sink test program
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -351,7 +351,7 @@ static const struct option long_options[] = {
 
 static void welcome(int argc, char **argv)
 {
-	printf("%s - Parrot Drones Awesome Video Viewer "
+	printf("%s - Parrot Drones Audio and Video Vector - "
 	       "Video IPC source to sink test program\n\n",
 	       argv[0]);
 }

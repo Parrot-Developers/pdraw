@@ -27,3 +27,15 @@ config PDRAW_VIPC_BACKEND_NETWORK_CBUF
     default n
     help
 	Enable or disable support for vipc-network-cbuf backend
+
+config PDRAW_USE_GL
+    bool "Use OpenGL"
+    default n
+    help
+	Enable or disable OpenGL support
+
+config PDRAW_USE_ALSA
+    bool "Use ALSA"
+    default n
+    help
+	Enable or disable ALSA support

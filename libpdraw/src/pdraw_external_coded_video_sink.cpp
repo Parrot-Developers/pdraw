@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Application external coded video sink
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -39,6 +39,10 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
+
+const struct h264_ctx_cbs ExternalCodedVideoSink::mH264ReaderCbs = {};
+
+
 #define NB_SUPPORTED_FORMATS 4
 static struct vdef_coded_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
@@ -56,13 +60,22 @@ ExternalCodedVideoSink::ExternalCodedVideoSink(
 	const struct vdef_coded_format *requiredCodedFormat,
 	Element::Listener *elementListener,
 	IPdraw::ICodedVideoSink::Listener *listener,
-	IPdraw::ICodedVideoSink *sink,
+	CodedVideoSinkWrapper *wrapper,
 	const struct pdraw_video_sink_params *params) :
-		SinkElement(session, elementListener, 1, nullptr, 0, nullptr, 0)
+		SinkElement(session,
+			    elementListener,
+			    wrapper,
+			    1,
+			    nullptr,
+			    0,
+			    nullptr,
+			    0,
+			    nullptr,
+			    0)
 {
 	Element::setClassName(__func__);
 	mVideoSinkListener = listener;
-	mVideoSink = sink;
+	mVideoSink = wrapper;
 	mParams = *params;
 	mInputMedia = nullptr;
 	mInputFrameQueue = nullptr;
@@ -70,10 +83,6 @@ ExternalCodedVideoSink::ExternalCodedVideoSink(
 	mInputChannelFlushPending = false;
 	mTearingDown = false;
 	mNeedSync = true;
-	mIsRef = false;
-	mIsRecoveryPoint = false;
-	mFakeFrameNum = 0;
-	mMaxFrameNum = 0;
 	mH264Reader = nullptr;
 
 	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
@@ -97,6 +106,9 @@ ExternalCodedVideoSink::~ExternalCodedVideoSink(void)
 
 	if (mState == STARTED)
 		PDRAW_LOGW("video sink is still running");
+
+	/* Make sure listener functions will no longer be called */
+	mVideoSinkListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
 	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
@@ -123,111 +135,6 @@ ExternalCodedVideoSink::~ExternalCodedVideoSink(void)
 		mH264Reader = nullptr;
 	}
 }
-
-
-void ExternalCodedVideoSink::naluEndCb(struct h264_ctx *ctx,
-				       enum h264_nalu_type type,
-				       const uint8_t *buf,
-				       size_t len,
-				       const struct h264_nalu_header *nh,
-				       void *userdata)
-{
-	ExternalCodedVideoSink *self =
-		reinterpret_cast<ExternalCodedVideoSink *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_IF(nh == nullptr, EINVAL);
-
-	self->mIsRef = (((type == H264_NALU_TYPE_SLICE) ||
-			 (type == H264_NALU_TYPE_SLICE_IDR)) &&
-			(nh->nal_ref_idc != 0));
-}
-
-
-void ExternalCodedVideoSink::sliceCb(struct h264_ctx *ctx,
-				     const uint8_t *buf,
-				     size_t len,
-				     const struct h264_slice_header *sh,
-				     void *userdata)
-{
-	ExternalCodedVideoSink *self =
-		reinterpret_cast<ExternalCodedVideoSink *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_IF(buf == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_IF(sh == nullptr, EINVAL);
-
-	/* Deliberetly remove the const of the buf to modify the frame_num */
-	uint8_t *data = (uint8_t *)buf;
-	struct h264_slice_header *fsh;
-	struct h264_bitstream bs;
-	int res = 0;
-
-	fsh = (h264_slice_header *)calloc(1, sizeof(*fsh));
-	PDRAW_LOG_ERRNO_RETURN_IF(fsh == nullptr, EINVAL);
-	h264_bs_init(&bs, data, len, 1);
-
-	*fsh = *sh;
-	fsh->frame_num = self->mFakeFrameNum;
-
-	res = h264_rewrite_slice_header(&bs, ctx, fsh);
-	if (res < 0)
-		PDRAW_LOG_ERRNO("h264_rewrite_slice_header", -res);
-
-	free(fsh);
-}
-
-
-void ExternalCodedVideoSink::spsCb(struct h264_ctx *ctx,
-				   const uint8_t *buf,
-				   size_t len,
-				   const struct h264_sps *sps,
-				   void *userdata)
-{
-	ExternalCodedVideoSink *self =
-		reinterpret_cast<ExternalCodedVideoSink *>(userdata);
-
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_IF(sps == nullptr, EINVAL);
-
-	self->mMaxFrameNum = 1 << (sps->log2_max_frame_num_minus4 + 4);
-}
-
-
-void ExternalCodedVideoSink::seiRecoveryPointCb(
-	struct h264_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
-	const struct h264_sei_recovery_point *sei,
-	void *userdata)
-{
-	ExternalCodedVideoSink *self =
-		reinterpret_cast<ExternalCodedVideoSink *>(userdata);
-
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	self->mIsRecoveryPoint = true;
-}
-
-
-const struct h264_ctx_cbs ExternalCodedVideoSink::mH264ReaderCbs = {
-	.au_end = nullptr,
-	.nalu_begin = nullptr,
-	.nalu_end = &ExternalCodedVideoSink::naluEndCb,
-	.slice = &ExternalCodedVideoSink::sliceCb,
-	.slice_data_begin = nullptr,
-	.slice_data_end = nullptr,
-	.slice_data_mb = nullptr,
-	.sps = &ExternalCodedVideoSink::spsCb,
-	.pps = nullptr,
-	.aud = nullptr,
-	.sei = nullptr,
-	.sei_buffering_period = nullptr,
-	.sei_pic_timing = nullptr,
-	.sei_pan_scan_rect = nullptr,
-	.sei_filler_payload = nullptr,
-	.sei_user_data_registered = nullptr,
-	.sei_user_data_unregistered = nullptr,
-	.sei_recovery_point = &ExternalCodedVideoSink::seiRecoveryPointCb,
-};
 
 
 int ExternalCodedVideoSink::start(void)
@@ -313,15 +220,13 @@ int ExternalCodedVideoSink::stop(void)
 	}
 	setState(STOPPING);
 
-	/* TODO:
-	 * Since pdraw_wrapper deletes the listener right after this function is
-	 * called, we need to remove it here to avoid any call during the
-	 * destruction process.
-	 *
-	 * A proper solution for this would be to make sure that the listener is
-	 * NOT destroyed when stop is called, but rather when setState(STOPPED);
-	 * is called, ensuring that the listener outlives this object.
-	 */
+	/* Make sure listener functions will no longer be called.
+	 * Note: the ICodedVideoSink::Listener::onCodedVideoSinkFlush function
+	 * will not be called, but the ExternalCodedVideoSink::stop function
+	 * is only called by the API object destructor, and this is
+	 * precisely when we do not want to call listener functions any more;
+	 * when destroying the API object, outstanding video frames should have
+	 * been previously released by the caller anyway. */
 	mVideoSinkListener = nullptr;
 
 	Sink::lock();
@@ -486,7 +391,7 @@ int ExternalCodedVideoSink::prepareCodedVideoFrame(
 	}
 
 	in_meta = (CodedVideoMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, NULL);
+		ancillaryData, nullptr);
 
 	if (!vdef_coded_format_intersect(&out_meta.coded.format,
 					 mCodedVideoMediaFormatCaps,
@@ -762,7 +667,6 @@ void ExternalCodedVideoSink::onCodedVideoChannelQueue(
 	int ret;
 	uint64_t ntpDelta = 0, ntpUnskewedDelta = 0, ntpRawDelta = 0,
 		 ntpRawUnskewedDelta = 0, playDelta = 0;
-	size_t off;
 	bool isIdr = false;
 
 	if (channel == nullptr) {
@@ -785,8 +689,6 @@ void ExternalCodedVideoSink::onCodedVideoChannelQueue(
 
 	if (mInputMedia->format.encoding == VDEF_ENCODING_H264) {
 		struct vdef_coded_frame frame_info;
-		mIsRef = false;
-		mIsRecoveryPoint = false;
 
 		ret = mbuf_coded_video_frame_get_frame_info(frame, &frame_info);
 		if (ret < 0) {
@@ -799,8 +701,6 @@ void ExternalCodedVideoSink::onCodedVideoChannelQueue(
 
 		if (isIdr) {
 			mNeedSync = false;
-			mFakeFrameNum = 0;
-			mIsRef = true;
 		} else if (mNeedSync) {
 			struct mbuf_ancillary_data *adata;
 			struct CodedVideoMedia::Frame *meta;
@@ -815,7 +715,7 @@ void ExternalCodedVideoSink::onCodedVideoChannelQueue(
 				goto end;
 			}
 			meta = (struct CodedVideoMedia::Frame *)
-				mbuf_ancillary_data_get_buffer(adata, NULL);
+				mbuf_ancillary_data_get_buffer(adata, nullptr);
 			ret = writeGreyIdr(channel,
 					   meta,
 					   &frame_info,
@@ -830,90 +730,12 @@ void ExternalCodedVideoSink::onCodedVideoChannelQueue(
 				goto end;
 			}
 			mNeedSync = false;
-			mFakeFrameNum = 1;
 
 			meta->ntpTimestamp += ntpDelta;
 			meta->ntpUnskewedTimestamp += ntpUnskewedDelta;
 			meta->ntpRawTimestamp += ntpRawDelta;
 			meta->ntpRawUnskewedTimestamp += ntpRawUnskewedDelta;
 			meta->playTimestamp += playDelta;
-		}
-
-		if (mParams.fake_frame_num) {
-			ssize_t tmp;
-			size_t frame_len;
-			struct mbuf_mem *copy_mem;
-			struct mbuf_coded_video_frame *copy_frame;
-			void *data;
-
-			tmp = mbuf_coded_video_frame_get_packed_size(frame);
-			if (tmp < 0) {
-				ret = tmp;
-				PDRAW_LOG_ERRNO(
-					"mbuf_coded_video_frame_get_packed_size",
-					-ret);
-				goto end;
-			}
-			frame_len = tmp;
-
-			ret = mbuf_mem_generic_new(frame_len, &copy_mem);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("mbuf_mem_generic_new", -ret);
-				goto end;
-			}
-
-			ret = mbuf_coded_video_frame_copy(
-				frame, copy_mem, &copy_frame);
-			if (ret < 0) {
-				mbuf_mem_unref(copy_mem);
-				PDRAW_LOG_ERRNO("mbuf_coded_video_frame_copy",
-						-ret);
-				goto end;
-			}
-
-			/* Modify the frame */
-			ret = mbuf_mem_get_data(copy_mem, &data, &frame_len);
-			if (ret < 0) {
-				mbuf_mem_unref(copy_mem);
-				mbuf_coded_video_frame_unref(copy_frame);
-				PDRAW_LOG_ERRNO("mbuf_coded_video_frame_copy",
-						-ret);
-				goto end;
-			}
-
-			ret = h264_reader_parse(mH264Reader,
-						0,
-						(const uint8_t *)data,
-						frame_len,
-						&off);
-			if (ret < 0) {
-				mbuf_mem_unref(copy_mem);
-				mbuf_coded_video_frame_unref(copy_frame);
-				PDRAW_LOG_ERRNO("h264_reader_parse", -ret);
-				goto end;
-			}
-
-			ret = mbuf_coded_video_frame_finalize(copy_frame);
-			if (ret < 0) {
-				mbuf_mem_unref(copy_mem);
-				mbuf_coded_video_frame_unref(copy_frame);
-				PDRAW_LOG_ERRNO(
-					"mbuf_coded_video_frame_finalize",
-					-ret);
-				goto end;
-			}
-
-			if (mIsRef) {
-				/* Update the fake frame_num */
-				mFakeFrameNum = (mIsRecoveryPoint)
-							? 1
-							: (mFakeFrameNum + 1) %
-								  mMaxFrameNum;
-			}
-			ret = prepareCodedVideoFrame(channel, copy_frame);
-			mbuf_mem_unref(copy_mem);
-			mbuf_coded_video_frame_unref(copy_frame);
-			goto end;
 		}
 	}
 	ret = prepareCodedVideoFrame(channel, frame);
@@ -964,6 +786,32 @@ void ExternalCodedVideoSink::onChannelTeardown(Channel *channel)
 }
 
 
+void ExternalCodedVideoSink::onChannelSessionMetaUpdate(Channel *channel)
+{
+	struct vmeta_session tmpSessionMeta;
+	Sink::onChannelSessionMetaUpdate(channel);
+
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Sink::lock();
+	if (mInputMedia == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("%s: input media not found", __func__);
+		return;
+	}
+	tmpSessionMeta = mInputMedia->sessionMeta;
+	Sink::unlock();
+
+	if (mVideoSinkListener != nullptr) {
+		mVideoSinkListener->onCodedVideoSinkSessionMetaUpdate(
+			mSession, getVideoSink(), &tmpSessionMeta);
+	}
+}
+
+
 int ExternalCodedVideoSink::channelTeardown(CodedVideoChannel *channel)
 {
 	int ret;
@@ -1009,24 +857,69 @@ int ExternalCodedVideoSink::channelTeardown(CodedVideoChannel *channel)
 	return ret;
 }
 
-/**
- * Video sink listener calls from idle functions
- */
+
+/* Listener call from an idle function */
 void ExternalCodedVideoSink::callVideoSinkFlush(void *userdata)
 {
 	ExternalCodedVideoSink *self =
 		reinterpret_cast<ExternalCodedVideoSink *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	IPdraw::ICodedVideoSink::Listener *listener =
-		self->getVideoSinkListener();
-
-	if (listener == nullptr) {
+	if (self->mVideoSinkListener == nullptr) {
 		self->flushDone();
 	} else {
-		listener->onCodedVideoSinkFlush(self->mSession,
-						self->getVideoSink());
+		self->mVideoSinkListener->onCodedVideoSinkFlush(
+			self->mSession, self->getVideoSink());
 	}
+}
+
+
+CodedVideoSinkWrapper::CodedVideoSinkWrapper(
+	Session *session,
+	const struct pdraw_video_sink_params *params,
+	IPdraw::ICodedVideoSink::Listener *listener)
+{
+	mElement = mSink = new Pdraw::ExternalCodedVideoSink(
+		session,
+		&params->required_coded_format,
+		session,
+		listener,
+		this,
+		params);
+}
+
+
+CodedVideoSinkWrapper::~CodedVideoSinkWrapper(void)
+{
+	if (mSink == nullptr)
+		return;
+	int ret = mSink->stop();
+	if (ret < 0)
+		ULOG_ERRNO("sink->stop", -ret);
+}
+
+
+int CodedVideoSinkWrapper::resync(void)
+{
+	if (mSink == nullptr)
+		return -EPROTO;
+	return mSink->resync();
+}
+
+
+struct mbuf_coded_video_frame_queue *CodedVideoSinkWrapper::getQueue(void)
+{
+	if (mSink == nullptr)
+		return nullptr;
+	return mSink->getQueue();
+}
+
+
+int CodedVideoSinkWrapper::queueFlushed(void)
+{
+	if (mSink == nullptr)
+		return -EPROTO;
+	return mSink->flushDone();
 }
 
 } /* namespace Pdraw */

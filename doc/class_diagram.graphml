@@ -216,7 +216,7 @@ SessionSelfMetadata mSelfMetadata
 SessionPeerMetadata mPeerMetadata
 Element mElements[]
 Demuxer mDemuxer;</y:AttributeLabel>
-            <y:MethodLabel xml:space="preserve">- addDecoderForMedia(Source, Media)
+            <y:MethodLabel xml:space="preserve">- addVideoDecoderForMedia(Source, Media)
 - addMediaToRenderer(Source, Media, Renderer)
 - addMediaToAllRenderers(Source, Media)
 - addAllMediaToRenderer(Renderer)

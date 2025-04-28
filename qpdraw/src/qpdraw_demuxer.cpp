@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW demuxer object
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -65,14 +65,15 @@ IPdraw *QPdrawDemuxerPriv::getPdrawInternal()
 }
 
 
-int QPdrawDemuxerPriv::open(const std::string &url)
+int QPdrawDemuxerPriv::open(const std::string &url,
+			    const struct pdraw_demuxer_params *params)
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer != nullptr, EBUSY);
 
 	IPdraw *pdrawInternal = getPdrawInternal();
 	ULOG_ERRNO_RETURN_ERR_IF(pdrawInternal == nullptr, EPROTO);
 
-	return pdrawInternal->createDemuxer(url, this, &mDemuxer);
+	return pdrawInternal->createDemuxer(url, params, this, &mDemuxer);
 }
 
 
@@ -81,7 +82,8 @@ int QPdrawDemuxerPriv::open(const std::string &localAddr,
 			    uint16_t localControlPort,
 			    const std::string &remoteAddr,
 			    uint16_t remoteStreamPort,
-			    uint16_t remoteControlPort)
+			    uint16_t remoteControlPort,
+			    const struct pdraw_demuxer_params *params)
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer != nullptr, EBUSY);
 
@@ -94,19 +96,22 @@ int QPdrawDemuxerPriv::open(const std::string &localAddr,
 					    remoteAddr,
 					    remoteStreamPort,
 					    remoteControlPort,
+					    params,
 					    this,
 					    &mDemuxer);
 }
 
 
-int QPdrawDemuxerPriv::open(const std::string &url, struct mux_ctx *mux)
+int QPdrawDemuxerPriv::open(const std::string &url,
+			    struct mux_ctx *mux,
+			    const struct pdraw_demuxer_params *params)
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer != nullptr, EBUSY);
 
 	IPdraw *pdrawInternal = getPdrawInternal();
 	ULOG_ERRNO_RETURN_ERR_IF(pdrawInternal == nullptr, EPROTO);
 
-	return pdrawInternal->createDemuxer(url, mux, this, &mDemuxer);
+	return pdrawInternal->createDemuxer(url, mux, params, this, &mDemuxer);
 }
 
 
@@ -118,6 +123,26 @@ int QPdrawDemuxerPriv::close(void)
 	if (res == 0)
 		mClosing = true;
 	return res;
+}
+
+
+int QPdrawDemuxerPriv::getMediaList(struct pdraw_demuxer_media **mediaList,
+				    size_t *mediaCount,
+				    uint32_t *selectedMedias)
+{
+	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, 0);
+
+	return mDemuxer->getMediaList(mediaList, mediaCount, selectedMedias);
+}
+
+
+int QPdrawDemuxerPriv::selectMedia(uint32_t selectedMedias)
+{
+	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, 0);
+
+	return mDemuxer->selectMedia(selectedMedias);
 }
 
 
@@ -283,14 +308,16 @@ int QPdrawDemuxerPriv::demuxerSelectMedia(
 	IPdraw *pdraw,
 	IPdraw::IDemuxer *demuxer,
 	const struct pdraw_demuxer_media *medias,
-	size_t count)
+	size_t count,
+	uint32_t selectedMedias)
 {
 	int ret = -ENOSYS;
 
 	Q_UNUSED(pdraw);
 	Q_UNUSED(demuxer);
 
-	emit mParent->selectMedia(medias, (unsigned int)count, &ret);
+	emit mParent->demuxerSelectMedia(
+		medias, (unsigned int)count, selectedMedias, &ret);
 
 	return ret;
 }
@@ -372,9 +399,10 @@ QPdrawDemuxer::~QPdrawDemuxer()
 }
 
 
-int QPdrawDemuxer::open(const std::string &url)
+int QPdrawDemuxer::open(const std::string &url,
+			const struct pdraw_demuxer_params *params)
 {
-	return mPriv->open(url);
+	return mPriv->open(url, params);
 }
 
 
@@ -383,26 +411,44 @@ int QPdrawDemuxer::open(const std::string &localAddr,
 			uint16_t localControlPort,
 			const std::string &remoteAddr,
 			uint16_t remoteStreamPort,
-			uint16_t remoteControlPort)
+			uint16_t remoteControlPort,
+			const struct pdraw_demuxer_params *params)
 {
 	return mPriv->open(localAddr,
 			   localStreamPort,
 			   localControlPort,
 			   remoteAddr,
 			   remoteStreamPort,
-			   remoteControlPort);
+			   remoteControlPort,
+			   params);
 }
 
 
-int QPdrawDemuxer::open(const std::string &url, struct mux_ctx *mux)
+int QPdrawDemuxer::open(const std::string &url,
+			struct mux_ctx *mux,
+			const struct pdraw_demuxer_params *params)
 {
-	return mPriv->open(url, mux);
+	return mPriv->open(url, mux, params);
 }
 
 
 int QPdrawDemuxer::close(void)
 {
 	return mPriv->close();
+}
+
+
+int QPdrawDemuxer::getMediaList(struct pdraw_demuxer_media **mediaList,
+				size_t *mediaCount,
+				uint32_t *selectedMedias)
+{
+	return mPriv->getMediaList(mediaList, mediaCount, selectedMedias);
+}
+
+
+int QPdrawDemuxer::selectMedia(uint32_t selectedMedias)
+{
+	return mPriv->selectMedia(selectedMedias);
 }
 
 

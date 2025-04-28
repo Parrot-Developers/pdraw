@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video scaler element
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -36,25 +36,37 @@
 #include <inttypes.h>
 
 #include <media-buffers/mbuf_raw_video_frame.h>
+#include <pdraw/pdraw.hpp>
 #include <video-scale/vscale.h>
 
 namespace Pdraw {
+
+class VideoScalerWrapper;
+
 
 class VideoScaler : public FilterElement {
 public:
 	VideoScaler(Session *session,
 		    Element::Listener *elementListener,
-		    Source::Listener *sourceListener);
+		    Source::Listener *sourceListener,
+		    IPdraw::IVideoScaler::Listener *listener,
+		    VideoScalerWrapper *wrapper,
+		    const struct vscale_config *params);
 
 	~VideoScaler(void);
 
-	int start(void);
+	int start(void) override;
 
-	int stop(void);
+	int stop(void) override;
 
 	void completeFlush(void);
 
 	void completeStop(void);
+
+	IPdraw::IVideoScaler *getVideoScaler(void) const
+	{
+		return mScaler;
+	}
 
 private:
 	int createOutputMedia(struct vdef_raw_frame *frameInfo,
@@ -64,18 +76,19 @@ private:
 
 	int tryStop(void);
 
-	void onRawVideoChannelQueue(RawVideoChannel *channel,
-				    struct mbuf_raw_video_frame *frame);
+	void
+	onRawVideoChannelQueue(RawVideoChannel *channel,
+			       struct mbuf_raw_video_frame *frame) override;
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlush(Channel *channel) override;
 
-	void onChannelFlushed(Channel *channel);
+	void onChannelFlushed(Channel *channel) override;
 
-	void onChannelTeardown(Channel *channel);
+	void onChannelTeardown(Channel *channel) override;
 
-	void onChannelUnlink(Channel *channel);
+	void onChannelUnlink(Channel *channel) override;
 
-	void onChannelSessionMetaUpdate(Channel *channel);
+	void onChannelSessionMetaUpdate(Channel *channel) override;
 
 	static void frameOutputCb(struct vscale_scaler *scaler,
 				  int status,
@@ -88,16 +101,49 @@ private:
 
 	static void idleCompleteFlush(void *userdata);
 
+	IPdraw::IVideoScaler *mScaler;
+	IPdraw::IVideoScaler::Listener *mScalerListener;
 	RawVideoMedia *mInputMedia;
 	RawVideoMedia *mOutputMedia;
 	struct mbuf_pool *mInputBufferPool;
 	struct mbuf_raw_video_frame_queue *mInputBufferQueue;
+	struct vscale_config *mScalerConfig;
+	std::string mScalerName;
 	struct vscale_scaler *mVscale;
 	bool mIsFlushed;
 	bool mInputChannelFlushPending;
 	bool mVscaleFlushPending;
 	bool mVscaleStopPending;
 	static const struct vscale_cbs mScalerCbs;
+};
+
+
+class VideoScalerWrapper : public IPdraw::IVideoScaler, public ElementWrapper {
+public:
+	VideoScalerWrapper(Session *session,
+			   const struct vscale_config *params,
+			   IPdraw::IVideoScaler::Listener *listener);
+
+	~VideoScalerWrapper(void);
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+		mScaler = nullptr;
+	}
+
+	Sink *getScaler() const
+	{
+		return mScaler;
+	}
+
+	VideoScaler *getVideoScaler() const
+	{
+		return mScaler;
+	}
+
+private:
+	VideoScaler *mScaler;
 };
 
 } /* namespace Pdraw */

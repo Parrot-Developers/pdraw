@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video decoder element
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -59,7 +59,10 @@ VideoDecoder::VideoDecoder(Session *session,
 			   Source::Listener *sourceListener) :
 		FilterElement(session,
 			      elementListener,
+			      nullptr,
 			      1,
+			      nullptr,
+			      0,
 			      nullptr,
 			      0,
 			      nullptr,
@@ -78,8 +81,8 @@ VideoDecoder::VideoDecoder(Session *session,
 	Element::setClassName(__func__);
 
 	/* Supported input formats */
-	supportedInputFormatsCount = vdec_get_supported_input_formats(
-		VDEC_DECODER_IMPLEM_AUTO, &supportedInputFormats);
+	supportedInputFormatsCount =
+		vdec_get_all_supported_input_formats(&supportedInputFormats);
 	if (supportedInputFormatsCount < 0) {
 		PDRAW_LOG_ERRNO("vdec_get_supported_input_formats",
 				-supportedInputFormatsCount);
@@ -104,7 +107,7 @@ VideoDecoder::~VideoDecoder(void)
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
 
-	if (mVdec) {
+	if (mVdec != nullptr) {
 		ret = vdec_destroy(mVdec);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("vdec_destroy", -ret);
@@ -115,10 +118,46 @@ VideoDecoder::~VideoDecoder(void)
 }
 
 
+ssize_t VideoDecoder::preparePsBuffer(const uint8_t *ps,
+				      size_t psSize,
+				      enum vdef_coded_data_format fmt,
+				      uint8_t **ret)
+{
+	size_t prefixSize = (fmt == VDEF_CODED_DATA_FORMAT_RAW_NALU) ? 0 : 4;
+	uint32_t start;
+
+	uint8_t *psBuffer = (uint8_t *)malloc(prefixSize + psSize);
+	if (psBuffer == nullptr) {
+		ULOG_ERRNO("malloc", ENOMEM);
+		return -ENOMEM;
+	}
+
+	if (fmt != VDEF_CODED_DATA_FORMAT_RAW_NALU) {
+		start = (fmt == VDEF_CODED_DATA_FORMAT_BYTE_STREAM)
+				? htonl(0x00000001)
+				: htonl(psSize);
+		memcpy(psBuffer, &start, sizeof(start));
+	}
+	memcpy(psBuffer + prefixSize, ps, psSize);
+
+	*ret = psBuffer;
+	return prefixSize + psSize;
+}
+
+
 int VideoDecoder::start(void)
 {
-	int ret = 0;
+	int ret = 0, err;
 	enum vdef_coded_data_format fmt = VDEF_CODED_DATA_FORMAT_UNKNOWN;
+	const uint8_t *vps = nullptr, *sps = nullptr, *pps = nullptr;
+	size_t vpsSize = 0, spsSize = 0, ppsSize = 0;
+	uint8_t *vpsBuffer = nullptr, *spsBuffer = nullptr,
+		*ppsBuffer = nullptr;
+	ssize_t ret1;
+	InputPort *port = nullptr;
+	struct vdec_config cfg = {};
+	Channel *c = nullptr;
+	CodedVideoChannel *channel = nullptr;
 
 	if ((mState == STARTED) || (mState == STARTING)) {
 		return 0;
@@ -135,144 +174,148 @@ int VideoDecoder::start(void)
 	if (inputMediaCount != 1) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input media count");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 	mInputMedia = dynamic_cast<CodedVideoMedia *>(getInputMedia(0));
 	if (mInputMedia == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input media");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
-	InputPort *port = getInputPort(mInputMedia);
+	port = getInputPort(mInputMedia);
 	if (port == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input port");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 
 	fmt = mInputMedia->format.data_format;
 	if (fmt == VDEF_CODED_DATA_FORMAT_UNKNOWN) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input data format");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 
 	/* Initialize the decoder */
-	struct vdec_config cfg = {};
-	cfg.implem = VDEC_DECODER_IMPLEM_AUTO;
+	cfg.implem = vdec_get_auto_implem_by_coded_format(&mInputMedia->format);
+	if (cfg.implem == VDEC_DECODER_IMPLEM_AUTO) {
+		Sink::unlock();
+		char *fmt = vdef_coded_format_to_str(&mInputMedia->format);
+		PDRAW_LOGE("no implementation found for format %s", fmt);
+		free(fmt);
+		ret = -EPROTO;
+		goto error;
+	}
 	cfg.encoding = mInputMedia->format.encoding;
 	cfg.low_delay =
 		(mInputMedia->playbackType == PDRAW_PLAYBACK_TYPE_LIVE) ? 1 : 0;
-#ifdef BCM_VIDEOCORE
-	cfg.preferred_output_format = VDEF_BCM_MMAL_OPAQUE;
-#endif /* BCM_VIDEOCORE */
-	cfg.android_jvm = mSession->getAndroidJvm();
 	cfg.gen_grey_idr = 1;
-#if BUILD_LIBVIDEO_DECODE_MEDIACODEC
-	struct vdec_config_mediacodec mediacodec_cfg = {};
-	if (vdec_get_auto_implem() == VDEC_DECODER_IMPLEM_MEDIACODEC) {
-		mediacodec_cfg.implem = VDEC_DECODER_IMPLEM_MEDIACODEC;
-		mediacodec_cfg.fake_frame_num = true;
-		cfg.implem_cfg = (struct vdec_config_impl *)&mediacodec_cfg;
-	}
-#endif
 	ret = vdec_new(mSession->getLoop(), &cfg, &mDecoderCbs, this, &mVdec);
 	if (ret < 0) {
 		Sink::unlock();
 		PDRAW_LOG_ERRNO("vdec_new", -ret);
-		return ret;
+		goto error;
 	}
 
 	/* Configure the decoder */
-	const uint8_t *vps = nullptr, *sps = nullptr, *pps = nullptr;
-	size_t vpsSize = 0, spsSize = 0, ppsSize = 0;
-	ret = mInputMedia->getPs(
-		&vps, &vpsSize, &sps, &spsSize, &pps, &ppsSize);
-	if (ret < 0) {
-		Sink::unlock();
-		PDRAW_LOG_ERRNO("media->getPs", -ret);
-		return ret;
-	}
-
-	uint32_t start;
-	size_t prefix_size = (fmt == VDEF_CODED_DATA_FORMAT_RAW_NALU) ? 0 : 4;
-
-	uint8_t *vpsBuffer = nullptr;
-	if (mInputMedia->format.encoding == VDEF_ENCODING_H265) {
-		vpsBuffer = (uint8_t *)malloc(prefix_size + vpsSize);
-		if (vpsBuffer == nullptr) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("malloc:VPS", ENOMEM);
-			return -ENOMEM;
-		}
-
-		if (fmt != VDEF_CODED_DATA_FORMAT_RAW_NALU) {
-			start = (fmt == VDEF_CODED_DATA_FORMAT_BYTE_STREAM)
-					? htonl(0x00000001)
-					: htonl(vpsSize);
-			memcpy(vpsBuffer, &start, sizeof(start));
-		}
-		memcpy(vpsBuffer + prefix_size, vps, vpsSize);
-	}
-
-	uint8_t *spsBuffer = (uint8_t *)malloc(prefix_size + spsSize);
-	if (spsBuffer == nullptr) {
-		Sink::unlock();
-		PDRAW_LOG_ERRNO("malloc:SPS", ENOMEM);
-		free(vpsBuffer);
-		return -ENOMEM;
-	}
-
-	if (fmt != VDEF_CODED_DATA_FORMAT_RAW_NALU) {
-		start = (fmt == VDEF_CODED_DATA_FORMAT_BYTE_STREAM)
-				? htonl(0x00000001)
-				: htonl(spsSize);
-		memcpy(spsBuffer, &start, sizeof(start));
-	}
-	memcpy(spsBuffer + prefix_size, sps, spsSize);
-
-	uint8_t *ppsBuffer = (uint8_t *)malloc(prefix_size + ppsSize);
-	if (ppsBuffer == nullptr) {
-		Sink::unlock();
-		PDRAW_LOG_ERRNO("malloc:PPS", ENOMEM);
-		free(vpsBuffer);
-		free(spsBuffer);
-		return -ENOMEM;
-	}
-
-	if (fmt != VDEF_CODED_DATA_FORMAT_RAW_NALU) {
-		start = (fmt == VDEF_CODED_DATA_FORMAT_BYTE_STREAM)
-				? htonl(0x00000001)
-				: htonl(ppsSize);
-		memcpy(ppsBuffer, &start, sizeof(start));
-	}
-	memcpy(ppsBuffer + prefix_size, pps, ppsSize);
-
 	switch (mInputMedia->format.encoding) {
 	case VDEF_ENCODING_H264:
+		ret = mInputMedia->getPs(
+			nullptr, nullptr, &sps, &spsSize, &pps, &ppsSize);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("media->getPs", -ret);
+			goto error;
+		}
+
+		ret1 = preparePsBuffer(sps, spsSize, fmt, &spsBuffer);
+		if (ret1 < 0) {
+			Sink::unlock();
+			ret = ret1;
+			PDRAW_LOG_ERRNO("preparePsBuffer:SPS", -ret);
+			goto error;
+			;
+		}
+		spsSize = ret1;
+
+		ret1 = preparePsBuffer(pps, ppsSize, fmt, &ppsBuffer);
+		if (ret1 < 0) {
+			Sink::unlock();
+			ret = ret1;
+			PDRAW_LOG_ERRNO("preparePsBuffer:PPS", -ret);
+			free(spsBuffer);
+			goto error;
+		}
+		ppsSize = ret1;
+
 		ret = vdec_set_h264_ps(mVdec,
 				       spsBuffer,
-				       spsSize + prefix_size,
+				       spsSize,
 				       ppsBuffer,
-				       ppsSize + prefix_size,
+				       ppsSize,
 				       &mInputMedia->format);
 		if (ret < 0) {
 			Sink::unlock();
 			PDRAW_LOG_ERRNO("vdec_set_h264_ps", -ret);
-			free(vpsBuffer);
 			free(spsBuffer);
 			free(ppsBuffer);
-			return ret;
+			goto error;
 		}
+
+		free(spsBuffer);
+		free(ppsBuffer);
 		break;
+
 	case VDEF_ENCODING_H265:
+		ret = mInputMedia->getPs(
+			&vps, &vpsSize, &sps, &spsSize, &pps, &ppsSize);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("media->getPs", -ret);
+			goto error;
+		}
+
+		ret1 = preparePsBuffer(vps, vpsSize, fmt, &vpsBuffer);
+		if (ret1 < 0) {
+			Sink::unlock();
+			ret = ret1;
+			PDRAW_LOG_ERRNO("preparePsBuffer:VPS", -ret);
+			goto error;
+		}
+		vpsSize = ret1;
+
+		ret1 = preparePsBuffer(sps, spsSize, fmt, &spsBuffer);
+		if (ret1 < 0) {
+			Sink::unlock();
+			ret = ret1;
+			PDRAW_LOG_ERRNO("preparePsBuffer:SPS", -ret);
+			free(vpsBuffer);
+			goto error;
+		}
+		spsSize = ret1;
+
+		ret1 = preparePsBuffer(pps, ppsSize, fmt, &ppsBuffer);
+		if (ret1 < 0) {
+			Sink::unlock();
+			ret = ret1;
+			PDRAW_LOG_ERRNO("preparePsBuffer:PPS", -ret);
+			free(vpsBuffer);
+			free(spsBuffer);
+			goto error;
+		}
+		ppsSize = ret1;
+
 		ret = vdec_set_h265_ps(mVdec,
 				       vpsBuffer,
-				       vpsSize + prefix_size,
+				       vpsSize,
 				       spsBuffer,
-				       spsSize + prefix_size,
+				       spsSize,
 				       ppsBuffer,
-				       ppsSize + prefix_size,
+				       ppsSize,
 				       &mInputMedia->format);
 		if (ret < 0) {
 			Sink::unlock();
@@ -280,30 +323,39 @@ int VideoDecoder::start(void)
 			free(vpsBuffer);
 			free(spsBuffer);
 			free(ppsBuffer);
-			return ret;
+			goto error;
+		}
+
+		free(vpsBuffer);
+		free(spsBuffer);
+		free(ppsBuffer);
+		break;
+
+	case VDEF_ENCODING_JPEG:
+		ret = vdec_set_jpeg_params(mVdec, &mInputMedia->info);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("vdec_set_jpeg_params", -ret);
+			goto error;
 		}
 		break;
+
 	default:
 		Sink::unlock();
 		PDRAW_LOGE("unsupported input media encoding (%s)",
 			   vdef_encoding_to_str(mInputMedia->format.encoding));
-		free(vpsBuffer);
-		free(spsBuffer);
-		free(ppsBuffer);
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 
-	free(vpsBuffer);
-	free(spsBuffer);
-	free(ppsBuffer);
-
 	/* Setup the input port */
-	Channel *c = port->channel;
-	CodedVideoChannel *channel = dynamic_cast<CodedVideoChannel *>(c);
+	c = port->channel;
+	channel = dynamic_cast<CodedVideoChannel *>(c);
 	if (channel == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid input channel");
-		return -EPROTO;
+		ret = -EPROTO;
+		goto error;
 	}
 	mInputBufferQueue = vdec_get_input_buffer_queue(mVdec);
 	channel->setQueue(this, mInputBufferQueue);
@@ -315,6 +367,23 @@ int VideoDecoder::start(void)
 	setState(STARTED);
 
 	return 0;
+
+error:
+	if (mInputMedia != nullptr) {
+		/* mInputMedia must be removed synchronously to avoid holding a
+		 * reference to a media that can be destroyed at any moment by
+		 * the Source element */
+		err = removeInputMedia(mInputMedia);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("removeInputMedia", -err);
+		else
+			mInputMedia = nullptr;
+	}
+	err = stop();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("stop", -err);
+
+	return ret;
 }
 
 
@@ -324,12 +393,17 @@ int VideoDecoder::stop(void)
 
 	if ((mState == STOPPED) || (mState == STOPPING))
 		return 0;
-	if (mState != STARTED) {
+	if ((mState != STARTING) && (mState != STARTED)) {
 		PDRAW_LOGE("%s: decoder is not started", __func__);
 		return -EPROTO;
 	}
 	setState(STOPPING);
 	mVdecStopPending = true;
+
+	Source::lock();
+	if (mOutputMedia != nullptr)
+		mOutputMedia->setTearingDown();
+	Source::unlock();
 
 	/* Flush everything */
 	ret = flush();
@@ -343,20 +417,19 @@ int VideoDecoder::stop(void)
 
 int VideoDecoder::flush(void)
 {
-	int ret;
+	int ret = 0;
+	int err;
 	unsigned int outputChannelCount, i;
 	Channel *outputChannel;
 
 	if (mIsFlushed) {
 		PDRAW_LOGD("decoder is already flushed, nothing to do");
-		int err = pomp_loop_idle_add_with_cookie(
+		ret = pomp_loop_idle_add_with_cookie(
 			mSession->getLoop(), &idleCompleteFlush, this, this);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
-		return 0;
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		return ret;
 	}
-
-	mVdecFlushPending = true;
 
 	/* Flush the output channels (async) */
 	Source::lock();
@@ -371,18 +444,30 @@ int VideoDecoder::flush(void)
 					i);
 				continue;
 			}
-			ret = outputChannel->flush();
-			if (ret < 0)
-				PDRAW_LOG_ERRNO("channel->flush", -ret);
+			err = outputChannel->flush();
+			if (err < 0) {
+				PDRAW_LOG_ERRNO(
+					"channel->flush (channel index=%u)",
+					-err,
+					i);
+			}
 		}
 	}
 	Source::unlock();
 
 	/* Flush the decoder (async)
 	 * (the input channel queue is flushed by vdec) */
-	ret = vdec_flush(mVdec, 1);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("vdec_flush", -ret);
+	if (mVdec != nullptr) {
+		if (!mVdecFlushPending) {
+			ret = vdec_flush(mVdec, 1);
+			if (ret < 0)
+				PDRAW_LOG_ERRNO("vdec_flush", -ret);
+			else
+				mVdecFlushPending = true;
+		}
+	} else {
+		completeFlush();
+	}
 
 	return ret;
 }
@@ -484,11 +569,14 @@ int VideoDecoder::tryStop(void)
 	Source::unlock();
 
 	/* Stop the decoder */
-	ret = vdec_stop(mVdec);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("vdec_stop", -ret);
-		return ret;
+	if (mVdec != nullptr) {
+		ret = vdec_stop(mVdec);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("vdec_stop", -ret);
+			return ret;
+		}
 	}
+	/* Else, delay completeStop() after removing the input port */
 
 	/* Remove the input port */
 	Sink::lock();
@@ -509,6 +597,11 @@ int VideoDecoder::tryStop(void)
 			mInputMedia = nullptr;
 	}
 	Sink::unlock();
+
+	if (mVdec == nullptr) {
+		mVdecStopPending = false;
+		completeStop();
+	}
 
 	return 0;
 }
@@ -577,6 +670,8 @@ void VideoDecoder::resync(void)
 	ret = vdec_flush(mVdec, 1);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("vdec_flush", -ret);
+	else
+		mVdecFlushPending = true;
 
 	Sink::unlock();
 }
@@ -608,8 +703,8 @@ void VideoDecoder::completeResync(void)
 }
 
 
-int VideoDecoder::createOutputMedia(struct vdef_raw_frame *frameInfo,
-				    RawVideoMedia::Frame &frame)
+int VideoDecoder::createOutputMedia(const struct vdef_raw_frame *frameInfo,
+				    const RawVideoMedia::Frame &frame)
 {
 	int ret;
 
@@ -713,7 +808,7 @@ void VideoDecoder::onChannelFlushed(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
@@ -766,7 +861,7 @@ void VideoDecoder::onChannelSessionMetaUpdate(Channel *channel)
 	Sink::lock();
 	if (mInputMedia == nullptr) {
 		Sink::unlock();
-		PDRAW_LOGE("input media not found");
+		PDRAW_LOGE("%s: input media not found", __func__);
 		return;
 	}
 	tmpSessionMeta = mInputMedia->sessionMeta;
@@ -775,7 +870,7 @@ void VideoDecoder::onChannelSessionMetaUpdate(Channel *channel)
 	Source::lock();
 	if (mOutputMedia == nullptr) {
 		Source::unlock();
-		PDRAW_LOGE("output media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 	mOutputMedia->sessionMeta = tmpSessionMeta;
@@ -817,7 +912,7 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		return;
 	}
 	if (self->mState != STARTED) {
-		PDRAW_LOGE("frame input: decoder is not started");
+		PDRAW_LOGE("frame output: decoder is not started");
 		return;
 	}
 	if ((self->mVdecFlushPending) || (self->mInputChannelFlushPending)) {
@@ -850,7 +945,7 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		return;
 	}
 	in_meta = (CodedVideoMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, NULL);
+		ancillaryData, nullptr);
 	memset(&out_meta, 0, sizeof(out_meta));
 	out_meta.ntpTimestamp = in_meta->ntpTimestamp;
 	out_meta.ntpUnskewedTimestamp = in_meta->ntpUnskewedTimestamp;

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Raw video source to sink test program
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -149,7 +149,7 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 	if (info->video.format != VDEF_FRAME_TYPE_RAW)
 		return;
 
-	if (strcmp(info->session_meta->friendly_name, FRIENDLY_NAME) != 0)
+	if (strcmp(info->video.session_meta->friendly_name, FRIENDLY_NAME) != 0)
 		ULOGW("mismatch on friendly_name session metadata");
 
 	struct pdraw_video_sink_params sink_params = {0};
@@ -317,7 +317,7 @@ static const struct option long_options[] = {
 
 static void welcome(int argc, char **argv)
 {
-	printf("%s - Parrot Drones Awesome Video Viewer "
+	printf("%s - Parrot Drones Audio and Video Vector - "
 	       "Raw video source to sink test program\n\n",
 	       argv[0]);
 }

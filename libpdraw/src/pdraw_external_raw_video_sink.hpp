@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Application external raw video sink
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -40,36 +40,33 @@
 
 namespace Pdraw {
 
+class RawVideoSinkWrapper;
+
 
 class ExternalRawVideoSink : public SinkElement {
 public:
 	ExternalRawVideoSink(Session *session,
 			     Element::Listener *elementListener,
 			     IPdraw::IRawVideoSink::Listener *listener,
-			     IPdraw::IRawVideoSink *sink,
+			     RawVideoSinkWrapper *wrapper,
 			     const struct pdraw_video_sink_params *params);
 
 	~ExternalRawVideoSink(void);
 
-	int start(void);
+	int start(void) override;
 
-	int stop(void);
+	int stop(void) override;
 
 	int flushDone(void);
 
-	struct mbuf_raw_video_frame_queue *getQueue(void)
+	struct mbuf_raw_video_frame_queue *getQueue(void) const
 	{
 		return mInputFrameQueue;
 	}
 
-	IPdraw::IRawVideoSink *getVideoSink(void)
+	IPdraw::IRawVideoSink *getVideoSink(void) const
 	{
 		return mVideoSink;
-	}
-
-	IPdraw::IRawVideoSink::Listener *getVideoSinkListener(void)
-	{
-		return mVideoSinkListener;
 	}
 
 private:
@@ -77,12 +74,15 @@ private:
 
 	int channelTeardown(RawVideoChannel *channel);
 
-	void onRawVideoChannelQueue(RawVideoChannel *channel,
-				    struct mbuf_raw_video_frame *frame);
+	void
+	onRawVideoChannelQueue(RawVideoChannel *channel,
+			       struct mbuf_raw_video_frame *frame) override;
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlush(Channel *channel) override;
 
-	void onChannelTeardown(Channel *channel);
+	void onChannelTeardown(Channel *channel) override;
+
+	void onChannelSessionMetaUpdate(Channel *channel) override;
 
 	int prepareRawVideoFrame(RawVideoChannel *channel,
 				 struct mbuf_raw_video_frame *frame);
@@ -100,6 +100,42 @@ private:
 	bool mIsFlushed;
 	bool mInputChannelFlushPending;
 	bool mTearingDown;
+};
+
+
+class RawVideoSinkWrapper : public IPdraw::IRawVideoSink,
+			    public ElementWrapper {
+public:
+	RawVideoSinkWrapper(Session *session,
+			    const struct pdraw_video_sink_params *params,
+			    IPdraw::IRawVideoSink::Listener *listener);
+
+	~RawVideoSinkWrapper(void);
+
+	int resync(void);
+
+	struct mbuf_raw_video_frame_queue *getQueue(void) override;
+
+	int queueFlushed(void) override;
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+		mSink = nullptr;
+	}
+
+	Sink *getSink() const
+	{
+		return mSink;
+	}
+
+	ExternalRawVideoSink *getRawVideoSink() const
+	{
+		return mSink;
+	}
+
+private:
+	ExternalRawVideoSink *mSink;
 };
 
 } /* namespace Pdraw */

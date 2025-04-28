@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Application external coded video sink
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -41,6 +41,8 @@
 
 namespace Pdraw {
 
+class CodedVideoSinkWrapper;
+
 
 class ExternalCodedVideoSink : public SinkElement {
 public:
@@ -49,33 +51,28 @@ public:
 		const struct vdef_coded_format *requiredCodedFormat,
 		Element::Listener *elementListener,
 		IPdraw::ICodedVideoSink::Listener *listener,
-		IPdraw::ICodedVideoSink *sink,
+		CodedVideoSinkWrapper *wrapper,
 		const struct pdraw_video_sink_params *params);
 
 	~ExternalCodedVideoSink(void);
 
-	int start(void);
+	int start(void) override;
 
-	int stop(void);
+	int stop(void) override;
 
 	int resync(void);
 
 
 	int flushDone(void);
 
-	struct mbuf_coded_video_frame_queue *getQueue(void)
+	struct mbuf_coded_video_frame_queue *getQueue(void) const
 	{
 		return mInputFrameQueue;
 	}
 
-	IPdraw::ICodedVideoSink *getVideoSink(void)
+	IPdraw::ICodedVideoSink *getVideoSink(void) const
 	{
 		return mVideoSink;
-	}
-
-	IPdraw::ICodedVideoSink::Listener *getVideoSinkListener(void)
-	{
-		return mVideoSinkListener;
 	}
 
 private:
@@ -83,12 +80,15 @@ private:
 
 	int channelTeardown(CodedVideoChannel *channel);
 
-	void onCodedVideoChannelQueue(CodedVideoChannel *channel,
-				      struct mbuf_coded_video_frame *frame);
+	void
+	onCodedVideoChannelQueue(CodedVideoChannel *channel,
+				 struct mbuf_coded_video_frame *frame) override;
 
-	void onChannelFlush(Channel *channel);
+	void onChannelFlush(Channel *channel) override;
 
-	void onChannelTeardown(Channel *channel);
+	void onChannelTeardown(Channel *channel) override;
+
+	void onChannelSessionMetaUpdate(Channel *channel) override;
 
 	int prepareCodedVideoFrame(CodedVideoChannel *channel,
 				   struct mbuf_coded_video_frame *frame);
@@ -143,11 +143,43 @@ private:
 	bool mTearingDown;
 	bool mNeedSync;
 	struct h264_reader *mH264Reader;
-	bool mIsRef;
-	bool mIsRecoveryPoint;
-	unsigned int mFakeFrameNum;
-	unsigned int mMaxFrameNum;
 	static const struct h264_ctx_cbs mH264ReaderCbs;
+};
+
+
+class CodedVideoSinkWrapper : public IPdraw::ICodedVideoSink,
+			      public ElementWrapper {
+public:
+	CodedVideoSinkWrapper(Session *session,
+			      const struct pdraw_video_sink_params *params,
+			      IPdraw::ICodedVideoSink::Listener *listener);
+
+	~CodedVideoSinkWrapper(void);
+
+	int resync(void) override;
+
+	struct mbuf_coded_video_frame_queue *getQueue(void) override;
+
+	int queueFlushed(void) override;
+
+	void clearElement(void) override
+	{
+		ElementWrapper::clearElement();
+		mSink = nullptr;
+	}
+
+	Sink *getSink() const
+	{
+		return mSink;
+	}
+
+	ExternalCodedVideoSink *getCodedVideoSink() const
+	{
+		return mSink;
+	}
+
+private:
+	ExternalCodedVideoSink *mSink;
 };
 
 } /* namespace Pdraw */

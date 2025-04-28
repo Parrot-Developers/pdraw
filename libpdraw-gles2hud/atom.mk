@@ -4,8 +4,12 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 LOCAL_MODULE := libpdraw-gles2hud
 LOCAL_CATEGORY_PATH := libs
-LOCAL_DESCRIPTION := Parrot Drones Awesome Video Viewer OpenGL ES 2.0 HUD rendering library
+LOCAL_DESCRIPTION := PDrAW OpenGL ES 2.0 HUD rendering library
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
+# Public API headers - top level headers first
+# This header list is currently used to generate a python binding
+LOCAL_EXPORT_CUSTOM_VARIABLES := LIBPDRAW_GLES2HUD_HEADERS=$\
+	$(LOCAL_PATH)/include/pdraw/pdraw_gles2hud.h;
 LOCAL_CFLAGS := \
 	-DPDRAW_GLES2HUD_API_EXPORTS \
 	-fvisibility=hidden \
@@ -34,20 +38,19 @@ ifeq ($(TARGET_CPU),$(filter %$(TARGET_CPU),s905d3 s905x3))
 else ifeq ($(TARGET_CPU),qrb5165)
   LOCAL_LIBRARIES += \
 	glesv2
-else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
-  LOCAL_CFLAGS += -DUSE_GLFW3
+else ifeq ($(TARGET_CPU),qcs405)
   LOCAL_LIBRARIES += \
-	glfw3 \
+	glesv2 \
+	egl
+else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
+  LOCAL_LIBRARIES += \
 	opengl
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
   LOCAL_LDLIBS += -lGLESv2
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-native")
-  LOCAL_CFLAGS += -DUSE_GLFW3
   LOCAL_LDLIBS += \
 	-framework OpenGL
-  LOCAL_LIBRARIES += \
-	glfw3
-else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-iphoneos")
+else ifeq ($(TARGET_OS_FLAVOUR),$(filter %$(TARGET_OS_FLAVOUR),iphoneos iphonesimulator))
   LOCAL_LDLIBS += \
 	-framework OpenGLES
 else ifeq ("$(TARGET_OS)","windows")

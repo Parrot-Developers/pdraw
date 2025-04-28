@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * User settings
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -69,41 +69,11 @@ public:
 
 	void setSoftwareVersion(const std::string &softwareVersion);
 
-	enum pdraw_pipeline_mode getPipelineMode(void);
-
-	void setPipelineMode(enum pdraw_pipeline_mode mode);
-
-	void getDisplayScreenSettings(float *xdpi,
-				      float *ydpi,
-				      float *deviceMarginTop,
-				      float *deviceMarginBottom,
-				      float *deviceMarginLeft,
-				      float *deviceMarginRight);
-
-	void setDisplayScreenSettings(float xdpi,
-				      float ydpi,
-				      float deviceMarginTop,
-				      float deviceMarginBottom,
-				      float deviceMarginLeft,
-				      float deviceMarginRight);
-
-	enum pdraw_hmd_model getHmdModelSetting(void);
-
-	void setHmdModelSetting(enum pdraw_hmd_model hmdModel);
-
 private:
 	pthread_mutex_t mMutex;
 	std::string mFriendlyName;
 	std::string mSerialNumber;
 	std::string mSoftwareVersion;
-	enum pdraw_pipeline_mode mPipelineMode;
-	float mDisplayXdpi;
-	float mDisplayYdpi;
-	float mDisplayDeviceMarginTop;
-	float mDisplayDeviceMarginBottom;
-	float mDisplayDeviceMarginLeft;
-	float mDisplayDeviceMarginRight;
-	enum pdraw_hmd_model mHmdModel;
 };
 
 } /* namespace Pdraw */

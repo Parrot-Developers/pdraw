@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Utilities
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -107,37 +107,75 @@ void pdraw_friendlyTimeFromUs(uint64_t time,
 			      unsigned int *msec);
 
 
-const char *pdraw_hmdModelStr(enum pdraw_hmd_model val);
+const char *
+pdraw_demuxerAutodecodingModeStr(enum pdraw_demuxer_autodecoding_mode val);
 
 
-const char *pdraw_pipelineModeStr(enum pdraw_pipeline_mode val);
+enum pdraw_demuxer_autodecoding_mode
+pdraw_demuxerAutodecodingModeFromStr(const char *val);
 
 
 const char *pdraw_playbackTypeStr(enum pdraw_playback_type val);
 
 
+enum pdraw_playback_type pdraw_playbackTypeFromStr(const char *val);
+
+
 const char *pdraw_mediaTypeStr(enum pdraw_media_type val);
+
+
+enum pdraw_media_type pdraw_mediaTypeFromStr(const char *val);
+
+
+const char *
+pdraw_muxerConnectionStateStr(enum pdraw_muxer_connection_state val);
+
+
+const char *
+pdraw_muxerDisconnectionReasonStr(enum pdraw_muxer_disconnection_reason val);
 
 
 const char *pdraw_videoTypeStr(enum pdraw_video_type val);
 
 
+enum pdraw_video_type pdraw_videoTypeFromStr(const char *val);
+
+
 const char *pdraw_histogramChannelStr(enum pdraw_histogram_channel val);
+
+
+enum pdraw_histogram_channel pdraw_histogramChannelFromStr(const char *val);
 
 
 const char *pdraw_videoRendererSchedulingModeStr(
 	enum pdraw_video_renderer_scheduling_mode val);
 
 
+enum pdraw_video_renderer_scheduling_mode
+pdraw_videoRendererSchedulingModeFromStr(const char *val);
+
+
 const char *
 pdraw_videoRendererFillModeStr(enum pdraw_video_renderer_fill_mode val);
+
+
+enum pdraw_video_renderer_fill_mode
+pdraw_videoRendererFillModeFromStr(const char *val);
 
 
 const char *pdraw_videoRendererTransitionFlagStr(
 	enum pdraw_video_renderer_transition_flag val);
 
 
+enum pdraw_video_renderer_transition_flag
+pdraw_videoRendererTransitionFlagFromStr(const char *val);
+
+
 const char *pdraw_vipcSourceEosReasonStr(enum pdraw_vipc_source_eos_reason val);
+
+
+enum pdraw_vipc_source_eos_reason
+pdraw_vipcSourceEosReasonFromStr(const char *val);
 
 
 int pdraw_frameMetadataToJson(const struct pdraw_video_frame *frame,
@@ -154,6 +192,9 @@ uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_coded_video_frame *frame,
 					 const char *key);
 
 uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_raw_video_frame *frame,
+					 const char *key);
+
+uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_audio_frame *frame,
 					 const char *key);
 
 struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src);
@@ -178,6 +219,17 @@ static inline int xstrcmp(const char *s1, const char *s2)
 	else if (s2 == nullptr)
 		return 1;
 	return strcmp(s1, s2);
+}
+
+
+static inline unsigned int pdraw_gcd(unsigned int a, unsigned int b)
+{
+	while (b != 0) {
+		int t = a % b;
+		a = b;
+		b = t;
+	}
+	return a;
 }
 
 

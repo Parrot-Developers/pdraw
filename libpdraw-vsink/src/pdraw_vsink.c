@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Video sink wrapper library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -32,6 +32,10 @@
 #include <pthread.h>
 #include <unistd.h>
 
+#if defined(__APPLE__)
+#	include <TargetConditionals.h>
+#endif
+
 #define ULOG_TAG pdraw_vsink
 #include <ulog.h>
 ULOG_DECLARE_TAG(pdraw_vsink);
@@ -47,6 +51,8 @@ ULOG_DECLARE_TAG(pdraw_vsink);
 struct pdraw_vsink {
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
+	bool cond_ready;
+	bool frame_ready;
 	pthread_t thread;
 	int thread_launched;
 	int thread_should_stop;
@@ -58,12 +64,25 @@ struct pdraw_vsink {
 	struct pdraw_media_info *media_info;
 	char *url;
 	int result;
+	struct pdraw_vsink_cbs cbs;
 };
 
 
 static void *run_loop_thread(void *ptr)
 {
 	struct pdraw_vsink *self = ptr;
+
+#if defined(__APPLE__)
+#	if !TARGET_OS_IPHONE
+	int err = pthread_setname_np("pdraw_vsink");
+	if (err != 0)
+		ULOG_ERRNO("pthread_setname_np", err);
+#	endif
+#else
+	int err = pthread_setname_np(pthread_self(), "pdraw_vsink");
+	if (err != 0)
+		ULOG_ERRNO("pthread_setname_np", err);
+#endif
 
 	while (!self->thread_should_stop)
 		pomp_loop_wait_and_process(self->loop, -1);
@@ -109,14 +128,60 @@ static void delete_pdraw_idle(void *userdata)
 	if (res < 0)
 		ULOG_ERRNO("pdraw_destroy", -res);
 	self->pdraw = NULL;
+	pthread_mutex_lock(&self->mutex);
+	self->cond_ready = true;
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
 static void queue_event_cb(struct pomp_evt *evt, void *userdata)
 {
 	struct pdraw_vsink *self = userdata;
-	pthread_cond_signal(&self->cond);
+	struct mbuf_raw_video_frame *in_frame = NULL;
+	struct mbuf_ancillary_data *ancillary_data = NULL;
+	struct pdraw_video_frame *in_frame_info = NULL;
+	int res = 0;
+	ssize_t len;
+
+	if (!self->cbs.get_frame_cb_t) {
+		pthread_mutex_lock(&self->mutex);
+		self->frame_ready = true;
+		pthread_cond_signal(&self->cond);
+		pthread_mutex_unlock(&self->mutex);
+		return;
+	}
+
+	res = mbuf_raw_video_frame_queue_pop(self->queue, &in_frame);
+	if (res < 0) {
+		ULOG_ERRNO("mbuf_raw_video_frame_queue_pop", -res);
+		goto out;
+	}
+
+	/* Need to allocate our own memory */
+	len = mbuf_raw_video_frame_get_packed_size(in_frame, false);
+	if (len <= 0) {
+		ULOG_ERRNO("mbuf_raw_video_frame_get_packed_buffer", -len);
+		goto out;
+	}
+
+	res = mbuf_raw_video_frame_get_ancillary_data(
+		in_frame, PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME, &ancillary_data);
+	if (res < 0) {
+		ULOG_ERRNO("mbuf_raw_video_frame_get_ancillary_data", -res);
+		goto out;
+	}
+	in_frame_info =
+		(struct pdraw_video_frame *)mbuf_ancillary_data_get_buffer(
+			ancillary_data, NULL);
+
+out:
+	if (ancillary_data != NULL)
+		mbuf_ancillary_data_unref(ancillary_data);
+	if (res < 0)
+		mbuf_raw_video_frame_unref(in_frame);
+	else
+		self->cbs.get_frame_cb_t(in_frame_info, in_frame);
 }
 
 
@@ -163,8 +228,9 @@ static void open_resp_cb(struct pdraw *pdraw,
 	if (status != 0) {
 		pthread_mutex_lock(&self->mutex);
 		self->result = status;
-		pthread_mutex_unlock(&self->mutex);
+		self->cond_ready = true;
 		pthread_cond_signal(&self->cond);
+		pthread_mutex_unlock(&self->mutex);
 	}
 }
 
@@ -185,8 +251,9 @@ static void ready_to_play_cb(struct pdraw *pdraw,
 			ULOG_ERRNO("pdraw_demuxer_play", -res);
 			pthread_mutex_lock(&self->mutex);
 			self->result = res;
-			pthread_mutex_unlock(&self->mutex);
+			self->cond_ready = true;
 			pthread_cond_signal(&self->cond);
+			pthread_mutex_unlock(&self->mutex);
 		}
 	}
 }
@@ -223,7 +290,10 @@ static void stop_resp_cb(struct pdraw *pdraw, int status, void *userdata)
 	res = pomp_loop_idle_add(self->loop, delete_pdraw_idle, self);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_loop_idle_add", -res);
+		pthread_mutex_lock(&self->mutex);
+		self->cond_ready = true;
 		pthread_cond_signal(&self->cond);
+		pthread_mutex_unlock(&self->mutex);
 	}
 }
 
@@ -261,7 +331,6 @@ static void media_added_cb(struct pdraw *pdraw,
 		goto out;
 	}
 
-
 	struct pdraw_video_sink_params params;
 	memset(&params, 0, sizeof(params));
 	params.queue_max_count = 1;
@@ -292,8 +361,9 @@ static void media_added_cb(struct pdraw *pdraw,
 
 out:
 	self->result = res;
-	pthread_mutex_unlock(&self->mutex);
+	self->cond_ready = true;
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -344,25 +414,32 @@ static void start_pdraw_idle(void *userdata)
 {
 	int res;
 	struct pdraw_vsink *self = userdata;
+	struct pdraw_demuxer_params params = {0};
 
 	res = pdraw_new(self->loop, &pdraw_cbs, self, &self->pdraw);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw_new", -res);
 		pthread_mutex_lock(&self->mutex);
 		self->result = res;
-		pthread_mutex_unlock(&self->mutex);
+		self->cond_ready = true;
 		pthread_cond_signal(&self->cond);
+		pthread_mutex_unlock(&self->mutex);
 		return;
 	}
 
-	res = pdraw_demuxer_new_from_url(
-		self->pdraw, self->url, &demuxer_cbs, self, &self->demuxer);
+	res = pdraw_demuxer_new_from_url(self->pdraw,
+					 self->url,
+					 &params,
+					 &demuxer_cbs,
+					 self,
+					 &self->demuxer);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw_demuxer_new_from_url", -res);
 		pthread_mutex_lock(&self->mutex);
 		self->result = res;
-		pthread_mutex_unlock(&self->mutex);
+		self->cond_ready = true;
 		pthread_cond_signal(&self->cond);
+		pthread_mutex_unlock(&self->mutex);
 		return;
 	}
 }
@@ -398,12 +475,16 @@ error:
 	res = pomp_loop_idle_add(self->loop, delete_pdraw_idle, self);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_loop_idle_add", -res);
+		pthread_mutex_lock(&self->mutex);
+		self->cond_ready = true;
 		pthread_cond_signal(&self->cond);
+		pthread_mutex_unlock(&self->mutex);
 	}
 }
 
 
 int pdraw_vsink_start(const char *url,
+		      struct pdraw_vsink_cbs *cbs,
 		      struct pdraw_media_info **media_info,
 		      struct pdraw_vsink **ret_obj)
 {
@@ -416,6 +497,10 @@ int pdraw_vsink_start(const char *url,
 	if (self == NULL)
 		return -ENOMEM;
 
+	self->cond_ready = false;
+
+	if (cbs != NULL)
+		self->cbs = *cbs;
 	self->url = strdup(url);
 	if (self->url == NULL) {
 		res = -ENOMEM;
@@ -459,7 +544,9 @@ int pdraw_vsink_start(const char *url,
 	}
 
 	pthread_mutex_lock(&self->mutex);
-	pthread_cond_wait(&self->cond, &self->mutex);
+	while (!self->cond_ready)
+		pthread_cond_wait(&self->cond, &self->mutex);
+	self->cond_ready = false;
 	res = self->result;
 	pthread_mutex_unlock(&self->mutex);
 
@@ -493,7 +580,9 @@ int pdraw_vsink_stop(struct pdraw_vsink *self)
 		if (res < 0)
 			ULOG_ERRNO("pomp_loop_idle_add", -res);
 		pthread_mutex_lock(&self->mutex);
-		pthread_cond_wait(&self->cond, &self->mutex);
+		while (!self->cond_ready)
+			pthread_cond_wait(&self->cond, &self->mutex);
+		self->cond_ready = false;
 		pthread_mutex_unlock(&self->mutex);
 	}
 
@@ -528,6 +617,7 @@ int pdraw_vsink_stop(struct pdraw_vsink *self)
 
 
 int pdraw_vsink_get_frame(struct pdraw_vsink *self,
+			  int timeout_ms,
 			  struct mbuf_mem *frame_memory,
 			  struct pdraw_video_frame *frame_info,
 			  struct mbuf_raw_video_frame **ret_frame)
@@ -538,19 +628,52 @@ int pdraw_vsink_get_frame(struct pdraw_vsink *self,
 	struct mbuf_ancillary_data *ancillary_data = NULL;
 	struct pdraw_video_frame *in_frame_info = NULL;
 	bool own_mem = false;
+	struct timespec ts_timeout = {};
+	struct timespec ts_now = {};
 
 	ULOG_ERRNO_RETURN_ERR_IF(self == NULL, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(frame_info == NULL, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_frame == NULL, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(self->queue == NULL, EAGAIN);
 
-	*ret_frame = NULL;
+	if (self->cbs.get_frame_cb_t != NULL) {
+		ULOGE("%s is unavailable when get_frame_cb_t is implemented",
+		      __func__);
+		return -EINVAL;
+	}
 
+	*ret_frame = NULL;
 	do {
 		res = mbuf_raw_video_frame_queue_pop(self->queue, &in_frame);
 		if (res == -EAGAIN) {
+			if (timeout_ms == 0)
+				return -EAGAIN;
+
 			pthread_mutex_lock(&self->mutex);
-			pthread_cond_wait(&self->cond, &self->mutex);
+
+			if (timeout_ms > 0) {
+				time_get_realtime(&ts_now);
+				time_timespec_add_us(&ts_now,
+						     timeout_ms * 1000,
+						     &ts_timeout);
+			}
+			while (!self->frame_ready) {
+				if (timeout_ms > 0) {
+					res = pthread_cond_timedwait(
+						&self->cond,
+						&self->mutex,
+						&ts_timeout);
+				} else {
+					res = pthread_cond_wait(&self->cond,
+								&self->mutex);
+				}
+				if (res == ETIMEDOUT) {
+					self->frame_ready = false;
+					pthread_mutex_unlock(&self->mutex);
+					return -res;
+				}
+			}
+			self->frame_ready = false;
 			pthread_mutex_unlock(&self->mutex);
 		} else if (res < 0) {
 			ULOG_ERRNO("mbuf_raw_video_frame_queue_pop", -res);
@@ -561,21 +684,13 @@ int pdraw_vsink_get_frame(struct pdraw_vsink *self,
 	} while (1);
 
 	if (!memory) {
-		const void *buf;
-		size_t len;
+		ssize_t len;
 		/* Need to allocate our own memory */
-		res = mbuf_raw_video_frame_get_packed_buffer(
-			in_frame, &buf, &len);
-		if (res == -EPROTO) {
-			/* Frame is not packed but we have len, nothing to do */
-		} else if (res <= 0) {
+		len = mbuf_raw_video_frame_get_packed_size(in_frame, false);
+		if (len <= 0) {
 			ULOG_ERRNO("mbuf_raw_video_frame_get_packed_buffer",
-				   -res);
+				   -len);
 			goto out;
-		} else {
-			/* Immediately release, we only need the size */
-			mbuf_raw_video_frame_release_packed_buffer(in_frame,
-								   buf);
 		}
 		own_mem = true;
 		res = mbuf_mem_generic_new(len, &memory);

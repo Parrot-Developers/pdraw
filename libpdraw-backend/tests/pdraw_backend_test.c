@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * PDrAW back-end library test program
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -233,7 +233,7 @@ static struct pdraw_backend_demuxer_cbs demuxer_cbs = {
 
 static void welcome(char *prog_name)
 {
-	printf("%s - Parrot Drones Awesome Video Viewer "
+	printf("%s - Parrot Drones Audio and Video Vector - "
 	       "back-end library test program\n\n",
 	       prog_name);
 }
@@ -249,6 +249,7 @@ int main(int argc, char **argv)
 {
 	int res, status = EXIT_SUCCESS;
 	struct pdraw_backend_app *self = NULL;
+	struct pdraw_demuxer_params params = {0};
 
 	welcome(argv[0]);
 
@@ -291,8 +292,12 @@ int main(int argc, char **argv)
 	ULOGI("created");
 
 	/* Open URL or file */
-	res = pdraw_be_demuxer_new_from_url(
-		self->pdraw, argv[1], &demuxer_cbs, self, &self->demuxer);
+	res = pdraw_be_demuxer_new_from_url(self->pdraw,
+					    argv[1],
+					    &params,
+					    &demuxer_cbs,
+					    self,
+					    &self->demuxer);
 	if (res < 0) {
 		ULOG_ERRNO("pdraw_be_demuxer_new_from_url", -res);
 		status = EXIT_FAILURE;

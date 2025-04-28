@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer
- * Desktop application
+ * Parrot Drones Audio and Video Vector
+ * Desktop player application
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -43,6 +43,9 @@ static const GLchar *vertex_shader =
 	"}\n";
 
 static const GLchar *fragment_shader =
+#if defined(GL_ES_VERSION_2_0)
+	"precision mediump float;\n"
+#endif
 	"varying vec2 v_texcoord;\n"
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
@@ -134,7 +137,7 @@ int pdraw_desktop_ext_tex_setup(struct pdraw_desktop *self)
 	glLinkProgram(self->ext_tex_program);
 	glGetProgramiv(self->ext_tex_program, GL_LINK_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512];
+		GLchar info_log[512] = {};
 		glGetShaderInfoLog(self->ext_tex_program, 512, NULL, info_log);
 		ULOGE("program link failed '%s'", info_log);
 		ret = -EPROTO;
@@ -340,7 +343,13 @@ out:
 	for (i = 0; i < nplanes; i++) {
 		if (planes[i] == NULL)
 			continue;
-		mbuf_raw_video_frame_release_plane(frame, i, planes[i]);
+		int err =
+			mbuf_raw_video_frame_release_plane(frame, i, planes[i]);
+		if (err < 0) {
+			ULOG_ERRNO("mbuf_raw_video_frame_release_plane(%u)",
+				   -err,
+				   i);
+		}
 	}
 	return 0;
 }

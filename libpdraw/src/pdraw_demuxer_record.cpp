@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Recording demuxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -53,14 +53,16 @@ namespace Pdraw {
 RecordDemuxer::RecordDemuxer(Session *session,
 			     Element::Listener *elementListener,
 			     Source::Listener *sourceListener,
-			     IPdraw::IDemuxer *demuxer,
+			     DemuxerWrapper *wrapper,
 			     IPdraw::IDemuxer::Listener *demuxerListener,
-			     const std::string &fileName) :
+			     const std::string &fileName,
+			     const struct pdraw_demuxer_params *params) :
 		Demuxer(session,
 			elementListener,
 			sourceListener,
-			demuxer,
-			demuxerListener),
+			wrapper,
+			demuxerListener,
+			params),
 		mFileName(fileName), mRunning(false), mFrameByFrame(false),
 		mDemux(nullptr), mDuration(0), mCurrentTime(0), mSpeed(1.0),
 		mChannelsFlushing(0)
@@ -73,21 +75,22 @@ RecordDemuxer::RecordDemuxer(Session *session,
 
 RecordDemuxer::~RecordDemuxer(void)
 {
-	int ret;
+	int err;
 
 	if (mState != STOPPED && mState != CREATED)
 		PDRAW_LOGW("demuxer is still running");
 
-	auto p = mMedias.begin();
-	while (p != mMedias.end()) {
-		delete *p;
-		p++;
-	}
+	/* Remove any leftover idle callbacks */
+	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+
+	destroyAllMedias();
 
 	if (mDemux != nullptr) {
-		ret = mp4_demux_close(mDemux);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mp4_demux_close", -ret);
+		err = mp4_demux_close(mDemux);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mp4_demux_close", -err);
 		mDemux = nullptr;
 	}
 }
@@ -156,6 +159,9 @@ bool RecordDemuxer::isMediaTrack(struct mp4_track_info *tkinfo,
 	if (tkinfo->type == MP4_TRACK_TYPE_VIDEO)
 		return true;
 
+	if (tkinfo->type == MP4_TRACK_TYPE_AUDIO)
+		return true;
+
 	/* "video/raw" track with full format as MIME type parameters */
 	if ((tkinfo->mime_format != nullptr) &&
 	    (strncmp(tkinfo->mime_format,
@@ -180,15 +186,6 @@ bool RecordDemuxer::isMediaTrack(struct mp4_track_info *tkinfo,
 int RecordDemuxer::start(void)
 {
 	int ret;
-	unsigned int i, tkCount = 0;
-	struct mp4_media_info info;
-	struct mp4_track_info tk;
-	struct pdraw_demuxer_media *medias = nullptr;
-	std::vector<struct pdraw_demuxer_media *> selectedMedias;
-	std::vector<struct pdraw_demuxer_media *>::iterator m;
-	size_t mediasCount = 0, mediaIndex = 0;
-	unsigned int hrs = 0, min = 0, sec = 0;
-	bool ready = true;
 
 	if ((mState == STARTED) || (mState == STARTING)) {
 		return 0;
@@ -203,8 +200,33 @@ int RecordDemuxer::start(void)
 	ret = mp4_demux_open(mFileName.c_str(), &mDemux);
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("mp4_demux_open", -ret);
-		goto exit;
+		return ret;
 	}
+
+	ret = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), idleCompleteStart, this, this);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+
+int RecordDemuxer::completeStart(void)
+{
+	int ret;
+	unsigned int i, tkCount = 0;
+	struct mp4_media_info info;
+	struct mp4_track_info tk;
+	size_t mediasCount = 0, mediaIndex = 0;
+	unsigned int hrs = 0, min = 0, sec = 0;
+	bool ready = true;
+	uint32_t selectedMedias = 0;
+	struct pdraw_demuxer_media *newMediaList = NULL;
+	size_t newMediaListSize = 0;
+	std::vector<struct pdraw_demuxer_media *> newDefaultMedias;
 
 	ret = mp4_demux_get_media_info(mDemux, &info);
 	if (ret < 0) {
@@ -243,12 +265,14 @@ int RecordDemuxer::start(void)
 		ret = -ENOENT;
 		goto exit;
 	}
-	medias = (struct pdraw_demuxer_media *)calloc(mediasCount,
-						      sizeof(*medias));
-	if (medias == nullptr) {
-		ret = -ENOMEM;
+
+	newMediaList = (struct pdraw_demuxer_media *)calloc(
+		mediasCount, sizeof(*newMediaList));
+	if (newMediaList == nullptr) {
+		PDRAW_LOGE("calloc");
 		goto exit;
 	}
+	newMediaListSize = mediasCount;
 
 	/* List all tracks */
 	for (i = 0; i < tkCount; i++) {
@@ -268,121 +292,101 @@ int RecordDemuxer::start(void)
 		}
 		if (!isMediaTrack(&tk, keys, values, count))
 			continue;
-		struct pdraw_demuxer_media *current = &medias[mediaIndex];
-		memset(current, 0, sizeof(*current));
+		struct pdraw_demuxer_media *current = &newMediaList[mediaIndex];
 		current->media_id = tk.id;
 		current->idx = i;
+		switch (tk.type) {
+		case MP4_TRACK_TYPE_VIDEO:
+		case MP4_TRACK_TYPE_METADATA:
+			current->type = PDRAW_MEDIA_TYPE_VIDEO;
+			break;
+		case MP4_TRACK_TYPE_AUDIO:
+			current->type = PDRAW_MEDIA_TYPE_AUDIO;
+			break;
+		default:
+			current->type = PDRAW_MEDIA_TYPE_UNKNOWN;
+			break;
+		}
 		current->name = strdup(tk.name);
 		current->is_default = tk.enabled;
 		mediaIndex++;
 		if (current->is_default)
-			selectedMedias.push_back(current);
-		(void)fetchSessionMetadata(tk.id, &current->session_meta);
+			newDefaultMedias.push_back(current);
+		if (current->type == PDRAW_MEDIA_TYPE_VIDEO) {
+			(void)fetchSessionMetadata(
+				tk.id, &current->video.session_meta);
+		}
 	}
 
+	ret = updateMediaList(newMediaList,
+			      newMediaListSize,
+			      newDefaultMedias,
+			      &selectedMedias);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("updateMediaList", -ret);
+		goto exit;
+	}
+
+	newMediaList = nullptr;
+	newMediaListSize = 0;
+	newDefaultMedias.clear();
+
 	/* Ask which media(s) to use from the application */
-	ret = selectMedia(medias, mediasCount);
-	if (ret == 0 || ret == -ENOSYS) {
-		if (selectedMedias.empty()) {
-			PDRAW_LOGE(
-				"application requested default media, "
-				"but no default media found");
-			ret = -ENOENT;
-			goto exit;
-		}
-		if (selectedMedias.size() == 1) {
-			PDRAW_LOGI("auto-selecting media %d (%s)",
-				   selectedMedias.back()->media_id,
-				   selectedMedias.back()->name);
-		} else {
-			PDRAW_LOGI("audo-selecting medias {");
-			m = selectedMedias.begin();
-			while (m != selectedMedias.end()) {
-				PDRAW_LOGI(" - %d (%s)",
-					   (*m)->media_id,
-					   (*m)->name);
-				m++;
-			}
-			PDRAW_LOGI("}");
-		}
+	ret = callSelectMedia(selectedMedias);
+	if (ret >= 0) {
+		selectedMedias = ret;
+	} else if (ret == -ENOSYS) {
+		selectedMedias = 0;
 	} else if (ret == -ECANCELED) {
 		PDRAW_LOGI("application cancelled the media selection");
 		ready = false;
 		goto exit;
 	} else if (ret < 0) {
-		PDRAW_LOG_ERRNO("application failed to select a media", -ret);
-		ret = -EPROTO;
+		PDRAW_LOGE("application failed to select a media");
+		/* Selecting a wrong media is an error, stop the demuxer
+		 * to either report an open response, or an unrecoverable error
+		 * to the application */
 		goto exit;
-	} else {
-		selectedMedias.clear();
-		for (size_t j = 0; j < mediasCount; j++) {
-			if (!(ret & (1 << medias[j].media_id)))
-				continue;
-			selectedMedias.push_back(&medias[j]);
-			PDRAW_LOGI("application selected media %d (%s)",
-				   selectedMedias.back()->media_id,
-				   selectedMedias.back()->name);
-		}
-		if (selectedMedias.empty()) {
-			PDRAW_LOGE("the application requested no valid media");
-			ret = -ENOENT;
-			goto exit;
-		}
 	}
 
-	/* Create the output ports for the selected medias */
-	m = selectedMedias.begin();
-	while (m != selectedMedias.end()) {
-		ret = mp4_demux_get_track_info(mDemux, (*m)->idx, &tk);
-		if (ret != 0) {
-			PDRAW_LOG_ERRNO("mp4_demux_get_track_info", -ret);
-			goto exit;
-		}
-		RecordDemuxer::DemuxerMedia *media;
-		switch (tk.type) {
-		case MP4_TRACK_TYPE_VIDEO:
-			media = new RecordDemuxer::DemuxerCodedVideoMedia(this);
-			break;
-		case MP4_TRACK_TYPE_METADATA:
-			media = new RecordDemuxer::DemuxerRawVideoMedia(this);
-			break;
-		default:
-			ret = -EPROTO;
-			PDRAW_LOGE("unsupported track type");
-			goto exit;
-		}
-		ret = media->setup(&tk);
-		if (ret != 0) {
-			PDRAW_LOG_ERRNO("VideoMedia::setup", -ret);
-			delete media;
-			goto exit;
-		}
-		mMedias.push_back(media);
-		m++;
+	ret = Demuxer::selectMedia(selectedMedias);
+	if (ret < 0) {
+		ready = false;
+		goto exit;
 	}
+
+	processSelectedMedias();
+
+	ret = 0;
 
 exit:
-	/* Cleanup track list */
-	if (medias != nullptr) {
-		for (size_t j = 0; j < mediasCount; j++) {
-			free((void *)medias[j].name);
-		}
-	}
-	free(medias);
-
 	if ((ret == 0) || (ret == -ECANCELED)) {
-		ret = 0;
 		setState(STARTED);
-		openResponse(ret);
+		openResponse(0);
 		readyToPlay(ready);
 		/* TODO: notify readyToPlay = false at end of file */
-		if (!ready)
+		if (!ready && (ret != -ECANCELED))
 			onUnrecoverableError();
+		ret = 0;
 	} else {
 		setState(CREATED);
 	}
 
+	for (size_t i = 0; i < newMediaListSize; i++) {
+		free((void *)newMediaList[i].name);
+		free((void *)newMediaList[i].uri);
+	}
+	free(newMediaList);
+
 	return ret;
+}
+
+
+void RecordDemuxer::idleCompleteStart(void *userdata)
+{
+	RecordDemuxer *self = (RecordDemuxer *)userdata;
+
+	(void)self->completeStart();
 }
 
 
@@ -398,6 +402,13 @@ int RecordDemuxer::stop(void)
 	}
 	setState(STOPPING);
 
+	/* Note: the demuxer listener is not cleared here to allow calling
+	 * the IDemuxer::Listener::demuxerCloseResponse listener function when
+	 * the IDemuxer::close function was called; clearing the listener when
+	 * deleting the API object is done by calling
+	 * Demuxer::clearDemuxerListener in the API object destructor prior
+	 * to calling Demuxer::stop */
+
 	readyToPlay(false);
 
 	mRunning = false;
@@ -411,7 +422,7 @@ int RecordDemuxer::stop(void)
 	}
 
 	ret = flush();
-	if (ret < 0)
+	if ((ret < 0) && (ret != -EALREADY))
 		PDRAW_LOG_ERRNO("flush", -ret);
 
 	Source::unlock();
@@ -429,11 +440,15 @@ int RecordDemuxer::flush(void)
 
 	Source::lock();
 
-	auto p = mMedias.begin();
-	while (p != mMedias.end()) {
-		(*p)->stop();
-		p++;
+	if (mChannelsFlushing) {
+		Source::unlock();
+		return -EALREADY;
 	}
+
+	mChannelsFlushing = 0;
+
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++)
+		(*p)->flush();
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
@@ -443,21 +458,7 @@ int RecordDemuxer::flush(void)
 			continue;
 		}
 
-		unsigned int outputChannelCount = getOutputChannelCount(media);
-
-		/* Flush the output channels */
-		for (unsigned int j = 0; j < outputChannelCount; j++) {
-			Channel *channel = getOutputChannel(media, j);
-			if (channel == nullptr) {
-				PDRAW_LOGW("failed to get channel at index %d",
-					   j);
-				continue;
-			}
-			int ret = channel->flush();
-			if (ret < 0)
-				PDRAW_LOG_ERRNO("channel->flush", -ret);
-			mChannelsFlushing++;
-		}
+		mChannelsFlushing += getOutputChannelCount(media);
 	}
 
 	Source::unlock();
@@ -469,8 +470,18 @@ int RecordDemuxer::flush(void)
 }
 
 
+void RecordDemuxer::destroyAllMedias(void)
+{
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++)
+		delete *p;
+	mMedias.clear();
+}
+
+
 void RecordDemuxer::onChannelFlushed(Channel *channel)
 {
+	bool destroyMedia = false;
+
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
@@ -478,14 +489,22 @@ void RecordDemuxer::onChannelFlushed(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 	PDRAW_LOGD("channel flushed media name=%s (channel owner=%p)",
 		   media->getName().c_str(),
 		   channel->getOwner());
 
-	if (mState == STOPPING) {
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if ((*p)->hasMedia(media)) {
+			(*p)->channelFlushed(channel);
+			destroyMedia = (*p)->getDestroyAfterFlush();
+			break;
+		}
+	}
+
+	if (mState == STOPPING || destroyMedia) {
 		int ret = channel->teardown();
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("channel->teardown", -ret);
@@ -502,10 +521,10 @@ void RecordDemuxer::completeFlush(void)
 {
 	if (mRunning) {
 		/* restart playing */
-		auto p = mMedias.begin();
-		while (p != mMedias.end()) {
+		for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+			if ((*p)->isTearingDown())
+				continue;
 			(*p)->play();
-			p++;
 		}
 	}
 	if (mState == STOPPING)
@@ -522,13 +541,28 @@ void RecordDemuxer::onChannelUnlink(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 
 	int ret = removeOutputChannel(media, channel);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("removeOutputChannel", -ret);
+
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if ((*p)->hasMedia(media)) {
+			(*p)->channelUnlink(channel);
+			if ((*p)->getMediaCount() == 0 &&
+			    (*p)->isTearingDown()) {
+				/* Delete media */
+				PDRAW_LOGI("removing media %s",
+					   (*p)->getCName());
+				delete *p;
+				mMedias.erase(p);
+			}
+			break;
+		}
+	}
 
 	completeTeardown();
 }
@@ -547,12 +581,14 @@ void RecordDemuxer::completeTeardown(void)
 		}
 	}
 
-	auto p = mMedias.begin();
-	while (p != mMedias.end()) {
-		delete *p;
-		p++;
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if (!(*p)->isTearingDown()) {
+			Source::unlock();
+			return;
+		}
 	}
-	mMedias.clear();
+
+	destroyAllMedias();
 
 	Source::unlock();
 
@@ -569,6 +605,10 @@ int RecordDemuxer::play(float speed)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 
 	if (speed == 0.) {
 		/* speed is null => pause */
@@ -579,10 +619,10 @@ int RecordDemuxer::play(float speed)
 		mRunning = true;
 		mFrameByFrame = false;
 		mSpeed = speed;
-		auto p = mMedias.begin();
-		while (p != mMedias.end()) {
+		for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+			if ((*p)->isTearingDown())
+				continue;
 			(*p)->play();
-			p++;
 		}
 		playResponse(0, getCurrentTime(), mSpeed);
 	}
@@ -621,16 +661,19 @@ int RecordDemuxer::previous(void)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
-
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 	if (!mFrameByFrame) {
 		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
 	}
 
-	auto p = mMedias.begin();
-	while (p != mMedias.end()) {
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
 		(*p)->previous();
-		p++;
 	}
 	mRunning = true;
 
@@ -644,16 +687,19 @@ int RecordDemuxer::next(void)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
-
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 	if (!mFrameByFrame) {
 		PDRAW_LOGE("%s: demuxer is not paused", __func__);
 		return -EPROTO;
 	}
 
-	auto p = mMedias.begin();
-	while (p != mMedias.end()) {
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
 		(*p)->next();
-		p++;
 	}
 	mRunning = true;
 
@@ -667,11 +713,15 @@ int RecordDemuxer::seek(int64_t delta, bool exact)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 
-	auto p = mMedias.begin();
-	while (p != mMedias.end()) {
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
 		(*p)->seek(delta, exact);
-		p++;
 	}
 
 	return 0;
@@ -684,13 +734,18 @@ int RecordDemuxer::seekTo(uint64_t timestamp, bool exact)
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
+	if (!isReadyToPlay()) {
+		PDRAW_LOGE("%s: demuxer is not ready to play", __func__);
+		return -EPROTO;
+	}
 
 	if (timestamp > mDuration)
 		timestamp = mDuration;
-	auto p = mMedias.begin();
-	while (p != mMedias.end()) {
+
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
 		(*p)->seekTo(timestamp, exact);
-		p++;
 	}
 	mRunning = true;
 
@@ -698,8 +753,168 @@ int RecordDemuxer::seekTo(uint64_t timestamp, bool exact)
 }
 
 
+int RecordDemuxer::getChapterList(struct pdraw_chapter **chapterList,
+				  size_t *chapterCount)
+{
+	int ret;
+	unsigned int count = 0;
+	uint64_t *times = NULL;
+	char **names = NULL;
+	struct pdraw_chapter *_chapterList = NULL;
+
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(chapterList == nullptr, EINVAL);
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(chapterCount == nullptr, EINVAL);
+
+	if (mState != STARTED) {
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
+		return -EPROTO;
+	}
+
+	ret = mp4_demux_get_chapters(mDemux, &count, &times, &names);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("mp4_demux_get_chapters", -ret);
+		return ret;
+	}
+
+	if (count == 0) {
+		*chapterList = nullptr;
+		*chapterCount = 0;
+		return -ENOENT;
+	}
+
+	_chapterList =
+		(struct pdraw_chapter *)calloc(count, sizeof(*_chapterList));
+	if (_chapterList == NULL) {
+		ret = -ENOMEM;
+		PDRAW_LOG_ERRNO("calloc", -ret);
+		return ret;
+	}
+
+	/* Chapters deep copy */
+	for (size_t i = 0; i < count; i++) {
+		_chapterList[i].ts_us = times[i];
+		_chapterList[i].name = xstrdup(names[i]);
+	}
+
+	*chapterList = _chapterList;
+	*chapterCount = count;
+
+	return 0;
+}
+
+
+int RecordDemuxer::processSelectedMedias(void)
+{
+	int ret;
+
+	for (auto m = mSelectedMedias.begin(); m != mSelectedMedias.end();
+	     m++) {
+		struct mp4_track_info tk = {};
+		ret = mp4_demux_get_track_info(mDemux, (*m)->idx, &tk);
+		if (ret != 0) {
+			PDRAW_LOG_ERRNO("mp4_demux_get_track_info", -ret);
+			goto exit;
+		}
+		bool found = false;
+		for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+			if ((*p)->isTearingDown())
+				continue;
+			if ((*p)->getTrackId() == tk.id) {
+				PDRAW_LOGI("media '%s' is already set up",
+					   (*m)->name);
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			RecordDemuxer::DemuxerMedia *media;
+			switch (tk.type) {
+			case MP4_TRACK_TYPE_VIDEO:
+				media = new RecordDemuxer::
+					DemuxerCodedVideoMedia(this);
+				break;
+			case MP4_TRACK_TYPE_METADATA:
+				media = new RecordDemuxer::DemuxerRawVideoMedia(
+					this);
+				break;
+			case MP4_TRACK_TYPE_AUDIO:
+				media = new RecordDemuxer::DemuxerAudioMedia(
+					this);
+				break;
+			default:
+				ret = -EPROTO;
+				PDRAW_LOGE("unsupported track type");
+				goto exit;
+			}
+			ret = media->setup(&tk);
+			if (ret != 0) {
+				PDRAW_LOG_ERRNO("VideoMedia::setup", -ret);
+				delete media;
+				goto exit;
+			}
+			PDRAW_LOGI("media '%s' not set up, setting up",
+				   (*m)->name);
+			mMedias.push_back(media);
+		}
+	}
+	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
+		if ((*p)->isTearingDown())
+			continue;
+		bool found = false;
+		for (auto m = mSelectedMedias.begin();
+		     m != mSelectedMedias.end();
+		     m++) {
+			if ((*m)->media_id == (int)(*p)->getTrackId()) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			PDRAW_LOGI(
+				"media '%s' not selected anymore, "
+				"tear it down",
+				(*p)->getTrackName());
+			(*p)->sendDownstreamEvent(
+				Channel::DownstreamEvent::EOS);
+			(*p)->flush(true);
+			(*p)->setTearingDown();
+		}
+	}
+
+	ret = 0;
+
+exit:
+	return ret;
+}
+
+
+int RecordDemuxer::selectMedia(uint32_t selectedMedias)
+{
+	int ret = 0;
+
+	if (!mCalledOpenResp) {
+		PDRAW_LOGE("%s: demuxer is not started", __func__);
+		return -EPROTO;
+	}
+
+	ret = Demuxer::selectMedia(selectedMedias);
+	if (ret < 0)
+		goto stop;
+
+	processSelectedMedias();
+
+	return 0;
+
+stop:
+	readyToPlay(false);
+	flush();
+
+	return ret;
+}
+
+
 RecordDemuxer::DemuxerMedia::DemuxerMedia(RecordDemuxer *demuxer) :
-		mDemuxer(demuxer), mTrackId(0),
+		mDemuxer(demuxer), mTrackId(0), mTrackName(nullptr),
 		mMediaType(Media::Type::UNKNOWN), mFirstSample(true),
 		mSampleIndex(0), mMetadataMimeType(nullptr),
 		mMetadataBufferSize(0), mMetadataBuffer(nullptr), mTimescale(0),
@@ -707,7 +922,8 @@ RecordDemuxer::DemuxerMedia::DemuxerMedia(RecordDemuxer *demuxer) :
 		mLastSampleDuration(0), mLastOutputError(0), mPendingSeekTs(-1),
 		mPendingSeekExact(false), mPendingSeekToPrevSample(false),
 		mPendingSeekToNextSample(false), mSeekResponse(0),
-		mTimer(nullptr)
+		mTearingDown(false), mFlushing(false), mFlushChannelCount(0),
+		mDestroyAfterFlush(false), mTimer(nullptr)
 {
 	std::string name = demuxer->getName() + "#DemuxerMedia";
 	Loggable::setName(name);
@@ -727,12 +943,29 @@ RecordDemuxer::DemuxerMedia::~DemuxerMedia(void)
 			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
 	}
 
+	free(mTrackName);
 	free(mMetadataBuffer);
 	free(mMetadataMimeType);
 }
 
 
-int RecordDemuxer::DemuxerMedia::setup(struct mp4_track_info *tkinfo)
+bool RecordDemuxer::DemuxerMedia::hasMedia(Media *media)
+{
+	return (std::find(mMedias.begin(), mMedias.end(), media) !=
+		mMedias.end());
+}
+
+
+Media *RecordDemuxer::DemuxerMedia::getMedia(unsigned int index)
+{
+	if (index >= mMedias.size())
+		return nullptr;
+
+	return mMedias[index];
+}
+
+
+int RecordDemuxer::DemuxerMedia::setup(const struct mp4_track_info *tkinfo)
 {
 	int ret, err;
 
@@ -741,6 +974,7 @@ int RecordDemuxer::DemuxerMedia::setup(struct mp4_track_info *tkinfo)
 	Loggable::setName(name);
 
 	mTrackId = tkinfo->id;
+	mTrackName = xstrdup(tkinfo->name);
 	mTimescale = tkinfo->timescale;
 	mMetadataBufferSize = 1024;
 	mMetadataBuffer = (uint8_t *)malloc(mMetadataBufferSize);
@@ -834,9 +1068,117 @@ void RecordDemuxer::DemuxerMedia::seekTo(uint64_t timestamp, bool exact)
 }
 
 
+void RecordDemuxer::DemuxerMedia::flush(bool destroy)
+{
+	mDemuxer->Source::lock();
+
+	mFlushing = true;
+	mFlushChannelCount = 0;
+	mDestroyAfterFlush = destroy;
+
+	for (auto m = mMedias.begin(); m != mMedias.end(); m++) {
+		unsigned int outputChannelCount =
+			mDemuxer->getOutputChannelCount(*m);
+		mFlushChannelCount += outputChannelCount;
+
+		/* Flush the output channels */
+		for (unsigned int i = 0; i < outputChannelCount; i++) {
+			Channel *channel = mDemuxer->getOutputChannel(*m, i);
+			if (channel == nullptr) {
+				PDRAW_LOGW("failed to get channel at index %d",
+					   i);
+				continue;
+			}
+			int err = channel->flush();
+			if (err < 0)
+				PDRAW_LOG_ERRNO("channel->flush", -err);
+		}
+	}
+
+	mDemuxer->Source::unlock();
+}
+
+
+void RecordDemuxer::DemuxerMedia::sendDownstreamEvent(
+	Channel::DownstreamEvent event)
+{
+	int err;
+
+	for (auto m = mMedias.begin(); m != mMedias.end(); m++) {
+		err = mDemuxer->Source::sendDownstreamEvent(*m, event);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("Source::sendDownstreamEvent", -err);
+	}
+}
+
+
+void RecordDemuxer::DemuxerMedia::channelFlushed(Channel *channel)
+{
+	mFlushChannelCount--;
+	if (mFlushChannelCount <= 0)
+		mFlushing = false;
+}
+
+
+void RecordDemuxer::DemuxerMedia::channelUnlink(Channel *channel)
+{
+	mDemuxer->Source::lock();
+
+	for (auto m = mMedias.begin(); m != mMedias.end(); m++) {
+		unsigned int outputChannelCount =
+			mDemuxer->getOutputChannelCount(*m);
+		if (outputChannelCount > 0) {
+			mDemuxer->Source::unlock();
+			return;
+		}
+	}
+
+	mDemuxer->Source::unlock();
+
+	if (mTearingDown)
+		teardownMedia();
+}
+
+
 void RecordDemuxer::DemuxerMedia::stop(void)
 {
 	(void)pomp_timer_clear(mTimer);
+
+	setTearingDown();
+
+	mDemuxer->Source::lock();
+
+	for (auto m = mMedias.begin(); m != mMedias.end(); m++)
+		(*m)->setTearingDown();
+
+	mDemuxer->Source::unlock();
+}
+
+
+void RecordDemuxer::DemuxerMedia::teardownMedia(void)
+{
+	int err;
+	/* Remove the output ports */
+	auto m = mMedias.begin();
+	while (m != mMedias.end()) {
+		if ((*m) == nullptr) {
+			m++;
+			continue;
+		}
+		if (mDemuxer->Source::mListener) {
+			mDemuxer->Source::mListener->onOutputMediaRemoved(
+				mDemuxer, (*m), mDemuxer->getDemuxer());
+		}
+		err = mDemuxer->removeOutputPort((*m));
+		if (err < 0) {
+			PDRAW_LOG_ERRNO("removeOutputPort", -err);
+			m++;
+		} else {
+			delete (*m);
+			m = mMedias.erase(m);
+		}
+	}
+	mMedias.clear();
 }
 
 
@@ -869,6 +1211,11 @@ void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 	if (!demuxer->mRunning) {
 		self->mLastSampleDuration = 0;
 		self->mLastOutputError = 0;
+		return;
+	}
+
+	if (self->mTearingDown) {
+		/* Media is tearing down, ignore frames */
 		return;
 	}
 
@@ -1117,6 +1464,7 @@ out:
 		} else if (demuxer->mRunning) {
 			self->sendDownstreamEvent(
 				Channel::DownstreamEvent::EOS);
+			self->mFirstSample = true;
 
 			/* Notify of the end of range */
 			/* TODO: signal once, not for all medias */

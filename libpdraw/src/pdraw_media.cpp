@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline media
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -46,9 +46,8 @@ std::atomic<unsigned int> Media::mIdCounter(0);
 
 
 Media::Media(Session *session, Type t) :
-		type(t), sessionMeta({}),
-		playbackType(PDRAW_PLAYBACK_TYPE_UNKNOWN), duration(0),
-		mSession(session)
+		type(t), playbackType(PDRAW_PLAYBACK_TYPE_UNKNOWN), duration(0),
+		mSession(session), mTearingDown(false)
 
 {
 	id = ++mIdCounter;
@@ -101,10 +100,8 @@ const char *Media::getMediaTypeStr(Type val)
 		return "RAW_VIDEO";
 	case CODED_VIDEO:
 		return "CODED_VIDEO";
-	case RAW_AUDIO:
-		return "RAW_AUDIO";
-	case CODED_AUDIO:
-		return "CODED_AUDIO";
+	case AUDIO:
+		return "AUDIO";
 	default:
 		return nullptr;
 	}
@@ -120,7 +117,8 @@ void Media::cleanupMediaInfo(struct pdraw_media_info *minfo)
 }
 
 
-RawVideoMedia::RawVideoMedia(Session *session) : Media(session, RAW_VIDEO)
+RawVideoMedia::RawVideoMedia(Session *session) :
+		Media(session, RAW_VIDEO), sessionMeta({})
 {
 	Media::setClassName(__func__);
 	format = {};
@@ -147,15 +145,16 @@ void RawVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	minfo->path = strdup(getPath().c_str());
 	minfo->playback_type = playbackType;
 	minfo->duration = duration;
-	minfo->session_meta = &sessionMeta;
 	minfo->video.format = VDEF_FRAME_TYPE_RAW;
 	minfo->video.type = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
+	minfo->video.session_meta = &sessionMeta;
 	minfo->video.raw.format = format;
 	minfo->video.raw.info = info;
 }
 
 
-CodedVideoMedia::CodedVideoMedia(Session *session) : Media(session, CODED_VIDEO)
+CodedVideoMedia::CodedVideoMedia(Session *session) :
+		Media(session, CODED_VIDEO), sessionMeta({})
 {
 	Media::setClassName(__func__);
 	mVps = nullptr;
@@ -183,7 +182,7 @@ int CodedVideoMedia::getPs(const uint8_t **vps,
 			   const uint8_t **sps,
 			   size_t *spsSize,
 			   const uint8_t **pps,
-			   size_t *ppsSize)
+			   size_t *ppsSize) const
 {
 	enum vdef_encoding encoding = format.encoding;
 	if ((encoding != VDEF_ENCODING_H264) &&
@@ -269,8 +268,7 @@ int CodedVideoMedia::setPs(const uint8_t *vps,
 	mPpsSize = ppsSize;
 	memcpy(mPps, pps, mPpsSize);
 
-	switch (encoding) {
-	case VDEF_ENCODING_H264:
+	if (encoding == VDEF_ENCODING_H264) {
 		ret = h264_get_info(sps, spsSize, pps, ppsSize, &h264Info);
 		if (ret < 0) {
 			ULOG_ERRNO("h264_get_info", -ret);
@@ -291,9 +289,7 @@ int CodedVideoMedia::setPs(const uint8_t *vps,
 		info.sar.height = h264Info.sar_height;
 		info.framerate.num = h264Info.framerate_num;
 		info.framerate.den = h264Info.framerate_den;
-		break;
-
-	case VDEF_ENCODING_H265:
+	} else if (encoding == VDEF_ENCODING_H265) {
 		ret = h265_get_info(
 			vps, vpsSize, sps, spsSize, pps, ppsSize, &h265Info);
 		if (ret < 0) {
@@ -315,9 +311,6 @@ int CodedVideoMedia::setPs(const uint8_t *vps,
 		info.sar.height = h265Info.sar_height;
 		info.framerate.num = h265Info.framerate_num;
 		info.framerate.den = h265Info.framerate_den;
-		break;
-	default:
-		break;
 	}
 
 	return 0;
@@ -351,9 +344,9 @@ void CodedVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	minfo->path = strdup(getPath().c_str());
 	minfo->playback_type = playbackType;
 	minfo->duration = duration;
-	minfo->session_meta = &sessionMeta;
 	minfo->video.format = VDEF_FRAME_TYPE_CODED;
 	minfo->video.type = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
+	minfo->video.session_meta = &sessionMeta;
 	minfo->video.coded.format = format;
 	minfo->video.coded.info = info;
 	switch (format.encoding) {
@@ -385,6 +378,99 @@ void CodedVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 		cplen = std::min(mPpsSize, sizeof(minfo->video.coded.h265.pps));
 		memcpy(minfo->video.coded.h265.pps, mPps, cplen);
 		minfo->video.coded.h265.ppslen = cplen;
+		break;
+	default:
+		break;
+	}
+}
+
+
+AudioMedia::AudioMedia(Session *session) : Media(session, AUDIO)
+{
+	Media::setClassName(__func__);
+	format = {};
+	mAacAsc = nullptr;
+	mAacAscSize = 0;
+}
+
+
+AudioMedia::~AudioMedia(void)
+{
+	free(mAacAsc);
+	return;
+}
+
+
+int AudioMedia::getAacAsc(const uint8_t **asc, size_t *ascSize) const
+{
+	enum adef_encoding encoding = format.encoding;
+	if (encoding != ADEF_ENCODING_AAC_LC)
+		return -EPROTO;
+
+	if (asc)
+		*asc = mAacAsc;
+	if (ascSize)
+		*ascSize = mAacAscSize;
+
+	return 0;
+}
+
+
+int AudioMedia::setAacAsc(const uint8_t *asc, size_t ascSize)
+{
+	int ret;
+	enum adef_encoding encoding = format.encoding;
+
+	if (encoding != ADEF_ENCODING_AAC_LC)
+		return -EPROTO;
+	if ((encoding == ADEF_ENCODING_AAC_LC) &&
+	    ((asc == nullptr) || (ascSize == 0)))
+		return -EINVAL;
+
+	free(mAacAsc);
+	mAacAscSize = 0;
+	mAacAsc = (uint8_t *)malloc(ascSize);
+	if (mAacAsc == nullptr) {
+		ret = -ENOMEM;
+		ULOG_ERRNO("malloc", -ret);
+		goto error;
+	}
+	mAacAscSize = ascSize;
+	memcpy(mAacAsc, asc, mAacAscSize);
+
+	return 0;
+
+error:
+	free(mAacAsc);
+	mAacAsc = nullptr;
+	mAacAscSize = 0;
+	return ret;
+}
+
+
+void AudioMedia::fillMediaInfo(struct pdraw_media_info *minfo)
+{
+	size_t cplen;
+
+	if (!minfo)
+		return;
+
+	*minfo = {};
+
+	minfo->type = PDRAW_MEDIA_TYPE_AUDIO;
+	minfo->id = id;
+	minfo->name = strdup(getName().c_str());
+	minfo->path = strdup(getPath().c_str());
+	minfo->playback_type = playbackType;
+	minfo->duration = duration;
+	minfo->audio.format = format;
+	switch (format.encoding) {
+	case ADEF_ENCODING_AAC_LC:
+		if (sizeof(minfo->audio.aac_lc.asc) < mAacAscSize)
+			ULOGW("%s: truncated ASC", __func__);
+		cplen = std::min(mAacAscSize, sizeof(minfo->audio.aac_lc.asc));
+		memcpy(minfo->audio.aac_lc.asc, mAacAsc, cplen);
+		minfo->audio.aac_lc.asclen = cplen;
 		break;
 	default:
 		break;

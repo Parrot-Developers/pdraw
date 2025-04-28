@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW object
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -56,17 +56,17 @@ public:
 	struct pomp_loop *getLoop(void);
 
 private:
-	void stopResponse(IPdraw *pdraw, int status);
+	void stopResponse(IPdraw *pdraw, int status) override;
 
 	void onMediaAdded(IPdraw *pdraw,
 			  const struct pdraw_media_info *info,
-			  void *elementUserData);
+			  void *elementUserData) override;
 
 	void onMediaRemoved(IPdraw *pdraw,
 			    const struct pdraw_media_info *info,
-			    void *elementUserData);
+			    void *elementUserData) override;
 
-	void onSocketCreated(IPdraw *pdraw, int fd);
+	void onSocketCreated(IPdraw *pdraw, int fd) override;
 
 	QPdraw *mParent;
 	IPdrawBackend *mPdraw;

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video renderer interface
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -33,8 +33,7 @@
 ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_renderer_video.hpp"
-#include "pdraw_renderer_video_gles2.hpp"
-#include "pdraw_renderer_video_videocoreegl.hpp"
+#include "pdraw_renderer_video_gl.hpp"
 #include "pdraw_session.hpp"
 
 #include <errno.h>
@@ -44,32 +43,22 @@ namespace Pdraw {
 VideoRenderer *
 VideoRenderer::create(Session *session,
 		      Element::Listener *listener,
-		      IPdraw::IVideoRenderer *renderer,
+		      VideoRendererWrapper *wrapper,
 		      IPdraw::IVideoRenderer::Listener *rndListener,
 		      unsigned int mediaId,
 		      const struct pdraw_rect *renderPos,
-		      const struct pdraw_video_renderer_params *params,
-		      struct egl_display *eglDisplay)
+		      const struct pdraw_video_renderer_params *params)
 {
-#if defined(USE_VIDEOCOREEGL)
-	return new VideoCoreEglVideoRenderer(session,
-					     listener,
-					     renderer,
-					     rndListener,
-					     mediaId,
-					     renderPos,
-					     params,
-					     eglDisplay);
-#elif defined(USE_GLES2)
-	return new Gles2VideoRenderer(session,
-				      listener,
-				      renderer,
-				      rndListener,
-				      mediaId,
-				      renderPos,
-				      params,
-				      eglDisplay);
+#if defined(PDRAW_USE_GL)
+	return new GlVideoRenderer(session,
+				   listener,
+				   wrapper,
+				   rndListener,
+				   mediaId,
+				   renderPos,
+				   params);
 #else
+	ULOGE("no video renderer implementation found");
 	return nullptr;
 #endif
 }
@@ -78,23 +67,25 @@ VideoRenderer::create(Session *session,
 VideoRenderer::VideoRenderer(
 	Session *session,
 	Element::Listener *listener,
-	IPdraw::IVideoRenderer *renderer,
+	VideoRendererWrapper *wrapper,
 	IPdraw::IVideoRenderer::Listener *rndListener,
 	uint32_t mediaTypeCaps,
 	const struct vdef_raw_format *rawVideoMediaFormatCaps,
 	int rawVideoMediaFormatCapsCount,
 	unsigned int mediaId,
 	const struct pdraw_rect *renderPos,
-	const struct pdraw_video_renderer_params *params,
-	struct egl_display *eglDisplay) :
+	const struct pdraw_video_renderer_params *params) :
 		SinkElement(session,
 			    listener,
+			    wrapper,
 			    1,
 			    nullptr,
 			    0,
 			    rawVideoMediaFormatCaps,
-			    rawVideoMediaFormatCapsCount),
-		mRenderer(renderer), mRendererListener(rndListener)
+			    rawVideoMediaFormatCapsCount,
+			    nullptr,
+			    0),
+		mRenderer(wrapper), mRendererListener(rndListener)
 {
 	int res;
 	pthread_mutexattr_t attr;
@@ -125,6 +116,9 @@ exit:
 
 VideoRenderer::~VideoRenderer(void)
 {
+	/* Make sure listener functions will no longer be called */
+	removeRendererListener();
+
 	/* Remove any leftover idle callbacks */
 	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
 	if (err < 0)
@@ -151,15 +145,100 @@ void VideoRenderer::asyncCompleteStop(void)
 }
 
 
-/**
- * VideoRenderer calls from idle functions on the loop thread
- */
-
+/* Call from an idle function on the loop thread */
 void VideoRenderer::idleCompleteStop(void *userdata)
 {
 	VideoRenderer *self = reinterpret_cast<VideoRenderer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	self->completeStop();
+}
+
+
+/* Called on the rendering thread */
+VideoRendererWrapper::VideoRendererWrapper(
+	Session *session,
+	unsigned int mediaId,
+	const struct pdraw_rect *renderPos,
+	const struct pdraw_video_renderer_params *params,
+	IPdraw::IVideoRenderer::Listener *listener)
+{
+	mElement = mRenderer = Pdraw::VideoRenderer::create(
+		session, session, this, listener, mediaId, renderPos, params);
+}
+
+
+/* Called on the rendering thread */
+VideoRendererWrapper::~VideoRendererWrapper(void)
+{
+	if (mRenderer == nullptr)
+		return;
+
+	int ret = mRenderer->stop();
+	if (ret < 0)
+		ULOG_ERRNO("renderer->stop", -ret);
+}
+
+
+/* Called on the rendering thread */
+int VideoRendererWrapper::resize(const struct pdraw_rect *renderPos)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->resize(renderPos);
+}
+
+
+/* Called on the rendering thread */
+int VideoRendererWrapper::setMediaId(unsigned int mediaId)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->setMediaId(mediaId);
+}
+
+
+/* Called on the rendering thread */
+unsigned int VideoRendererWrapper::getMediaId(void)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->getMediaId();
+}
+
+
+/* Called on the rendering thread */
+int VideoRendererWrapper::setParams(
+	const struct pdraw_video_renderer_params *params)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->setParams(params, false);
+}
+
+
+/* Called on the rendering thread */
+int VideoRendererWrapper::getParams(struct pdraw_video_renderer_params *params)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->getParams(params);
+}
+
+
+/* Called on the rendering thread */
+int VideoRendererWrapper::render(struct pdraw_rect *contentPos,
+				 const float *viewMat,
+				 const float *projMat)
+{
+	if (mRenderer == nullptr)
+		return -EPROTO;
+
+	return mRenderer->render(contentPos, viewMat, projMat);
 }
 
 } /* namespace Pdraw */

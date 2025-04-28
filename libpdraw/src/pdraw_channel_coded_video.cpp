@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline source to sink channel for coded video
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -43,8 +43,9 @@ namespace Pdraw {
 CodedVideoChannel::CodedVideoChannel(
 	Sink *owner,
 	SinkListener *sinkListener,
-	CodedVideoSinkListener *codedVideoSinkListener) :
-		Channel(owner, sinkListener),
+	CodedVideoSinkListener *codedVideoSinkListener,
+	struct pomp_loop *loop) :
+		Channel(owner, sinkListener, loop),
 		mCodedVideoSinkListener(codedVideoSinkListener),
 		mCodedVideoMediaFormatCaps(nullptr),
 		mCodedVideoMediaFormatCapsCount(0), mQueue(nullptr)
@@ -53,7 +54,7 @@ CodedVideoChannel::CodedVideoChannel(
 
 
 int CodedVideoChannel::getCodedVideoMediaFormatCaps(
-	const struct vdef_coded_format **caps)
+	const struct vdef_coded_format **caps) const
 {
 	if (caps == nullptr)
 		return -EINVAL;
@@ -63,7 +64,7 @@ int CodedVideoChannel::getCodedVideoMediaFormatCaps(
 
 
 void CodedVideoChannel::setCodedVideoMediaFormatCaps(
-	Sink *owner,
+	const Sink *owner,
 	const struct vdef_coded_format *caps,
 	int count)
 {
@@ -77,7 +78,7 @@ void CodedVideoChannel::setCodedVideoMediaFormatCaps(
 }
 
 
-bool CodedVideoChannel::onlySupportsByteStream()
+bool CodedVideoChannel::onlySupportsByteStream() const
 {
 	for (int i = 0; i < mCodedVideoMediaFormatCapsCount; i++) {
 		if (mCodedVideoMediaFormatCaps[i].data_format !=
@@ -88,7 +89,8 @@ bool CodedVideoChannel::onlySupportsByteStream()
 }
 
 
-struct mbuf_coded_video_frame_queue *CodedVideoChannel::getQueue(Sink *owner)
+struct mbuf_coded_video_frame_queue *
+CodedVideoChannel::getQueue(const Sink *owner) const
 {
 	if (owner != mOwner) {
 		ULOGE("CodedVideoChannel::getQueue: wrong owner");
@@ -98,7 +100,7 @@ struct mbuf_coded_video_frame_queue *CodedVideoChannel::getQueue(Sink *owner)
 }
 
 
-void CodedVideoChannel::setQueue(Sink *owner,
+void CodedVideoChannel::setQueue(const Sink *owner,
 				 struct mbuf_coded_video_frame_queue *queue)
 {
 	if (owner != mOwner) {

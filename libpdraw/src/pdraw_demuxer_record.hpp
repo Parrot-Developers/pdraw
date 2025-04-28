@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Recording demuxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -36,10 +36,15 @@
 #include <string>
 #include <vector>
 
+#include <aac/aac.h>
 #include <h264/h264.h>
 #include <h265/h265.h>
 #include <libmp4.h>
 #include <libpomp.h>
+
+#define DEMUXER_RECORD_CODED_VIDEO_MEDIA_OUTPUT_BUFFER_COUNT (30)
+#define DEMUXER_RECORD_RAW_VIDEO_MEDIA_OUTPUT_BUFFER_COUNT (30)
+#define DEMUXER_RECORD_AUDIO_MEDIA_OUTPUT_BUFFER_COUNT (60)
 
 namespace Pdraw {
 
@@ -48,36 +53,42 @@ public:
 	RecordDemuxer(Session *session,
 		      Element::Listener *elementListener,
 		      Source::Listener *sourceListener,
-		      IPdraw::IDemuxer *demuxer,
+		      DemuxerWrapper *wrapper,
 		      IPdraw::IDemuxer::Listener *demuxerListener,
-		      const std::string &fileName);
+		      const std::string &fileName,
+		      const struct pdraw_demuxer_params *params);
 
 	~RecordDemuxer(void);
 
-	int start(void);
+	int selectMedia(uint32_t selectedMedias) override;
 
-	int stop(void);
+	int start(void) override;
 
-	int play(float speed = 1.0f);
+	int stop(void) override;
 
-	bool isReadyToPlay(void);
+	int play(float speed = 1.0f) override;
 
-	bool isPaused(void);
+	bool isReadyToPlay(void) override;
 
-	int previous(void);
+	bool isPaused(void) override;
 
-	int next(void);
+	int previous(void) override;
 
-	int seek(int64_t delta, bool exact = false);
+	int next(void) override;
 
-	int seekTo(uint64_t timestamp, bool exact = false);
+	int seek(int64_t delta, bool exact = false) override;
 
-	uint64_t getDuration(void)
+	int seekTo(uint64_t timestamp, bool exact = false) override;
+
+	int getChapterList(struct pdraw_chapter **chapterList,
+			   size_t *chapterCount) override;
+
+	uint64_t getDuration(void) override
 	{
 		return mDuration;
 	}
 
-	uint64_t getCurrentTime(void)
+	uint64_t getCurrentTime(void) override
 	{
 		return mCurrentTime;
 	}
@@ -89,7 +100,16 @@ private:
 
 		virtual ~DemuxerMedia(void);
 
-		int setup(struct mp4_track_info *tkinfo);
+		bool hasMedia(Media *media);
+
+		Media *getMedia(unsigned int index);
+
+		unsigned int getMediaCount(void) const
+		{
+			return mMedias.size();
+		}
+
+		int setup(const struct mp4_track_info *tkinfo);
 
 		void play(void);
 
@@ -101,11 +121,45 @@ private:
 
 		void seekTo(uint64_t timestamp, bool exact);
 
+		virtual void flush(bool destroy = false);
+
 		virtual void stop(void);
 
-	protected:
-		virtual int setupMedia(struct mp4_track_info *tkinfo) = 0;
+		unsigned int getTrackId(void) const
+		{
+			return mTrackId;
+		}
 
+		const char *getTrackName(void) const
+		{
+			return mTrackName;
+		}
+
+		void setTearingDown(void)
+		{
+			mTearingDown = true;
+		}
+
+		bool isTearingDown(void)
+		{
+			return mTearingDown;
+		}
+
+		bool getDestroyAfterFlush(void) const
+		{
+			return mDestroyAfterFlush;
+		}
+
+		void sendDownstreamEvent(Channel::DownstreamEvent event);
+
+		void channelFlushed(Channel *channel);
+
+		void channelUnlink(Channel *channel);
+
+	protected:
+		virtual int setupMedia(const struct mp4_track_info *tkinfo) = 0;
+
+		virtual void teardownMedia(void);
 
 		virtual int processSample(struct mp4_track_sample *sample,
 					  bool *silent,
@@ -113,11 +167,10 @@ private:
 					  bool *didSeek,
 					  bool *waitFlush) = 0;
 
-		virtual void
-		sendDownstreamEvent(Channel::DownstreamEvent event) = 0;
-
+		std::vector<Media *> mMedias;
 		RecordDemuxer *mDemuxer;
 		unsigned int mTrackId;
+		char *mTrackName;
 		Pdraw::Media::Type mMediaType;
 		bool mFirstSample;
 		unsigned int mSampleIndex;
@@ -134,6 +187,10 @@ private:
 		bool mPendingSeekToPrevSample;
 		bool mPendingSeekToNextSample;
 		int mSeekResponse;
+		bool mTearingDown;
+		bool mFlushing;
+		unsigned int mFlushChannelCount;
+		bool mDestroyAfterFlush;
 
 	private:
 		static void timerCb(struct pomp_timer *timer, void *userdata);
@@ -147,20 +204,20 @@ private:
 
 		~DemuxerCodedVideoMedia(void);
 
+		void flush(bool destroy = false) override;
+
 		void stop(void) override;
 
 	private:
-		int setupMedia(struct mp4_track_info *tkinfo) override;
+		int setupMedia(const struct mp4_track_info *tkinfo) override;
 
+		void teardownMedia(void) override;
 
 		int processSample(struct mp4_track_sample *sample,
 				  bool *silent,
 				  bool *retry,
 				  bool *didSeek,
 				  bool *waitFlush) override;
-
-		void
-		sendDownstreamEvent(Channel::DownstreamEvent event) override;
 
 		static void h264UserDataSeiCb(
 			struct h264_ctx *ctx,
@@ -207,8 +264,6 @@ private:
 
 		struct h264_reader *mH264Reader;
 		struct h265_reader *mH265Reader;
-		CodedVideoMedia **mCodedVideoMedias;
-		unsigned int mNbCodedVideoMedias;
 		struct mbuf_coded_video_frame *mCurrentFrame;
 		struct mbuf_mem *mCurrentMem;
 		uint64_t mCurrentFrameCaptureTs;
@@ -225,20 +280,20 @@ private:
 
 		~DemuxerRawVideoMedia(void);
 
+		void flush(bool destroy = false) override;
+
 		void stop(void) override;
 
 	private:
-		int setupMedia(struct mp4_track_info *tkinfo) override;
+		int setupMedia(const struct mp4_track_info *tkinfo) override;
 
+		void teardownMedia(void) override;
 
 		int processSample(struct mp4_track_sample *sample,
 				  bool *silent,
 				  bool *retry,
 				  bool *didSeek,
 				  bool *waitFlush) override;
-
-		void
-		sendDownstreamEvent(Channel::DownstreamEvent event) override;
 
 		RawVideoMedia *mRawVideoMedia;
 		struct mbuf_raw_video_frame *mCurrentFrame;
@@ -249,18 +304,56 @@ private:
 		uint64_t mFirstTs;
 	};
 
+	class DemuxerAudioMedia : public DemuxerMedia {
+	public:
+		DemuxerAudioMedia(RecordDemuxer *demuxer);
+
+		~DemuxerAudioMedia(void);
+
+		void flush(bool destroy = false) override;
+
+		void stop(void) override;
+
+	private:
+		int setupMedia(const struct mp4_track_info *tkinfo) override;
+
+		void teardownMedia(void) override;
+
+		int processSample(struct mp4_track_sample *sample,
+				  bool *silent,
+				  bool *retry,
+				  bool *didSeek,
+				  bool *waitFlush) override;
+
+		AudioMedia *mAudioMedia;
+		struct mbuf_audio_frame *mCurrentFrame;
+		struct mbuf_mem *mCurrentMem;
+		uint64_t mCurrentFrameCaptureTs;
+		uint64_t mDecodingTs;
+		uint64_t mDecodingTsInc;
+		uint64_t mFirstTs;
+	};
+
+	int completeStart(void);
+
+	static void idleCompleteStart(void *userdata);
+
+	int processSelectedMedias(void);
+
 	int fetchSessionMetadata(unsigned int trackId,
 				 struct vmeta_session *meta);
 
-	int flush(void);
+	int flush(void) override;
 
 	void completeFlush(void);
 
 	void completeTeardown(void);
 
-	void onChannelFlushed(Channel *channel);
+	void destroyAllMedias(void);
 
-	void onChannelUnlink(Channel *channel);
+	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelUnlink(Channel *channel) override;
 
 	static bool isMediaTrack(struct mp4_track_info *tkinfo,
 				 char **keys,

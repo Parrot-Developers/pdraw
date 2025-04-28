@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Streaming demuxer - net implementation
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -45,21 +45,23 @@ public:
 	StreamDemuxerNet(Session *session,
 			 Element::Listener *elementListener,
 			 Source::Listener *sourceListener,
-			 IPdraw::IDemuxer *demuxer,
+			 DemuxerWrapper *wrapper,
 			 IPdraw::IDemuxer::Listener *demuxerListener,
-			 const std::string &url);
+			 const std::string &url,
+			 const struct pdraw_demuxer_params *params);
 
 	StreamDemuxerNet(Session *session,
 			 Element::Listener *elementListener,
 			 Source::Listener *sourceListener,
-			 IPdraw::IDemuxer *demuxer,
+			 DemuxerWrapper *wrapper,
 			 IPdraw::IDemuxer::Listener *demuxerListener,
 			 const std::string &localAddr,
 			 uint16_t localStreamPort,
 			 uint16_t localControlPort,
 			 const std::string &remoteAddr,
 			 uint16_t remoteStreamPort,
-			 uint16_t remoteControlPort);
+			 uint16_t remoteControlPort,
+			 const struct pdraw_demuxer_params *params);
 
 	~StreamDemuxerNet(void);
 
@@ -77,32 +79,33 @@ private:
 
 		~VideoMediaNet(void);
 
-		int startRtpAvp(void);
+		int startRtpAvp(void) override;
 
-		int stopRtpAvp(void);
+		int stopRtpAvp(void) override;
 
 		int sendCtrl(struct vstrm_receiver *stream,
-			     struct tpkt_packet *pkt);
+			     struct tpkt_packet *pkt) override;
 
-		int prepareSetup(void);
+		int prepareSetup(void) override;
 
-		enum rtsp_lower_transport getLowerTransport(void);
+		enum rtsp_lower_transport
+		getLowerTransport(void) const override;
 
-		uint16_t getLocalStreamPort(void);
+		uint16_t getLocalStreamPort(void) const override;
 
-		uint16_t getLocalControlPort(void);
+		uint16_t getLocalControlPort(void) const override;
 
-		uint16_t getRemoteStreamPort(void);
+		uint16_t getRemoteStreamPort(void) const override;
 
-		uint16_t getRemoteControlPort(void);
+		uint16_t getRemoteControlPort(void) const override;
 
-		void setLocalStreamPort(uint16_t port);
+		void setLocalStreamPort(uint16_t port) override;
 
-		void setLocalControlPort(uint16_t port);
+		void setLocalControlPort(uint16_t port) override;
 
-		void setRemoteStreamPort(uint16_t port);
+		void setRemoteStreamPort(uint16_t port) override;
 
-		void setRemoteControlPort(uint16_t port);
+		void setRemoteControlPort(uint16_t port) override;
 
 	private:
 		int createSockets(void);

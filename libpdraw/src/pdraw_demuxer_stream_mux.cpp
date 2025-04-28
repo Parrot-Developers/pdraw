@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Streaming demuxer - mux implementation
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -60,15 +60,17 @@ const struct rtsp_header_ext StreamDemuxerMux::VideoMediaMux::mHeaderExt = {
 StreamDemuxerMux::StreamDemuxerMux(Session *session,
 				   Element::Listener *elementListener,
 				   Source::Listener *sourceListener,
-				   IPdraw::IDemuxer *demuxer,
+				   DemuxerWrapper *wrapper,
 				   IPdraw::IDemuxer::Listener *demuxerListener,
 				   const std::string &url,
-				   struct mux_ctx *mux) :
+				   struct mux_ctx *mux,
+				   const struct pdraw_demuxer_params *params) :
 		StreamDemuxer(session,
 			      elementListener,
 			      sourceListener,
-			      demuxer,
-			      demuxerListener),
+			      wrapper,
+			      demuxerListener,
+			      params),
 		mMux(nullptr)
 {
 	Element::setClassName(__func__);
@@ -122,7 +124,9 @@ StreamDemuxerMux::VideoMediaMux::~VideoMediaMux(void)
 {
 	stopRtpAvp();
 	struct pomp_loop *loop = mDemuxerMux->mSession->getLoop();
-	pomp_loop_idle_remove(loop, callFinishSetup, this);
+	int err = pomp_loop_idle_remove(loop, callFinishSetup, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_remove", -err);
 }
 
 
@@ -266,44 +270,44 @@ error:
 
 
 enum rtsp_lower_transport
-StreamDemuxerMux::VideoMediaMux::getLowerTransport(void)
+StreamDemuxerMux::VideoMediaMux::getLowerTransport(void) const
 {
 	return RTSP_LOWER_TRANSPORT_UDP;
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getLocalStreamPort(void)
+uint16_t StreamDemuxerMux::VideoMediaMux::getLocalStreamPort(void) const
 {
 	return mux_ip_proxy_get_peerport(mStreamProxy);
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getLocalControlPort(void)
+uint16_t StreamDemuxerMux::VideoMediaMux::getLocalControlPort(void) const
 {
 	return mux_ip_proxy_get_peerport(mControlProxy);
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteStreamPort(void)
+uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteStreamPort(void) const
 {
 	return mux_ip_proxy_get_remote_port(mStreamProxy);
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteControlPort(void)
+uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteControlPort(void) const
 {
 	return mux_ip_proxy_get_remote_port(mControlProxy);
 }
 
 
 const struct rtsp_header_ext *
-StreamDemuxerMux::VideoMediaMux::getHeaderExt(void)
+StreamDemuxerMux::VideoMediaMux::getHeaderExt(void) const
 {
 	return &mHeaderExt;
 }
 
 
-size_t StreamDemuxerMux::VideoMediaMux::getHeaderExtCount(void)
+size_t StreamDemuxerMux::VideoMediaMux::getHeaderExtCount(void) const
 {
 	return mHeaderExtCount;
 }
@@ -428,6 +432,7 @@ out:
 int StreamDemuxerMux::VideoMediaMux::createSockets(void)
 {
 	int res;
+	int rxBufSize;
 	if (mLocalStreamPort == 0)
 		mLocalStreamPort = DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
 	if (mLocalControlPort == 0)
@@ -456,6 +461,20 @@ int StreamDemuxerMux::VideoMediaMux::createSockets(void)
 		PDRAW_LOG_ERRNO("tskt_socket_new:stream", -res);
 		goto error;
 	}
+
+	rxBufSize = PDRAW_RTP_RXBUF_SIZE;
+	res = tskt_socket_set_rxbuf_size(mStreamSock, rxBufSize);
+	if (res < 0)
+		PDRAW_LOGW("tskt_socket_set_rxbuf_size");
+
+	res = tskt_socket_get_rxbuf_size(mStreamSock);
+	if (res < 0)
+		PDRAW_LOGW("tskt_socket_get_rxbuf_size");
+	else if (res != 2 * rxBufSize)
+		PDRAW_LOGW("failed to set rx buffer size: got %d, expecting %d",
+			   res / 2,
+			   rxBufSize);
+
 	res = tskt_socket_set_class_selector(mStreamSock,
 					     IPTOS_PREC_FLASHOVERRIDE);
 	if (res < 0)
@@ -623,6 +642,8 @@ void StreamDemuxerMux::VideoMediaMux::proxyOpenCb(struct mux_ip_proxy *proxy,
 						  uint16_t localPort,
 						  void *userdata)
 {
+	int err;
+
 	VideoMediaMux *self = (VideoMediaMux *)userdata;
 	if (proxy == self->mStreamProxy) {
 		self->mStreamProxyOpened = true;
@@ -635,8 +656,12 @@ void StreamDemuxerMux::VideoMediaMux::proxyOpenCb(struct mux_ip_proxy *proxy,
 
 	if (self->mStreamProxyOpened && self->mControlProxyOpened) {
 		struct pomp_loop *loop = self->mDemuxerMux->mSession->getLoop();
-		pomp_loop_idle_remove(loop, callFinishSetup, self);
-		pomp_loop_idle_add(loop, callFinishSetup, self);
+		err = pomp_loop_idle_remove(loop, callFinishSetup, self);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_remove", -err);
+		err = pomp_loop_idle_add(loop, callFinishSetup, self);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add", -err);
 	}
 }
 

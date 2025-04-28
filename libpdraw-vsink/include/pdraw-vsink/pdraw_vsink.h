@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Video sink wrapper library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -54,18 +54,37 @@ extern "C" {
 struct pdraw_vsink;
 
 
+/* Callback functions */
+struct pdraw_vsink_cbs {
+	/* Called when a frame is ready (optional, can be null).
+	 * This function is called from the pdraw_vsink thread.
+	 * Note: the caller must ensure thread safety and should keep in mind
+	 * that the pdraw_vsink thread is blocked by this function call.
+	 * The returned frame is properly referenced, so the caller will need to
+	 * call mbuf_raw_video_frame_unref() when the frame is no longer needed.
+	 * @param frame_info: information about the frame
+	 * @param frame: the mbuf_raw_video_frame structure
+	 * @param userdata: user data pointer */
+	void (*get_frame_cb_t)(struct pdraw_video_frame *frame_info,
+			       struct mbuf_raw_video_frame *frame);
+};
+
+
 /**
  * Create a pdraw_vsink instance and connect to a URL.
  * The instance handle is returned through the ret_obj parameter.
  * When no longer needed, the instance must be freed using the
  * pdraw_vsink_stop() function.
  * @param url: URL to open (network URL or local file)
+ * @param cbs: pdraw_vsink callbacks (optional, can be null).
+	       Set the frame_cb to use pdraw_vsink in asynchronous mode.
  * @param media_info: media info pointer to fill if not NULL.
  * Note: mdeia_info will be freed in pdraw_vsink_stop().
  * @param ret_obj: pdraw_vsink instance handle (output)
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_VSINK_API int pdraw_vsink_start(const char *url,
+				      struct pdraw_vsink_cbs *cbs,
 				      struct pdraw_media_info **media_info,
 				      struct pdraw_vsink **ret_obj);
 
@@ -81,19 +100,24 @@ PDRAW_VSINK_API int pdraw_vsink_stop(struct pdraw_vsink *self);
 /**
  * Get a frame.
  * The caller can pass a mbuf_mem object to hold the frame. If not given, this
- * call will allocate a memory internally.
+ * call will allocate a memory internally. The returned frame is properly
+ * referenced, so the caller will need to call mbuf_raw_video_frame_unref() when
+ * the frame is no longer needed.
  * @param self: pdraw_vsink instance handle
+ * @param timeout_ms: timeout of wait, 0 to return immediately (non-blocking
+ *                    mode) or -1 for infinite wait
  * @param frame_memory: memory used by the frame (optional)
  * @param frame_info: frame information (output)
  * @param ret_frame: frame (output)
- * @return 0 on success, negative errno value in case of error
+ * @return 0 in case of success, -ETIMEDOUT if timeout occurred,
+ * negative errno value in case of error
  */
 PDRAW_VSINK_API int
 pdraw_vsink_get_frame(struct pdraw_vsink *self,
+		      int timeout_ms,
 		      struct mbuf_mem *frame_memory,
 		      struct pdraw_video_frame *frame_info,
 		      struct mbuf_raw_video_frame **ret_frame);
-/* TODO: Add timeout !!! */
 
 
 #ifdef __cplusplus

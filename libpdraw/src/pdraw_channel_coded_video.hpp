@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline source to sink channel for coded video
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -54,23 +54,26 @@ public:
 
 	CodedVideoChannel(Sink *owner,
 			  SinkListener *sinkListener,
-			  CodedVideoSinkListener *codedVideoSinkListener);
+			  CodedVideoSinkListener *codedVideoSinkListener,
+			  struct pomp_loop *loop);
 
 	~CodedVideoChannel(void) {}
 
 	int queue(mbuf_coded_video_frame *frame);
 
-	int getCodedVideoMediaFormatCaps(const struct vdef_coded_format **caps);
+	int getCodedVideoMediaFormatCaps(
+		const struct vdef_coded_format **caps) const;
 
-	void setCodedVideoMediaFormatCaps(Sink *owner,
+	void setCodedVideoMediaFormatCaps(const Sink *owner,
 					  const struct vdef_coded_format *caps,
 					  int count);
 
-	bool onlySupportsByteStream();
+	bool onlySupportsByteStream() const;
 
-	struct mbuf_coded_video_frame_queue *getQueue(Sink *owner);
+	struct mbuf_coded_video_frame_queue *getQueue(const Sink *owner) const;
 
-	void setQueue(Sink *owner, struct mbuf_coded_video_frame_queue *queue);
+	void setQueue(const Sink *owner,
+		      struct mbuf_coded_video_frame_queue *queue);
 
 private:
 	CodedVideoSinkListener *mCodedVideoSinkListener;

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline element
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -43,8 +43,11 @@ namespace Pdraw {
 std::atomic<unsigned int> Element::mIdCounter(0);
 
 
-Element::Element(Session *session, Listener *listener) :
-		mSession(session), mListener(listener), mState(INVALID)
+Element::Element(Session *session,
+		 Listener *listener,
+		 ElementWrapper *wrapper) :
+		mSession(session),
+		mListener(listener), mWrapper(wrapper), mState(INVALID)
 {
 	mId = ++mIdCounter;
 	std::string name = std::string(__func__) + "#" + std::to_string(mId);
@@ -56,10 +59,9 @@ Element::~Element(void)
 {
 	mState = INVALID;
 
-	/* Remove any leftover idle callbacks */
-	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+	/* Clear the element in the element wrapper */
+	if (mWrapper != nullptr)
+		mWrapper->clearElement();
 
 	PDRAW_LOGI("element DESTROYED");
 }
@@ -68,6 +70,18 @@ Element::~Element(void)
 unsigned int Element::getId(void)
 {
 	return mId;
+}
+
+
+ElementWrapper *Element::getWrapper(void)
+{
+	return mWrapper;
+}
+
+
+void Element::clearWrapper(void)
+{
+	mWrapper = nullptr;
 }
 
 
@@ -120,23 +134,6 @@ void Element::setStateAsyncNotify(Element::State state)
 }
 
 
-int Element::asyncChannelFlushDone(Channel *channel)
-{
-	int ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), &idleChannelFlushDone, channel, this);
-	if (ret < 0)
-		ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
-	return ret;
-}
-
-
-void Element::idleChannelFlushDone(void *userdata)
-{
-	Channel *channel = (Channel *)userdata;
-	(void)channel->flushDone();
-}
-
-
 const char *Element::getElementStateStr(Element::State val)
 {
 	switch (val) {
@@ -155,6 +152,32 @@ const char *Element::getElementStateStr(Element::State val)
 	default:
 		return nullptr;
 	}
+}
+
+
+ElementWrapper::ElementWrapper(void) : mElement(nullptr)
+{
+	return;
+}
+
+
+ElementWrapper::~ElementWrapper(void)
+{
+	/* Clear the element wrapper in the element */
+	if (mElement != nullptr)
+		mElement->clearWrapper();
+}
+
+
+Element *ElementWrapper::getElement(void) const
+{
+	return mElement;
+}
+
+
+void ElementWrapper::clearElement(void)
+{
+	mElement = nullptr;
 }
 
 
@@ -223,6 +246,54 @@ void FilterElement::onChannelReconfigure(Channel *channel)
 			continue;
 		int ret = Source::sendDownstreamEvent(
 			media, Channel::DownstreamEvent::RECONFIGURE);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	Source::unlock();
+}
+
+
+void FilterElement::onChannelResolutionChange(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Sink::onChannelResolutionChange(channel);
+
+	Source::lock();
+	unsigned int count = Source::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		Media *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = Source::sendDownstreamEvent(
+			media, Channel::DownstreamEvent::RESOLUTION_CHANGE);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
+	}
+	Source::unlock();
+}
+
+
+void FilterElement::onChannelFramerateChange(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Sink::onChannelFramerateChange(channel);
+
+	Source::lock();
+	unsigned int count = Source::getOutputMediaCount();
+	for (unsigned int i = 0; i < count; i++) {
+		Media *media = getOutputMedia(i);
+		if (media == nullptr)
+			continue;
+		int ret = Source::sendDownstreamEvent(
+			media, Channel::DownstreamEvent::FRAMERATE_CHANGE);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("sendDownstreamEvent", -ret);
 	}

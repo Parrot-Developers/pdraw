@@ -1,6 +1,6 @@
 /**
- * Parrot Drones Awesome Video Viewer
- * Desktop application
+ * Parrot Drones Audio and Video Vector
+ * Desktop player application
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -44,24 +44,28 @@
 #include <ulog.h>
 
 #ifdef _WIN32
+#	include <windows.h>
 #	include <winsock2.h>
 #	undef near
 #	undef far
 #endif /* !_WIN32 */
 
-#ifndef __APPLE__
-#	define GLFW_INCLUDE_ES2
-#endif
-#ifdef _WIN32
+#if defined(_WIN32)
 #	include <epoxy/gl.h>
+#elif defined(__APPLE__)
+#	include <OpenGL/OpenGL.h>
+#	include <OpenGL/gl.h>
 #else
-#	include <GLFW/glfw3.h>
+#	include <GLES2/gl2.h>
 #endif
 
 #include <SDL.h>
 #include <futils/futils.h>
 #include <pdraw/pdraw_backend.h>
 #include <pdraw/pdraw_gles2hud.h>
+#ifdef BUILD_LIBPDRAW_OVERLAYER
+#	include <pdraw/pdraw_overlayer.h>
+#endif
 #include <video-defs/vdefs.h>
 
 #ifdef __cplusplus
@@ -85,6 +89,17 @@ enum pdraw_desktop_event {
 	PDRAW_DESKTOP_EVENT_SEEK_RESP,
 	PDRAW_DESKTOP_EVENT_STOP_RESP,
 	PDRAW_DESKTOP_EVENT_ADD_RENDERER,
+	PDRAW_DESKTOP_EVENT_TOGGLE_MEDIA,
+};
+
+
+struct pdraw_desktop_renderer {
+	struct pdraw_video_renderer *renderer;
+	unsigned int media_id;
+	unsigned int pending_media_id;
+	struct pdraw_rect render_pos;
+	struct pdraw_overlayer *overlayer;
+	struct pdraw_gles2hud *gles2hud;
 };
 
 
@@ -107,11 +122,14 @@ struct pdraw_desktop {
 	int fullscreen;
 	int always_on_top;
 
+	int enable_overlay;
+#ifdef BUILD_LIBPDRAW_OVERLAYER
+	enum pdraw_overlayer_layout overlayer_layout;
+#endif
 	int enable_hud;
 	enum pdraw_gles2hud_type hud_type;
 	float hud_view_proj_mat[16];
-	int enable_hmd;
-	enum pdraw_hmd_model hmd_model;
+	int enable_norm;
 	int enable_zebras;
 	float zebras_threshold;
 
@@ -121,16 +139,14 @@ struct pdraw_desktop {
 	char *demuxer_media_list;
 	struct pdraw_vipc_source *source;
 	unsigned int media_count;
-	unsigned int renderer_media_id[MAX_RENDERERS];
-	struct pdraw_video_renderer *renderer[MAX_RENDERERS];
-	struct pdraw_gles2hud *gles2hud[MAX_RENDERERS];
-	struct pdraw_rect render_pos[MAX_RENDERERS];
-	unsigned int renderer_count;
+	unsigned int video_media_count;
+	unsigned int video_renderer_pending_media_id;
+	struct pdraw_desktop_renderer video_renderers[MAX_RENDERERS];
+	unsigned int video_renderer_count;
+	struct pdraw_audio_renderer *audio_renderer;
 	float speed;
 	int speed_sign;
 
-	uint64_t rec_start;
-	uint64_t rec_stop;
 	uint8_t skyctrl_battery_percentage;
 	struct vmeta_location skyctrl_location;
 
@@ -148,14 +164,19 @@ struct pdraw_desktop {
 
 	struct pdraw_muxer *recorder;
 	unsigned int recorder_media_id;
-	struct pdraw_muxer_video_media_params recorder_video_params;
+
+	struct pdraw_chapter *chapter_list;
+	size_t chapter_count;
 };
 
 
 extern const struct pdraw_backend_video_renderer_cbs render_cbs;
 
 
-void pdraw_desktop_open(struct pdraw_desktop *self);
+extern const struct pdraw_backend_audio_renderer_cbs audio_render_cbs;
+
+
+int pdraw_desktop_open(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_close(struct pdraw_desktop *self);
@@ -185,6 +206,12 @@ void pdraw_desktop_seek_back_10s(struct pdraw_desktop *self);
 void pdraw_desktop_seek_forward_10s(struct pdraw_desktop *self);
 
 
+void pdraw_desktop_seek_to_prev_chapter(struct pdraw_desktop *self);
+
+
+void pdraw_desktop_seek_to_next_chapter(struct pdraw_desktop *self);
+
+
 void pdraw_desktop_goto_beginning(struct pdraw_desktop *self);
 
 
@@ -200,7 +227,13 @@ void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self);
 void pdraw_desktop_change_scheduling_mode(struct pdraw_desktop *self);
 
 
+void pdraw_desktop_toggle_demuxer_media(struct pdraw_desktop *self);
+
+
 void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self);
+
+
+void pdraw_desktop_toggle_mb_status(struct pdraw_desktop *self);
 
 
 int pdraw_desktop_ui_init(struct pdraw_desktop *self);
@@ -219,7 +252,8 @@ void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
 
 
 void pdraw_desktop_ui_add_media(struct pdraw_desktop *self,
-				unsigned int media_id);
+				unsigned int media_id,
+				unsigned int media_type);
 
 
 void pdraw_desktop_ui_resize(struct pdraw_desktop *self);

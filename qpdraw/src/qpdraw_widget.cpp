@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * Qt PDrAW widget
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -42,6 +42,9 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #define QPDRAW_WIDGET_DEFAULT_FRAMERATE 30.
 /* Minimum interval before the next rendering of the widget (msec) */
 #define QPDRAW_WIDGET_MIN_RENDER_INTERVAL_MS 5
+
+
+Q_DECLARE_METATYPE(struct pdraw_media_info);
 
 
 namespace QPdraw {
@@ -229,13 +232,14 @@ void QPdrawWidgetPriv::onVideoRendererMediaAdded(
 void QPdrawWidgetPriv::onVideoRendererMediaRemoved(
 	IPdraw *pdraw,
 	IPdraw::IVideoRenderer *renderer,
-	const struct pdraw_media_info *info)
+	const struct pdraw_media_info *info,
+	bool restart)
 {
 	Q_UNUSED(pdraw);
 	Q_UNUSED(renderer);
 
 	struct pdraw_media_info info_copy = *info;
-	emit mParent->mediaRemoved(info_copy);
+	emit mParent->mediaRemoved(info_copy, restart);
 }
 
 
@@ -339,14 +343,11 @@ void QPdrawWidget::start(QPdraw *pdraw, unsigned int mediaId)
 			PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ADAPTIVE,
 		.fill_mode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT_PAD_BLUR_EXTEND,
 		.enable_transition_flags = 0xFFFFFFFF,
-		.enable_hmd_distortion_correction = 0,
-		.hmd_ipd_offset = 0.f,
-		.hmd_x_offset = 0.f,
-		.hmd_y_offset = 0.f,
-		.video_scale_factor = 0.f,
+		.enable_auto_normalization = 0,
 		.enable_overexposure_zebras = 0,
 		.overexposure_zebras_threshold = 0,
 		.enable_histograms = 0,
+		.enable_simplified_rendering = 0,
 		.video_texture_width = 0,
 		.video_texture_dar_width = 0,
 		.video_texture_dar_height = 0,

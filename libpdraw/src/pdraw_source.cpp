@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline media source for elements
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -78,7 +78,7 @@ error:
 
 Source::~Source(void)
 {
-	int ret = removeOutputPorts();
+	int ret = removeOutputPorts(true);
 	if (ret < 0)
 		ULOG_ERRNO("removeOutputPorts", -ret);
 
@@ -269,6 +269,12 @@ int Source::removeOutputPort(Media *media)
 
 int Source::removeOutputPorts(void)
 {
+	return removeOutputPorts(false);
+}
+
+
+int Source::removeOutputPorts(bool calledFromDtor)
+{
 	pthread_mutex_lock(&mMutex);
 	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
 
@@ -286,9 +292,10 @@ int Source::removeOutputPorts(void)
 			      count);
 			return -EBUSY;
 		}
-		ULOGI("%s: delete port for media name=%s",
-		      getName().c_str(),
-		      p->media->getName().c_str());
+		ULOG_PRI(calledFromDtor ? ULOG_WARN : ULOG_INFO,
+			 "%s: delete port for media name=%s",
+			 calledFromDtor ? "Source" : getName().c_str(),
+			 p->media->getName().c_str());
 		/* Note: unlike removeOutputPort(), here the media is deleted */
 		delete p->media;
 		p->media = nullptr;
@@ -602,7 +609,7 @@ void Source::onChannelUnlink(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		ULOGE("media not found");
+		ULOGE("%s: output media not found", __func__);
 		return;
 	}
 
@@ -621,7 +628,7 @@ void Source::onChannelFlushed(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		ULOGE("media not found");
+		ULOGE("%s: output media not found", __func__);
 		return;
 	}
 	ULOGD("%s: channel flushed media name=%s (channel owner=%p)",
@@ -643,7 +650,7 @@ void Source::onChannelResync(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		ULOGE("media not found");
+		ULOGE("%s: output media not found", __func__);
 		return;
 	}
 	ULOGD("%s: channel resync media name=%s (channel owner=%p)",
@@ -665,7 +672,7 @@ void Source::onChannelVideoPresStats(Channel *channel, VideoPresStats *stats)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		ULOGE("media not found");
+		ULOGE("%s: output media not found", __func__);
 		return;
 	}
 	ULOGD("%s: channel video stats media name=%s (channel owner=%p)",
@@ -713,7 +720,7 @@ void Source::onChannelUpstreamEvent(Channel *channel,
 }
 
 
-int Source::getRawVideoOutputMemory(RawVideoMedia *media, struct mbuf_mem **mem)
+int Source::getOutputMemory(Media *media, struct mbuf_mem **mem)
 {
 	int ret = 0;
 	OutputPort *port = nullptr;
@@ -756,10 +763,10 @@ exit:
 }
 
 
-int Source::getCodedVideoOutputMemory(CodedVideoMedia **videoMedias,
-				      unsigned int nbVideoMedias,
-				      struct mbuf_mem **mem,
-				      unsigned int *defaultMediaIndex)
+int Source::getCodedVideoOutputMemory(
+	std::vector<CodedVideoMedia *> &videoMedias,
+	struct mbuf_mem **mem,
+	unsigned int *defaultMediaIndex)
 {
 	int ret = 0;
 	unsigned int outputChannelCount = 0;
@@ -769,28 +776,28 @@ int Source::getCodedVideoOutputMemory(CodedVideoMedia **videoMedias,
 	struct mbuf_pool *pool = nullptr, *extPool = nullptr;
 	bool externalPool = false;
 
-	if (videoMedias == nullptr || nbVideoMedias == 0)
+	if (videoMedias.empty())
 		return -EINVAL;
 	if (mem == nullptr)
 		return -EINVAL;
 	if (defaultMediaIndex == nullptr)
 		return -EINVAL;
 
-	for (unsigned int i = 0; i < nbVideoMedias; i++) {
-		if ((videoMedias[i]->format.encoding != VDEF_ENCODING_H264) &&
-		    (videoMedias[i]->format.encoding != VDEF_ENCODING_H265))
+	for (auto m = videoMedias.begin(); m != videoMedias.end(); m++) {
+		if (((*m)->format.encoding != VDEF_ENCODING_H264) &&
+		    ((*m)->format.encoding != VDEF_ENCODING_H265))
 			return -EINVAL;
 	}
 
 	pthread_mutex_lock(&mMutex);
 
-	for (unsigned int i = 0; i < nbVideoMedias; i++) {
-		outputChannelCount = getOutputChannelCount(videoMedias[i]);
+	for (auto m = videoMedias.begin(); m != videoMedias.end(); m++) {
+		outputChannelCount = getOutputChannelCount((*m));
 		if (outputChannelCount > 0 && firstUsedMediaIndex == UINT_MAX) {
 			firstUsedMediaCount = outputChannelCount;
-			firstUsedMediaIndex = i;
-			channel = getOutputChannel(videoMedias[i],
-						   (unsigned int)0);
+			firstUsedMediaIndex =
+				std::distance(videoMedias.begin(), m);
+			channel = getOutputChannel((*m), (unsigned int)0);
 			if (channel == nullptr) {
 				ULOGW("invalid channel");
 			} else {
@@ -810,7 +817,8 @@ int Source::getCodedVideoOutputMemory(CodedVideoMedia **videoMedias,
 
 retry_internal_pool:
 	/* Otherwise, use the pool of the prefered media */
-	if (pool == nullptr && firstUsedMediaIndex != UINT_MAX) {
+	if (pool == nullptr && firstUsedMediaIndex != UINT_MAX &&
+	    firstUsedMediaIndex < videoMedias.size()) {
 		port = getOutputPort(videoMedias[firstUsedMediaIndex]);
 		if (port != nullptr)
 			pool = port->pool;
@@ -818,11 +826,13 @@ retry_internal_pool:
 
 	/* If still no pool, pick one from any media */
 	if (pool == nullptr) {
-		for (unsigned int i = 0; i < nbVideoMedias; i++) {
-			port = getOutputPort(videoMedias[i]);
+		for (auto m = videoMedias.begin(); m != videoMedias.end();
+		     m++) {
+			port = getOutputPort((*m));
 			if (port != nullptr && port->pool != nullptr) {
 				pool = port->pool;
-				firstUsedMediaIndex = i;
+				firstUsedMediaIndex =
+					std::distance(videoMedias.begin(), m);
 				break;
 			}
 		}
@@ -877,7 +887,9 @@ int Source::copyCodedVideoOutputFrame(CodedVideoMedia *srcMedia,
 	if (srcMedia->format.encoding != dstMedia->format.encoding)
 		return -EINVAL;
 
-	ret = getCodedVideoOutputMemory(&dstMedia, 1, &dstMem, &dummy);
+	std::vector<CodedVideoMedia *> codedMedias;
+	codedMedias.push_back(dstMedia);
+	ret = getCodedVideoOutputMemory(codedMedias, &dstMem, &dummy);
 	if (ret < 0) {
 		ULOG_ERRNO("getCodedVideoOutputMemory", -ret);
 		return ret;

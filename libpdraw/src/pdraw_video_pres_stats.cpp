@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Video presentation statistics
  *
  * Copyright (c) 2018 Parrot Drones SAS

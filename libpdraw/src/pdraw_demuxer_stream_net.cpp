@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Streaming demuxer - net implementation
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -46,7 +46,6 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <futils/futils.h>
 
 #define DEFAULT_RX_BUFFER_SIZE 1500
-#define PDRAW_RTP_RXBUF_SIZE (8 * 1024 * 1024)
 
 
 namespace Pdraw {
@@ -55,14 +54,16 @@ namespace Pdraw {
 StreamDemuxerNet::StreamDemuxerNet(Session *session,
 				   Element::Listener *elementListener,
 				   Source::Listener *sourceListener,
-				   IPdraw::IDemuxer *demuxer,
+				   DemuxerWrapper *wrapper,
 				   IPdraw::IDemuxer::Listener *demuxerListener,
-				   const std::string &url) :
+				   const std::string &url,
+				   const struct pdraw_demuxer_params *params) :
 		StreamDemuxer(session,
 			      elementListener,
 			      sourceListener,
-			      demuxer,
-			      demuxerListener),
+			      wrapper,
+			      demuxerListener,
+			      params),
 		mSingleLocalStreamPort(0), mSingleLocalControlPort(0),
 		mSingleRemoteStreamPort(0), mSingleRemoteControlPort(0)
 {
@@ -77,19 +78,21 @@ StreamDemuxerNet::StreamDemuxerNet(Session *session,
 StreamDemuxerNet::StreamDemuxerNet(Session *session,
 				   Element::Listener *elementListener,
 				   Source::Listener *sourceListener,
-				   IPdraw::IDemuxer *demuxer,
+				   DemuxerWrapper *wrapper,
 				   IPdraw::IDemuxer::Listener *demuxerListener,
 				   const std::string &localAddr,
 				   uint16_t localStreamPort,
 				   uint16_t localControlPort,
 				   const std::string &remoteAddr,
 				   uint16_t remoteStreamPort,
-				   uint16_t remoteControlPort) :
+				   uint16_t remoteControlPort,
+				   const struct pdraw_demuxer_params *params) :
 		StreamDemuxer(session,
 			      elementListener,
 			      sourceListener,
-			      demuxer,
-			      demuxerListener),
+			      wrapper,
+			      demuxerListener,
+			      params),
 		mSingleLocalStreamPort(localStreamPort),
 		mSingleLocalControlPort(localControlPort),
 		mSingleRemoteStreamPort(remoteStreamPort),
@@ -259,13 +262,13 @@ int StreamDemuxerNet::VideoMediaNet::prepareSetup(void)
 
 
 enum rtsp_lower_transport
-StreamDemuxerNet::VideoMediaNet::getLowerTransport(void)
+StreamDemuxerNet::VideoMediaNet::getLowerTransport(void) const
 {
 	return RTSP_LOWER_TRANSPORT_UDP;
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getLocalStreamPort(void)
+uint16_t StreamDemuxerNet::VideoMediaNet::getLocalStreamPort(void) const
 {
 	if (mStreamSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid stream socket", EPROTO);
@@ -276,7 +279,7 @@ uint16_t StreamDemuxerNet::VideoMediaNet::getLocalStreamPort(void)
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getLocalControlPort(void)
+uint16_t StreamDemuxerNet::VideoMediaNet::getLocalControlPort(void) const
 {
 	if (mControlSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid control socket", EPROTO);
@@ -287,7 +290,7 @@ uint16_t StreamDemuxerNet::VideoMediaNet::getLocalControlPort(void)
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteStreamPort(void)
+uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteStreamPort(void) const
 {
 	if (mStreamSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid stream socket", EPROTO);
@@ -298,7 +301,7 @@ uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteStreamPort(void)
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteControlPort(void)
+uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteControlPort(void) const
 {
 	if (mControlSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid control socket", EPROTO);

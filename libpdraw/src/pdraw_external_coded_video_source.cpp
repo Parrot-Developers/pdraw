@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Application external coded video source
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -48,10 +48,14 @@ ExternalCodedVideoSource::ExternalCodedVideoSource(
 	Element::Listener *elementListener,
 	Source::Listener *sourceListener,
 	IPdraw::ICodedVideoSource::Listener *listener,
-	IPdraw::ICodedVideoSource *source,
+	CodedVideoSourceWrapper *wrapper,
 	const struct pdraw_video_source_params *params) :
-		SourceElement(session, elementListener, 1, sourceListener),
-		mVideoSource(source), mVideoSourceListener(listener),
+		SourceElement(session,
+			      elementListener,
+			      wrapper,
+			      1,
+			      sourceListener),
+		mVideoSource(wrapper), mVideoSourceListener(listener),
 		mParams(*params), mFrameQueue(nullptr), mOutputMedia(nullptr),
 		mLastTimestamp(UINT64_MAX), mFlushPending(false)
 {
@@ -67,6 +71,9 @@ ExternalCodedVideoSource::~ExternalCodedVideoSource(void)
 
 	if (mState == STARTED)
 		PDRAW_LOGW("video source is still running");
+
+	/* Make sure listener functions will no longer be called */
+	mVideoSourceListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
 	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
@@ -93,7 +100,7 @@ ExternalCodedVideoSource::~ExternalCodedVideoSource(void)
 
 int ExternalCodedVideoSource::start(void)
 {
-	int ret;
+	int ret, err;
 	struct pomp_evt *evt = nullptr;
 	std::string path;
 
@@ -196,8 +203,10 @@ int ExternalCodedVideoSource::start(void)
 		 * callstack as a direct call could ultimately be blocking
 		 * in a pdraw-backend application calling another pdraw-backend
 		 * function from the onMediaAdded listener function */
-		pomp_loop_idle_add_with_cookie(
+		err = pomp_loop_idle_add_with_cookie(
 			mSession->getLoop(), callOnMediaAdded, this, this);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 	}
 
 	return 0;
@@ -222,6 +231,14 @@ int ExternalCodedVideoSource::stop(void)
 	}
 
 	setState(STOPPING);
+
+	/* Make sure listener functions will no longer be called */
+	mVideoSourceListener = nullptr;
+
+	Source::lock();
+	if (mOutputMedia != nullptr)
+		mOutputMedia->setTearingDown();
+	Source::unlock();
 
 	/* Flush everything */
 	ret = flush();
@@ -401,9 +418,11 @@ int ExternalCodedVideoSource::setSessionMetadata(
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		mOutputMedia->sessionMeta = mParams.session_meta;
-		sendDownstreamEvent(
+		int err = sendDownstreamEvent(
 			mOutputMedia,
 			Channel::DownstreamEvent::SESSION_META_UPDATE);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
 	}
 	Source::unlock();
 
@@ -411,7 +430,8 @@ int ExternalCodedVideoSource::setSessionMetadata(
 }
 
 
-int ExternalCodedVideoSource::getSessionMetadata(struct vmeta_session *meta)
+int ExternalCodedVideoSource::getSessionMetadata(
+	struct vmeta_session *meta) const
 {
 	if (meta == nullptr)
 		return -EINVAL;
@@ -424,6 +444,7 @@ int ExternalCodedVideoSource::getSessionMetadata(struct vmeta_session *meta)
 
 void ExternalCodedVideoSource::completeFlush(void)
 {
+	int err;
 	bool pending = false;
 
 	Source::lock();
@@ -454,10 +475,12 @@ void ExternalCodedVideoSource::completeFlush(void)
 
 	if (mState != STOPPING) {
 		/* Signal to the application that flushing is done */
-		pomp_loop_idle_add_with_cookie(mSession->getLoop(),
-					       callVideoSourceFlushed,
-					       this,
-					       this);
+		err = pomp_loop_idle_add_with_cookie(mSession->getLoop(),
+						     callVideoSourceFlushed,
+						     this,
+						     this);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 	}
 
 	tryStop();
@@ -473,7 +496,7 @@ void ExternalCodedVideoSource::onChannelFlushed(Channel *channel)
 
 	Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
-		PDRAW_LOGE("media not found");
+		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
 	}
 	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
@@ -663,10 +686,12 @@ int ExternalCodedVideoSource::processFrame(struct mbuf_coded_video_frame *frame)
 
 	time_get_monotonic(&ts);
 	time_timespec_to_us(&ts, &curTime);
-	out_meta.ntpTimestamp = info.info.timestamp;
-	out_meta.ntpUnskewedTimestamp = info.info.timestamp;
-	out_meta.ntpRawTimestamp = info.info.timestamp;
-	out_meta.ntpRawUnskewedTimestamp = info.info.timestamp;
+	out_meta.ntpTimestamp =
+		(info.info.timestamp * 1000000 + info.info.timescale / 2) /
+		info.info.timescale;
+	out_meta.ntpUnskewedTimestamp = out_meta.ntpTimestamp;
+	out_meta.ntpRawTimestamp = out_meta.ntpTimestamp;
+	out_meta.ntpRawUnskewedTimestamp = out_meta.ntpTimestamp;
 	out_meta.demuxOutputTimestamp = curTime;
 	out_meta.playTimestamp = info.info.capture_timestamp;
 	out_meta.captureTimestamp = info.info.capture_timestamp;
@@ -677,7 +702,8 @@ int ExternalCodedVideoSource::processFrame(struct mbuf_coded_video_frame *frame)
 		PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME,
 		&out_meta,
 		sizeof(out_meta));
-	if (ret < 0) {
+	if (ret < 0 && ret != -EEXIST) {
+		/* Ancillary buffer may already exist; ignore -EEXIST */
 		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_add_ancillary_buffer",
 				-ret);
 		goto out;
@@ -705,14 +731,17 @@ out:
 }
 
 
-/**
- * Video source listener calls from idle functions
- */
+/* Listener call from an idle function */
 void ExternalCodedVideoSource::callOnMediaAdded(void *userdata)
 {
 	ExternalCodedVideoSource *self =
 		reinterpret_cast<ExternalCodedVideoSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	if (self->mOutputMedia == nullptr) {
+		PDRAW_LOGW("%s: output media not found", __func__);
+		return;
+	}
 
 	if (self->Source::mListener) {
 		self->Source::mListener->onOutputMediaAdded(
@@ -721,19 +750,70 @@ void ExternalCodedVideoSource::callOnMediaAdded(void *userdata)
 }
 
 
+/* Listener call from an idle function */
 void ExternalCodedVideoSource::callVideoSourceFlushed(void *userdata)
 {
 	ExternalCodedVideoSource *self =
 		reinterpret_cast<ExternalCodedVideoSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	IPdraw::ICodedVideoSource::Listener *listener =
-		self->getVideoSourceListener();
-
-	if (listener != nullptr) {
-		listener->onCodedVideoSourceFlushed(self->mSession,
-						    self->getVideoSource());
+	if (self->mVideoSourceListener != nullptr) {
+		self->mVideoSourceListener->onCodedVideoSourceFlushed(
+			self->mSession, self->getVideoSource());
 	}
+}
+
+
+CodedVideoSourceWrapper::CodedVideoSourceWrapper(
+	Session *session,
+	const struct pdraw_video_source_params *params,
+	IPdraw::ICodedVideoSource::Listener *listener)
+{
+	mElement = mSource = new Pdraw::ExternalCodedVideoSource(
+		session, session, session, listener, this, params);
+}
+
+
+CodedVideoSourceWrapper::~CodedVideoSourceWrapper(void)
+{
+	if (mSource == nullptr)
+		return;
+	int ret = mSource->stop();
+	if (ret < 0)
+		ULOG_ERRNO("source->stop", -ret);
+}
+
+
+struct mbuf_coded_video_frame_queue *CodedVideoSourceWrapper::getQueue(void)
+{
+	if (mSource == nullptr)
+		return nullptr;
+	return mSource->getQueue();
+}
+
+
+int CodedVideoSourceWrapper::flush(void)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->flush();
+}
+
+
+int CodedVideoSourceWrapper::setSessionMetadata(
+	const struct vmeta_session *meta)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->setSessionMetadata(meta);
+}
+
+
+int CodedVideoSourceWrapper::getSessionMetadata(struct vmeta_session *meta)
+{
+	if (mSource == nullptr)
+		return -EPROTO;
+	return mSource->getSessionMetadata(meta);
 }
 
 } /* namespace Pdraw */

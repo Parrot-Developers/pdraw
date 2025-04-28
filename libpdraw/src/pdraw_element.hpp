@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Pipeline element
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -44,6 +44,8 @@
 namespace Pdraw {
 
 class Session;
+class ElementWrapper;
+
 
 class Element : public Loggable {
 public:
@@ -75,12 +77,16 @@ public:
 
 	unsigned int getId(void);
 
+	ElementWrapper *getWrapper(void);
+
+	void clearWrapper(void);
+
 	Element::State getState(void);
 
 	static const char *getElementStateStr(Element::State val);
 
 protected:
-	Element(Session *session, Listener *listener);
+	Element(Session *session, Listener *listener, ElementWrapper *wrapper);
 
 	void setClassName(std::string &name);
 
@@ -90,15 +96,27 @@ protected:
 
 	void setStateAsyncNotify(Element::State state);
 
-	int asyncChannelFlushDone(Channel *channel);
-
-	static void idleChannelFlushDone(void *userdata);
-
 	Session *mSession;
 	Listener *mListener;
+	ElementWrapper *mWrapper;
 	std::atomic<Element::State> mState;
 	unsigned int mId;
 	static std::atomic<unsigned int> mIdCounter;
+};
+
+
+class ElementWrapper {
+public:
+	ElementWrapper(void);
+
+	virtual ~ElementWrapper(void);
+
+	Element *getElement(void) const;
+
+	virtual void clearElement(void);
+
+protected:
+	Element *mElement;
 };
 
 
@@ -106,9 +124,10 @@ class SourceElement : public Element, public Source {
 public:
 	SourceElement(Session *session,
 		      Element::Listener *listener,
+		      ElementWrapper *wrapper,
 		      unsigned int maxOutputMedias,
 		      Source::Listener *sourceListener) :
-			Element(session, listener),
+			Element(session, listener, wrapper),
 			Source(maxOutputMedias, sourceListener)
 	{
 	}
@@ -127,17 +146,23 @@ class SinkElement : public Element, public Sink {
 public:
 	SinkElement(Session *session,
 		    Element::Listener *listener,
+		    ElementWrapper *wrapper,
 		    unsigned int maxInputMedias,
 		    const struct vdef_coded_format *codedVideoMediaFormatCaps,
 		    int codedVideoMediaFormatCapsCount,
 		    const struct vdef_raw_format *rawVideoMediaFormatCaps,
-		    int rawVideoMediaFormatCapsCount) :
-			Element(session, listener),
-			Sink(maxInputMedias,
+		    int rawVideoMediaFormatCapsCount,
+		    const struct adef_format *audioMediaFormatCaps,
+		    int audioMediaFormatCapsCount) :
+			Element(session, listener, wrapper),
+			Sink(session,
+			     maxInputMedias,
 			     codedVideoMediaFormatCaps,
 			     codedVideoMediaFormatCapsCount,
 			     rawVideoMediaFormatCaps,
-			     rawVideoMediaFormatCapsCount)
+			     rawVideoMediaFormatCapsCount,
+			     audioMediaFormatCaps,
+			     audioMediaFormatCapsCount)
 	{
 	}
 
@@ -155,19 +180,25 @@ class FilterElement : public Element, public Sink, public Source {
 public:
 	FilterElement(Session *session,
 		      Element::Listener *listener,
+		      ElementWrapper *wrapper,
 		      unsigned int maxInputMedias,
 		      const struct vdef_coded_format *codedVideoMediaFormatCaps,
 		      int codedVideoMediaFormatCapsCount,
 		      const struct vdef_raw_format *rawVideoMediaFormatCaps,
 		      int rawVideoMediaFormatCapsCount,
+		      const struct adef_format *audioMediaFormatCaps,
+		      int audioMediaFormatCapsCount,
 		      unsigned int maxOutputMedias,
 		      Source::Listener *sourceListener) :
-			Element(session, listener),
-			Sink(maxInputMedias,
+			Element(session, listener, wrapper),
+			Sink(session,
+			     maxInputMedias,
 			     codedVideoMediaFormatCaps,
 			     codedVideoMediaFormatCapsCount,
 			     rawVideoMediaFormatCaps,
-			     rawVideoMediaFormatCapsCount),
+			     rawVideoMediaFormatCapsCount,
+			     audioMediaFormatCaps,
+			     audioMediaFormatCapsCount),
 			Source(maxOutputMedias, sourceListener)
 	{
 	}
@@ -185,6 +216,10 @@ protected:
 	virtual void onChannelEos(Channel *channel);
 
 	virtual void onChannelReconfigure(Channel *channel);
+
+	virtual void onChannelResolutionChange(Channel *channel);
+
+	virtual void onChannelFramerateChange(Channel *channel);
 
 	virtual void onChannelTimeout(Channel *channel);
 

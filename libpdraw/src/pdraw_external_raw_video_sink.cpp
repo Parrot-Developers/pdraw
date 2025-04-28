@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * Application external raw video sink
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -40,7 +40,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-#define NB_SUPPORTED_FORMATS 4
+#define NB_SUPPORTED_FORMATS 6
 static struct vdef_raw_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
 static void initializeSupportedFormats(void)
@@ -49,6 +49,8 @@ static void initializeSupportedFormats(void)
 	supportedFormats[1] = vdef_nv12;
 	supportedFormats[2] = vdef_i420_10_16le;
 	supportedFormats[3] = vdef_nv12_10_16le_high;
+	supportedFormats[4] = vdef_raw8;
+	supportedFormats[5] = vdef_raw16;
 }
 
 
@@ -56,13 +58,22 @@ ExternalRawVideoSink::ExternalRawVideoSink(
 	Session *session,
 	Element::Listener *elementListener,
 	IPdraw::IRawVideoSink::Listener *listener,
-	IPdraw::IRawVideoSink *sink,
+	RawVideoSinkWrapper *wrapper,
 	const struct pdraw_video_sink_params *params) :
-		SinkElement(session, elementListener, 1, nullptr, 0, nullptr, 0)
+		SinkElement(session,
+			    elementListener,
+			    wrapper,
+			    1,
+			    nullptr,
+			    0,
+			    nullptr,
+			    0,
+			    nullptr,
+			    0)
 {
 	Element::setClassName(__func__);
 	mVideoSinkListener = listener;
-	mVideoSink = sink;
+	mVideoSink = wrapper;
 	mParams = *params;
 	mInputMedia = nullptr;
 	mInputFrameQueue = nullptr;
@@ -83,6 +94,9 @@ ExternalRawVideoSink::~ExternalRawVideoSink(void)
 
 	if (mState == STARTED)
 		PDRAW_LOGW("video sink is still running");
+
+	/* Make sure listener functions will no longer be called */
+	mVideoSinkListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
 	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
@@ -180,15 +194,13 @@ int ExternalRawVideoSink::stop(void)
 	}
 	setState(STOPPING);
 
-	/* TODO:
-	 * Since pdraw_wrapper deletes the listener right after this function is
-	 * called, we need to remove it here to avoid any call during the
-	 * destruction process.
-	 *
-	 * A proper solution for this would be to make sure that the listener is
-	 * NOT destroyed when stop is called, but rather when setState(STOPPED);
-	 * is called, ensuring that the listener outlives this object.
-	 */
+	/* Make sure listener functions will no longer be called.
+	 * Note: the IRawVideoSink::Listener::onRawVideoSinkFlush function
+	 * will not be called, but the ExternalRawVideoSink::stop function
+	 * is only called by the API object destructor, and this is
+	 * precisely when we do not want to call listener functions any more;
+	 * when destroying the API object, outstanding video frames should have
+	 * been previously released by the caller anyway. */
 	mVideoSinkListener = nullptr;
 
 	Sink::lock();
@@ -318,7 +330,7 @@ int ExternalRawVideoSink::prepareRawVideoFrame(
 	}
 
 	in_meta = (RawVideoMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, NULL);
+		ancillaryData, nullptr);
 
 	if (!vdef_raw_format_intersect(&out_meta.raw.format,
 				       mRawVideoMediaFormatCaps,
@@ -427,6 +439,32 @@ void ExternalRawVideoSink::onChannelTeardown(Channel *channel)
 }
 
 
+void ExternalRawVideoSink::onChannelSessionMetaUpdate(Channel *channel)
+{
+	struct vmeta_session tmpSessionMeta;
+	Sink::onChannelSessionMetaUpdate(channel);
+
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Sink::lock();
+	if (mInputMedia == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("%s: input media not found", __func__);
+		return;
+	}
+	tmpSessionMeta = mInputMedia->sessionMeta;
+	Sink::unlock();
+
+	if (mVideoSinkListener != nullptr) {
+		mVideoSinkListener->onRawVideoSinkSessionMetaUpdate(
+			mSession, getVideoSink(), &tmpSessionMeta);
+	}
+}
+
+
 int ExternalRawVideoSink::channelTeardown(RawVideoChannel *channel)
 {
 	int ret;
@@ -472,24 +510,56 @@ int ExternalRawVideoSink::channelTeardown(RawVideoChannel *channel)
 	return ret;
 }
 
-/**
- * Video sink listener calls from idle functions
- */
+
+/* Listener call from an idle function */
 void ExternalRawVideoSink::callVideoSinkFlush(void *userdata)
 {
 	ExternalRawVideoSink *self =
 		reinterpret_cast<ExternalRawVideoSink *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	IPdraw::IRawVideoSink::Listener *listener =
-		self->getVideoSinkListener();
-
-	if (listener == nullptr) {
+	if (self->mVideoSinkListener == nullptr) {
 		self->flushDone();
 	} else {
-		listener->onRawVideoSinkFlush(self->mSession,
-					      self->getVideoSink());
+		self->mVideoSinkListener->onRawVideoSinkFlush(
+			self->mSession, self->getVideoSink());
 	}
+}
+
+
+RawVideoSinkWrapper::RawVideoSinkWrapper(
+	Session *session,
+	const struct pdraw_video_sink_params *params,
+	IPdraw::IRawVideoSink::Listener *listener)
+{
+	mElement = mSink = new Pdraw::ExternalRawVideoSink(
+		session, session, listener, this, params);
+}
+
+
+RawVideoSinkWrapper::~RawVideoSinkWrapper(void)
+{
+	if (mSink == nullptr)
+		return;
+	int ret = mSink->stop();
+	if (ret < 0)
+		ULOG_ERRNO("sink->stop", -ret);
+}
+
+
+struct mbuf_raw_video_frame_queue *RawVideoSinkWrapper::getQueue(void)
+{
+	if (mSink == nullptr)
+		return nullptr;
+	return mSink->getQueue();
+}
+
+
+int RawVideoSinkWrapper::queueFlushed(void)
+{
+	if (mSink == nullptr)
+		return -EPROTO;
+	return mSink->flushDone();
 }
 
 } /* namespace Pdraw */

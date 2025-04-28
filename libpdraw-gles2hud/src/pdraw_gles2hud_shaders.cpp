@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * OpenGL ES 2.0 HUD rendering library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -39,8 +39,7 @@ static const GLchar *hud_vertex_shader =
 	"}\n";
 
 static const GLchar *hud_fragment_shader =
-#if defined(GL_ES_VERSION_2_0) &&                                              \
-	(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
+#if defined(GL_ES_VERSION_2_0)
 	"precision mediump float;\n"
 #endif
 	"uniform vec4 vColor;\n"
@@ -61,8 +60,7 @@ static const GLchar *hud_tex_vertex_shader =
 	"}\n";
 
 static const GLchar *hud_tex_fragment_shader =
-#if defined(GL_ES_VERSION_2_0) &&                                              \
-	(defined(ANDROID) || defined(__APPLE__) || defined(MESON))
+#if defined(GL_ES_VERSION_2_0)
 	"precision mediump float;\n"
 #endif
 	"uniform vec4 vColor;\n"
@@ -162,7 +160,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glLinkProgram(self->program);
 	glGetProgramiv(self->program, GL_LINK_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512];
+		GLchar info_log[512] = {};
 		glGetProgramInfoLog(self->program, 512, nullptr, info_log);
 		ULOGE("program link failed '%s'", info_log);
 		goto error;
@@ -219,7 +217,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glLinkProgram(self->tex_program);
 	glGetProgramiv(self->tex_program, GL_LINK_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512];
+		GLchar info_log[512] = {};
 		glGetProgramInfoLog(self->tex_program, 512, nullptr, info_log);
 		ULOGE("program link failed '%s'", info_log);
 		goto error;

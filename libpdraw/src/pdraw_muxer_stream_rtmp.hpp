@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  * RTMP stream muxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -47,27 +47,39 @@ public:
 	RtmpStreamMuxer(Session *session,
 			Element::Listener *elementListener,
 			IPdraw::IMuxer::Listener *listener,
-			IPdraw::IMuxer *muxer,
+			MuxerWrapper *wrapper,
 			const std::string &url,
 			const struct pdraw_muxer_params *params);
 
 	~RtmpStreamMuxer(void);
 
-	int addInputMedia(
-		Media *media,
-		const struct pdraw_muxer_video_media_params *params) override;
+	int
+	addInputMedia(Media *media,
+		      const struct pdraw_muxer_media_params *params) override;
 
 	int addInputMedia(Media *media) override
 	{
 		return addInputMedia(media, nullptr);
 	};
 
+	int getStats(struct pdraw_muxer_stats *stats) override;
+
 private:
+	enum RtmpState {
+		DISCONNECTED = 0,
+		CONNECTING,
+		CONNECTED,
+	};
+
 	int internalStart(void) override;
 
 	int internalStop(void) override;
 
 	int configure(void);
+
+	int scheduleReconnection(void);
+
+	int reconnect(void);
 
 	int process(void) override;
 
@@ -76,23 +88,47 @@ private:
 	int processFrame(CodedVideoMedia *media,
 			 struct mbuf_coded_video_frame *frame);
 
+	void onChannelFlush(Channel *channel) override;
+
+	void setRtmpState(RtmpStreamMuxer::RtmpState state);
+
+	static const char *getRtmpStateStr(RtmpStreamMuxer::RtmpState val);
+
+	static enum pdraw_muxer_connection_state
+	rtmpStateToMuxerConnectionState(RtmpStreamMuxer::RtmpState val);
+
+	static void getReconnectionStrategy(
+		enum rtmp_client_disconnection_reason disconnectionReason,
+		bool *doReconnect,
+		int *reconnectionCount);
+
 	static void fakeAudioTimerCb(struct pomp_timer *timer, void *userdata);
 
 	static void onSocketCreated(int fd, void *userdata);
 
-	static void connectionStateCb(enum rtmp_connection_state state,
-				      void *userdata);
+	static void connectionStateCb(
+		enum rtmp_client_conn_state state,
+		enum rtmp_client_disconnection_reason disconnection_reason,
+		void *userdata);
 
 	static void peerBwChangedCb(uint32_t bandwidth, void *userdata);
 
 	static void
 	dataUnrefCb(uint8_t *data, void *buffer_userdata, void *userdata);
 
+	static void connectionWatchdogCb(struct pomp_timer *timer,
+					 void *userdata);
+
+	static void reconnectionTimerCb(struct pomp_timer *timer,
+					void *userdata);
+
 	std::string mUrl;
 	struct pomp_timer *mDummyAudioTimer;
 	bool mDummyAudioStarted;
 	struct rtmp_client *mRtmpClient;
-	enum rtmp_connection_state mRtmpConnectionState;
+	RtmpState mRtmpState;
+	enum rtmp_client_conn_state mRtmpConnectionState;
+	enum rtmp_client_disconnection_reason mRtmpDisconnectionReason;
 	bool mConfigured;
 	bool mSynchronized;
 	CodedVideoMedia *mVideoMedia;
@@ -103,7 +139,13 @@ private:
 	int mAudioSampleRate;
 	int mAudioSampleSize;
 	uint32_t mDummyAudioTimestamp;
+	struct pdraw_muxer_stats mStats;
 	std::vector<uint8_t> mVideoAvcc;
+	struct pomp_timer *mConnectionWatchdog;
+	bool mHasBeenConnected;
+	int mReconnectionCount;
+	int mReconnectionMaxCount;
+	struct pomp_timer *mReconnectionTimer;
 
 	static const struct rtmp_callbacks mRtmpCbs;
 	static const uint8_t mDummyAudioSpecificConfig[5];

@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer
+ * Parrot Drones Audio and Video Vector
  * OpenGL ES 2.0 HUD rendering library
  *
  * Copyright (c) 2018 Parrot Drones SAS
@@ -56,6 +56,8 @@ extern "C" {
 /* HUD configuration default values */
 #define PDRAW_GLES2HUD_DEFAULT_SCALE (1.00f)
 #define PDRAW_GLES2HUD_DEFAULT_TEXT_SIZE (0.15f)
+#define PDRAW_GLES2HUD_DEFAULT_TEXT_SIZE_TRACKING (0.2f)
+#define PDRAW_GLES2HUD_DEFAULT_TEXT_TRACKING_V_OFFSET (0.05f)
 #define PDRAW_GLES2HUD_DEFAULT_SMALL_ICON_SIZE (0.040f)
 #define PDRAW_GLES2HUD_DEFAULT_MEDIUM_ICON_SIZE (0.050f)
 #define PDRAW_GLES2HUD_DEFAULT_CENTRAL_ZONE_SIZE (0.25f)
@@ -79,6 +81,9 @@ enum pdraw_gles2hud_type {
 
 	/* Imaging HUD for shooting videos and taking pictures */
 	PDRAW_GLES2HUD_TYPE_IMAGING,
+
+	/* Tracking HUD with proposal boxes and target box */
+	PDRAW_GLES2HUD_TYPE_TRACKING,
 };
 
 
@@ -89,6 +94,7 @@ struct pdraw_gles2hud_config {
 
 	/* HUD text size */
 	float text_size;
+	float text_size_tracking;
 
 	/* Small icons size */
 	float small_icon_size;
@@ -105,6 +111,9 @@ struct pdraw_gles2hud_config {
 	float right_zone_h_offset;
 	float radar_zone_h_offset;
 	float radar_zone_v_offset;
+
+	/* Tracking placement parameters */
+	float text_tracking_v_offset;
 };
 
 
@@ -128,14 +137,6 @@ struct pdraw_gles2hud_controller_meta {
 	uint8_t battery_percentage;
 };
 /* clang-format on */
-
-
-/* Drone metadata */
-struct pdraw_gles2hud_drone_meta {
-	/* Time since video recording started
-	 * (microseconds; null means not recording) */
-	uint64_t recording_duration;
-};
 
 
 /**
@@ -216,8 +217,7 @@ pdraw_gles2hud_render(struct pdraw_gles2hud *self,
 		      const struct pdraw_media_info *media_info,
 		      struct vmeta_frame *frame_meta,
 		      const struct pdraw_video_frame_extra *frame_extra,
-		      const struct pdraw_gles2hud_controller_meta *ctrl_meta,
-		      const struct pdraw_gles2hud_drone_meta *drone_meta);
+		      const struct pdraw_gles2hud_controller_meta *ctrl_meta);
 
 
 #ifdef __cplusplus

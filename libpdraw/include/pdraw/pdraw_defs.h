@@ -1,5 +1,5 @@
 /**
- * Parrot Drones Awesome Video Viewer Library
+ * Parrot Drones Audio and Video Vector library
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -50,17 +50,21 @@
 #endif /* !PDRAW_API_EXPORTS */
 
 #include <inttypes.h>
+#include <sys/types.h>
 
+#include <audio-defs/adefs.h>
+#include <audio-encode/aenc_core.h>
 #include <libpomp.h>
+#include <media-buffers/mbuf_audio_frame.h>
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <video-defs/vdefs.h>
 #include <video-encode/venc_core.h>
 #include <video-metadata/vmeta.h>
+#include <video-scale/vscale_core.h>
 
 
 /* Forward declarations */
-struct egl_display;
 struct json_object;
 struct mux_ctx;
 
@@ -70,33 +74,27 @@ struct mux_ctx;
  * -PDRAW_PLAY_SPEED_MAX, the video is played as fast as possible */
 #define PDRAW_PLAY_SPEED_MAX 1000.f
 
-/**
- * mbuf ancillary data key for pdraw_video_frame structs
- */
+/* mbuf ancillary data key for pdraw_video_frame structs */
 PDRAW_API_VAR const char *PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME;
 
+/* mbuf ancillary data key for pdraw_audio_frame structs */
+PDRAW_API_VAR const char *PDRAW_ANCILLARY_DATA_KEY_AUDIOFRAME;
 
-/* Head-mounted display model */
-enum pdraw_hmd_model {
-	/* Unknown HMD model */
-	PDRAW_HMD_MODEL_UNKNOWN = 0,
+/* Video renderer debug flags environment variable */
+PDRAW_API_VAR const char *PDRAW_VIDEO_RENDERER_DBG_FLAGS;
 
-	/* Parrot Cockpit Glasses */
-	PDRAW_HMD_MODEL_COCKPITGLASSES = 0,
-
-	/* Parrot Cockpit Glasses 2 */
-	PDRAW_HMD_MODEL_COCKPITGLASSES_2,
-};
+/* Video renderer debug flag: macroblock status overlay (streaming only) */
+#define PDRAW_VIDEO_RENDERER_DBG_FLAG_MB_STATUS_OVERLAY (1 << 0)
 
 
-/* Pipeline mode */
-enum pdraw_pipeline_mode {
+/* Demuxer auto-decoding mode */
+enum pdraw_demuxer_autodecoding_mode {
 	/* Decode all the selected media (required for rendering) */
-	PDRAW_PIPELINE_MODE_DECODE_ALL = 0,
+	PDRAW_DEMUXER_AUTODECODING_MODE_DECODE_ALL = 0,
 
 	/* Decode none of the selected media (useful to just forward
 	 * the received media outside of libpdraw without rendering) */
-	PDRAW_PIPELINE_MODE_DECODE_NONE,
+	PDRAW_DEMUXER_AUTODECODING_MODE_DECODE_NONE,
 };
 
 
@@ -120,6 +118,9 @@ enum pdraw_media_type {
 
 	/* Video media */
 	PDRAW_MEDIA_TYPE_VIDEO,
+
+	/* Audio media */
+	PDRAW_MEDIA_TYPE_AUDIO,
 };
 
 
@@ -130,6 +131,63 @@ enum pdraw_video_type {
 
 	/* Front camera video */
 	PDRAW_VIDEO_TYPE_FRONT_CAMERA = 0,
+};
+
+
+/* Muxer type */
+enum pdraw_muxer_type {
+	/* Unknown muxer type */
+	PDRAW_MUXER_TYPE_UNKNOWN = 0,
+
+	/* Record muxer */
+	PDRAW_MUXER_TYPE_RECORD,
+
+	/* RTMP muxer */
+	PDRAW_MUXER_TYPE_RTMP,
+};
+
+
+/* Muxer connection state */
+enum pdraw_muxer_connection_state {
+	/* Unknown connection state */
+	PDRAW_MUXER_CONNECTION_STATE_UNKNOWN = 0,
+
+	/* Muxer disconnected */
+	PDRAW_MUXER_CONNECTION_STATE_DISCONNECTED,
+
+	/* Muxer connecting */
+	PDRAW_MUXER_CONNECTION_STATE_CONNECTING,
+
+	/* Muxer connected */
+	PDRAW_MUXER_CONNECTION_STATE_CONNECTED,
+};
+
+
+/* Muxer disconnection reason */
+enum pdraw_muxer_disconnection_reason {
+	/* Unknown disconnection reason */
+	PDRAW_MUXER_DISCONNECTION_REASON_UNKNOWN = 0,
+
+	/* Client requested disconnection */
+	PDRAW_MUXER_DISCONNECTION_REASON_CLIENT_REQUEST,
+
+	/* Server requested disconnection */
+	PDRAW_MUXER_DISCONNECTION_REASON_SERVER_REQUEST,
+
+	/* Network error */
+	PDRAW_MUXER_DISCONNECTION_REASON_NETWORK_ERROR,
+
+	/* Connection refused by the server */
+	PDRAW_MUXER_DISCONNECTION_REASON_REFUSED,
+
+	/* Server is already in use */
+	PDRAW_MUXER_DISCONNECTION_REASON_ALREADY_IN_USE,
+
+	/* Timeout */
+	PDRAW_MUXER_DISCONNECTION_REASON_TIMEOUT,
+
+	/* Internal error */
+	PDRAW_MUXER_DISCONNECTION_REASON_INTERNAL_ERROR,
 };
 
 
@@ -156,6 +214,10 @@ enum pdraw_histogram_channel {
 enum pdraw_video_renderer_scheduling_mode {
 	/* Render frames as soon as possible (minimize the latency) */
 	PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP = 0,
+
+	/* Render frames as soon as possible (minimize the latency) and
+	 * signal frames only once through the renderReady listener function */
+	PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP_SIGNAL_ONCE,
 
 	/* Adaptive jitter buffer mode (trade-off between smooth playback
 	 * and minimizing the latency) */
@@ -227,6 +289,18 @@ enum pdraw_vipc_source_eos_reason {
 	/* The video IPC is not responding and the client timed out; the video
 	 * IPC source will not restart */
 	PDRAW_VIPC_SOURCE_EOS_REASON_TIMEOUT,
+};
+
+
+/* Alsa source end of stream reason */
+enum pdraw_alsa_source_eos_reason {
+	/* No reason; the ALSA source is stopped for a long period or the
+	 * program is exiting */
+	PDRAW_ALSA_SOURCE_EOS_REASON_NONE = 0,
+
+	/* The ALSA source encountered an unrecoverable error and will not
+	   restart */
+	PDRAW_ALSA_SOURCE_EOS_REASON_UNRECOVERABLE_ERROR,
 };
 
 
@@ -304,6 +378,24 @@ struct pdraw_coded_video_info {
 };
 
 
+/* Audio media information */
+struct pdraw_audio_info {
+	/* Audio format */
+	struct adef_format format;
+
+	union {
+		/* AAC_LC information */
+		struct {
+			/* ASC (Audio Spcific Config) */
+			uint8_t asc[64];
+
+			/* ASC size in bytes */
+			size_t asclen;
+		} aac_lc;
+	};
+};
+
+
 /* Video media information */
 struct pdraw_video_info {
 	/* Video media format */
@@ -311,6 +403,9 @@ struct pdraw_video_info {
 
 	/* Video type */
 	enum pdraw_video_type type;
+
+	/* Session metadata */
+	const struct vmeta_session *session_meta;
 
 	union {
 		/* Raw video media information */
@@ -342,12 +437,12 @@ struct pdraw_media_info {
 	/* Playback duration in microseconds (replay only, 0 otherwise) */
 	uint64_t duration;
 
-	/* Session metadata */
-	const struct vmeta_session *session_meta;
-
 	union {
 		/* Video media information */
 		struct pdraw_video_info video;
+
+		/* Audio media information */
+		struct pdraw_audio_info audio;
 	};
 };
 
@@ -431,6 +526,9 @@ struct pdraw_video_frame {
 
 /* Frame extra information */
 struct pdraw_video_frame_extra {
+	/* Frame information */
+	struct vdef_frame_info info;
+
 	/* Frame play timestamp in microseconds; this timestamp is always
 	 * valid but it is not monotonic; on a record this timestamp
 	 * corresponds to the sample decoding timestamp, i.e. the time
@@ -446,6 +544,66 @@ struct pdraw_video_frame_extra {
 	/* Picture histograms sizes by channel; should be 256 for 8 bits
 	 * formats; a 0 value means the histogram is not available */
 	size_t histogram_len[PDRAW_HISTOGRAM_CHANNEL_MAX];
+};
+
+
+/* Audio frame information */
+struct pdraw_audio_frame {
+	/* Audio frame information */
+	struct adef_frame audio;
+
+	/* NTP timestamp in microseconds; this timestamp is monotonic;
+	 * a 0 value can mean the timestamp is not available; for records (MP4)
+	 * this is a monotonic timestamp increasing by the frame duration
+	 * (i.e. it is monotonic even when seeking); when ntp_timestamp and
+	 * ntp_unskewed_timestamp are not available ntp_raw_timestamp or
+	 * ntp_raw_unskewed_timestamp should be used */
+	uint64_t ntp_timestamp;
+
+	/* Unskewed NTP timestamp in microseconds; same as ntp_timestamp
+	 * but taking into account the clock skew between the sender and
+	 * the receiver on a stream; for records (MP4) the value is identical
+	 * to ntp_timestamp; a 0 value means the timestamp is not available */
+	uint64_t ntp_unskewed_timestamp;
+
+	/* Raw NTP timestamp in microseconds computed from RTP timestamp on
+	 * streams; for records (MP4) the value is identical to ntp_timestamp;
+	 * this timestamp is monotonic and always valid; it can be used for
+	 * presentation but cannot be used for synchronization between
+	 * multiple streams */
+	uint64_t ntp_raw_timestamp;
+
+	/* Unskewed raw NTP timestamp in microseconds; same as
+	 * ntp_raw_timestamp but taking into account the clock skew between
+	 * the sender and the receiver on a stream; for records (MP4) the value
+	 * is identical to ntp_timestamp; this timestamp is always valid */
+	uint64_t ntp_raw_unskewed_timestamp;
+
+	/* Frame play timestamp in microseconds; this timestamp is always
+	 * valid but it is not monotonic; on a record this timestamp
+	 * corresponds to the frame decoding timestamp, i.e. the time
+	 * between 0 and the record duration; on a streamed replay this
+	 * timestamp corresponds to the normal play time (NPT) and has the
+	 * same meaning as on a record; on a live stream this is the time
+	 * since the beginning of the stream */
+	uint64_t play_timestamp;
+
+	/* Frame capture timestamp in microseconds; this timestamp is
+	 * monotonic; a 0 value can mean the timestamp is not available;
+	 * this timestamp corresponds to the frame acquisition time on the
+	 * drone using the monotonic clock, it is primarily used for
+	 * synchronization purposes with other monotonic-clock-based data
+	 * such as telemetry, events or logs */
+	uint64_t capture_timestamp;
+
+	/* Local timestamp in microseconds; this timestamp is an estimation
+	 * of the capture_timestamp translated on the local monotonic clock;
+	 * on streams it is an estimation with a precision equal to the
+	 * round-trip-delay / 2; on records (MP4) it is the sample demux time;
+	 * a 0 value means the timestamp is not available; this timestamp
+	 * should be used only for statistics or debugging purposes and
+	 * should not be used for presentation */
+	uint64_t local_timestamp;
 };
 
 
@@ -479,34 +637,10 @@ struct pdraw_video_renderer_params {
 	 * transitions) */
 	uint32_t enable_transition_flags;
 
-	/* Enable pincushion distortion correction for head-mounted display
-	 * (HMD). The HMD model and the screen parameters must be specified
-	 * through the settings API. */
-	int enable_hmd_distortion_correction;
-
-	/* Inter-pupillary distance offset in millimeters, used with the HMD
-	 * distortion correction. The standard IPD for a given HMD model is
-	 * already applied; this is an additional offset for user settings;
-	 * the default value is 0.0. */
-	float hmd_ipd_offset;
-
-	/* Horizontal offset in millimeters, used with the HMD distortion
-	 * correction. The base horizontal offset should be set using the
-	 * left/right device margin in the screen settings API; this is an
-	 * additional offset for user settings; the default value is 0.0. */
-	float hmd_x_offset;
-
-	/* Vertical offset in millimeters, used with the HMD distortion
-	 * correction. The base vertical offset should be set using the
-	 * top/bottom device margin in the screen settings API; this is an
-	 * additional offset for user settings; the default value is 0.0. */
-	float hmd_y_offset;
-
-	/* Scaling factor applied to the video view. This is mostly useful
-	 * with the HMD distortion correction. For values < 1.0 the video is
-	 * zoomed out; for values > 1.0 the video is zoomed in; the default
-	 * value is 1.0. */
-	float video_scale_factor;
+	/* If non-null, enable the automatic normalization of the video when
+	 * range values are available in metadata (e.g. for raw thermal video
+	 * tracks in records) */
+	int enable_auto_normalization;
 
 	/* If non-null, enable the overexposure zebras on the video */
 	int enable_overexposure_zebras;
@@ -517,6 +651,14 @@ struct pdraw_video_renderer_params {
 
 	/* If non-null, enable the picture histograms computation */
 	int enable_histograms;
+
+	/* If non-null, enable a simplified version of the rendering for low
+	 * GPU performace systems; in this mode auto normalization and
+	 * overexposure zebras are not available, and only the TIMEOUT and
+	 * RECONFIGURE transitions are available; this parameter is only
+	 * available when creating a renderer, dynamic change to this
+	 * parameter is ignored */
+	int enable_simplified_rendering;
 
 	/* Optional texture width in pixels to be used with the optional
 	 * external texture loading callback function (ignored if no texture
@@ -548,6 +690,13 @@ struct pdraw_video_renderer_params {
 	 * video aspect ratio is used (ignored if no texture loading function
 	 * is defined) */
 	unsigned int video_texture_dar_height;
+};
+
+
+/* Audio renderer parameters */
+struct pdraw_audio_renderer_params {
+	/* ALSA renderer device address (cannot be dynamically reconfigured) */
+	const char *address;
 };
 
 
@@ -592,10 +741,13 @@ struct pdraw_vipc_source_params {
 	/* Session metadata */
 	struct vmeta_session session_meta;
 
-	/* Timeout for the video IPC connection and frame reception in ms;
-	 * optional, can be 0 which means using the default value (-1 means wait
-	 * indefinitely) */
-	int timeout_ms;
+	/* Timeout for the video IPC connection in ms; optional, can be 0 which
+	 * means using the default value (-1 means wait indefinitely) */
+	int connection_timeout_ms;
+
+	/* Timeout for the video IPC frame reception in ms; optional, can be 0
+	 * which means using the default value (-1 means wait indefinitely) */
+	int frame_timeout_ms;
 };
 
 
@@ -637,45 +789,118 @@ struct pdraw_video_sink_params {
 		struct vdef_raw_format required_raw_format;
 		struct vdef_coded_format required_coded_format;
 	};
+};
 
-	/* Enable the fake frame_num generation for H.264 medias */
-	int fake_frame_num;
+
+/* Alsa source parameters */
+struct pdraw_alsa_source_params {
+	/* ALSA source device address */
+	const char *address;
+
+	/* Number of samples per audio frame */
+	uint32_t sample_count;
+
+	/* Audio media information */
+	struct pdraw_audio_info audio;
+};
+
+
+/* Alsa source capabilities */
+struct pdraw_alsa_source_caps {
+	/* Channel count capabilities */
+	struct {
+		uint8_t min;
+		uint8_t max;
+	} channel_count;
+
+	/* Sampling rate capabilities */
+	struct {
+		uint16_t min;
+		uint16_t max;
+	} sample_rate;
+};
+
+
+/* Audio source parameters */
+struct pdraw_audio_source_params {
+	/* Playback type */
+	enum pdraw_playback_type playback_type;
+
+	/* Playback duration in microseconds (replay only, 0 otherwise) */
+	uint64_t duration;
+
+	/* Audio media information */
+	struct pdraw_audio_info audio;
+};
+
+
+/* Demuxer parameters */
+struct pdraw_demuxer_params {
+	/* Auto-decoding mode controlling whether to decode the selected video
+	 * media (for full processing up to the rendering), or to disable video
+	 * decoding (e.g. when no rendering is required, only a coded video
+	 * sink). */
+	enum pdraw_demuxer_autodecoding_mode autodecoding_mode;
 };
 
 
 /* Muxer parameters */
 struct pdraw_muxer_params {
+	/* File mode for file creation (record muxer only); can be 0 which
+	 * means use a default value of 0600 */
+	mode_t filemode;
+
 	/* Minimum required free space on the storage to write the file
 	 * (record muxer only); if the free space goes below this value no more
-	 * samples are recorded and the onMuxerNoSpaceLeft listener function or
-	 * no_space_left callback function is called; optional, can be NULL */
+	 * samples are recorded and the onMuxerUnrecoverableError listener
+	 * function or unrecoverable_error callback function is called;
+	 * optional, can be 0 which means that free space is not checked */
 	size_t free_space_limit;
+
+	/* Reserved size for MP4 tables in MB; optional, can be 0 which means
+	 * use a default value (MP4_MUX_DEFAULT_TABLE_SIZE_MB) */
+	size_t tables_size_mb;
+
+	struct {
+		/* File used to link the tables_file, the storage UUID and the
+		 * broken file for recovery */
+		char *link_file;
+
+		/* File used to store moov box for recovery */
+		char *tables_file;
+
+		/* Tables sync period in milliseconds; optional, can be 0 which
+		 * means that tables will be never sync'ed */
+		uint32_t sync_period_ms;
+
+		/* Keep a reference of the storage UUID for recovery; optional,
+		 * can be false which means that storage UUID won't be check in
+		 * case of recovery */
+		bool check_storage_uuid;
+	} recovery;
+
+	/* Tables internal sync period in milliseconds (record muxer only);
+	 * optional, can be 0 which means that tables will be never sync'ed */
+	uint32_t tables_sync_period_ms;
 };
 
 
-/* Muxer video media parameters */
-struct pdraw_muxer_video_media_params {
-	/* Scaling resolution; null values mean no scaling (keep the
-	 * original dimensions) */
-	struct vdef_dim resolution;
+struct pdraw_muxer_dyn_params {
+	/* Tables internal sync period in milliseconds (record muxer only);
+	 * optional, can be 0 which means that tables will be never sync'ed */
+	uint32_t tables_sync_period_ms;
+};
 
-	/* Transcoding format; VDEF_ENCODING_UNKNOWN means no transcoding
-	 * (then scaling must be disabled with null resolution) */
-	enum vdef_encoding encoding;
 
-	/* Target bitrate in bits per second */
-	unsigned int target_bitrate;
-
-	/* GOP length in seconds (if 0.0, defaults to 1.0) */
-	float gop_length_sec;
-
+/* Muxer media parameters */
+struct pdraw_muxer_media_params {
 	/* Custom media name; optional; can be NULL which means use
-	 * a default name ('DefaultVideo' for coded tracks, 'RawVideo' for raw
-	 * tracks) */
+	 * a default name ('DefaultVideo' for coded video tracks, 'RawVideo'
+	 * for raw video tracks, 'DefaultAudio' for audio tracks) */
 	const char *track_name;
 
-	/* Time scale in Hz for frame timestamps; optional, can be 0 which
-	 * means use a default timescale */
+	/* Time scale in Hz for timestamps; optional, can be 0 which means
+	 * use a default timescale */
 	uint32_t timescale;
 
 	/* True if this is a default media that should be enabled by a player */
@@ -683,8 +908,70 @@ struct pdraw_muxer_video_media_params {
 };
 
 
+/* Muxer statistics */
+struct pdraw_muxer_stats {
+	/* Muxer type */
+	enum pdraw_muxer_type type;
+
+	union {
+		struct {
+			/* Number of coded video frames recorded */
+			uint32_t coded_video_frames;
+
+			/* Number of raw video frames recorded */
+			uint32_t raw_video_frames;
+
+			/* Number of audio frames recorded */
+			uint32_t audio_frames;
+		} record;
+
+		struct {
+			/* Wether the RTMP client is connected */
+			bool is_connected;
+
+			/* Number of video frames that are currently in the
+			 * queue pending to be sent */
+			uint32_t pending_video_frames;
+
+			/* Number of audio frames that are currently in the
+			 * queue pending to be sent */
+			uint32_t pending_audio_frames;
+
+			/* Number of video frames that have been dropped since
+			 * the muxer started */
+			uint32_t dropped_video_frames;
+
+			/* Number of audio frames that have been dropped since
+			 * the muxer started */
+			uint32_t dropped_audio_frames;
+
+			/* Max bandwidth supported by the server (B/s); 0 means
+			 * that this metric is not available at the moment */
+			uint32_t max_peer_bw;
+		} rtmp;
+	};
+};
+
+
+/* Demuxer video media information */
+struct pdraw_demuxer_video_media {
+	/* Session metadata */
+	struct vmeta_session session_meta;
+};
+
+
+/* Demuxer audio media information */
+struct pdraw_demuxer_audio_media {
+	/* Reserved value */
+	int reserved;
+};
+
+
 /* Demuxer media information */
 struct pdraw_demuxer_media {
+	/* Media type */
+	enum pdraw_media_type type;
+
 	/* Media name */
 	const char *name;
 
@@ -697,14 +984,29 @@ struct pdraw_demuxer_media {
 	 * either 0 or -ENOSYS */
 	int is_default;
 
-	/* Session metadata */
-	struct vmeta_session session_meta;
+	union {
+		/* Video media information */
+		struct pdraw_demuxer_video_media video;
+
+		/* Audio media information */
+		struct pdraw_demuxer_audio_media audio;
+	};
 
 	/* Internal information (implementation dependant, do not use) */
 	int idx;
 	unsigned int stream_port;
 	unsigned int control_port;
 	const char *uri;
+};
+
+
+/* Chapter item */
+struct pdraw_chapter {
+	/* Timestamp of the chapter (us) */
+	uint64_t ts_us;
+
+	/* Name of the chapter */
+	const char *name;
 };
 
 
