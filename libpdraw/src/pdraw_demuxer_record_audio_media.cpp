@@ -69,7 +69,7 @@ RecordDemuxer::DemuxerAudioMedia::~DemuxerAudioMedia(void)
 }
 
 
-void RecordDemuxer::DemuxerAudioMedia::flush(bool destroy)
+void RecordDemuxer::DemuxerAudioMedia::flush(bool discard)
 {
 	if (mCurrentFrame != nullptr) {
 		int err = mbuf_audio_frame_unref(mCurrentFrame);
@@ -85,7 +85,7 @@ void RecordDemuxer::DemuxerAudioMedia::flush(bool destroy)
 		mCurrentMem = nullptr;
 	}
 
-	DemuxerMedia::flush(destroy);
+	DemuxerMedia::flush(discard);
 }
 
 
@@ -279,6 +279,25 @@ int RecordDemuxer::DemuxerAudioMedia::processSample(
 		goto exit;
 	}
 
+	/* Get a sample size */
+	ret = mp4_demux_get_track_sample(
+		mDemuxer->mDemux, mTrackId, 0, nullptr, 0, nullptr, 0, sample);
+	if (ret != 0) {
+		PDRAW_LOG_ERRNO("mp4_demux_get_track_sample", -ret);
+		goto exit;
+	}
+	/* Reallocate if needed */
+	if (mMetadataBufferSize < sample->metadata_size) {
+		uint8_t *tmp = (uint8_t *)realloc(mMetadataBuffer,
+						  sample->metadata_size);
+		if (tmp == nullptr) {
+			ret = -ENOMEM;
+			PDRAW_LOG_ERRNO("realloc", -ret);
+			goto exit;
+		}
+		mMetadataBuffer = tmp;
+		mMetadataBufferSize = sample->metadata_size;
+	}
 	/* Get a sample */
 	ret = mp4_demux_get_track_sample(mDemuxer->mDemux,
 					 mTrackId,
@@ -306,9 +325,7 @@ int RecordDemuxer::DemuxerAudioMedia::processSample(
 	}
 	length = sample->size;
 	if (length == 0) {
-		if (mDemuxer->mFrameByFrame)
-			mDemuxer->mRunning = false;
-		ret = 0;
+		ret = -ENOENT;
 		goto exit;
 	}
 	*silent = ((sample->silent) && (mPendingSeekExact)) ? true : false;
@@ -363,7 +380,9 @@ int RecordDemuxer::DemuxerAudioMedia::processSample(
 		1; /* no estimation here, the precision is 1 microsecond */
 	data.recvStartTimestamp = curTime;
 	data.recvEndTimestamp = curTime;
-	mDemuxer->mCurrentTime = data.playTimestamp;
+	if (isReference())
+		mDemuxer->mCurrentTime = data.playTimestamp;
+
 	frameInfo.format = mAudioMedia->format;
 	frameInfo.info.capture_timestamp = mCurrentFrameCaptureTs;
 
@@ -409,9 +428,10 @@ int RecordDemuxer::DemuxerAudioMedia::processSample(
 		}
 
 		ret = channel->queue(mCurrentFrame);
-		if (ret < 0) {
+		if (ret < 0)
 			PDRAW_LOG_ERRNO("channel->queue", -ret);
-		}
+		else
+			mDemuxer->setFlushingState(FlushingState::UNFLUSHED);
 	}
 	if ((mFirstSample) && (true)) {
 		sendDownstreamEvent(Channel::DownstreamEvent::SOS);
@@ -419,14 +439,18 @@ int RecordDemuxer::DemuxerAudioMedia::processSample(
 	}
 
 exit:
-	err = mbuf_mem_unref(mCurrentMem);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("mbuf_mem_unref", -err);
-	mCurrentMem = nullptr;
-	err = mbuf_audio_frame_unref(mCurrentFrame);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_unref", -err);
-	mCurrentFrame = nullptr;
+	if (mCurrentMem != nullptr) {
+		err = mbuf_mem_unref(mCurrentMem);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_mem_unref", -err);
+		mCurrentMem = nullptr;
+	}
+	if (mCurrentFrame != nullptr) {
+		err = mbuf_audio_frame_unref(mCurrentFrame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_audio_frame_unref", -err);
+		mCurrentFrame = nullptr;
+	}
 
 	return ret;
 }

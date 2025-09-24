@@ -96,6 +96,11 @@ public:
 
 	int pause(void);
 
+	inline int drain(void)
+	{
+		return flush(false);
+	}
+
 	int configure(const struct vdef_dim *resolution,
 		      const struct vdef_rectf *crop);
 
@@ -114,6 +119,10 @@ private:
 	int processFrame(const struct vipc_frame *vipcFrame,
 			 struct mbuf_mem *mem);
 
+	void incrementUsedFrameCount(void);
+
+	void decrementUsedFrameCount(void);
+
 	int setupMedia(void);
 
 	int createMedia(void);
@@ -122,7 +131,7 @@ private:
 
 	int teardownChannels(void);
 
-	int flush(void);
+	int flush(bool discard = true);
 
 	void completeFlush(void);
 
@@ -130,16 +139,31 @@ private:
 
 	void completeStop(void);
 
+	void playResponse(void);
+
+	void pauseResponse(void);
+
 	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelDrained(Channel *channel) override;
 
 	void onChannelUnlink(Channel *channel) override;
 
 	const char *getSourceName(void) const;
 
+	static void idleCompleteFlush(void *userdata);
+
+	static void idleCompleteStop(void *userdata);
+
 	/* Vipc source listener calls from idle functions */
 	static void callOnMediaAdded(void *userdata);
 
+	static void callPlayResponse(void *userdata);
+
+	static void callPauseResponse(void *userdata);
+
 	struct FrameCtx {
+		VipcSource *self;
 		struct vipcc_ctx *client;
 		const struct vipc_frame *frame;
 	};
@@ -262,11 +286,12 @@ private:
 	bool mRunning;
 	bool mWasRunning;
 	bool mFirstFrame;
+	bool mPausePending;
 	unsigned int mInputFramesCount;
+	std::atomic<unsigned int> mUsedFrameCount;
 	unsigned int mNextFrameIndex;
 	uint32_t mTimescale;
 	uint64_t mLastTimestamp;
-	bool mFlushPending;
 	struct pomp_timer *mWatchdogTimer;
 };
 
@@ -319,6 +344,15 @@ public:
 #endif
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped()
+#ifdef BUILD_LIBVIDEO_IPC
+			|| mSource == nullptr
+#endif
+		);
+	}
+
 #ifdef BUILD_LIBVIDEO_IPC
 	VipcSource *mSource;
 #endif

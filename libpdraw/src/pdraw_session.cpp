@@ -231,7 +231,7 @@ int pdrawAlsaSourceGetCapabilities(const std::string &address,
 
 
 Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener) :
-		mFactory(this), mListener(listener), mState(STOPPED),
+		mFactory(this), mListener(listener), mState(State::STOPPED),
 		mLoop(loop)
 
 {
@@ -269,7 +269,7 @@ Session::Session(struct pomp_loop *loop, IPdraw::Listener *listener) :
 		goto error;
 	}
 
-	setState(READY);
+	setState(State::READY);
 	return;
 
 error:
@@ -282,7 +282,7 @@ error:
 
 Session::~Session(void)
 {
-	if (mState != STOPPED)
+	if (mState != State::STOPPED)
 		ULOGW("destroying while instance is still running");
 
 	pthread_mutex_lock(&mMutex);
@@ -329,7 +329,7 @@ int Session::stop(void)
 	bool stopped = true;
 	std::vector<Element *>::iterator e;
 
-	if (mState == STOPPING) {
+	if (mState == State::STOPPING) {
 		/* Return without calling the stopResponse() function */
 		ULOGI("%s: already in %s state, nothing to do",
 		      __func__,
@@ -337,7 +337,7 @@ int Session::stop(void)
 		return 0;
 	}
 
-	if (mState == STOPPED) {
+	if (mState == State::STOPPED) {
 		/* Call the stopResponse() function with OK status */
 		ULOGI("%s: state is %s, nothing to do",
 		      __func__,
@@ -346,12 +346,12 @@ int Session::stop(void)
 		goto already_stopped;
 	}
 
-	if (mState != READY) {
+	if (mState != State::READY) {
 		ULOGE("%s: invalid state (%s)", __func__, stateStr(mState));
 		return -EPROTO;
 	}
 
-	setState(STOPPING);
+	setState(State::STOPPING);
 
 	pthread_mutex_lock(&mMutex);
 	e = mElements.begin();
@@ -369,7 +369,7 @@ int Session::stop(void)
 	if (stopped) {
 		/* Call the stopResponse() function with OK status */
 		ULOGI("%s: all elements are stopped, closing", __func__);
-		setState(STOPPED);
+		setState(State::STOPPED);
 		ret = 0;
 		goto already_stopped;
 	}
@@ -402,7 +402,7 @@ int Session::createVideoRenderer(
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-	if (mState == STOPPING || mState == STOPPED) {
+	if (mState == State::STOPPING || mState == State::STOPPED) {
 		ULOGE("renderer creation refused in %s state",
 		      stateStr(mState));
 		pthread_mutex_unlock(&mMutex);
@@ -470,7 +470,7 @@ int Session::createDemuxer(const std::string &localAddr,
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-	if (mState == STOPPING || mState == STOPPED) {
+	if (mState == State::STOPPING || mState == State::STOPPED) {
 		ULOGE("demuxer creation refused in %s state", stateStr(mState));
 		pthread_mutex_unlock(&mMutex);
 		return -EPROTO;
@@ -533,7 +533,7 @@ int Session::createDemuxer(const std::string &url,
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-	if (mState == STOPPING || mState == STOPPED) {
+	if (mState == State::STOPPING || mState == State::STOPPED) {
 		ULOGE("demuxer creation refused in %s state", stateStr(mState));
 		pthread_mutex_unlock(&mMutex);
 		return -EPROTO;
@@ -587,7 +587,7 @@ int Session::createMuxer(const std::string &url,
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-	if (mState == STOPPING || mState == STOPPED) {
+	if (mState == State::STOPPING || mState == State::STOPPED) {
 		ULOGE("muxer creation refused in %s state", stateStr(mState));
 		pthread_mutex_unlock(&mMutex);
 		return -EPROTO;
@@ -637,7 +637,7 @@ int Session::internalCreateCodedVideoSink(
 	CodedVideoSinkWrapper *sink = nullptr;
 	Channel *channel = nullptr;
 
-	sink = new CodedVideoSinkWrapper(this, params, listener);
+	sink = new CodedVideoSinkWrapper(this, 0, params, listener);
 	if (sink == nullptr) {
 		ULOGE("%s: failed to create the sink wrapper", __func__);
 		return -ENOMEM;
@@ -702,75 +702,6 @@ error:
 }
 
 
-int Session::internalCreateRawVideoSink(
-	Source *source,
-	RawVideoMedia *media,
-	const struct pdraw_video_sink_params *params,
-	IPdraw::IRawVideoSink::Listener *listener,
-	IPdraw::IRawVideoSink **retObj)
-{
-	/* Note: mMutex is held while this function is called */
-	int res;
-	RawVideoSinkWrapper *sink = nullptr;
-	Channel *channel = nullptr;
-
-	sink = new RawVideoSinkWrapper(this, params, listener);
-	if (sink == nullptr) {
-		ULOGE("%s: failed to create the sink wrapper", __func__);
-		return -ENOMEM;
-	}
-	if (sink->getElement() == nullptr) {
-		ULOGE("%s: failed to create the sink", __func__);
-		delete sink;
-		return -EPROTO;
-	}
-
-	mElements.push_back(sink->getElement());
-
-	res = sink->getSink()->addInputMedia(media);
-	if (res < 0) {
-		ULOG_ERRNO("rawVideoSink->addInputMedia", -res);
-		goto error;
-	}
-
-	res = sink->getElement()->start();
-	if (res < 0) {
-		ULOG_ERRNO("rawVideoSink->start", -res);
-		goto error;
-	}
-
-	channel = sink->getSink()->getInputChannel(media);
-	if (channel == nullptr) {
-		ULOGE("failed to get raw video sink input channel");
-		res = -EPROTO;
-		goto error;
-	}
-
-	res = source->addOutputChannel(media, channel);
-	if (res < 0) {
-		ULOG_ERRNO("source->addOutputChannel", -res);
-		goto error;
-	}
-
-	*retObj = sink;
-
-	return 0;
-
-error:
-	if (sink != nullptr) {
-		if (channel != nullptr) {
-			/* removeOutputChannel must be called without mMutex
-			 * being held, so release it here */
-			pthread_mutex_unlock(&mMutex);
-			source->removeOutputChannel(media, channel);
-			pthread_mutex_lock(&mMutex);
-		}
-		delete sink;
-	}
-	return res;
-}
-
-
 int Session::internalCreateAudioSink(Source *source,
 				     AudioMedia *media,
 				     IPdraw::IAudioSink::Listener *listener,
@@ -781,7 +712,7 @@ int Session::internalCreateAudioSink(Source *source,
 	AudioSinkWrapper *sink = nullptr;
 	Channel *channel = nullptr;
 
-	sink = new AudioSinkWrapper(this, listener);
+	sink = new AudioSinkWrapper(this, 0, listener);
 	if (sink == nullptr) {
 		ULOGE("%s: failed to create the sink wrapper", __func__);
 		return -ENOMEM;
@@ -990,45 +921,49 @@ int Session::createCodedVideoSink(unsigned int mediaId,
 				  IPdraw::ICodedVideoSink::Listener *listener,
 				  IPdraw::ICodedVideoSink **retObj)
 {
-	int ret = 0;
-	bool found = false;
+	int res;
+	CodedVideoSinkWrapper *sink = nullptr;
 
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-
-	std::vector<Element *>::iterator e = mElements.begin();
-	while (e != mElements.end()) {
-		Media *media;
-		CodedVideoMedia *codedMedia = nullptr;
-		Source *source = dynamic_cast<Source *>(*e);
-		if (source == nullptr) {
-			e++;
-			continue;
-		}
-		unsigned int mediaCount = source->getOutputMediaCount();
-		for (unsigned int i = 0; i < mediaCount; i++) {
-			media = source->getOutputMedia(i);
-			if ((media != nullptr) && (media->id == mediaId)) {
-				codedMedia =
-					dynamic_cast<CodedVideoMedia *>(media);
-				found = true;
-				break;
-			}
-		}
-		if (found && codedMedia != nullptr) {
-			ret = internalCreateCodedVideoSink(
-				source, codedMedia, params, listener, retObj);
-			goto exit;
-		}
-		e++;
+	if (mState == State::STOPPING || mState == State::STOPPED) {
+		ULOGE("sink creation refused in %s state", stateStr(mState));
+		pthread_mutex_unlock(&mMutex);
+		return -EPROTO;
 	}
-	ret = -ENOENT;
-exit:
+
+	sink = new CodedVideoSinkWrapper(this, mediaId, params, listener);
+	if (sink == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the sink wrapper", __func__);
+		return -ENOMEM;
+	}
+	if (sink->getElement() == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the sink", __func__);
+		delete sink;
+		return -EPROTO;
+	}
+
+	mElements.push_back(sink->getElement());
 	pthread_mutex_unlock(&mMutex);
-	return ret;
+
+	res = sink->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("codedVideoSink->start", -res);
+		goto error;
+	}
+
+	*retObj = sink;
+
+	return 0;
+
+error:
+	delete sink;
+	return res;
 }
 
 
@@ -1037,44 +972,49 @@ int Session::createRawVideoSink(unsigned int mediaId,
 				IPdraw::IRawVideoSink::Listener *listener,
 				IPdraw::IRawVideoSink **retObj)
 {
-	int ret = 0;
-	bool found = false;
+	int res;
+	RawVideoSinkWrapper *sink = nullptr;
 
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-
-	std::vector<Element *>::iterator e = mElements.begin();
-	while (e != mElements.end()) {
-		Media *media;
-		RawVideoMedia *rawMedia = nullptr;
-		Source *source = dynamic_cast<Source *>(*e);
-		if (source == nullptr) {
-			e++;
-			continue;
-		}
-		unsigned int mediaCount = source->getOutputMediaCount();
-		for (unsigned int i = 0; i < mediaCount; i++) {
-			media = source->getOutputMedia(i);
-			if ((media != nullptr) && (media->id == mediaId)) {
-				rawMedia = dynamic_cast<RawVideoMedia *>(media);
-				found = true;
-				break;
-			}
-		}
-		if (found && rawMedia != nullptr) {
-			ret = internalCreateRawVideoSink(
-				source, rawMedia, params, listener, retObj);
-			goto exit;
-		}
-		e++;
+	if (mState == State::STOPPING || mState == State::STOPPED) {
+		ULOGE("sink creation refused in %s state", stateStr(mState));
+		pthread_mutex_unlock(&mMutex);
+		return -EPROTO;
 	}
-	ret = -ENOENT;
-exit:
+
+	sink = new RawVideoSinkWrapper(this, mediaId, params, listener);
+	if (sink == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the sink wrapper", __func__);
+		return -ENOMEM;
+	}
+	if (sink->getElement() == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the sink", __func__);
+		delete sink;
+		return -EPROTO;
+	}
+
+	mElements.push_back(sink->getElement());
 	pthread_mutex_unlock(&mMutex);
-	return ret;
+
+	res = sink->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("rawVideoSink->start", -res);
+		goto error;
+	}
+
+	*retObj = sink;
+
+	return 0;
+
+error:
+	delete sink;
+	return res;
 }
 
 
@@ -1177,43 +1117,48 @@ int Session::createAudioSink(unsigned int mediaId,
 			     IPdraw::IAudioSink::Listener *listener,
 			     IPdraw::IAudioSink **retObj)
 {
-	int ret = 0;
-	bool found = false;
+	int res;
+	AudioSinkWrapper *sink = nullptr;
 
 	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-
-	std::vector<Element *>::iterator e = mElements.begin();
-	while (e != mElements.end()) {
-		Media *media;
-		AudioMedia *audioMedia = nullptr;
-		Source *source = dynamic_cast<Source *>(*e);
-		if (source == nullptr) {
-			e++;
-			continue;
-		}
-		unsigned int mediaCount = source->getOutputMediaCount();
-		for (unsigned int i = 0; i < mediaCount; i++) {
-			media = source->getOutputMedia(i);
-			if ((media != nullptr) && (media->id == mediaId)) {
-				audioMedia = dynamic_cast<AudioMedia *>(media);
-				found = true;
-				break;
-			}
-		}
-		if (found && audioMedia != nullptr) {
-			ret = internalCreateAudioSink(
-				source, audioMedia, listener, retObj);
-			goto exit;
-		}
-		e++;
+	if (mState == State::STOPPING || mState == State::STOPPED) {
+		ULOGE("sink creation refused in %s state", stateStr(mState));
+		pthread_mutex_unlock(&mMutex);
+		return -EPROTO;
 	}
-	ret = -ENOENT;
-exit:
+
+	sink = new AudioSinkWrapper(this, mediaId, listener);
+	if (sink == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the sink wrapper", __func__);
+		return -ENOMEM;
+	}
+	if (sink->getElement() == nullptr) {
+		pthread_mutex_unlock(&mMutex);
+		ULOGE("%s: failed to create the sink", __func__);
+		delete sink;
+		return -EPROTO;
+	}
+
+	mElements.push_back(sink->getElement());
 	pthread_mutex_unlock(&mMutex);
-	return ret;
+
+	res = sink->getElement()->start();
+	if (res < 0) {
+		ULOG_ERRNO("audioSink->start", -res);
+		goto error;
+	}
+
+	*retObj = sink;
+
+	return 0;
+
+error:
+	delete sink;
+	return res;
 }
 
 
@@ -1232,7 +1177,7 @@ int Session::createAudioRenderer(
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 
 	pthread_mutex_lock(&mMutex);
-	if (mState == STOPPING || mState == STOPPED) {
+	if (mState == State::STOPPING || mState == State::STOPPED) {
 		ULOGE("renderer creation refused in %s state",
 		      stateStr(mState));
 		pthread_mutex_unlock(&mMutex);
@@ -1571,6 +1516,24 @@ int Session::addMediaToAudioRenderer(unsigned int mediaId,
 }
 
 
+int Session::addMediaToCodedVideoSink(unsigned int mediaId, Pdraw::Sink *sink)
+{
+	return mFactory.addMediaToCodedVideoSink(mediaId, sink);
+}
+
+
+int Session::addMediaToRawVideoSink(unsigned int mediaId, Pdraw::Sink *sink)
+{
+	return mFactory.addMediaToRawVideoSink(mediaId, sink);
+}
+
+
+int Session::addMediaToAudioSink(unsigned int mediaId, Pdraw::Sink *sink)
+{
+	return mFactory.addMediaToAudioSink(mediaId, sink);
+}
+
+
 int Session::addMediaToMuxer(unsigned int mediaId,
 			     Pdraw::Muxer *muxer,
 			     const struct pdraw_muxer_media_params *params)
@@ -1740,8 +1703,8 @@ void Session::onElementStateChanged(Element *element, Element::State state)
 
 		asyncElementDelete(element);
 
-		if (stopped && curState == STOPPING) {
-			setState(STOPPED);
+		if (stopped && curState == State::STOPPING) {
+			setState(State::STOPPED);
 
 			if (mListener != nullptr)
 				stopResp(0);
@@ -1852,6 +1815,12 @@ void Session::PipelineFactory::onElementStateChanged(Element *element,
 			dynamic_cast<Pdraw::VideoRenderer *>(element);
 		Pdraw::AudioRenderer *ra =
 			dynamic_cast<Pdraw::AudioRenderer *>(element);
+		Pdraw::ExternalCodedVideoSink *cvs =
+			dynamic_cast<Pdraw::ExternalCodedVideoSink *>(element);
+		Pdraw::ExternalRawVideoSink *rvs =
+			dynamic_cast<Pdraw::ExternalRawVideoSink *>(element);
+		Pdraw::ExternalAudioSink *as =
+			dynamic_cast<Pdraw::ExternalAudioSink *>(element);
 		if (rv != nullptr) {
 			int ret = addAllMediaToVideoRenderer(rv);
 			if (ret < 0)
@@ -1860,6 +1829,18 @@ void Session::PipelineFactory::onElementStateChanged(Element *element,
 			int ret = addAllMediaToAudioRenderer(ra);
 			if (ret < 0)
 				ULOG_ERRNO("addAllMediaToAudioRenderer", -ret);
+		} else if (cvs != nullptr) {
+			int ret = addAllMediaToCodedVideoSink(cvs);
+			if (ret < 0)
+				ULOG_ERRNO("addAllMediaToCodedVideoSink", -ret);
+		} else if (rvs != nullptr) {
+			int ret = addAllMediaToRawVideoSink(rvs);
+			if (ret < 0)
+				ULOG_ERRNO("addAllMediaToRawVideoSink", -ret);
+		} else if (as != nullptr) {
+			int ret = addAllMediaToAudioSink(as);
+			if (ret < 0)
+				ULOG_ERRNO("addAllMediaToAudioSink", -ret);
 		}
 	}
 }
@@ -1880,6 +1861,9 @@ void Session::PipelineFactory::onOutputMediaAdded(Source *source, Media *media)
 			if (ret < 0)
 				ULOG_ERRNO("addVideoDecoderForMedia", -ret);
 		}
+		int ret = addMediaToAllToCodedVideoSinks(source, codedMedia);
+		if (ret < 0)
+			ULOG_ERRNO("addMediaToAllToCodedVideoSinks", -ret);
 	} else if ((demuxer != nullptr) && (audioMedia != nullptr)) {
 		if (demuxer->getParams()->autodecoding_mode ==
 		    PDRAW_DEMUXER_AUTODECODING_MODE_DECODE_ALL) {
@@ -1892,10 +1876,16 @@ void Session::PipelineFactory::onOutputMediaAdded(Source *source, Media *media)
 		int ret = addMediaToAllVideoRenderers(source, rawMedia);
 		if (ret < 0)
 			ULOG_ERRNO("addMediaToAllVideoRenderers", -ret);
+		ret = addMediaToAllToRawVideoSinks(source, rawMedia);
+		if (ret < 0)
+			ULOG_ERRNO("addMediaToAllToRawVideoSinks", -ret);
 	} else if ((aDecoder != nullptr) && (audioMedia != nullptr)) {
 		int ret = addMediaToAllAudioRenderers(source, audioMedia);
 		if (ret < 0)
 			ULOG_ERRNO("addMediaToAllAudioRenderers", -ret);
+		ret = addMediaToAllToAudioSinks(source, audioMedia);
+		if (ret < 0)
+			ULOG_ERRNO("addMediaToAllToAudioSinks", -ret);
 	}
 }
 
@@ -2551,6 +2541,360 @@ int Session::PipelineFactory::addAllMediaToAudioRenderer(
 }
 
 
+int Session::PipelineFactory::addMediaToCodedVideoSink(Source *source,
+						       Media *media,
+						       Pdraw::Sink *sink)
+{
+	int ret;
+
+	ret = sink->addInputMedia(media);
+	if ((ret == -EEXIST) || (ret == -EPERM)) {
+		return 0;
+	} else if (ret < 0) {
+		ULOG_ERRNO("CodedVideoSinkWrapper::addInputMedia", -ret);
+		return ret;
+	}
+	Channel *channel = sink->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get sink input channel");
+		return -EPROTO;
+	}
+	ret = source->addOutputChannel(media, channel);
+	if (ret < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -ret);
+		return ret;
+	}
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToCodedVideoSink(unsigned int mediaId,
+						       Pdraw::Sink *sink)
+{
+	int ret;
+	bool found = false;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			CodedVideoMedia *media =
+				dynamic_cast<CodedVideoMedia *>(m);
+			if (media == nullptr)
+				continue;
+			if (media->id != mediaId)
+				continue;
+			ret = addMediaToCodedVideoSink(source, media, sink);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToCodedVideoSink", -ret);
+			found = true;
+			break;
+		}
+		if (found)
+			break;
+		e++;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToAllToCodedVideoSinks(
+	Source *source,
+	CodedVideoMedia *media)
+{
+	int ret = 0;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end() && ret == 0) {
+		Pdraw::ExternalCodedVideoSink *rs =
+			dynamic_cast<Pdraw::ExternalCodedVideoSink *>(*e);
+		e++;
+		if (rs == nullptr)
+			continue;
+		ret = addMediaToCodedVideoSink(source, media, rs);
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return ret;
+}
+
+
+int Session::PipelineFactory::addAllMediaToCodedVideoSink(
+	Pdraw::ExternalCodedVideoSink *sink)
+{
+	int ret;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			CodedVideoMedia *media =
+				dynamic_cast<CodedVideoMedia *>(m);
+			if (media == nullptr)
+				continue;
+			ret = addMediaToCodedVideoSink(source, media, sink);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToCodedVideoSink", -ret);
+		}
+		e++;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToRawVideoSink(Source *source,
+						     Media *media,
+						     Pdraw::Sink *sink)
+{
+	int ret;
+
+	ret = sink->addInputMedia(media);
+	if ((ret == -EEXIST) || (ret == -EPERM)) {
+		return 0;
+	} else if (ret < 0) {
+		ULOG_ERRNO("RawVideoSinkWrapper::addInputMedia", -ret);
+		return ret;
+	}
+	Channel *channel = sink->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get sink input channel");
+		return -EPROTO;
+	}
+	ret = source->addOutputChannel(media, channel);
+	if (ret < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -ret);
+		return ret;
+	}
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToRawVideoSink(unsigned int mediaId,
+						     Pdraw::Sink *sink)
+{
+	int ret;
+	bool found = false;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			RawVideoMedia *media = dynamic_cast<RawVideoMedia *>(m);
+			if (media == nullptr)
+				continue;
+			if (media->id != mediaId)
+				continue;
+			ret = addMediaToRawVideoSink(source, media, sink);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToRawVideoSink", -ret);
+			found = true;
+			break;
+		}
+		if (found)
+			break;
+		e++;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToAllToRawVideoSinks(Source *source,
+							   RawVideoMedia *media)
+{
+	int ret = 0;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end() && ret == 0) {
+		Pdraw::ExternalRawVideoSink *rs =
+			dynamic_cast<Pdraw::ExternalRawVideoSink *>(*e);
+		e++;
+		if (rs == nullptr)
+			continue;
+		ret = addMediaToRawVideoSink(source, media, rs);
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return ret;
+}
+
+
+int Session::PipelineFactory::addAllMediaToRawVideoSink(
+	Pdraw::ExternalRawVideoSink *sink)
+{
+	int ret;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			RawVideoMedia *media = dynamic_cast<RawVideoMedia *>(m);
+			if (media == nullptr)
+				continue;
+			ret = addMediaToRawVideoSink(source, media, sink);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToRawVideoSink", -ret);
+		}
+		e++;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToAudioSink(Source *source,
+						  Media *media,
+						  Pdraw::Sink *sink)
+{
+	int ret;
+
+	ret = sink->addInputMedia(media);
+	if ((ret == -EEXIST) || (ret == -EPERM)) {
+		return 0;
+	} else if (ret < 0) {
+		ULOG_ERRNO("AudioSinkWrapper::addInputMedia", -ret);
+		return ret;
+	}
+	Channel *channel = sink->getInputChannel(media);
+	if (channel == nullptr) {
+		ULOGE("failed to get sink input channel");
+		return -EPROTO;
+	}
+	ret = source->addOutputChannel(media, channel);
+	if (ret < 0) {
+		ULOG_ERRNO("source->addOutputChannel", -ret);
+		return ret;
+	}
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToAudioSink(unsigned int mediaId,
+						  Pdraw::Sink *sink)
+{
+	int ret;
+	bool found = false;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			AudioMedia *media = dynamic_cast<AudioMedia *>(m);
+			if (media == nullptr)
+				continue;
+			if (media->id != mediaId)
+				continue;
+			ret = addMediaToAudioSink(source, media, sink);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToAudioSink", -ret);
+			found = true;
+			break;
+		}
+		if (found)
+			break;
+		e++;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
+}
+
+
+int Session::PipelineFactory::addMediaToAllToAudioSinks(Source *source,
+							AudioMedia *media)
+{
+	int ret = 0;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end() && ret == 0) {
+		Pdraw::ExternalAudioSink *rs =
+			dynamic_cast<Pdraw::ExternalAudioSink *>(*e);
+		e++;
+		if (rs == nullptr)
+			continue;
+		ret = addMediaToAudioSink(source, media, rs);
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return ret;
+}
+
+
+int Session::PipelineFactory::addAllMediaToAudioSink(
+	Pdraw::ExternalAudioSink *sink)
+{
+	int ret;
+
+	pthread_mutex_lock(&mSession->mMutex);
+	std::vector<Element *>::iterator e = mSession->mElements.begin();
+	while (e != mSession->mElements.end()) {
+		Source *source = dynamic_cast<Source *>(*e);
+		if (source == nullptr) {
+			e++;
+			continue;
+		}
+		unsigned int mediaCount = source->getOutputMediaCount();
+		for (unsigned int i = 0; i < mediaCount; i++) {
+			Media *m = source->getOutputMedia(i);
+			AudioMedia *media = dynamic_cast<AudioMedia *>(m);
+			if (media == nullptr)
+				continue;
+			ret = addMediaToAudioSink(source, media, sink);
+			if (ret < 0)
+				ULOG_ERRNO("addMediaToAudioSink", -ret);
+		}
+		e++;
+	}
+	pthread_mutex_unlock(&mSession->mMutex);
+
+	return 0;
+}
+
+
 int Session::PipelineFactory::addMediaToMuxer(
 	Source *source,
 	Media *media,
@@ -2640,5 +2984,6 @@ int Session::PipelineFactory::addMediaToMuxer(
 
 	return ret;
 }
+
 
 } /* namespace Pdraw */

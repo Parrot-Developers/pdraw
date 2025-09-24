@@ -44,9 +44,6 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #define QPDRAW_WIDGET_MIN_RENDER_INTERVAL_MS 5
 
 
-Q_DECLARE_METATYPE(struct pdraw_media_info);
-
-
 namespace QPdraw {
 namespace Internal {
 

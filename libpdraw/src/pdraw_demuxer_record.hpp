@@ -121,9 +121,19 @@ private:
 
 		void seekTo(uint64_t timestamp, bool exact);
 
-		virtual void flush(bool destroy = false);
+		virtual void flush(bool discard = true);
+
+		inline virtual void drain(void)
+		{
+			flush(false);
+		}
 
 		virtual void stop(void);
+
+		bool isTrackEnabled(void) const
+		{
+			return mTrackEnabled;
+		}
 
 		unsigned int getTrackId(void) const
 		{
@@ -135,14 +145,59 @@ private:
 			return mTrackName;
 		}
 
+		Pdraw::Media::Type getMediaType(void) const
+		{
+			return mMediaType;
+		}
+
+		void setReference(bool isReference)
+		{
+			mIsReference = isReference;
+		}
+
+		bool isReference(void) const
+		{
+			return mIsReference;
+		}
+
+		void setRunning(bool running)
+		{
+			mRunning = running;
+		}
+
+		bool isRunning(void) const
+		{
+			return mRunning;
+		}
+
+		bool isSeeking(void) const
+		{
+			return mPendingSeek;
+		}
+
+		bool isPendingPlay(void) const
+		{
+			return mPendingPlay;
+		}
+
+		bool isPendingPause(void) const
+		{
+			return mPendingPause;
+		}
+
 		void setTearingDown(void)
 		{
 			mTearingDown = true;
 		}
 
-		bool isTearingDown(void)
+		bool isTearingDown(void) const
 		{
 			return mTearingDown;
+		}
+
+		void setDestroyAfterFlush(bool destroy)
+		{
+			mDestroyAfterFlush = destroy;
 		}
 
 		bool getDestroyAfterFlush(void) const
@@ -153,6 +208,8 @@ private:
 		void sendDownstreamEvent(Channel::DownstreamEvent event);
 
 		void channelFlushed(Channel *channel);
+
+		void channelDrained(Channel *channel);
 
 		void channelUnlink(Channel *channel);
 
@@ -167,11 +224,17 @@ private:
 					  bool *didSeek,
 					  bool *waitFlush) = 0;
 
+		void completeSeek();
+
+		void completePlay();
+
 		std::vector<Media *> mMedias;
 		RecordDemuxer *mDemuxer;
+		bool mTrackEnabled;
 		unsigned int mTrackId;
 		char *mTrackName;
 		Pdraw::Media::Type mMediaType;
+		bool mIsReference;
 		bool mFirstSample;
 		unsigned int mSampleIndex;
 		char *mMetadataMimeType;
@@ -182,13 +245,21 @@ private:
 		uint64_t mLastSampleOutputTime;
 		int64_t mLastSampleDuration;
 		int64_t mLastOutputError;
+		bool mPendingSeek;
+		bool mPendingPlay;
+		bool mPendingPause;
 		int64_t mPendingSeekTs;
 		bool mPendingSeekExact;
 		bool mPendingSeekToPrevSample;
+		bool mPendingSeekInPlay;
 		bool mPendingSeekToNextSample;
 		int mSeekResponse;
-		bool mTearingDown;
+		int mPlayResponse;
+		int mPauseResponse;
+		bool mRunning;
 		bool mFlushing;
+		bool mFlushDiscard;
+		bool mTearingDown;
 		unsigned int mFlushChannelCount;
 		bool mDestroyAfterFlush;
 
@@ -204,7 +275,7 @@ private:
 
 		~DemuxerCodedVideoMedia(void);
 
-		void flush(bool destroy = false) override;
+		void flush(bool discard = true) override;
 
 		void stop(void) override;
 
@@ -280,7 +351,7 @@ private:
 
 		~DemuxerRawVideoMedia(void);
 
-		void flush(bool destroy = false) override;
+		void flush(bool discard = true) override;
 
 		void stop(void) override;
 
@@ -310,7 +381,7 @@ private:
 
 		~DemuxerAudioMedia(void);
 
-		void flush(bool destroy = false) override;
+		void flush(bool discard = true) override;
 
 		void stop(void) override;
 
@@ -338,12 +409,26 @@ private:
 
 	static void idleCompleteStart(void *userdata);
 
+	int selectReferenceTrack(void);
+
 	int processSelectedMedias(void);
+
+	int internalPlay(float speed);
+
+	int internalPause(void);
 
 	int fetchSessionMetadata(unsigned int trackId,
 				 struct vmeta_session *meta);
 
-	int flush(void) override;
+	void setRunning(bool running);
+
+	void onMediaSeekComplete(int seekResponse);
+
+	void onMediaPlayComplete(int playResponse);
+
+	void onMediaRunningStateChanged(void);
+
+	int flush(bool discard = true) override;
 
 	void completeFlush(void);
 
@@ -352,6 +437,8 @@ private:
 	void destroyAllMedias(void);
 
 	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelDrained(Channel *channel) override;
 
 	void onChannelUnlink(Channel *channel) override;
 
@@ -362,6 +449,13 @@ private:
 
 	std::string mFileName;
 	bool mRunning;
+	/* Whether mRunning has been set to true at least once;
+	 * needed to handle the start_in_pause (PAUSE_NEXT) feature */
+	bool mWasRunningOnce;
+	bool mPendingSeek;
+	int mSeekResponse;
+	int mPlayResponse;
+	int mPauseResponse;
 	bool mFrameByFrame;
 	struct mp4_demux *mDemux;
 	std::vector<RecordDemuxer::DemuxerMedia *> mMedias;

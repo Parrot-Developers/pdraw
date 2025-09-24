@@ -36,6 +36,7 @@
 
 #include <map>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 #include <libmp4.h>
@@ -43,6 +44,11 @@
 namespace Pdraw {
 
 #define DEFAULT_MP4_TIMESCALE 90000
+
+
+/* Forward declaration */
+enum cmd_type : unsigned int;
+
 
 class RecordMuxer : public Muxer {
 public:
@@ -162,6 +168,8 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelSessionMetaUpdate(Channel *channel) override;
 
 	int process(void) override;
@@ -197,7 +205,7 @@ private:
 	int internalSetMetadata(uint32_t mediaId,
 				const struct vmeta_session *metadata);
 
-	int internalFlush(void);
+	int internalFlush(Channel *channel, bool discard);
 
 	int internalStopThread(void);
 
@@ -207,6 +215,29 @@ private:
 	int internalForceSync(void);
 
 	int internalSync(bool writeTables);
+
+	Element::State getThreadState(void) const;
+
+	void setThreadState(Element::State state);
+
+	bool isThreadAlive(void) const;
+
+	bool isThreadJoinable(void) const
+	{
+		return (isThreadAlive() || getThreadState() == State::STOPPED);
+	}
+
+	bool isThreadRunning(void) const
+	{
+		return (getThreadState() == State::STARTED);
+	}
+
+	bool canSendCmdToThread(enum cmd_type type) const;
+
+	int sendCommand(struct cmd_msg *cmd);
+
+	void logThreadCheckWarning(const char *funcName,
+				   bool shouldBeWriterThread) const;
 
 	static void sessionMetaWriteFileCb(enum vmeta_record_type type,
 					   const char *key,
@@ -251,15 +282,17 @@ private:
 
 	struct {
 		pthread_t thread;
-		std::atomic_bool started;
-		std::atomic_bool running;
+		std::thread::id id;
+		std::atomic<Element::State> state;
 		std::atomic_bool shouldStop;
 		struct mbox *mbox;
+		size_t cmdIdCounter;
 		pomp_loop *loop;
 	} mWriterThread;
 	size_t mTablesSizeMb;
 	size_t mFreeSpaceLeft;
 	std::atomic_bool mPendingStop;
+	std::atomic_bool mStopThreadReceived;
 	struct pomp_timer *mTimerSync;
 	uint32_t mTablesSyncPeriodMs;
 	struct pomp_timer *mTimerTablesSync;

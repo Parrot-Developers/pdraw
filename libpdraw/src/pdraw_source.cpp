@@ -641,6 +641,28 @@ void Source::onChannelFlushed(Channel *channel)
 }
 
 
+void Source::onChannelDrained(Channel *channel)
+{
+	if (channel == nullptr) {
+		ULOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		ULOGE("%s: output media not found", __func__);
+		return;
+	}
+	ULOGD("%s: channel drained media name=%s (channel owner=%p)",
+	      getName().c_str(),
+	      media->getName().c_str(),
+	      channel->getOwner());
+
+	/* Nothing to do here, the function should be
+	 * overloaded by sub-classes */
+}
+
+
 void Source::onChannelResync(Channel *channel)
 {
 	if (channel == nullptr) {
@@ -702,6 +724,9 @@ void Source::onChannelUpstreamEvent(Channel *channel,
 		break;
 	case Channel::UpstreamEvent::FLUSHED:
 		onChannelFlushed(channel);
+		break;
+	case Channel::UpstreamEvent::DRAINED:
+		onChannelDrained(channel);
 		break;
 	case Channel::UpstreamEvent::RESYNC:
 		onChannelResync(channel);
@@ -783,9 +808,9 @@ int Source::getCodedVideoOutputMemory(
 	if (defaultMediaIndex == nullptr)
 		return -EINVAL;
 
-	for (auto m = videoMedias.begin(); m != videoMedias.end(); m++) {
-		if (((*m)->format.encoding != VDEF_ENCODING_H264) &&
-		    ((*m)->format.encoding != VDEF_ENCODING_H265))
+	for (auto m : videoMedias) {
+		if ((m->format.encoding != VDEF_ENCODING_H264) &&
+		    (m->format.encoding != VDEF_ENCODING_H265))
 			return -EINVAL;
 	}
 

@@ -35,9 +35,6 @@
 ULOG_DECLARE_TAG(ULOG_TAG);
 
 
-Q_DECLARE_METATYPE(struct pdraw_media_info);
-
-
 namespace QPdraw {
 namespace Internal {
 

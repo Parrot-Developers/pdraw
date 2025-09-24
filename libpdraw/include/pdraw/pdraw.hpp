@@ -1377,6 +1377,27 @@ public:
 						      eosReason) = 0;
 
 			/**
+			 * Play response function, called when a play operation
+			 * is complete.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: video IPC source handle
+			 */
+			virtual void
+			vipcSourcePlayResponse(IPdraw *pdraw,
+					       IPdraw::IVipcSource *source) = 0;
+
+			/**
+			 * Pause response function, called when a pause
+			 * operation is complete. Once paused, all frames are
+			 * drained from the pipeline.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: video IPC source handle
+			 */
+			virtual void vipcSourcePauseResponse(
+				IPdraw *pdraw,
+				IPdraw::IVipcSource *source) = 0;
+
+			/**
 			 * Framerate changed function, called when the video IPC
 			 * framerate has changed (new status). The return value
 			 * is a boolean indicating whether the framerate change
@@ -1482,6 +1503,12 @@ public:
 		 * This function starts the video IPC if it is ready to play.
 		 * Otherwise an error is returned. Receiving frames can be
 		 * halted by calling the pause() function.
+		 * The function returns before the actual operation is done. If
+		 * the function returns 0, the vipcSourcePlayReponse() listener
+		 * function will be called once the operation is successful. If
+		 * the function returns a negative errno value (immediate
+		 * failure), the vipcSourcePlayReponse() listener function will
+		 * not be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int play(void) = 0;
@@ -1491,6 +1518,13 @@ public:
 		 * This function halts the video IPC to stop receiving
 		 * frames. Receiving frames can be resumed by calling the
 		 * play() function.
+		 * The function returns before the actual operation is done. If
+		 * the function returns 0, the vipcSourcePauseReponse() listener
+		 * function will be called once the operation is successful. If
+		 * the function returns a negative errno value (immediate
+		 * failure), the vipcSourcePauseReponse() listener function will
+		 * not be called.
+		 * Once paused, all frames are drained from the pipeline.
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int pause(void) = 0;
@@ -1596,6 +1630,17 @@ public:
 			virtual void onCodedVideoSourceFlushed(
 				IPdraw *pdraw,
 				IPdraw::ICodedVideoSource *source) = 0;
+
+			/**
+			 * Coded video source drained function, called to signal
+			 * that draining is complete after the coded video
+			 * source drain() function has been called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: coded video source handle
+			 */
+			virtual void onCodedVideoSourceDrained(
+				IPdraw *pdraw,
+				IPdraw::ICodedVideoSource *source) = 0;
 		};
 
 		/**
@@ -1625,6 +1670,16 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int flush(void) = 0;
+
+		/**
+		 * Coded video source drain function, to be called when draining
+		 * is required. When this function is called, all frames
+		 * previously pushed to the queue will be returned; once the
+		 * draining is done, the onCodedVideoSourceDrained() listener
+		 * function will be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int drain(void) = 0;
 
 		/**
 		 * Set the session metadata of the coded video source.
@@ -1675,6 +1730,17 @@ public:
 			virtual void onRawVideoSourceFlushed(
 				IPdraw *pdraw,
 				IPdraw::IRawVideoSource *source) = 0;
+
+			/**
+			 * Raw video source drained function, called to signal
+			 * that draining is complete after the raw video
+			 * source drain() function has been called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: raw video source handle
+			 */
+			virtual void onRawVideoSourceDrained(
+				IPdraw *pdraw,
+				IPdraw::IRawVideoSource *source) = 0;
 		};
 
 		/**
@@ -1704,6 +1770,16 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int flush(void) = 0;
+
+		/**
+		 * Raw video source drain function, to be called when draining
+		 * is required. When this function is called, all frames
+		 * previously pushed to the queue will be returned; once the
+		 * draining is done, the onRawVideoSourceDrained() listener
+		 * function will be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int drain(void) = 0;
 
 		/**
 		 * Set the session metadata of the raw video source.
@@ -1788,6 +1864,38 @@ public:
 			virtual ~Listener(void) {}
 
 			/**
+			 * Media added function, called when a media has been
+			 * added internally to the coded video sink. Medias are
+			 * coded video medias. This function is called from the
+			 * pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: coded video sink handle
+			 * @param info: pointer on the media information
+			 */
+			virtual void onCodedVideoSinkMediaAdded(
+				IPdraw *pdraw,
+				IPdraw::ICodedVideoSink *sink,
+				const struct pdraw_media_info *info) = 0;
+
+			/**
+			 * Media removed function, called when a media has been
+			 * removed internally from the coded video sink. Medias
+			 * are coded video medias. This function is called from
+			 * the pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: coded video sink handle
+			 * @param info: pointer on the media information
+			 * @param restart: true if a new media should follow
+			 *                 shortly (reconfiguration,
+			 *                 resolution change...)
+			 */
+			virtual void onCodedVideoSinkMediaRemoved(
+				IPdraw *pdraw,
+				IPdraw::ICodedVideoSink *sink,
+				const struct pdraw_media_info *info,
+				bool restart) = 0;
+
+			/**
 			 * Coded video sink flush function, called when flushing
 			 * is required. When this function is called, the
 			 * application must flush the sink queue by calling
@@ -1799,6 +1907,20 @@ public:
 			 * @param sink: coded video sink handle
 			 */
 			virtual void onCodedVideoSinkFlush(
+				IPdraw *pdraw,
+				IPdraw::ICodedVideoSink *sink) = 0;
+
+			/**
+			 * Coded video sink drain function, called when draining
+			 * is required. When this function is called, the
+			 * application must drain the sink queue and
+			 * must return all frames outside of the queue by
+			 * calling mbuf_coded_frame_unref(); once the draining
+			 * is done, the queueDrained() function must be called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: coded video sink handle
+			 */
+			virtual void onCodedVideoSinkDrain(
 				IPdraw *pdraw,
 				IPdraw::ICodedVideoSink *sink) = 0;
 
@@ -1821,6 +1943,27 @@ public:
 		 * associated resources.
 		 */
 		virtual ~ICodedVideoSink(void) {}
+
+		/**
+		 * Set the coded video sink media identifier.
+		 * This function updates the identifier of the media connected
+		 * to the coded video sink; if the media id is zero the first
+		 * coded video media encountered is used.
+		 * @param mediaId: identifier of the coded video media to use
+		 *                 (from a pdraw_media_info structure); if zero
+		 *                 the first coded video media found is used
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int setMediaId(unsigned int mediaId) = 0;
+
+		/**
+		 * Get the coded video sink media identifier.
+		 * This function retrieves the identifier of the media connected
+		 * to the coded video sink.
+		 * @return the identifier of the media on success,
+		 *         0 if no media is being connected or in case of error
+		 */
+		virtual unsigned int getMediaId(void) = 0;
 
 		/**
 		 * Resynchronize a coded video sink.
@@ -1858,6 +2001,18 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int queueFlushed(void) = 0;
+
+		/**
+		 * Signal that a coded video sink has been drained.
+		 * This function is used to signal that draining is complete.
+		 * When the onCodedVideoSinkFlush() video sink listener function
+		 * is called, the application must drain the sink queue and must
+		 * return all frames outside of the queue by calling
+		 * mbuf_coded_video_frame_unref(); once the draining is
+		 * complete, this function must be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int queueDrained(void) = 0;
 	};
 
 
@@ -1877,6 +2032,38 @@ public:
 			virtual ~Listener(void) {}
 
 			/**
+			 * Media added function, called when a media has been
+			 * added internally to the raw video sink. Medias are
+			 * raw video medias. This function is called from the
+			 * pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: raw video sink handle
+			 * @param info: pointer on the media information
+			 */
+			virtual void onRawVideoSinkMediaAdded(
+				IPdraw *pdraw,
+				IPdraw::IRawVideoSink *sink,
+				const struct pdraw_media_info *info) = 0;
+
+			/**
+			 * Media removed function, called when a media has been
+			 * removed internally from the raw video sink. Medias
+			 * are raw video medias. This function is called from
+			 * the pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: raw video sink handle
+			 * @param info: pointer on the media information
+			 * @param restart: true if a new media should follow
+			 *                 shortly (reconfiguration,
+			 *                 resolution change...)
+			 */
+			virtual void onRawVideoSinkMediaRemoved(
+				IPdraw *pdraw,
+				IPdraw::IRawVideoSink *sink,
+				const struct pdraw_media_info *info,
+				bool restart) = 0;
+
+			/**
 			 * Raw video sink flush function, called when flushing
 			 * is required. When this function is called, the
 			 * application must flush the sink queue by calling
@@ -1889,6 +2076,20 @@ public:
 			 */
 			virtual void
 			onRawVideoSinkFlush(IPdraw *pdraw,
+					    IPdraw::IRawVideoSink *sink) = 0;
+
+			/**
+			 * Raw video sink drain function, called when draining
+			 * is required. When this function is called, the
+			 * application must drain the sink queue and
+			 * must return all frames outside of the queue by
+			 * calling mbuf_raw_frame_unref(); once the draining
+			 * is done, the queueDrained() function must be called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: raw video sink handle
+			 */
+			virtual void
+			onRawVideoSinkDrain(IPdraw *pdraw,
 					    IPdraw::IRawVideoSink *sink) = 0;
 
 			/**
@@ -1910,6 +2111,27 @@ public:
 		 * associated resources.
 		 */
 		virtual ~IRawVideoSink(void) {}
+
+		/**
+		 * Set the raw video sink media identifier.
+		 * This function updates the identifier of the media connected
+		 * to the raw video sink; if the media id is zero the first raw
+		 * video media encountered is used.
+		 * @param mediaId: identifier of the raw video media to use
+		 *                 (from a pdraw_media_info structure); if zero
+		 *                 the first raw video media found is used
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int setMediaId(unsigned int mediaId) = 0;
+
+		/**
+		 * Get the raw video sink media identifier.
+		 * This function retrieves the identifier of the media connected
+		 * to the raw video sink.
+		 * @return the identifier of the media on success,
+		 *         0 if no media is being connected or in case of error
+		 */
+		virtual unsigned int getMediaId(void) = 0;
 
 		/**
 		 * Get the raw video sink frame queue.
@@ -1934,12 +2156,25 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int queueFlushed(void) = 0;
+
+		/**
+		 * Signal that a raw video sink has been drained.
+		 * This function is used to signal that draining is complete.
+		 * When the onRawVideoSinkFlush() video sink listener function
+		 * is called, the application must drain the sink queue and must
+		 * return all frames outside of the queue by calling
+		 * mbuf_raw_video_frame_unref(); once the draining is
+		 * complete, this function must be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int queueDrained(void) = 0;
 	};
 
 
 	/**
 	 * Create a coded video sink.
-	 * This function creates a video sink on a media of the given mediaId.
+	 * This function creates a video sink on a media of the given media id;
+	 * if the media id is zero the first coded media encountered is used.
 	 * The media idenfifiers are known when the onMediaAdded() or
 	 * onMediaRemoved() general listener functions are called. Once the
 	 * sink is created, video frames are retrieved by getting them from
@@ -1971,7 +2206,8 @@ public:
 
 	/**
 	 * Create a raw video sink.
-	 * This function creates a video sink on a media of the given mediaId.
+	 * This function creates a video sink on a media of the given media
+	 * id; if the media id is zero the first raw media encountered is used.
 	 * The media idenfifiers are known when the onMediaAdded() or
 	 * onMediaRemoved() general listener functions are called. Once the
 	 * sink is created, video frames are retrieved by getting them from
@@ -2041,6 +2277,27 @@ public:
 						      eosReason) = 0;
 
 			/**
+			 * Play response function, called when a play operation
+			 * is complete.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: ALSA source handle
+			 */
+			virtual void
+			alsaSourcePlayResponse(IPdraw *pdraw,
+					       IPdraw::IAlsaSource *source) = 0;
+
+			/**
+			 * Pause response function, called when a pause
+			 * operation is complete. Once paused, all frames are
+			 * drained from the pipeline.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: ALSA source handle
+			 */
+			virtual void alsaSourcePauseResponse(
+				IPdraw *pdraw,
+				IPdraw::IAlsaSource *source) = 0;
+
+			/**
 			 * Frame ready function, called when a video frame has
 			 * been received and before it is propagated downstream
 			 * in the pipeline. This can be used to associate
@@ -2086,6 +2343,12 @@ public:
 		 * This function starts the ALSA source if it is ready to play.
 		 * Otherwise an error is returned. Receiving frames can be
 		 * halted by calling the pause() function.
+		 * The function returns before the actual operation is done. If
+		 * the function returns 0, the alsaSourcePlayReponse() listener
+		 * function will be called once the operation is successful. If
+		 * the function returns a negative errno value (immediate
+		 * failure), the alsaSourcePlayReponse() listener function will
+		 * not be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int play(void) = 0;
@@ -2095,6 +2358,13 @@ public:
 		 * This function halts the ALSA source to stop receiving
 		 * frames. Receiving frames can be resumed by calling the
 		 * play() function.
+		 * The function returns before the actual operation is done. If
+		 * the function returns 0, the alsaSourcePauseReponse() listener
+		 * function will be called once the operation is successful. If
+		 * the function returns a negative errno value (immediate
+		 * failure), the alsaSourcePauseReponse() listener function will
+		 * not be called.
+		 * Once paused, all frames are drained from the pipeline.
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int pause(void) = 0;
@@ -2144,6 +2414,17 @@ public:
 			virtual void
 			onAudioSourceFlushed(IPdraw *pdraw,
 					     IPdraw::IAudioSource *source) = 0;
+
+			/**
+			 * Audio source drained function, called to signal
+			 * that draining is complete after the audio source
+			 * drain() function has been called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param source: audio source handle
+			 */
+			virtual void
+			onAudioSourceDrained(IPdraw *pdraw,
+					     IPdraw::IAudioSource *source) = 0;
 		};
 
 		/**
@@ -2173,6 +2454,16 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int flush(void) = 0;
+
+		/**
+		 * Audio source drain function, to be called when draining
+		 * is required. When this function is called, all frames
+		 * previously pushed to the queue will be returned; once the
+		 * draining is done, the onAudioSourceDrained() listener
+		 * function will be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int drain(void) = 0;
 	};
 
 
@@ -2213,18 +2504,63 @@ public:
 			virtual ~Listener(void) {}
 
 			/**
+			 * Media added function, called when a media has been
+			 * added internally to the audio sink. Medias are
+			 * audio medias. This function is called from the
+			 * pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: audio sink handle
+			 * @param info: pointer on the media information
+			 */
+			virtual void onAudioSinkMediaAdded(
+				IPdraw *pdraw,
+				IPdraw::IAudioSink *sink,
+				const struct pdraw_media_info *info) = 0;
+
+			/**
+			 * Media removed function, called when a media has been
+			 * removed internally from the audio sink. Medias
+			 * are audio medias. This function is called from
+			 * the pomp_loop thread.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: audio sink handle
+			 * @param info: pointer on the media information
+			 * @param restart: true if a new media should follow
+			 *                 shortly (reconfiguration, etc.)
+			 */
+			virtual void onAudioSinkMediaRemoved(
+				IPdraw *pdraw,
+				IPdraw::IAudioSink *sink,
+				const struct pdraw_media_info *info,
+				bool restart) = 0;
+
+			/**
 			 * Audio sink flush function, called when flushing
 			 * is required. When this function is called, the
 			 * application must flush the sink queue by calling
 			 * mbuf_audio_frame_queue_flush() and must return
 			 * all frames outside of the queue by calling
-			 * mbuf_raw_frame_unref(); once the flushing is done,
+			 * mbuf_audio_frame_unref(); once the flushing is done,
 			 * the queueFlushed() function must be called.
 			 * @param pdraw: PDrAW instance handle
 			 * @param sink: audio sink handle
 			 */
 			virtual void
 			onAudioSinkFlush(IPdraw *pdraw,
+					 IPdraw::IAudioSink *sink) = 0;
+
+			/**
+			 * Audio sink drain function, called when draining
+			 * is required. When this function is called, the
+			 * application must drain the sink queue by and must
+			 * return all frames outside of the queue by calling
+			 * mbuf_audio_frame_unref(); once the draining is done,
+			 * the queueDrained() function must be called.
+			 * @param pdraw: PDrAW instance handle
+			 * @param sink: audio sink handle
+			 */
+			virtual void
+			onAudioSinkDrain(IPdraw *pdraw,
 					 IPdraw::IAudioSink *sink) = 0;
 		};
 
@@ -2234,6 +2570,27 @@ public:
 		 * associated resources.
 		 */
 		virtual ~IAudioSink(void) {}
+
+		/**
+		 * Set the audio sink media identifier.
+		 * This function updates the identifier of the media connected
+		 * to the audio sink; if the media id is zero the first audio
+		 * media encountered is used.
+		 * @param mediaId: identifier of the audio media to use
+		 *                 (from a pdraw_media_info structure); if zero
+		 *                 the first audio media found is used
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int setMediaId(unsigned int mediaId) = 0;
+
+		/**
+		 * Get the audio sink media identifier.
+		 * This function retrieves the identifier of the media connected
+		 * to the audio sink.
+		 * @return the identifier of the media on success,
+		 *         0 if no media is being connected or in case of error
+		 */
+		virtual unsigned int getMediaId(void) = 0;
 
 		/**
 		 * Get the audio sink frame queue.
@@ -2258,12 +2615,25 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int queueFlushed(void) = 0;
+
+		/**
+		 * Signal that an audio sink has been drained.
+		 * This function is used to signal that draining is complete.
+		 * When the onAudioSinkFlush() audio sink listener function
+		 * is called, the application must drain the sink queue and must
+		 * return all frames outside of the queue by calling
+		 * mbuf_audio_frame_unref(); once the draining is complete,
+		 * this function must be called.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int queueDrained(void) = 0;
 	};
 
 
 	/**
 	 * Create an audio sink.
-	 * This function creates an audio sink on a media of the given mediaId.
+	 * This function creates an audio sink on a media of the given media id;
+	 * if the media id is zero the first audio media encountered is used.
 	 * The media idenfifiers are known when the onMediaAdded() or
 	 * onMediaRemoved() general listener functions are called. Once the
 	 * sink is created, audio frames are retrieved by getting them from

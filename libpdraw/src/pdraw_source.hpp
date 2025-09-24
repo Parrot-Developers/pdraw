@@ -119,6 +119,8 @@ protected:
 
 	virtual void onChannelFlushed(Channel *channel);
 
+	virtual void onChannelDrained(Channel *channel);
+
 	virtual void onChannelResync(Channel *channel);
 
 	virtual void onChannelVideoPresStats(Channel *channel,

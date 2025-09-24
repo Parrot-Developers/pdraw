@@ -581,14 +581,14 @@ static int pdraw_gles2hud_render_piloting(
 	struct vmeta_location lfic_loc;
 	float lfic_x;
 	float lfic_y;
-	double lfic_estimated_precision;
-	double lfic_grid_precision;
 	vmeta_frame_get_lfic(frame_meta,
 			     &lfic_loc,
 			     &lfic_x,
 			     &lfic_y,
-			     &lfic_estimated_precision,
-			     &lfic_grid_precision);
+			     NULL,
+			     NULL,
+			     NULL,
+			     NULL);
 
 	/* Controller orientation */
 	struct vmeta_euler ctrl_orientation;

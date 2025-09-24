@@ -57,11 +57,11 @@ ExternalCodedVideoSource::ExternalCodedVideoSource(
 			      sourceListener),
 		mVideoSource(wrapper), mVideoSourceListener(listener),
 		mParams(*params), mFrameQueue(nullptr), mOutputMedia(nullptr),
-		mLastTimestamp(UINT64_MAX), mFlushPending(false)
+		mLastTimestamp(UINT64_MAX)
 {
 	Element::setClassName(__func__);
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -69,7 +69,7 @@ ExternalCodedVideoSource::~ExternalCodedVideoSource(void)
 {
 	int err;
 
-	if (mState == STARTED)
+	if (mState == State::STARTED)
 		PDRAW_LOGW("video source is still running");
 
 	/* Make sure listener functions will no longer be called */
@@ -86,6 +86,9 @@ ExternalCodedVideoSource::~ExternalCodedVideoSource(void)
 			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_flush",
 					-err);
 		}
+		err = removeQueueEvtFromLoop(mFrameQueue, mSession->getLoop());
+		if (err < 0)
+			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -err);
 		err = mbuf_coded_video_frame_queue_destroy(mFrameQueue);
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_destroy",
@@ -104,15 +107,15 @@ int ExternalCodedVideoSource::start(void)
 	struct pomp_evt *evt = nullptr;
 	std::string path;
 
-	if ((mState == STARTED) || (mState == STARTING))
+	if ((mState == State::STARTED) || (mState == State::STARTING))
 		return 0;
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
 		return -EPROTO;
 	}
-	setState(STARTING);
+	setState(State::STARTING);
 
 	mbuf_coded_video_frame_queue_args args = {
 		.filter = &ExternalCodedVideoSource::inputFilter,
@@ -139,7 +142,7 @@ int ExternalCodedVideoSource::start(void)
 		goto error;
 	}
 
-	setState(STARTED);
+	setState(State::STARTED);
 
 	Source::lock();
 
@@ -221,16 +224,16 @@ int ExternalCodedVideoSource::stop(void)
 {
 	int ret;
 
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
 		return -EPROTO;
 	}
 
-	setState(STOPPING);
+	setState(State::STOPPING);
 
 	/* Make sure listener functions will no longer be called */
 	mVideoSourceListener = nullptr;
@@ -242,46 +245,42 @@ int ExternalCodedVideoSource::stop(void)
 
 	/* Flush everything */
 	ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+	else
+		ret = 0;
 
 	/* When the flush is complete, stopping will be triggered */
 	return ret;
 }
 
 
+void ExternalCodedVideoSource::idleCompleteFlush(void *userdata)
+{
+	ExternalCodedVideoSource *self = (ExternalCodedVideoSource *)userdata;
+	self->completeFlush();
+}
+
+
 int ExternalCodedVideoSource::tryStop(void)
 {
-	int ret;
-	struct pomp_evt *evt = nullptr;
+	int ret, err;
 	int completeStopPendingCount;
 
-	if (mState != STOPPING)
+	if (mState != State::STOPPING)
 		return 0;
 
-	if (mFrameQueue == nullptr)
-		goto teardown;
-
-	ret = mbuf_coded_video_frame_queue_get_event(mFrameQueue, &evt);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_get_event", -ret);
-		goto queue_destroy;
+	if (mFrameQueue != nullptr) {
+		err = removeQueueEvtFromLoop(mFrameQueue, mSession->getLoop());
+		if (err < 0)
+			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -err);
+		err = mbuf_coded_video_frame_queue_destroy(mFrameQueue);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_destroy",
+					-err);
+		mFrameQueue = nullptr;
 	}
 
-	ret = pomp_evt_detach_from_loop(evt, mSession->getLoop());
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -ret);
-		goto queue_destroy;
-	}
-
-queue_destroy:
-	ret = mbuf_coded_video_frame_queue_destroy(mFrameQueue);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_destroy", -ret);
-	}
-	mFrameQueue = nullptr;
-
-teardown:
 	/* Teardown the output channels
 	 * Note: loop downwards because calling teardown on a channel may or
 	 * may not synchronously remove the channel from the output port */
@@ -345,7 +344,7 @@ void ExternalCodedVideoSource::completeStop(void)
 exit:
 	Source::unlock();
 
-	setState(STOPPED);
+	setState(State::STOPPED);
 }
 
 
@@ -358,15 +357,74 @@ void ExternalCodedVideoSource::onChannelUnlink(Channel *channel)
 
 	Source::onChannelUnlink(channel);
 
-	if (mState == STOPPING)
+	if (mState == State::STOPPING)
 		completeStop();
 }
 
 
-int ExternalCodedVideoSource::flush(void)
+int ExternalCodedVideoSource::removeQueueEvtFromLoop(
+	struct mbuf_coded_video_frame_queue *queue,
+	struct pomp_loop *loop)
 {
-	int err;
+	int res;
+	struct pomp_evt *evt = nullptr;
+
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
+
+	res = mbuf_coded_video_frame_queue_get_event(queue, &evt);
+	if (res < 0) {
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_get_event", -res);
+		return res;
+	}
+
+	if (!pomp_evt_is_attached(evt, loop))
+		return 0;
+
+	res = pomp_evt_detach_from_loop(evt, loop);
+	if (res < 0) {
+		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -res);
+		return res;
+	}
+
+	return 0;
+}
+
+
+int ExternalCodedVideoSource::flush(bool discard)
+{
+	int ret, err;
+	bool channelFound = false;
 	Channel *outputChannel;
+
+	switch (getFlushingState()) {
+	case FlushingState::UNFLUSHED:
+		/* OK */
+		break;
+	case FlushingState::FLUSHING:
+		return -EALREADY;
+	case FlushingState::FLUSHED:
+		PDRAW_LOGD("video source is already %s, nothing to do",
+			   discard ? "flushed" : "drained");
+		ret = pomp_loop_idle_add_with_cookie(
+			mSession->getLoop(), &idleCompleteFlush, this, this);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		else
+			setFlushingState(FlushingState::FLUSHING, discard);
+		return ret;
+	default:
+		break;
+	}
+
+	if ((mFrameQueue != nullptr) && !discard) {
+		/* Drain the queue */
+		err = process();
+		if (err < 0)
+			PDRAW_LOG_ERRNO("process", -err);
+	}
+
+	setFlushingState(FlushingState::FLUSHING, discard);
 
 	/* Flush the output channels (async) */
 	Source::lock();
@@ -382,17 +440,25 @@ int ExternalCodedVideoSource::flush(void)
 					i);
 				continue;
 			}
-			err = outputChannel->flush();
-			if (err < 0)
-				PDRAW_LOG_ERRNO("channel->flush", -err);
+			if (mFlushDiscard)
+				err = outputChannel->flush();
 			else
-				mFlushPending = true;
+				err = outputChannel->drain();
+			if (err < 0 && err != -EALREADY) {
+				PDRAW_LOG_ERRNO(
+					"channel->%s (channel index=%u)",
+					-err,
+					mFlushDiscard ? "flush" : "drain",
+					i);
+			} else {
+				channelFound = true;
+			}
 		}
 	}
 	Source::unlock();
 
 	/* Flush the queue */
-	if (mFrameQueue != nullptr) {
+	if ((mFrameQueue != nullptr) && mFlushDiscard) {
 		err = mbuf_coded_video_frame_queue_flush(mFrameQueue);
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_flush",
@@ -400,7 +466,7 @@ int ExternalCodedVideoSource::flush(void)
 		}
 	}
 
-	if (!mFlushPending)
+	if (!channelFound)
 		completeFlush();
 
 	return 0;
@@ -461,7 +527,8 @@ void ExternalCodedVideoSource::completeFlush(void)
 					i);
 				continue;
 			}
-			if (outputChannel->isFlushPending()) {
+			if (outputChannel->isFlushPending() ||
+			    outputChannel->isDrainPending()) {
 				pending = true;
 				break;
 			}
@@ -471,9 +538,8 @@ void ExternalCodedVideoSource::completeFlush(void)
 
 	if (pending)
 		return;
-	mFlushPending = false;
 
-	if (mState != STOPPING) {
+	if (mState != State::STOPPING) {
 		/* Signal to the application that flushing is done */
 		err = pomp_loop_idle_add_with_cookie(mSession->getLoop(),
 						     callVideoSourceFlushed,
@@ -481,6 +547,8 @@ void ExternalCodedVideoSource::completeFlush(void)
 						     this);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+	} else {
+		setFlushingState(FlushingState::FLUSHED);
 	}
 
 	tryStop();
@@ -508,35 +576,40 @@ void ExternalCodedVideoSource::onChannelFlushed(Channel *channel)
 }
 
 
-void ExternalCodedVideoSource::queueEventCb(struct pomp_evt *evt,
-					    void *userdata)
+void ExternalCodedVideoSource::onChannelDrained(Channel *channel)
 {
-	ExternalCodedVideoSource *self =
-		reinterpret_cast<ExternalCodedVideoSource *>(userdata);
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		PDRAW_LOGE("%s: output media not found", __func__);
+		return;
+	}
+	PDRAW_LOGD("'%s': channel drained media name=%s (channel owner=%p)",
+		   Element::getName().c_str(),
+		   media->getName().c_str(),
+		   channel->getOwner());
+
+	completeFlush();
+}
+
+
+int ExternalCodedVideoSource::process(void)
+{
 	int ret, err;
 	struct mbuf_coded_video_frame *frame = nullptr;
 
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if (self->mState != STARTED) {
-		PDRAW_LOGE("%s: invalid state (%s)",
-			   __func__,
-			   Element::getElementStateStr(self->mState));
-		return;
-	}
-	if (self->mFrameQueue == nullptr) {
-		PDRAW_LOGE("%s: invalid queue", __func__);
-		return;
-	}
-	if (self->mFlushPending) {
-		PDRAW_LOGI("%s: flush pending, discarding queue event",
-			   __func__);
-		return;
+	if (mFrameQueue == nullptr) {
+		ret = -ENODEV;
+		PDRAW_LOG_ERRNO("%s: invalid queue", -ret, __func__);
+		return ret;
 	}
 
 	do {
-		ret = mbuf_coded_video_frame_queue_pop(self->mFrameQueue,
-						       &frame);
+		ret = mbuf_coded_video_frame_queue_pop(mFrameQueue, &frame);
 		if (ret < 0) {
 			if (ret != -EAGAIN) {
 				PDRAW_LOG_ERRNO(
@@ -546,12 +619,42 @@ void ExternalCodedVideoSource::queueEventCb(struct pomp_evt *evt,
 			continue;
 		}
 
-		(void)self->processFrame(frame);
+		(void)processFrame(frame);
 
 		err = mbuf_coded_video_frame_unref(frame);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -err);
 	} while (ret == 0);
+
+	return 0;
+}
+
+
+void ExternalCodedVideoSource::queueEventCb(struct pomp_evt *evt,
+					    void *userdata)
+{
+	ExternalCodedVideoSource *self =
+		reinterpret_cast<ExternalCodedVideoSource *>(userdata);
+
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	if (self->mState != State::STARTED) {
+		PDRAW_LOGE("%s: invalid state (%s)",
+			   __func__,
+			   Element::getElementStateStr(self->mState));
+		return;
+	}
+	if (self->mFrameQueue == nullptr) {
+		PDRAW_LOGE("%s: invalid queue", __func__);
+		return;
+	}
+	if (self->getFlushingState() == FlushingState::FLUSHING) {
+		PDRAW_LOGI("%s: flush pending, discarding queue event",
+			   __func__);
+		return;
+	}
+
+	(void)self->process();
 }
 
 
@@ -569,7 +672,7 @@ bool ExternalCodedVideoSource::inputFilter(struct mbuf_coded_video_frame *frame,
 	PDRAW_LOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, false);
 	PDRAW_LOG_ERRNO_RETURN_VAL_IF(frame == nullptr, EINVAL, false);
 
-	if (self->mState != STARTED) {
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -722,6 +825,8 @@ int ExternalCodedVideoSource::processFrame(struct mbuf_coded_video_frame *frame)
 		err = channel->queue(frame);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("channel->queue", -err);
+		else
+			setFlushingState(FlushingState::UNFLUSHED);
 	}
 
 out:
@@ -757,9 +862,16 @@ void ExternalCodedVideoSource::callVideoSourceFlushed(void *userdata)
 		reinterpret_cast<ExternalCodedVideoSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
+	self->setFlushingState(FlushingState::FLUSHED);
+
 	if (self->mVideoSourceListener != nullptr) {
-		self->mVideoSourceListener->onCodedVideoSourceFlushed(
-			self->mSession, self->getVideoSource());
+		if (self->mFlushDiscard) {
+			self->mVideoSourceListener->onCodedVideoSourceFlushed(
+				self->mSession, self->getVideoSource());
+		} else {
+			self->mVideoSourceListener->onCodedVideoSourceDrained(
+				self->mSession, self->getVideoSource());
+		}
 	}
 }
 
@@ -776,7 +888,7 @@ CodedVideoSourceWrapper::CodedVideoSourceWrapper(
 
 CodedVideoSourceWrapper::~CodedVideoSourceWrapper(void)
 {
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return;
 	int ret = mSource->stop();
 	if (ret < 0)
@@ -786,7 +898,7 @@ CodedVideoSourceWrapper::~CodedVideoSourceWrapper(void)
 
 struct mbuf_coded_video_frame_queue *CodedVideoSourceWrapper::getQueue(void)
 {
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return nullptr;
 	return mSource->getQueue();
 }
@@ -794,16 +906,24 @@ struct mbuf_coded_video_frame_queue *CodedVideoSourceWrapper::getQueue(void)
 
 int CodedVideoSourceWrapper::flush(void)
 {
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->flush();
+}
+
+
+int CodedVideoSourceWrapper::drain(void)
+{
+	if (isElementStopped())
+		return -EPROTO;
+	return mSource->drain();
 }
 
 
 int CodedVideoSourceWrapper::setSessionMetadata(
 	const struct vmeta_session *meta)
 {
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->setSessionMetadata(meta);
 }
@@ -811,7 +931,7 @@ int CodedVideoSourceWrapper::setSessionMetadata(
 
 int CodedVideoSourceWrapper::getSessionMetadata(struct vmeta_session *meta)
 {
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->getSessionMetadata(meta);
 }

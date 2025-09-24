@@ -35,6 +35,10 @@
 
 #include <pdraw/pdraw_defs.h>
 
+
+Q_DECLARE_METATYPE(pdraw_media_info);
+
+
 namespace QPdraw {
 
 /* Forward declarations */
@@ -96,6 +100,8 @@ signals:
 	 * the PDrAW pipeline. Medias are for example YUV or H.264 video medias.
 	 * The info structure gives the media identifier that can be used to
 	 * create a video sink on this media.
+	 * Note: a Qt::DirectConnection is required to connect this signal to
+	 * any slot that accesses the session_meta pointer.
 	 * @param info: information on the media
 	 * @param elementUserData: optional user data pointer that was passed
 	 *                         on the pipeline element creation
@@ -107,6 +113,8 @@ signals:
 	 * from the PDrAW pipeline. Medias are for example YUV or H.264 video
 	 * medias. When a media is removed, any video sink created on this media
 	 * must then be stopped.
+	 * Note: a Qt::DirectConnection is required to connect this signal to
+	 * any slot that accesses the session_meta pointer.
 	 * @param info: information on the media
 	 * @param elementUserData: optional user data pointer that was passed
 	 *                         on the pipeline element creation

@@ -72,7 +72,12 @@ private:
 	int createOutputMedia(struct vdef_raw_frame *frameInfo,
 			      RawVideoMedia::Frame &frame);
 
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int tryStop(void);
 
@@ -82,7 +87,11 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelDrained(Channel *channel) override;
 
 	void onChannelTeardown(Channel *channel) override;
 
@@ -110,8 +119,8 @@ private:
 	struct vscale_config *mScalerConfig;
 	std::string mScalerName;
 	struct vscale_scaler *mVscale;
-	bool mIsFlushed;
 	bool mInputChannelFlushPending;
+	bool mOutputChannelDrainRequired;
 	bool mVscaleFlushPending;
 	bool mVscaleStopPending;
 	static const struct vscale_cbs mScalerCbs;
@@ -143,6 +152,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mScaler == nullptr);
+	}
+
 	VideoScaler *mScaler;
 };
 

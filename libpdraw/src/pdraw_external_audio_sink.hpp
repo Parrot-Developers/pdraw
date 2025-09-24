@@ -48,7 +48,8 @@ public:
 	ExternalAudioSink(Session *session,
 			  Element::Listener *elementListener,
 			  IPdraw::IAudioSink::Listener *listener,
-			  AudioSinkWrapper *wrapper);
+			  AudioSinkWrapper *wrapper,
+			  unsigned int mediaId);
 
 	~ExternalAudioSink(void);
 
@@ -56,7 +57,16 @@ public:
 
 	int stop(void) override;
 
-	int flushDone(void);
+	int setMediaId(unsigned int mediaId);
+
+	unsigned int getMediaId(void) const;
+
+	int flushDone(bool discard = true);
+
+	inline int drainDone(void)
+	{
+		return flushDone(false);
+	}
 
 	struct mbuf_audio_frame_queue *getQueue(void) const
 	{
@@ -68,15 +78,28 @@ public:
 		return mAudioSink;
 	}
 
+	int addInputMedia(Media *media) override;
+
+	int removeInputMedia(Media *media) override;
+
 private:
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int channelTeardown(AudioChannel *channel);
 
 	void onAudioChannelQueue(AudioChannel *channel,
 				 struct mbuf_audio_frame *frame) override;
 
+	void onChannelReconfigure(Channel *channel) override;
+
 	void onChannelFlush(Channel *channel) override;
+
+	void onChannelDrain(Channel *channel) override;
 
 	void onChannelTeardown(Channel *channel) override;
 
@@ -88,26 +111,38 @@ private:
 	/* Audio sink listener calls from idle functions */
 	static void callAudioSinkFlush(void *userdata);
 
+	static void idleRenewMedia(void *userdata);
+
 	IPdraw::IAudioSink *mAudioSink;
 	IPdraw::IAudioSink::Listener *mAudioSinkListener;
 	AudioMedia *mInputMedia;
+	struct pdraw_media_info mMediaInfo;
+	unsigned int mMediaId;
+	unsigned int mTargetMediaId;
 	struct mbuf_audio_frame_queue *mInputFrameQueue;
-	bool mIsFlushed;
 	bool mInputChannelFlushPending;
 	bool mTearingDown;
+	bool mPendingRestart;
 };
 
 
 class AudioSinkWrapper : public IPdraw::IAudioSink, public ElementWrapper {
 public:
 	AudioSinkWrapper(Session *session,
+			 unsigned int mediaId,
 			 IPdraw::IAudioSink::Listener *listener);
 
 	~AudioSinkWrapper(void);
 
+	int setMediaId(unsigned int mediaId) override;
+
+	unsigned int getMediaId(void) override;
+
 	struct mbuf_audio_frame_queue *getQueue(void) override;
 
 	int queueFlushed(void) override;
+
+	int queueDrained(void) override;
 
 	void clearElement(void) override
 	{
@@ -126,6 +161,11 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() || mSink == nullptr);
+	}
+
 	ExternalAudioSink *mSink;
 };
 

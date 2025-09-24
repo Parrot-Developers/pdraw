@@ -73,8 +73,9 @@ AudioEncoder::AudioEncoder(Session *session,
 		mEncoder(wrapper), mEncoderListener(listener),
 		mInputMedia(nullptr), mOutputMedia(nullptr),
 		mInputBufferPool(nullptr), mInputBufferQueue(nullptr),
-		mEncoderConfig(nullptr), mAenc(nullptr), mIsFlushed(true),
-		mInputChannelFlushPending(false), mAencFlushPending(false),
+		mEncoderConfig(nullptr), mAenc(nullptr),
+		mInputChannelFlushPending(false),
+		mOutputChannelDrainRequired(false), mAencFlushPending(false),
 		mAencStopPending(false)
 {
 	int err;
@@ -133,7 +134,7 @@ skip_mutex:
 		}
 	}
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -141,7 +142,7 @@ AudioEncoder::~AudioEncoder(void)
 {
 	int err;
 
-	if (mState != STOPPED)
+	if (mState != State::STOPPED)
 		PDRAW_LOGW("encoder is still running");
 
 	/* Make sure listener functions will no longer be called */
@@ -177,14 +178,14 @@ int AudioEncoder::start(void)
 	Channel *c = nullptr;
 	AudioChannel *channel = nullptr;
 
-	if ((mState == STARTED) || (mState == STARTING)) {
+	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
 	}
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("%s: encoder is not created", __func__);
 		return -EPROTO;
 	}
-	setState(STARTING);
+	setState(State::STARTING);
 
 	/* Get the input media and port */
 	Sink::lock();
@@ -279,7 +280,7 @@ int AudioEncoder::start(void)
 
 	Sink::unlock();
 
-	setState(STARTED);
+	setState(State::STARTED);
 
 	return 0;
 
@@ -306,13 +307,13 @@ int AudioEncoder::stop(void)
 {
 	int ret;
 
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
-	if ((mState != STARTING) && (mState != STARTED)) {
+	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: encoder is not started", __func__);
 		return -EPROTO;
 	}
-	setState(STOPPING);
+	setState(State::STOPPING);
 	mAencStopPending = true;
 
 	/* Make sure listener functions will no longer be called */
@@ -325,50 +326,73 @@ int AudioEncoder::stop(void)
 
 	/* Flush everything */
 	ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+	else
+		ret = 0;
 
 	/* When the flush is complete, stopping will be triggered */
 	return ret;
 }
 
 
-int AudioEncoder::flush(void)
+int AudioEncoder::flush(bool discard)
 {
 	int ret = 0;
 	int err;
 	unsigned int outputChannelCount, i;
 	Channel *outputChannel;
 
-	if (mIsFlushed) {
-		PDRAW_LOGD("encoder is already flushed, nothing to do");
+	switch (getFlushingState()) {
+	case FlushingState::UNFLUSHED:
+		/* OK */
+		break;
+	case FlushingState::FLUSHING:
+		return -EALREADY;
+	case FlushingState::FLUSHED:
+		PDRAW_LOGD("encoder is already %s, nothing to do",
+			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
 			mSession->getLoop(), &idleCompleteFlush, this, this);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		else
+			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
+	default:
+		break;
 	}
 
-	/* Flush the output channels (async) */
+	setFlushingState(FlushingState::FLUSHING, discard);
+
 	Source::lock();
 	if (mOutputMedia != nullptr) {
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
-		for (i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
-			if (outputChannel == nullptr) {
-				PDRAW_LOGW(
-					"failed to get output channel "
-					"at index %d",
-					i);
-				continue;
+		if (mFlushDiscard) {
+			/* Flush the output channels (async) */
+			outputChannelCount =
+				getOutputChannelCount(mOutputMedia);
+			for (i = 0; i < outputChannelCount; i++) {
+				outputChannel =
+					getOutputChannel(mOutputMedia, i);
+				if (outputChannel == nullptr) {
+					PDRAW_LOGW(
+						"failed to get output channel "
+						"at index %d",
+						i);
+					continue;
+				}
+				err = outputChannel->flush();
+				if (err < 0 && err != -EALREADY) {
+					PDRAW_LOG_ERRNO(
+						"channel->flush "
+						"(channel index=%u)",
+						-err,
+						i);
+				}
 			}
-			err = outputChannel->flush();
-			if (err < 0) {
-				PDRAW_LOG_ERRNO(
-					"channel->flush (channel index=%u)",
-					-err,
-					i);
-			}
+		} else {
+			/* Drain event is called once flush is complete */
+			mOutputChannelDrainRequired = true;
 		}
 	}
 	Source::unlock();
@@ -377,7 +401,7 @@ int AudioEncoder::flush(void)
 	 * (the input channel queue is flushed by aenc) */
 	if (mAenc != nullptr) {
 		if (!mAencFlushPending) {
-			ret = aenc_flush(mAenc, 1);
+			ret = aenc_flush(mAenc, mFlushDiscard);
 			if (ret < 0)
 				PDRAW_LOG_ERRNO("aenc_flush", -ret);
 			else
@@ -393,7 +417,7 @@ int AudioEncoder::flush(void)
 
 void AudioEncoder::completeFlush(void)
 {
-	int ret;
+	int ret, err;
 	unsigned int outputChannelCount, i;
 	Channel *outputChannel;
 	bool pending = false;
@@ -401,7 +425,30 @@ void AudioEncoder::completeFlush(void)
 	if (mAencFlushPending)
 		return;
 
+	/* Drain the output channels (async) */
 	Source::lock();
+	if (!mFlushDiscard && mOutputChannelDrainRequired &&
+	    mOutputMedia != nullptr) {
+		mOutputChannelDrainRequired = false;
+		outputChannelCount = getOutputChannelCount(mOutputMedia);
+		for (i = 0; i < outputChannelCount; i++) {
+			outputChannel = getOutputChannel(mOutputMedia, i);
+			if (outputChannel == nullptr) {
+				PDRAW_LOGW(
+					"failed to get output channel "
+					"at index %d",
+					i);
+				continue;
+			}
+			err = outputChannel->drain();
+			if (err < 0 && err != -EALREADY) {
+				PDRAW_LOG_ERRNO(
+					"channel->drain (channel index=%u)",
+					-err,
+					i);
+			}
+		}
+	}
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
@@ -413,7 +460,8 @@ void AudioEncoder::completeFlush(void)
 					i);
 				continue;
 			}
-			if (outputChannel->isFlushPending()) {
+			if (outputChannel->isFlushPending() ||
+			    outputChannel->isDrainPending()) {
 				pending = true;
 				break;
 			}
@@ -424,9 +472,10 @@ void AudioEncoder::completeFlush(void)
 	if (pending)
 		return;
 
+	setFlushingState(FlushingState::FLUSHED);
+
 	Sink::lock();
 	if (mInputMedia != nullptr) {
-		mIsFlushed = true;
 		if (mInputChannelFlushPending) {
 			mInputChannelFlushPending = false;
 			AudioChannel *inputChannel =
@@ -435,10 +484,16 @@ void AudioEncoder::completeFlush(void)
 			if (inputChannel == nullptr) {
 				PDRAW_LOGE("failed to get input channel");
 			} else {
-				ret = inputChannel->flushDone();
+				if (mFlushDiscard)
+					ret = inputChannel->flushDone();
+				else
+					ret = inputChannel->drainDone();
 				if (ret < 0)
-					PDRAW_LOG_ERRNO("channel->flushDone",
-							-ret);
+					PDRAW_LOG_ERRNO("channel->%s",
+							-ret,
+							mFlushDiscard
+								? "flushDone"
+								: "drainDone");
 			}
 		}
 	}
@@ -460,7 +515,7 @@ int AudioEncoder::tryStop(void)
 	int ret;
 	int outputChannelCount = 0, i;
 
-	if (mState != STOPPING)
+	if (mState != State::STOPPING)
 		return 0;
 
 	/* Remove the input port */
@@ -553,7 +608,7 @@ void AudioEncoder::completeStop(void)
 
 exit:
 	if ((!mAencStopPending) && (mOutputMedia == nullptr))
-		setState(STOPPED);
+		setState(State::STOPPED);
 }
 
 
@@ -654,7 +709,7 @@ void AudioEncoder::onAudioChannelQueue(AudioChannel *channel,
 		PDRAW_LOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("frame input: encoder is not started");
 		return;
 	}
@@ -676,7 +731,7 @@ void AudioEncoder::onAudioChannelQueue(AudioChannel *channel,
 	}
 
 	Sink::onAudioChannelQueue(channel, frame);
-	mIsFlushed = false;
+	setFlushingState(FlushingState::UNFLUSHED);
 	Sink::unlock();
 }
 
@@ -692,8 +747,24 @@ void AudioEncoder::onChannelFlush(Channel *channel)
 	mInputChannelFlushPending = true;
 
 	int ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+}
+
+
+void AudioEncoder::onChannelDrain(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	PDRAW_LOGD("draining input channel");
+	mInputChannelFlushPending = true;
+
+	int ret = drain();
+	if (ret < 0 && ret != -EALREADY)
+		PDRAW_LOG_ERRNO("drain", -ret);
 }
 
 
@@ -710,6 +781,27 @@ void AudioEncoder::onChannelFlushed(Channel *channel)
 		return;
 	}
 	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
+		   Element::getName().c_str(),
+		   media->getName().c_str(),
+		   channel->getOwner());
+
+	completeFlush();
+}
+
+
+void AudioEncoder::onChannelDrained(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		PDRAW_LOGE("%s: output media not found", __func__);
+		return;
+	}
+	PDRAW_LOGD("'%s': channel drained media name=%s (channel owner=%p)",
 		   Element::getName().c_str(),
 		   media->getName().c_str(),
 		   channel->getOwner());
@@ -742,7 +834,7 @@ void AudioEncoder::onChannelUnlink(Channel *channel)
 
 	Source::onChannelUnlink(channel);
 
-	if (mState == STOPPING)
+	if (mState == State::STOPPING)
 		completeStop();
 }
 
@@ -773,11 +865,12 @@ void AudioEncoder::frameOutputCb(struct aenc_encoder *enc,
 		PDRAW_LOG_ERRNO("out_frame", EINVAL);
 		return;
 	}
-	if (self->mState != STARTED) {
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("frame output: encoder is not started");
 		return;
 	}
-	if ((self->mAencFlushPending) || (self->mInputChannelFlushPending)) {
+	if (self->mFlushDiscard &&
+	    (self->mAencFlushPending || self->mInputChannelFlushPending)) {
 		PDRAW_LOGI("frame output: flush pending, discard frame");
 		return;
 	}
@@ -938,7 +1031,7 @@ AudioEncoderWrapper::AudioEncoderWrapper(
 
 AudioEncoderWrapper::~AudioEncoderWrapper(void)
 {
-	if (mEncoder == nullptr)
+	if (isElementStopped())
 		return;
 	int ret = mEncoder->stop();
 	if (ret < 0)

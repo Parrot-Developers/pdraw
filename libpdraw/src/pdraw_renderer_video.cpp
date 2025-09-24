@@ -170,7 +170,7 @@ VideoRendererWrapper::VideoRendererWrapper(
 /* Called on the rendering thread */
 VideoRendererWrapper::~VideoRendererWrapper(void)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return;
 
 	int ret = mRenderer->stop();
@@ -182,7 +182,7 @@ VideoRendererWrapper::~VideoRendererWrapper(void)
 /* Called on the rendering thread */
 int VideoRendererWrapper::resize(const struct pdraw_rect *renderPos)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->resize(renderPos);
@@ -192,7 +192,7 @@ int VideoRendererWrapper::resize(const struct pdraw_rect *renderPos)
 /* Called on the rendering thread */
 int VideoRendererWrapper::setMediaId(unsigned int mediaId)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->setMediaId(mediaId);
@@ -202,7 +202,7 @@ int VideoRendererWrapper::setMediaId(unsigned int mediaId)
 /* Called on the rendering thread */
 unsigned int VideoRendererWrapper::getMediaId(void)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->getMediaId();
@@ -213,7 +213,7 @@ unsigned int VideoRendererWrapper::getMediaId(void)
 int VideoRendererWrapper::setParams(
 	const struct pdraw_video_renderer_params *params)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->setParams(params, false);
@@ -223,7 +223,7 @@ int VideoRendererWrapper::setParams(
 /* Called on the rendering thread */
 int VideoRendererWrapper::getParams(struct pdraw_video_renderer_params *params)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->getParams(params);
@@ -235,7 +235,7 @@ int VideoRendererWrapper::render(struct pdraw_rect *contentPos,
 				 const float *viewMat,
 				 const float *projMat)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->render(contentPos, viewMat, projMat);

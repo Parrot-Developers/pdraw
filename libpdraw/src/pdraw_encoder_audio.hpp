@@ -74,7 +74,12 @@ private:
 	int createOutputMedia(struct adef_frame *frame_info,
 			      AudioMedia::Frame &frame);
 
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int tryStop(void);
 
@@ -85,7 +90,11 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelDrained(Channel *channel) override;
 
 	void onChannelTeardown(Channel *channel) override;
 
@@ -117,8 +126,8 @@ private:
 	std::string mEncoderName;
 	std::string mEncoderDevice;
 	struct aenc_encoder *mAenc;
-	bool mIsFlushed;
 	bool mInputChannelFlushPending;
+	bool mOutputChannelDrainRequired;
 	bool mAencFlushPending;
 	bool mAencStopPending;
 	static const struct aenc_cbs mEncoderCbs;
@@ -151,6 +160,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mEncoder == nullptr);
+	}
+
 	AudioEncoder *mEncoder;
 };
 

@@ -82,6 +82,7 @@ struct pdraw_backend_app {
 	bool media_added;
 	bool media_removed;
 	bool flushed_resp;
+	bool drained_resp;
 	bool stop_resp;
 	int stop_resp_status;
 #ifdef _WIN32
@@ -96,6 +97,7 @@ struct pdraw_backend_app {
 	struct mbuf_mem *in_mem;
 	size_t in_mem_offset;
 	unsigned int input_count;
+	unsigned int output_count;
 	struct vdef_coded_frame in_info;
 	struct mbuf_coded_video_frame *in_frame;
 	union {
@@ -116,6 +118,9 @@ struct pdraw_backend_app {
 };
 
 
+static void process_output(struct pdraw_backend_app *self);
+
+
 static void source_flushed_cb(struct pdraw_backend *pdraw,
 			      struct pdraw_coded_video_source *source,
 			      void *userdata)
@@ -129,8 +134,22 @@ static void source_flushed_cb(struct pdraw_backend *pdraw,
 }
 
 
+static void source_drained_cb(struct pdraw_backend *pdraw,
+			      struct pdraw_coded_video_source *source,
+			      void *userdata)
+{
+	struct pdraw_backend_app *self = userdata;
+	ULOGI("%s", __func__);
+	pthread_mutex_lock(&self->mutex);
+	self->drained_resp = true;
+	pthread_mutex_unlock(&self->mutex);
+	pthread_cond_signal(&self->cond);
+}
+
+
 static const struct pdraw_backend_coded_video_source_cbs source_cbs = {
 	.flushed = &source_flushed_cb,
+	.drained = &source_drained_cb,
 };
 
 
@@ -160,8 +179,46 @@ static void sink_flush_cb(struct pdraw_backend *pdraw,
 }
 
 
+static void sink_drain_cb(struct pdraw_backend *pdraw,
+			  struct pdraw_coded_video_sink *sink,
+			  void *userdata)
+{
+	struct pdraw_backend_app *self = userdata;
+	int res;
+
+	ULOGI("%s", __func__);
+
+	if (self->out_queue == NULL)
+		return;
+
+	pthread_mutex_lock(&self->mutex);
+
+	while (true) {
+		res = mbuf_coded_video_frame_queue_get_count(self->out_queue);
+		if (res < 0) {
+			ULOG_ERRNO("mbuf_coded_video_frame_queue_get_count",
+				   -res);
+			break;
+		}
+		ULOGI("draining: %d frames remaining", res);
+		if (res == 0)
+			break;
+		pthread_mutex_unlock(&self->mutex);
+		process_output(self);
+		pthread_mutex_lock(&self->mutex);
+	}
+
+	res = pdraw_be_coded_video_sink_queue_drained(self->pdraw, self->sink);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_coded_video_sink_queue_drained", -res);
+
+	pthread_mutex_unlock(&self->mutex);
+}
+
+
 static const struct pdraw_backend_coded_video_sink_cbs sink_cbs = {
 	.flush = &sink_flush_cb,
+	.drain = &sink_drain_cb,
 };
 
 
@@ -957,6 +1014,7 @@ static void process_output(struct pdraw_backend_app *self)
 		      info.info.timestamp,
 		      mbuf_coded_video_frame_get_packed_size(frame));
 		self->out_index = info.info.index;
+		self->output_count++;
 
 		/* Write the frame */
 		nalu_count = mbuf_coded_video_frame_get_nalu_count(frame);
@@ -1222,30 +1280,19 @@ int main(int argc, char **argv)
 		process_output(self);
 	}
 
-	/* Process the remaining frames */
-	while (((self->max_count == 0) &&
-		(self->out_index < self->in_info.info.index - 1)) ||
-	       ((self->max_count > 0) &&
-		(self->out_index < self->max_count - 1))) {
-		/* TODO: there should be an API to drain the remaining
-		 * frames */
-		usleep(5000);
-		process_output(self);
-	}
-
-	/* Flush the coded video source */
-	res = pdraw_be_coded_video_source_flush(self->pdraw, self->source);
+	/* Drain the coded video source */
+	res = pdraw_be_coded_video_source_drain(self->pdraw, self->source);
 	if (res < 0) {
-		ULOG_ERRNO("pdraw_be_coded_video_source_flush", -res);
+		ULOG_ERRNO("pdraw_be_coded_video_source_drain", -res);
 		status = EXIT_FAILURE;
 		goto out;
 	}
 	pthread_mutex_lock(&self->mutex);
-	while (!self->flushed_resp)
+	while (!self->drained_resp)
 		pthread_cond_wait(&self->cond, &self->mutex);
-	self->flushed_resp = false;
+	self->drained_resp = false;
 	pthread_mutex_unlock(&self->mutex);
-	ULOGI("source flushed");
+	ULOGI("source drained");
 
 	/* Destroy the coded video source */
 	res = pdraw_be_coded_video_source_destroy(self->pdraw, self->source);
@@ -1283,6 +1330,9 @@ int main(int argc, char **argv)
 		goto out;
 	}
 	ULOGI("stopped");
+	ULOGI("%d frames read, %d frames written",
+	      self->input_count,
+	      self->output_count);
 
 out:
 	if (self != NULL) {

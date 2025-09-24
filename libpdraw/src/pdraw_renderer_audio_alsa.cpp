@@ -119,7 +119,7 @@ AlsaAudioRenderer::AlsaAudioRenderer(
 		mParams.address = nullptr;
 	}
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -127,7 +127,7 @@ AlsaAudioRenderer::~AlsaAudioRenderer(void)
 {
 	int err;
 
-	if (mState == STARTED)
+	if (mState == State::STARTED)
 		PDRAW_LOGW("renderer is still running");
 
 	/* Make sure listener function will no longer be called */
@@ -165,7 +165,7 @@ void AlsaAudioRenderer::watchdogTimerCb(struct pomp_timer *timer,
 {
 	AlsaAudioRenderer *self = (AlsaAudioRenderer *)userdata;
 
-	if ((!self->mRunning) || (self->mState != STARTED))
+	if ((!self->mRunning) || (self->mState != State::STARTED))
 		return;
 
 	bool expected = false;
@@ -389,6 +389,8 @@ void AlsaAudioRenderer::onChannelFlush(Channel *channel)
 
 	Sink::lock();
 
+	setFlushingState(FlushingState::FLUSHING);
+
 	struct mbuf_audio_frame_queue *queue = c->getQueue(this);
 	if (queue != nullptr) {
 		err = mbuf_audio_frame_queue_flush(queue);
@@ -396,9 +398,42 @@ void AlsaAudioRenderer::onChannelFlush(Channel *channel)
 			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -err);
 	}
 
+	setFlushingState(FlushingState::FLUSHED);
+
 	Sink::unlock();
 
 	err = c->asyncFlushDone();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("Channel::asyncFlushDone", -err);
+}
+
+
+void AlsaAudioRenderer::onChannelDrain(Channel *channel)
+{
+	int err;
+	struct mbuf_audio_frame_queue *queue = nullptr;
+	AudioChannel *c = dynamic_cast<AudioChannel *>(channel);
+	if (c == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	PDRAW_LOGD("flushing input channel");
+
+	Sink::lock();
+
+	setFlushingState(FlushingState::FLUSHING, false);
+
+	/* Don't flush the queue */
+	Sink::unlock();
+
+	queue = c->getQueue(this);
+	if ((queue != nullptr) && (mbuf_audio_frame_queue_get_count(queue) > 0))
+		return;
+
+	setFlushingState(FlushingState::FLUSHED);
+
+	err = c->asyncDrainDone();
 	if (err < 0)
 		PDRAW_LOG_ERRNO("Channel::asyncFlushDone", -err);
 }
@@ -440,7 +475,7 @@ void AlsaAudioRenderer::idleStart(void *renderer)
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	int err;
 
-	if (self->mState != STARTING) {
+	if (self->mState != State::STARTING) {
 		PDRAW_LOGE("renderer is not starting");
 		return;
 	}
@@ -454,7 +489,7 @@ void AlsaAudioRenderer::idleStart(void *renderer)
 		}
 	}
 
-	self->setState(STARTED);
+	self->setState(State::STARTED);
 	return;
 
 error:
@@ -470,18 +505,51 @@ error:
 }
 
 
+/* Called on the loop thread */
+void AlsaAudioRenderer::idleDrain(void *renderer)
+{
+	int err = 0;
+	AudioChannel *channel = nullptr;
+	AlsaAudioRenderer *self =
+		reinterpret_cast<AlsaAudioRenderer *>(renderer);
+
+	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	self->lock();
+	if (self->mLastAddedMedia == nullptr) {
+		self->unlock();
+		return;
+	}
+
+	channel = dynamic_cast<AudioChannel *>(
+		self->getInputChannel(self->mLastAddedMedia));
+	if (channel == nullptr) {
+		PDRAW_LOGE("failed to get input channel");
+		self->unlock();
+		return;
+	}
+
+	err = channel->asyncDrainDone();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("Channel::asyncFlushDone", -err);
+
+	self->unlock();
+	self->setFlushingState(FlushingState::FLUSHED);
+}
+
+
 int AlsaAudioRenderer::start(void)
 {
 
-	if ((mState == STARTED) || (mState == STARTING)) {
+	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
 	}
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("renderer is not created");
 		return -EPROTO;
 	}
 
-	setState(STARTING);
+	setState(State::STARTING);
 
 	mRunning = true;
 
@@ -520,10 +588,10 @@ int AlsaAudioRenderer::stop(void)
 {
 	int err = 0;
 
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
 
-	setState(STOPPING);
+	setState(State::STOPPING);
 
 	mRunning = false;
 
@@ -671,7 +739,7 @@ int AlsaAudioRenderer::addInputMedia(Media *media)
 		return -EPERM;
 	if (mLastAddedMedia != nullptr)
 		return -EBUSY;
-	if ((!mRunning) || (mState != STARTED))
+	if ((!mRunning) || (mState != State::STARTED))
 		return -EAGAIN;
 
 	Sink::lock();
@@ -864,7 +932,7 @@ void AlsaAudioRenderer::completeStop(void)
 {
 	int ret;
 
-	if (mState == STOPPED)
+	if (mState == State::STOPPED)
 		return;
 
 	if (mWatchdogTimer != nullptr) {
@@ -877,7 +945,7 @@ void AlsaAudioRenderer::completeStop(void)
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("removeInputMedias", -ret);
 
-	setState(STOPPED);
+	setState(State::STOPPED);
 }
 
 
@@ -927,6 +995,10 @@ int AlsaAudioRenderer::render()
 
 	count = mbuf_audio_frame_queue_get_count(queue);
 	if (count < 1) {
+		int ret = pomp_loop_idle_add_with_cookie(
+			mSession->getLoop(), idleDrain, this, this);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
 		ret = -EAGAIN;
 		PDRAW_LOGW("no frame in queue");
 		goto out;
@@ -937,6 +1009,8 @@ int AlsaAudioRenderer::render()
 		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_pop", -ret);
 		goto out;
 	}
+
+	setFlushingState(FlushingState::UNFLUSHED);
 
 	ret = mbuf_audio_frame_get_buffer(frame, &data, &len);
 	if (ret < 0) {

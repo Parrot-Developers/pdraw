@@ -73,8 +73,16 @@ static void user_event(struct pdraw_desktop *self, SDL_UserEvent *event)
 	case PDRAW_DESKTOP_EVENT_PLAY_RESP:
 		break;
 	case PDRAW_DESKTOP_EVENT_PAUSE_RESP:
+		if (self->start_paused_pending &&
+		    self->video_renderer_count > 0) {
+			pdraw_desktop_goto_timestamp(self, self->start_time_us);
+			self->start_paused_pending = 0;
+			self->start_paused_replied = 1;
+		}
 		break;
 	case PDRAW_DESKTOP_EVENT_SEEK_RESP:
+		if (self->start_time_pending)
+			pdraw_desktop_toggle_play_pause(self);
 		break;
 	case PDRAW_DESKTOP_EVENT_STOP_RESP:
 		self->stopped = 1;
@@ -206,6 +214,8 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 {
 	int res;
+	SDL_DisplayMode dm;
+	SDL_Rect db;
 
 	res = SDL_Init(SDL_INIT_VIDEO);
 	if (res < 0) {
@@ -214,8 +224,17 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 		return res;
 	}
 
-	SDL_DisplayMode dm;
-	res = SDL_GetDesktopDisplayMode(0, &dm);
+	res = SDL_GetNumVideoDisplays();
+	if (res < 0) {
+		ULOGE("SDL_GetNumVideoDisplays() failed: %d(%s)",
+		      res,
+		      SDL_GetError());
+		res = -EPROTO;
+		return res;
+	}
+	if (self->display_index >= res)
+		self->display_index = 0;
+	res = SDL_GetDesktopDisplayMode(self->display_index, &dm);
 	if (res < 0) {
 		ULOGE("SDL_GetDesktopDisplayMode() failed: %d(%s)",
 		      res,
@@ -223,9 +242,26 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 		res = -EPROTO;
 		return res;
 	}
-	ULOGI("display mode: %dx%d %dHz", dm.w, dm.h, dm.refresh_rate);
+
+	res = SDL_GetDisplayBounds(self->display_index, &db);
+	if (res < 0) {
+		ULOGE("SDL_GetDisplayBounds() failed: %d(%s)",
+		      res,
+		      SDL_GetError());
+		res = -EPROTO;
+		return res;
+	}
+	ULOGI("display #%u mode: %dx%d %dHz",
+	      self->display_index,
+	      dm.w,
+	      dm.h,
+	      dm.refresh_rate);
+
 	self->window_width = dm.w / 2;
 	self->window_height = dm.h / 2;
+
+	int window_pos_x = db.x + (dm.w - self->window_width) / 2;
+	int window_pos_y = db.y + (dm.h - self->window_height) / 2;
 
 #if !defined(__APPLE__)
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
@@ -235,8 +271,8 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 
 	self->window = SDL_CreateWindow(
 		APP_NAME,
-		SDL_WINDOWPOS_CENTERED,
-		SDL_WINDOWPOS_CENTERED,
+		window_pos_x,
+		window_pos_y,
 		self->window_width,
 		self->window_height,
 		SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE |
@@ -257,13 +293,12 @@ int pdraw_desktop_ui_init(struct pdraw_desktop *self)
 	}
 
 #ifndef _WIN32
-	res = SDL_GL_SetSwapInterval(1);
-	if (res < 0) {
-		ULOGE("SDL_GL_SetSwapInterval() failed: %d(%s)",
-		      res,
+	/* Might fail on some devices (e.g. VMs), don't return an error */
+	int err = SDL_GL_SetSwapInterval(1);
+	if (err < 0) {
+		ULOGW("SDL_GL_SetSwapInterval(1) failed: %d(%s)",
+		      err,
 		      SDL_GetError());
-		res = -EPROTO;
-		return res;
 	}
 #endif /* !_WIN32 */
 
@@ -382,6 +417,16 @@ static void pdraw_desktop_ui_add_video_media(struct pdraw_desktop *self,
 
 	ULOGI("%s: media_id = %d", __func__, media_id);
 
+	for (size_t i = 0; i < SIZEOF_ARRAY(self->removed_medias); i++) {
+		if (self->removed_medias[i] == media_id) {
+			ULOGI("media %d has been removed", media_id);
+			self->removed_medias[i] = 0;
+			if (pending_media)
+				self->video_renderer_pending_media_id = 0;
+			return;
+		}
+	}
+
 	/* Try to reuse an existing video renderer without media */
 	for (i = 0; i < self->video_renderer_count; i++) {
 		if ((self->video_renderers[i].renderer == NULL) ||
@@ -420,6 +465,12 @@ static void pdraw_desktop_ui_add_video_media(struct pdraw_desktop *self,
 		      self->video_renderer_count,
 		      self->video_media_count);
 		self->video_renderer_pending_media_id = media_id;
+		for (size_t i = 0; i < self->video_renderer_count; i++) {
+			ULOGI("#%zu: media: %d, pending: %u",
+			      i,
+			      self->video_renderers[i].media_id,
+			      self->video_renderers[i].pending_media_id);
+		}
 		return;
 	}
 
@@ -456,6 +507,12 @@ static void pdraw_desktop_ui_add_video_media(struct pdraw_desktop *self,
 		ULOG_ERRNO("pdraw_be_video_renderer_new", -res);
 		return;
 	}
+	if (self->start_paused && self->start_paused_replied &&
+	    (pdraw_be_demuxer_get_duration(self->pdraw, self->demuxer) != 0)) {
+		pdraw_desktop_goto_timestamp(self, self->start_time_us);
+		self->start_paused = 0;
+	}
+
 	if (self->enable_overlay) {
 #ifdef BUILD_LIBPDRAW_OVERLAYER
 		struct pdraw_overlayer_config overlayer_config = {

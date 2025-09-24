@@ -163,7 +163,7 @@ AudioRendererWrapper::AudioRendererWrapper(
 
 AudioRendererWrapper::~AudioRendererWrapper(void)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return;
 	int ret = mRenderer->stop();
 	if (ret < 0)
@@ -173,7 +173,7 @@ AudioRendererWrapper::~AudioRendererWrapper(void)
 
 int AudioRendererWrapper::setMediaId(unsigned int mediaId)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->setMediaId(mediaId);
@@ -182,7 +182,7 @@ int AudioRendererWrapper::setMediaId(unsigned int mediaId)
 
 unsigned int AudioRendererWrapper::getMediaId(void)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->getMediaId();
@@ -192,7 +192,7 @@ unsigned int AudioRendererWrapper::getMediaId(void)
 int AudioRendererWrapper::setParams(
 	const struct pdraw_audio_renderer_params *params)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->setParams(params);
@@ -201,7 +201,7 @@ int AudioRendererWrapper::setParams(
 
 int AudioRendererWrapper::getParams(struct pdraw_audio_renderer_params *params)
 {
-	if (mRenderer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mRenderer->getParams(params);

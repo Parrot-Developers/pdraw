@@ -58,7 +58,12 @@ public:
 
 	int stop(void) override;
 
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	struct mbuf_audio_frame_queue *getQueue(void) const
 	{
@@ -71,6 +76,8 @@ public:
 	}
 
 private:
+	int process(void);
+
 	int processFrame(struct mbuf_audio_frame *frame);
 
 	void completeFlush(void);
@@ -81,11 +88,18 @@ private:
 
 	void onChannelFlushed(Channel *channel) override;
 
+	void onChannelDrained(Channel *channel) override;
+
 	void onChannelUnlink(Channel *channel) override;
+
+	int removeQueueEvtFromLoop(struct mbuf_audio_frame_queue *queue,
+				   struct pomp_loop *loop);
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
 	static bool inputFilter(struct mbuf_audio_frame *frame, void *userdata);
+
+	static void idleCompleteFlush(void *userdata);
 
 	/* Audio source listener calls from idle functions */
 	static void callOnMediaAdded(void *userdata);
@@ -98,7 +112,6 @@ private:
 	struct mbuf_audio_frame_queue *mFrameQueue;
 	AudioMedia *mOutputMedia;
 	uint64_t mLastTimestamp;
-	bool mFlushPending;
 };
 
 
@@ -113,6 +126,8 @@ public:
 	struct mbuf_audio_frame_queue *getQueue(void) override;
 
 	int flush(void) override;
+
+	int drain(void) override;
 
 	void clearElement(void) override
 	{
@@ -131,6 +146,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mSource == nullptr);
+	}
+
 	ExternalAudioSource *mSource;
 };
 

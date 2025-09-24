@@ -60,7 +60,12 @@ private:
 	int createOutputMedia(const struct adef_frame *frameInfo,
 			      const AudioMedia::Frame &frame);
 
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int tryStop(void);
 
@@ -70,6 +75,10 @@ private:
 	void onChannelFlush(Channel *channel) override;
 
 	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelDrain(Channel *channel) override;
+
+	void onChannelDrained(Channel *channel) override;
 
 	void onChannelTeardown(Channel *channel) override;
 
@@ -91,8 +100,8 @@ private:
 	struct mbuf_pool *mInputBufferPool;
 	struct mbuf_audio_frame_queue *mInputBufferQueue;
 	struct adec_decoder *mAdec;
-	bool mIsFlushed;
 	bool mInputChannelFlushPending;
+	bool mOutputChannelDrainRequired;
 	bool mAdecFlushPending;
 	bool mAdecStopPending;
 	static const struct adec_cbs mDecoderCbs;

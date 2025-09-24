@@ -36,6 +36,11 @@
 #include <pdraw/pdraw_defs.h>
 #include <pdraw/qpdraw.hpp>
 
+
+Q_DECLARE_METATYPE(pdraw_demuxer_media);
+Q_DECLARE_METATYPE(pdraw_chapter);
+
+
 namespace QPdraw {
 
 /* Forward declarations */
@@ -371,6 +376,23 @@ public:
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	int seekTo(uint64_t timestamp, bool exact = false);
+
+	/**
+	 * Get the video chapter list.
+	 * This function returns the video chapter list if available. If the
+	 * video does not contain any chapter, -ENOENT is returned. Otherwise,
+	 * the chapterList is allocated (must be freed once no longer used) and
+	 * chapterCount is set to the number of chapters. The chapter timestamps
+	 * can be used to seek to the desired chapter. This function is
+	 * available on a record demuxer only; on any other type of muxer
+	 * -ENOSYS is returned.
+	 * @param chapterList: pointer to an array of struct
+	 *                     pdraw_chapter (output, must be freed)
+	 * @param chapterCount: pointer to the chapter count (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	int getChapterList(struct pdraw_chapter **chapterList,
+			   size_t *chapterCount);
 
 	/**
 	 * Get the playback duration.

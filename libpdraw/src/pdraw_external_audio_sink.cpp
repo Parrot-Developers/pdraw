@@ -59,7 +59,8 @@ static void initializeSupportedFormats(void)
 ExternalAudioSink::ExternalAudioSink(Session *session,
 				     Element::Listener *elementListener,
 				     IPdraw::IAudioSink::Listener *listener,
-				     AudioSinkWrapper *wrapper) :
+				     AudioSinkWrapper *wrapper,
+				     unsigned int mediaId) :
 		SinkElement(session,
 			    elementListener,
 			    wrapper,
@@ -75,15 +76,17 @@ ExternalAudioSink::ExternalAudioSink(Session *session,
 	mAudioSinkListener = listener;
 	mAudioSink = wrapper;
 	mInputMedia = nullptr;
+	mMediaId = 0;
+	mTargetMediaId = mediaId;
 	mInputFrameQueue = nullptr;
-	mIsFlushed = true;
 	mInputChannelFlushPending = false;
 	mTearingDown = false;
+	mPendingRestart = false;
 
 	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
 	setAudioMediaFormatCaps(supportedFormats, NB_SUPPORTED_FORMATS);
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -91,7 +94,7 @@ ExternalAudioSink::~ExternalAudioSink(void)
 {
 	int ret;
 
-	if (mState == STARTED)
+	if (mState == State::STARTED)
 		PDRAW_LOGW("audio sink is still running");
 
 	/* Make sure listener functions will no longer be called */
@@ -101,6 +104,16 @@ ExternalAudioSink::~ExternalAudioSink(void)
 	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
+
+	unsigned int count = getInputMediaCount();
+	if (count > 0) {
+		PDRAW_LOGW("input media has not been removed");
+		if (mInputMedia != nullptr) {
+			ret = removeInputMedia(mInputMedia);
+			if (ret < 0)
+				PDRAW_LOG_ERRNO("removeInputMedia", -ret);
+		}
+	}
 
 	/* Flush and destroy the queue */
 	if (mInputFrameQueue != nullptr) {
@@ -112,63 +125,30 @@ ExternalAudioSink::~ExternalAudioSink(void)
 			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_destroy", -ret);
 		mInputFrameQueue = nullptr;
 	}
+
+	Media::cleanupMediaInfo(&mMediaInfo);
 }
 
 
 int ExternalAudioSink::start(void)
 {
-	if ((mState == STARTED) || (mState == STARTING)) {
+	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
 	}
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("%s: audio sink is not created", __func__);
 		return -EPROTO;
 	}
-	setState(STARTING);
-
-	/* Get the input media and port */
-	Sink::lock();
-	unsigned int inputMediaCount = getInputMediaCount();
-	if (inputMediaCount != 1) {
-		Sink::unlock();
-		PDRAW_LOGE("invalid input media count");
-		return -EPROTO;
-	}
-	mInputMedia = dynamic_cast<AudioMedia *>(getInputMedia(0));
-	if (mInputMedia == nullptr) {
-		Sink::unlock();
-		PDRAW_LOGE("invalid input media");
-		return -EPROTO;
-	}
-	InputPort *port;
-	port = getInputPort(mInputMedia);
-	if (port == nullptr) {
-		Sink::unlock();
-		PDRAW_LOGE("invalid input port");
-		return -EPROTO;
-	}
+	setState(State::STARTING);
 
 	/* Create the queue */
 	int res = mbuf_audio_frame_queue_new(&mInputFrameQueue);
 	if (res < 0) {
-		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_new", -res);
 		return res;
 	}
 
-	/* Setup the input port */
-	Channel *c = port->channel;
-	AudioChannel *channel = dynamic_cast<AudioChannel *>(c);
-	if (channel == nullptr) {
-		Sink::unlock();
-		PDRAW_LOGE("invalid input channel");
-		return -EPROTO;
-	}
-	channel->setQueue(this, mInputFrameQueue);
-
-	Sink::unlock();
-
-	setState(STARTED);
+	setState(State::STARTED);
 
 	return 0;
 }
@@ -179,13 +159,13 @@ int ExternalAudioSink::stop(void)
 	int ret;
 	AudioChannel *channel = nullptr;
 
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: audio sink is not started", __func__);
 		return -EPROTO;
 	}
-	setState(STOPPING);
+	setState(State::STOPPING);
 
 	/* Make sure listener functions will no longer be called.
 	 * Note: the IAudioSink::Listener::onAudioSinkFlush function
@@ -200,7 +180,7 @@ int ExternalAudioSink::stop(void)
 
 	if (mInputMedia == nullptr) {
 		Sink::unlock();
-		setState(STOPPED);
+		setState(State::STOPPED);
 		return 0;
 	}
 
@@ -221,17 +201,49 @@ int ExternalAudioSink::stop(void)
 }
 
 
-int ExternalAudioSink::flush(void)
+int ExternalAudioSink::setMediaId(unsigned int mediaId)
 {
-	int err;
 
-	if (mIsFlushed) {
-		PDRAW_LOGD("audio sink is already flushed, nothing to do");
-		err = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleFlushDone, this, this);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+	if (mediaId == mTargetMediaId)
 		return 0;
+
+	mTargetMediaId = mediaId;
+	int ret = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), idleRenewMedia, this, this);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+	return 0;
+}
+
+
+unsigned int ExternalAudioSink::getMediaId(void) const
+{
+	return mMediaId;
+}
+
+
+int ExternalAudioSink::flush(bool discard)
+{
+	int ret, err;
+
+	switch (getFlushingState()) {
+	case FlushingState::UNFLUSHED:
+		/* OK */
+		break;
+	case FlushingState::FLUSHING:
+		return -EALREADY;
+	case FlushingState::FLUSHED:
+		PDRAW_LOGD("audio sink is already %s, nothing to do",
+			   discard ? "flushed" : "drained");
+		ret = pomp_loop_idle_add_with_cookie(
+			mSession->getLoop(), &idleFlushDone, this, this);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		else
+			setFlushingState(FlushingState::FLUSHING, discard);
+		return ret;
+	default:
+		break;
 	}
 
 	/* Signal the application for flushing */
@@ -239,14 +251,23 @@ int ExternalAudioSink::flush(void)
 		mSession->getLoop(), callAudioSinkFlush, this, this);
 	if (err < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+	else
+		setFlushingState(FlushingState::FLUSHING, discard);
 
 	return 0;
 }
 
 
-int ExternalAudioSink::flushDone(void)
+int ExternalAudioSink::flushDone(bool discard)
 {
 	int ret;
+
+	if (mFlushDiscard != discard) {
+		PDRAW_LOGW("calling %s with discard=%d, expecting discard=%d",
+			   __func__,
+			   discard,
+			   mFlushDiscard);
+	}
 
 	Sink::lock();
 
@@ -259,19 +280,26 @@ int ExternalAudioSink::flushDone(void)
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
 		} else {
-			mIsFlushed = true;
 			mInputChannelFlushPending = false;
-			ret = channel->flushDone();
+			if (mFlushDiscard)
+				ret = channel->flushDone();
+			else
+				ret = channel->drainDone();
 			if (ret < 0)
-				PDRAW_LOG_ERRNO("channel->flushDone", -ret);
+				PDRAW_LOG_ERRNO("channel->%s",
+						-ret,
+						mFlushDiscard ? "flushDone"
+							      : "drainDone");
 		}
 	}
 
 exit:
 	Sink::unlock();
 
-	if (mState == STOPPING)
-		setState(STOPPED);
+	setFlushingState(FlushingState::FLUSHED);
+
+	if (mState == State::STOPPING)
+		setState(State::STOPPED);
 
 	return 0;
 }
@@ -280,7 +308,135 @@ exit:
 void ExternalAudioSink::idleFlushDone(void *userdata)
 {
 	ExternalAudioSink *self = (ExternalAudioSink *)userdata;
-	(void)self->flushDone();
+	if (self->mFlushDiscard)
+		(void)self->flushDone();
+	else
+		(void)self->drainDone();
+}
+
+
+void ExternalAudioSink::idleRenewMedia(void *userdata)
+{
+
+	ExternalAudioSink *self =
+		reinterpret_cast<ExternalAudioSink *>(userdata);
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	if (self->mInputMedia != nullptr)
+		self->removeInputMedia(self->mInputMedia);
+
+	self->mSession->addMediaToAudioSink(self->mTargetMediaId, self);
+}
+
+
+int ExternalAudioSink::addInputMedia(Media *media)
+{
+	int ret;
+	struct pdraw_media_info mediaInfoCopy = {};
+
+	/* Only accept raw video media */
+	AudioMedia *m = dynamic_cast<AudioMedia *>(media);
+	if (m == nullptr) {
+		PDRAW_LOGE("unsupported input media");
+		return -ENOSYS;
+	}
+
+	if ((mTargetMediaId != 0) && (mTargetMediaId != m->id))
+		return -EPERM;
+	if (mInputMedia != nullptr)
+		return -EBUSY;
+	if (mState != State::STARTED)
+		return -EAGAIN;
+
+	Sink::lock();
+
+	ret = Sink::addInputMedia(m);
+	if (ret == -EEXIST) {
+		Sink::unlock();
+		return ret;
+	} else if (ret < 0) {
+		Sink::unlock();
+		PDRAW_LOG_ERRNO("Sink::addInputMedia", -ret);
+		return ret;
+	}
+
+	AudioChannel *channel =
+		dynamic_cast<AudioChannel *>(getInputChannel(m));
+	if (channel == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("failed to get channel");
+		return -EPROTO;
+	}
+	channel->setQueue(this, mInputFrameQueue);
+
+	mInputMedia = m;
+	mMediaId = mTargetMediaId = m->id;
+
+	m->fillMediaInfo(&mMediaInfo);
+
+	/* Another deep copy only used by the listener (must be unlocked). */
+	m->fillMediaInfo(&mediaInfoCopy);
+
+	Sink::unlock();
+
+	if (mAudioSinkListener != nullptr) {
+		mAudioSinkListener->onAudioSinkMediaAdded(
+			mSession, getAudioSink(), &mediaInfoCopy);
+	}
+
+	Media::cleanupMediaInfo(&mediaInfoCopy);
+
+	return ret;
+}
+
+
+int ExternalAudioSink::removeInputMedia(Media *media)
+{
+	int ret;
+
+	Sink::lock();
+
+	if (mInputMedia == media) {
+		mInputMedia = nullptr;
+		mMediaId = 0;
+		if (mAudioSinkListener != nullptr) {
+			mAudioSinkListener->onAudioSinkMediaRemoved(
+				mSession,
+				getAudioSink(),
+				&mMediaInfo,
+				mPendingRestart);
+		}
+
+		Media::cleanupMediaInfo(&mMediaInfo);
+		mPendingRestart = false;
+	}
+
+	AudioChannel *channel =
+		dynamic_cast<AudioChannel *>(getInputChannel(media));
+	if (channel == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("failed to get channel");
+		return -EPROTO;
+	}
+
+	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
+	if (queue != nullptr) {
+		ret = mbuf_audio_frame_queue_flush(queue);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
+					-ret);
+	}
+
+	ret = Sink::removeInputMedia(media);
+	if (ret < 0) {
+		Sink::unlock();
+		PDRAW_LOG_ERRNO("Sink::removeInputMedia", -ret);
+		return ret;
+	}
+
+	Sink::unlock();
+
+	return 0;
 }
 
 
@@ -373,7 +529,7 @@ void ExternalAudioSink::onAudioChannelQueue(AudioChannel *channel,
 		PDRAW_LOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: audio sink is not started", __func__);
 		return;
 	}
@@ -390,7 +546,22 @@ void ExternalAudioSink::onAudioChannelQueue(AudioChannel *channel,
 	}
 
 	Sink::onAudioChannelQueue(channel, frame);
-	mIsFlushed = false;
+	setFlushingState(FlushingState::UNFLUSHED);
+	Sink::unlock();
+}
+
+
+void ExternalAudioSink::onChannelReconfigure(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	mPendingRestart = true;
+
+	Sink::lock();
+	Sink::onChannelReconfigure(channel);
 	Sink::unlock();
 }
 
@@ -408,8 +579,26 @@ void ExternalAudioSink::onChannelFlush(Channel *channel)
 	mInputChannelFlushPending = true;
 
 	ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+}
+
+
+void ExternalAudioSink::onChannelDrain(Channel *channel)
+{
+	int ret;
+
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	PDRAW_LOGD("draining input channel");
+	mInputChannelFlushPending = true;
+
+	ret = drain();
+	if (ret < 0 && ret != -EALREADY)
+		PDRAW_LOG_ERRNO("drain", -ret);
 }
 
 
@@ -468,8 +657,10 @@ int ExternalAudioSink::channelTeardown(AudioChannel *channel)
 	Sink::unlock();
 
 	ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+	else
+		ret = 0;
 
 	return ret;
 }
@@ -483,25 +674,34 @@ void ExternalAudioSink::callAudioSinkFlush(void *userdata)
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mAudioSinkListener == nullptr) {
-		self->flushDone();
+		if (self->mFlushDiscard)
+			self->flushDone();
+		else
+			self->drainDone();
 	} else {
-		self->mAudioSinkListener->onAudioSinkFlush(
-			self->mSession, self->getAudioSink());
+		if (self->mFlushDiscard) {
+			self->mAudioSinkListener->onAudioSinkFlush(
+				self->mSession, self->getAudioSink());
+		} else {
+			self->mAudioSinkListener->onAudioSinkDrain(
+				self->mSession, self->getAudioSink());
+		}
 	}
 }
 
 
 AudioSinkWrapper::AudioSinkWrapper(Session *session,
+				   unsigned int mediaId,
 				   IPdraw::IAudioSink::Listener *listener)
 {
-	mElement = mSink =
-		new Pdraw::ExternalAudioSink(session, session, listener, this);
+	mElement = mSink = new Pdraw::ExternalAudioSink(
+		session, session, listener, this, mediaId);
 }
 
 
 AudioSinkWrapper::~AudioSinkWrapper(void)
 {
-	if (mSink == nullptr)
+	if (isElementStopped())
 		return;
 	int ret = mSink->stop();
 	if (ret < 0)
@@ -509,9 +709,25 @@ AudioSinkWrapper::~AudioSinkWrapper(void)
 }
 
 
+int AudioSinkWrapper::setMediaId(unsigned int mediaId)
+{
+	if (isElementStopped())
+		return -EPROTO;
+	return mSink->setMediaId(mediaId);
+}
+
+
+unsigned int AudioSinkWrapper::getMediaId(void)
+{
+	if (isElementStopped())
+		return -EPROTO;
+	return mSink->getMediaId();
+}
+
+
 struct mbuf_audio_frame_queue *AudioSinkWrapper::getQueue(void)
 {
-	if (mSink == nullptr)
+	if (isElementStopped())
 		return nullptr;
 	return mSink->getQueue();
 }
@@ -519,9 +735,17 @@ struct mbuf_audio_frame_queue *AudioSinkWrapper::getQueue(void)
 
 int AudioSinkWrapper::queueFlushed(void)
 {
-	if (mSink == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSink->flushDone();
+}
+
+
+int AudioSinkWrapper::queueDrained(void)
+{
+	if (isElementStopped())
+		return -EPROTO;
+	return mSink->drainDone();
 }
 
 } /* namespace Pdraw */

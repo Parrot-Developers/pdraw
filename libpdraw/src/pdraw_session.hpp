@@ -88,7 +88,7 @@ class Session : public IPdraw,
 		public Element::Listener,
 		public Source::Listener {
 public:
-	enum State {
+	enum class State {
 		STOPPED = 0,
 		READY,
 		STOPPING,
@@ -121,6 +121,15 @@ public:
 				Pdraw::Muxer *muxer,
 				const struct pdraw_muxer_media_params *params);
 
+		int addMediaToCodedVideoSink(unsigned int mediaId,
+					     Pdraw::Sink *sink);
+
+		int addMediaToRawVideoSink(unsigned int mediaId,
+					   Pdraw::Sink *sink);
+
+		int addMediaToAudioSink(unsigned int mediaId,
+					Pdraw::Sink *sink);
+
 		int addVideoEncoderForMedia(
 			Source *source,
 			RawVideoMedia *media,
@@ -148,6 +157,7 @@ public:
 
 		int addAudioDecoderForMedia(Source *source, AudioMedia *media);
 
+		/* VideoRenderer */
 		int addMediaToVideoRenderer(Source *source,
 					    RawVideoMedia *media,
 					    Pdraw::VideoRenderer *renderer);
@@ -157,6 +167,7 @@ public:
 
 		int addAllMediaToVideoRenderer(Pdraw::VideoRenderer *renderer);
 
+		/* AudioRenderer */
 		int addMediaToAudioRenderer(Source *source,
 					    AudioMedia *media,
 					    Pdraw::AudioRenderer *renderer);
@@ -165,6 +176,38 @@ public:
 						AudioMedia *media);
 
 		int addAllMediaToAudioRenderer(Pdraw::AudioRenderer *renderer);
+
+		/* CodedVideoSink */
+		int addMediaToCodedVideoSink(Source *source,
+					     Media *media,
+					     Pdraw::Sink *sink);
+
+		int addMediaToAllToCodedVideoSinks(Source *source,
+						   CodedVideoMedia *media);
+
+		int addAllMediaToCodedVideoSink(
+			Pdraw::ExternalCodedVideoSink *sink);
+
+		/* RawVideoSink */
+		int addMediaToRawVideoSink(Source *source,
+					   Media *media,
+					   Pdraw::Sink *sink);
+
+		int addMediaToAllToRawVideoSinks(Source *source,
+						 RawVideoMedia *media);
+
+		int
+		addAllMediaToRawVideoSink(Pdraw::ExternalRawVideoSink *sink);
+
+		/* RawVideoSink */
+		int addMediaToAudioSink(Source *source,
+					Media *media,
+					Pdraw::Sink *sink);
+
+		int addMediaToAllToAudioSinks(Source *source,
+					      AudioMedia *media);
+
+		int addAllMediaToAudioSink(Pdraw::ExternalAudioSink *sink);
 
 		int
 		addMediaToMuxer(Source *source,
@@ -316,6 +359,12 @@ public:
 	int addMediaToMuxer(unsigned int mediaId,
 			    Pdraw::Muxer *muxer,
 			    const struct pdraw_muxer_media_params *params);
+
+	int addMediaToCodedVideoSink(unsigned int mediaId, Pdraw::Sink *sink);
+
+	int addMediaToRawVideoSink(unsigned int mediaId, Pdraw::Sink *sink);
+
+	int addMediaToAudioSink(unsigned int mediaId, Pdraw::Sink *sink);
 
 	void asyncElementDelete(Element *element);
 

@@ -140,13 +140,20 @@ protected:
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
+	/* Can be called from any thread */
 	virtual void onChannelFlush(Channel *channel) override;
+
+	virtual void onChannelDrain(Channel *channel) override;
 
 	virtual void onChannelTeardown(Channel *channel) override;
 
-	static void idleCompleteStop(void *userdata);
+	int asyncCompleteFlush(Channel *channel, bool discard);
+
+	int asyncCompleteStop(void);
 
 	static void idleCompleteFlush(void *userdata);
+
+	static void idleCompleteStop(void *userdata);
 
 	void
 	onConnectionStateChanged(enum pdraw_muxer_connection_state state,
@@ -167,9 +174,9 @@ protected:
 private:
 	int completeStop(void);
 
-	void completeFlush(void);
+	void completeFlush(Channel *channel, bool discard);
 
-	bool mFlushing;
+	std::atomic_bool mFlushing;
 	bool mClosing;
 
 	/* Muxer listener calls from idle functions */
@@ -226,6 +233,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mMuxer == nullptr);
+	}
+
 	Muxer *mMuxer;
 };
 

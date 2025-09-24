@@ -71,7 +71,7 @@ StreamDemuxerNet::StreamDemuxerNet(Session *session,
 
 	mUrl = url;
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -103,7 +103,7 @@ StreamDemuxerNet::StreamDemuxerNet(Session *session,
 	mLocalAddr = (localAddr.length() > 0) ? localAddr : "0.0.0.0";
 	mRemoteAddr = (remoteAddr.length() > 0) ? remoteAddr : "0.0.0.0";
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -115,7 +115,7 @@ StreamDemuxerNet::~StreamDemuxerNet(void)
 
 uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(void)
 {
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
 		return 0;
 	}
@@ -137,7 +137,7 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(void)
 
 uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(void)
 {
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
 		return 0;
 	}
@@ -485,9 +485,13 @@ void StreamDemuxerNet::VideoMediaNet::dataCb(int fd,
 				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
 				break;
 			}
-			/* Process received packet */
-			res = vstrm_receiver_recv_data(self->mReceiver,
-						       self->mRxPkt);
+			if (!self->isRtpPaused()) {
+				/* Process received packet */
+				res = vstrm_receiver_recv_data(self->mReceiver,
+							       self->mRxPkt);
+			} else {
+				res = 0;
+			}
 			/* Replace processed packet with new one */
 			tpkt_unref(self->mRxPkt);
 			self->mRxPkt = newPkt;
@@ -533,9 +537,13 @@ void StreamDemuxerNet::VideoMediaNet::ctrlCb(int fd,
 				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
 				break;
 			}
-			/* Process received packet */
-			res = vstrm_receiver_recv_ctrl(self->mReceiver,
-						       self->mRxPkt);
+			if (!self->isRtpPaused()) {
+				/* Process received packet */
+				res = vstrm_receiver_recv_ctrl(self->mReceiver,
+							       self->mRxPkt);
+			} else {
+				res = 0;
+			}
 			/* Replace processed packet with new one */
 			tpkt_unref(self->mRxPkt);
 			self->mRxPkt = newPkt;

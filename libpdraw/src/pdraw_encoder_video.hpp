@@ -79,7 +79,12 @@ private:
 	int createOutputMedia(struct vdef_coded_frame *frame_info,
 			      CodedVideoMedia::Frame &frame);
 
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int tryStop(void);
 
@@ -91,7 +96,11 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelDrained(Channel *channel) override;
 
 	void onChannelTeardown(Channel *channel) override;
 
@@ -125,8 +134,8 @@ private:
 	std::string mEncoderName;
 	std::string mEncoderDevice;
 	struct venc_encoder *mVenc;
-	bool mIsFlushed;
 	bool mInputChannelFlushPending;
+	bool mOutputChannelDrainRequired;
 	bool mVencFlushPending;
 	bool mVencStopPending;
 	static const struct venc_cbs mEncoderCbs;
@@ -163,6 +172,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mEncoder == nullptr);
+	}
+
 	VideoEncoder *mEncoder;
 };
 

@@ -96,13 +96,13 @@ static void print_frame_info(struct pdraw_video_frame *frame_info,
 	}
 
 	vmeta_frame_unref(frame_meta);
-	mbuf_raw_video_frame_unref(frame);
 }
 
 
 /* Called from the pdraw_vsink thread */
-static void frame_cb(struct pdraw_video_frame *frame_info,
-		     struct mbuf_raw_video_frame *frame)
+static void frame_ready_cb(struct mbuf_raw_video_frame *frame,
+			   struct pdraw_video_frame *frame_info,
+			   void *userdata)
 {
 	print_frame_info(frame_info, frame, atomic_load(&frame_count));
 
@@ -111,17 +111,20 @@ static void frame_cb(struct pdraw_video_frame *frame_info,
 
 
 /* Called from the main thread */
-static int async_test(const char *path, int count)
+static int
+async_test(const char *url, enum vmeta_camera_type camera_type, int count)
 {
 	int res;
 	struct pdraw_vsink *vsink = NULL;
 	struct pdraw_media_info *media_info = NULL;
-	struct pdraw_vsink_cbs cbs = {
-		.get_frame_cb_t = &frame_cb,
+	struct pdraw_vsink_params params = {
+		.url = url,
+		.camera_type = camera_type,
+		.cbs.frame_ready = &frame_ready_cb,
+		.cbs_userdata = NULL,
 	};
 
-
-	res = pdraw_vsink_start(path, &cbs, &media_info, &vsink);
+	res = pdraw_vsink_start(&params, &media_info, &vsink);
 	if (res < 0 || media_info == NULL) {
 		ULOG_ERRNO("pdraw_vsink_start", -res);
 		exit(EXIT_FAILURE);
@@ -153,14 +156,22 @@ static int async_test(const char *path, int count)
 
 
 /* Called from the main thread */
-static int sync_test(const char *path, int timeout_ms, int count)
+static int sync_test(const char *url,
+		     enum vmeta_camera_type camera_type,
+		     int timeout_ms,
+		     int count)
 {
 	int res, i = 0;
 	struct pdraw_vsink *vsink = NULL;
 	struct pdraw_media_info *media_info = NULL;
-	struct pdraw_vsink_cbs cbs = {};
+	struct pdraw_vsink_params params = {
+		.url = url,
+		.camera_type = camera_type,
+		.cbs.frame_ready = NULL,
+		.cbs_userdata = NULL,
+	};
 
-	res = pdraw_vsink_start(path, &cbs, &media_info, &vsink);
+	res = pdraw_vsink_start(&params, &media_info, &vsink);
 	if (res < 0 || media_info == NULL) {
 		ULOG_ERRNO("pdraw_vsink_start", -res);
 		exit(EXIT_FAILURE);
@@ -190,6 +201,7 @@ static int sync_test(const char *path, int timeout_ms, int count)
 			continue;
 		}
 		print_frame_info(&frame_info, frame, i);
+		mbuf_raw_video_frame_unref(frame);
 		i++;
 	}
 
@@ -202,11 +214,12 @@ static int sync_test(const char *path, int timeout_ms, int count)
 }
 
 
-static const char short_options[] = "ht:n:";
+static const char short_options[] = "ht:c:n:";
 
 
 static const struct option long_options[] = {
 	{"help", no_argument, NULL, 'h'},
+	{"camera-type", required_argument, NULL, 'c'},
 	{"count", required_argument, NULL, 'n'},
 	{"timeout", required_argument, NULL, 't'},
 };
@@ -219,11 +232,14 @@ static void usage(char *prog_name)
 	       "Options:\n"
 	       "  -h | --help                          "
 		       "Print this message\n"
+	       "  -c | --camera-type <cam>             "
+		       "Camera type (e.g. 'front', 'horizontal-stereo-left', "
+		       "'down-stereo-right'; default camera if not specified)\n"
 	       "  -n | --count <n>                     "
 		       "Process at most n frames\n"
 	       "  -t | --timeout <num>                 "
-		       "Set the maximum time to wait (in ms to get a frame), 0 "
-		       "to return immediately (non-blocking mode) or -1 for "
+		       "Set the maximum time to wait (in ms) to get a frame, "
+		       "0 to return immediately (non-blocking mode) or -1 for "
 		       "infinite wait\n"
 	       "\n",
 	       prog_name);
@@ -235,7 +251,8 @@ int main(int argc, char **argv)
 {
 	int status = EXIT_SUCCESS, res;
 	int idx, c;
-	char *file_name = NULL;
+	char *url = NULL;
+	enum vmeta_camera_type camera_type = VMETA_CAMERA_TYPE_UNKNOWN;
 	int timeout_ms = -1;
 	int count = 20;
 
@@ -248,6 +265,10 @@ int main(int argc, char **argv)
 		case 'h':
 			usage(argv[0]);
 			goto out;
+
+		case 'c':
+			camera_type = vmeta_camera_type_from_str(optarg);
+			break;
 
 		case 'n':
 			sscanf(optarg, "%d", &count);
@@ -274,19 +295,19 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	file_name = argv[optind];
-	if (file_name == NULL) {
+	url = argv[optind];
+	if (url == NULL) {
 		usage(argv[0]);
 		goto out;
 	}
 
 	/* Sync mode: polling using pdraw_vsink_get_frame() */
-	res = sync_test(file_name, timeout_ms, count);
+	res = sync_test(url, camera_type, timeout_ms, count);
 	if (res < 0)
 		ULOG_ERRNO("sync_test", -res);
 
-	/* Async mode: notify using call back */
-	res = async_test(file_name, count);
+	/* Async mode: notify using the frame_ready callback */
+	res = async_test(url, camera_type, count);
 	if (res < 0)
 		ULOG_ERRNO("async_test", -res);
 

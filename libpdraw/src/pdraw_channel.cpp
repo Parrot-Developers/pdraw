@@ -46,7 +46,8 @@ Channel::Channel(Sink *owner,
 		 struct pomp_loop *loop) :
 		mOwner(owner),
 		mSinkListener(sinkListener), mSourceListener(nullptr),
-		mPool(nullptr), mLoop(loop), mFlushPending(false)
+		mPool(nullptr), mLoop(loop), mFlushPending(false),
+		mDrainPending(false)
 {
 }
 
@@ -90,6 +91,10 @@ int Channel::flush(void)
 		ULOGE("invalid sink listener");
 		return -EPROTO;
 	}
+
+	/* Flush and drain are mutually exclusive */
+	if (mFlushPending || mDrainPending)
+		return -EALREADY;
 
 	struct pomp_msg *event = pomp_msg_new();
 	if (event == nullptr) {
@@ -167,6 +172,98 @@ void Channel::idleFlushDone(void *userdata)
 {
 	Channel *self = (Channel *)userdata;
 	(void)self->flushDone();
+}
+
+
+int Channel::drain(void)
+{
+	int res;
+
+	if (mSinkListener == nullptr) {
+		ULOGE("invalid sink listener");
+		return -EPROTO;
+	}
+
+	/* Drain and flush are mutually exclusive */
+	if (mDrainPending || mFlushPending)
+		return -EALREADY;
+
+	struct pomp_msg *event = pomp_msg_new();
+	if (event == nullptr) {
+		ULOG_ERRNO("pomp_msg_new", ENOMEM);
+		return -ENOMEM;
+	}
+
+	res = pomp_msg_write(event, DownstreamEvent::DRAIN, nullptr);
+	if (res < 0) {
+		ULOG_ERRNO("pomp_msg_write", -res);
+		return res;
+	}
+
+	mDrainPending = true;
+	mSinkListener->onChannelDownstreamEvent(this, event);
+
+	res = pomp_msg_destroy(event);
+	if (res < 0)
+		ULOG_ERRNO("pomp_msg_destroy", -res);
+
+	return 0;
+}
+
+
+int Channel::drainDone(void)
+{
+	int res;
+
+	if (!mDrainPending)
+		return 0;
+
+	mDrainPending = false;
+	if (mSourceListener == nullptr)
+		return 0;
+
+	struct pomp_msg *event = pomp_msg_new();
+	if (event == nullptr) {
+		ULOG_ERRNO("pomp_msg_new", ENOMEM);
+		return -ENOMEM;
+	}
+
+	res = pomp_msg_write(event, UpstreamEvent::DRAINED, nullptr);
+	if (res < 0) {
+		ULOG_ERRNO("pomp_msg_write", -res);
+		return res;
+	}
+
+	mSourceListener->onChannelUpstreamEvent(this, event);
+
+	res = pomp_msg_destroy(event);
+	if (res < 0)
+		ULOG_ERRNO("pomp_msg_destroy", -res);
+
+	return 0;
+}
+
+
+int Channel::asyncDrainDone(void)
+{
+	if (mLoop == nullptr) {
+		ULOGE("invalid loop");
+		return -EPROTO;
+	}
+
+	int ret = pomp_loop_idle_add_with_cookie(
+		mLoop, &idleDrainDone, this, this);
+	if (ret < 0)
+		ULOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+
+	return ret;
+}
+
+
+void Channel::idleDrainDone(void *userdata)
+{
+	Channel *self = (Channel *)userdata;
+	(void)self->drainDone();
 }
 
 
@@ -294,6 +391,7 @@ int Channel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
 	int res;
 
 	if ((downstreamEvent == DownstreamEvent::FLUSH) ||
+	    (downstreamEvent == DownstreamEvent::DRAIN) ||
 	    (downstreamEvent == DownstreamEvent::TEARDOWN)) {
 		ULOGE("invalid event");
 		return -EPROTO;
@@ -330,6 +428,8 @@ const char *Channel::getDownstreamEventStr(DownstreamEvent val)
 	switch (val) {
 	case FLUSH:
 		return "FLUSH";
+	case DRAIN:
+		return "DRAIN";
 	case TEARDOWN:
 		return "TEARDOWN";
 	case SOS:
@@ -361,6 +461,8 @@ const char *Channel::getUpstreamEventStr(UpstreamEvent val)
 		return "UNLINK";
 	case FLUSHED:
 		return "FLUSHED";
+	case DRAINED:
+		return "DRAINED";
 	case RESYNC:
 		return "RESYNC";
 	case VIDEO_PRES_STATS:

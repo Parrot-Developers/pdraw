@@ -49,13 +49,19 @@ class ElementWrapper;
 
 class Element : public Loggable {
 public:
-	enum State {
+	enum class State {
 		INVALID,
 		CREATED,
 		STARTING,
 		STARTED,
 		STOPPING,
 		STOPPED,
+	};
+
+	enum class FlushingState {
+		UNFLUSHED,
+		FLUSHING,
+		FLUSHED,
 	};
 
 	class Listener {
@@ -75,15 +81,20 @@ public:
 
 	virtual int stop(void) = 0;
 
-	unsigned int getId(void);
+	unsigned int getId(void) const;
 
 	ElementWrapper *getWrapper(void);
 
 	void clearWrapper(void);
 
-	Element::State getState(void);
+	Element::State getState(void) const;
+
+	Element::FlushingState getFlushingState(void) const;
 
 	static const char *getElementStateStr(Element::State val);
+
+	static const char *
+	getElementFlushingStateStr(Element::FlushingState val);
 
 protected:
 	Element(Session *session, Listener *listener, ElementWrapper *wrapper);
@@ -94,12 +105,17 @@ protected:
 
 	void setState(Element::State state);
 
+	void setFlushingState(Element::FlushingState substate,
+			      bool discard = true);
+
 	void setStateAsyncNotify(Element::State state);
 
 	Session *mSession;
 	Listener *mListener;
 	ElementWrapper *mWrapper;
 	std::atomic<Element::State> mState;
+	std::atomic<Element::FlushingState> mFlushingState;
+	bool mFlushDiscard;
 	unsigned int mId;
 	static std::atomic<unsigned int> mIdCounter;
 };
@@ -116,7 +132,10 @@ public:
 	virtual void clearElement(void);
 
 protected:
+	virtual bool isElementStopped(void) const;
+
 	Element *mElement;
+	bool mElementStopped;
 };
 
 

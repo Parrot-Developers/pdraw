@@ -35,9 +35,6 @@
 ULOG_DECLARE_TAG(ULOG_TAG);
 
 
-Q_DECLARE_METATYPE(struct pdraw_demuxer_media);
-
-
 namespace QPdraw {
 namespace Internal {
 
@@ -45,6 +42,7 @@ namespace Internal {
 QPdrawDemuxerPriv::QPdrawDemuxerPriv(QPdrawDemuxer *parent) :
 		mParent(parent), mDemuxer(nullptr), mClosing(false)
 {
+	qRegisterMetaType<pdraw_chapter>("pdraw_chapter");
 }
 
 
@@ -251,6 +249,16 @@ int QPdrawDemuxerPriv::seekTo(uint64_t timestamp, bool exact)
 	ULOG_ERRNO_RETURN_ERR_IF(mClosing, EPERM);
 
 	return mDemuxer->seekTo(timestamp, exact);
+}
+
+
+int QPdrawDemuxerPriv::getChapterList(struct pdraw_chapter **chapterList,
+				      size_t *chapterCount)
+{
+	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(mClosing, EPERM);
+
+	return mDemuxer->getChapterList(chapterList, chapterCount);
 }
 
 
@@ -521,6 +529,13 @@ int QPdrawDemuxer::seekBack(uint64_t delta, bool exact)
 int QPdrawDemuxer::seekTo(uint64_t timestamp, bool exact)
 {
 	return mPriv->seekTo(timestamp, exact);
+}
+
+
+int QPdrawDemuxer::getChapterList(struct pdraw_chapter **chapterList,
+				  size_t *chapterCount)
+{
+	return mPriv->getChapterList(chapterList, chapterCount);
 }
 
 

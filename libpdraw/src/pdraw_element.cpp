@@ -47,7 +47,10 @@ Element::Element(Session *session,
 		 Listener *listener,
 		 ElementWrapper *wrapper) :
 		mSession(session),
-		mListener(listener), mWrapper(wrapper), mState(INVALID)
+		mListener(listener), mWrapper(wrapper),
+		mState(Element::State::INVALID),
+		mFlushingState(Element::FlushingState::FLUSHED),
+		mFlushDiscard(false)
 {
 	mId = ++mIdCounter;
 	std::string name = std::string(__func__) + "#" + std::to_string(mId);
@@ -57,7 +60,7 @@ Element::Element(Session *session,
 
 Element::~Element(void)
 {
-	mState = INVALID;
+	mState = State::INVALID;
 
 	/* Clear the element in the element wrapper */
 	if (mWrapper != nullptr)
@@ -67,7 +70,7 @@ Element::~Element(void)
 }
 
 
-unsigned int Element::getId(void)
+unsigned int Element::getId(void) const
 {
 	return mId;
 }
@@ -99,9 +102,15 @@ void Element::setClassName(const char *name)
 }
 
 
-Element::State Element::getState(void)
+Element::State Element::getState(void) const
 {
 	return mState;
+}
+
+
+Element::FlushingState Element::getFlushingState(void) const
+{
+	return mFlushingState;
 }
 
 
@@ -116,6 +125,25 @@ void Element::setState(Element::State state)
 
 	if (mListener)
 		mListener->onElementStateChanged(this, state);
+}
+
+
+void Element::setFlushingState(Element::FlushingState substate, bool discard)
+{
+	Element::FlushingState old = mFlushingState.exchange(substate);
+
+	if (old == substate)
+		return;
+
+	if (substate == FlushingState::FLUSHING) {
+		mFlushDiscard = discard;
+		PDRAW_LOGI("element flushing state change to %s (discard=%d)",
+			   getElementFlushingStateStr(substate),
+			   mFlushDiscard);
+	} else {
+		PDRAW_LOGI("element flushing state change to %s",
+			   getElementFlushingStateStr(substate));
+	}
 }
 
 
@@ -155,7 +183,22 @@ const char *Element::getElementStateStr(Element::State val)
 }
 
 
-ElementWrapper::ElementWrapper(void) : mElement(nullptr)
+const char *Element::getElementFlushingStateStr(Element::FlushingState val)
+{
+	switch (val) {
+	case Element::FlushingState::UNFLUSHED:
+		return "UNFLUSHED";
+	case Element::FlushingState::FLUSHING:
+		return "FLUSHING";
+	case Element::FlushingState::FLUSHED:
+		return "FLUSHED";
+	default:
+		return nullptr;
+	}
+}
+
+
+ElementWrapper::ElementWrapper(void) : mElement(nullptr), mElementStopped(false)
 {
 	return;
 }
@@ -178,6 +221,13 @@ Element *ElementWrapper::getElement(void) const
 void ElementWrapper::clearElement(void)
 {
 	mElement = nullptr;
+	mElementStopped = true;
+}
+
+
+bool ElementWrapper::isElementStopped(void) const
+{
+	return (mElement == nullptr || mElementStopped);
 }
 
 

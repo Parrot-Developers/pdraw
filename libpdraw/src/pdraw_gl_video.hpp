@@ -276,7 +276,8 @@ private:
 	GLint mProgramYuv2RgbMatrix[PROGRAM_MAX];
 	GLint mProgramYuv2RgbOffset[PROGRAM_MAX];
 	GLint mProgramStride[PROGRAM_MAX];
-	GLint mProgramMaxCoords[PROGRAM_MAX];
+	GLint mProgramMaxCoordsRatio[PROGRAM_MAX];
+	GLint mProgramMaxClamp[PROGRAM_MAX];
 	GLint mProgramBrightnessCoef[PROGRAM_MAX];
 	GLint mProgramContrastCoef[PROGRAM_MAX];
 	GLint mProgramGammaCoef[PROGRAM_MAX];
@@ -335,7 +336,8 @@ private:
 	GLint mHistogramContrastCoef[PROGRAM_MAX];
 	GLint mHistogramGammaCoef[PROGRAM_MAX];
 	GLint mHistogramStride[PROGRAM_MAX];
-	GLint mHistogramMaxCoords[PROGRAM_MAX];
+	GLint mHistogramMaxCoordsRatio[PROGRAM_MAX];
+	GLint mHistogramMaxClamp[PROGRAM_MAX];
 	GLint mHistogramUniformSampler[PROGRAM_MAX][GL_VIDEO_TEX_UNIT_COUNT];
 	GLint mHistogramPositionHandle[PROGRAM_MAX];
 	GLint mHistogramTexcoordHandle[PROGRAM_MAX];

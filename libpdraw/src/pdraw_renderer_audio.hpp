@@ -123,6 +123,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mRenderer == nullptr);
+	}
+
 	AudioRenderer *mRenderer;
 };
 

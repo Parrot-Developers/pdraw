@@ -38,6 +38,8 @@
 
 #include <queue>
 
+#define DEMUXER_PENDING_COMMAND_TIMEOUT_MS (3000)
+
 namespace Pdraw {
 
 class DemuxerWrapper;
@@ -58,7 +60,12 @@ public:
 
 	virtual int selectMedia(uint32_t selectedMedias);
 
-	virtual int flush(void) = 0;
+	virtual int flush(bool discard = true) = 0;
+
+	inline virtual int drain(void)
+	{
+		return flush(false);
+	}
 
 	virtual int play(float speed = 1.0f) = 0;
 
@@ -92,6 +99,14 @@ public:
 	}
 
 protected:
+	enum class Command {
+		NONE,
+		PLAY,
+		PAUSE,
+		PAUSE_NEXT,
+		SEEK,
+	};
+
 	Demuxer(Session *session,
 		Element::Listener *elementListener,
 		Source::Listener *sourceListener,
@@ -127,6 +142,17 @@ protected:
 
 	uint32_t selectedMediasToBitfield(void);
 
+	static const char *getCommandStr(Demuxer::Command cmd);
+
+	int setPendingCommand(Demuxer::Command cmd);
+
+	Demuxer::Command getPendingCommand(void) const
+	{
+		return mPendingCmd;
+	}
+
+	void clearPendingCommand(void);
+
 	IPdraw::IDemuxer *mDemuxer;
 	IPdraw::IDemuxer::Listener *mDemuxerListener;
 	struct pdraw_demuxer_params mParams;
@@ -161,6 +187,12 @@ protected:
 	std::queue<int> mSeekRespStatusArgs;
 	std::queue<uint64_t> mSeekRespTimestampArgs;
 	std::queue<float> mSeekRespSpeedArgs;
+
+private:
+	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
+
+	Demuxer::Command mPendingCmd;
+	struct pomp_timer *mWatchdogTimer;
 };
 
 
@@ -235,6 +267,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mDemuxer == nullptr);
+	}
+
 	Demuxer *mDemuxer;
 };
 

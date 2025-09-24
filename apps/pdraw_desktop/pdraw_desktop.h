@@ -120,6 +120,7 @@ struct pdraw_desktop {
 	unsigned int window_width;
 	unsigned int window_height;
 	int fullscreen;
+	int display_index;
 	int always_on_top;
 
 	int enable_overlay;
@@ -141,9 +142,16 @@ struct pdraw_desktop {
 	unsigned int media_count;
 	unsigned int video_media_count;
 	unsigned int video_renderer_pending_media_id;
+	unsigned int removed_medias[MAX_RENDERERS];
+	unsigned int latest_removed_media_index;
 	struct pdraw_desktop_renderer video_renderers[MAX_RENDERERS];
 	unsigned int video_renderer_count;
 	struct pdraw_audio_renderer *audio_renderer;
+	int start_paused;
+	int start_paused_pending;
+	int start_paused_replied;
+	uint64_t start_time_us;
+	int start_time_pending;
 	float speed;
 	int speed_sign;
 
@@ -213,6 +221,9 @@ void pdraw_desktop_seek_to_next_chapter(struct pdraw_desktop *self);
 
 
 void pdraw_desktop_goto_beginning(struct pdraw_desktop *self);
+
+
+void pdraw_desktop_goto_timestamp(struct pdraw_desktop *self, uint64_t ts_us);
 
 
 void pdraw_desktop_goto_end(struct pdraw_desktop *self);

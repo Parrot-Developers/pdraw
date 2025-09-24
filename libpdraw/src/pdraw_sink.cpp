@@ -808,6 +808,9 @@ void Sink::onChannelDownstreamEvent(Channel *channel,
 	case Channel::DownstreamEvent::FLUSH:
 		onChannelFlush(channel);
 		break;
+	case Channel::DownstreamEvent::DRAIN:
+		onChannelDrain(channel);
+		break;
 	case Channel::DownstreamEvent::TEARDOWN:
 		onChannelTeardown(channel);
 		break;

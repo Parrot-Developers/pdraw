@@ -48,6 +48,9 @@ public:
 		/* flush required */
 		FLUSH,
 
+		/* drain required */
+		DRAIN,
+
 		/* teardown required */
 		TEARDOWN,
 
@@ -82,6 +85,9 @@ public:
 
 		/* flush completed */
 		FLUSHED,
+
+		/* drain completed */
+		DRAINED,
 
 		/* resynchronization required */
 		RESYNC,
@@ -129,6 +135,17 @@ public:
 
 	int asyncFlushDone(void);
 
+	int drain(void);
+
+	bool isDrainPending(void)
+	{
+		return mDrainPending;
+	}
+
+	int drainDone(void);
+
+	int asyncDrainDone(void);
+
 	int resync(void);
 
 	int unlink(void);
@@ -164,11 +181,14 @@ protected:
 private:
 	static void idleFlushDone(void *userdata);
 
+	static void idleDrainDone(void *userdata);
+
 	SinkListener *mSinkListener;
 	SourceListener *mSourceListener;
 	struct mbuf_pool *mPool;
 	struct pomp_loop *mLoop;
 	bool mFlushPending;
+	bool mDrainPending;
 };
 
 } /* namespace Pdraw */

@@ -86,11 +86,15 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelSos(Channel *channel) override;
 
 	void onChannelEos(Channel *channel) override;
 
 	static void idleStart(void *renderer);
+
+	static void idleDrain(void *renderer);
 
 	int render(void);
 

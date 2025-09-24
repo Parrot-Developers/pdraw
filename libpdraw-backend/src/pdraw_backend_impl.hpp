@@ -275,6 +275,8 @@ public:
 
 		int flush(void) override;
 
+		int drain(void) override;
+
 		int
 		setSessionMetadata(const struct vmeta_session *meta) override;
 
@@ -307,6 +309,8 @@ public:
 
 		int flush(void) override;
 
+		int drain(void) override;
+
 		int
 		setSessionMetadata(const struct vmeta_session *meta) override;
 
@@ -337,11 +341,17 @@ public:
 
 		~CodedVideoSink(void);
 
+		int setMediaId(unsigned int mediaId) override;
+
+		unsigned int getMediaId(void) override;
+
 		int resync(void) override;
 
 		struct mbuf_coded_video_frame_queue *getQueue(void) override;
 
 		int queueFlushed(void) override;
+
+		int queueDrained(void) override;
 
 		IPdraw::ICodedVideoSink *getCodedVideoSink() const
 		{
@@ -368,11 +378,15 @@ public:
 
 		~RawVideoSink(void);
 
-		int resync(void);
+		int setMediaId(unsigned int mediaId) override;
+
+		unsigned int getMediaId(void) override;
 
 		struct mbuf_raw_video_frame_queue *getQueue(void) override;
 
 		int queueFlushed(void) override;
+
+		int queueDrained(void) override;
 
 		IPdraw::IRawVideoSink *getRawVideoSink() const
 		{
@@ -432,6 +446,8 @@ public:
 
 		int flush(void) override;
 
+		int drain(void) override;
+
 		IPdraw::IAudioSource *getAudioSource() const
 		{
 			return mSource;
@@ -456,9 +472,15 @@ public:
 
 		~AudioSink(void);
 
+		int setMediaId(unsigned int mediaId) override;
+
+		unsigned int getMediaId(void) override;
+
 		struct mbuf_audio_frame_queue *getQueue(void) override;
 
 		int queueFlushed(void) override;
+
+		int queueDrained(void) override;
 
 		IPdraw::IAudioSink *getAudioSink() const
 		{
@@ -824,6 +846,12 @@ private:
 		bool ready,
 		enum pdraw_vipc_source_eos_reason eosReason) override;
 
+	void vipcSourcePlayResponse(IPdraw *pdraw,
+				    IPdraw::IVipcSource *source) override;
+
+	void vipcSourcePauseResponse(IPdraw *pdraw,
+				     IPdraw::IVipcSource *source) override;
+
 	bool vipcSourceFramerateChanged(
 		IPdraw *pdraw,
 		IPdraw::IVipcSource *source,
@@ -845,20 +873,50 @@ private:
 		IPdraw::IVipcSource *source,
 		enum pdraw_vipc_source_eos_reason eosReason) override;
 
+	void onCodedVideoSinkMediaAdded(
+		Pdraw::IPdraw *pdraw,
+		Pdraw::IPdraw::ICodedVideoSink *sink,
+		const struct pdraw_media_info *info) override;
+
+	void onCodedVideoSinkMediaRemoved(Pdraw::IPdraw *pdraw,
+					  Pdraw::IPdraw::ICodedVideoSink *sink,
+					  const struct pdraw_media_info *info,
+					  bool restart) override;
+
 	void
 	onCodedVideoSourceFlushed(IPdraw *pdraw,
+				  IPdraw::ICodedVideoSource *source) override;
+
+	void
+	onCodedVideoSourceDrained(IPdraw *pdraw,
 				  IPdraw::ICodedVideoSource *source) override;
 
 	void onRawVideoSourceFlushed(IPdraw *pdraw,
 				     IPdraw::IRawVideoSource *source) override;
 
+	void onRawVideoSourceDrained(IPdraw *pdraw,
+				     IPdraw::IRawVideoSource *source) override;
+
 	void onCodedVideoSinkFlush(IPdraw *pdraw,
+				   IPdraw::ICodedVideoSink *sink) override;
+
+	void onCodedVideoSinkDrain(IPdraw *pdraw,
 				   IPdraw::ICodedVideoSink *sink) override;
 
 	void onCodedVideoSinkSessionMetaUpdate(
 		IPdraw *pdraw,
 		IPdraw::ICodedVideoSink *sink,
 		const struct vmeta_session *meta) override;
+
+	void
+	onRawVideoSinkMediaAdded(Pdraw::IPdraw *pdraw,
+				 Pdraw::IPdraw::IRawVideoSink *sink,
+				 const struct pdraw_media_info *info) override;
+
+	void onRawVideoSinkMediaRemoved(Pdraw::IPdraw *pdraw,
+					Pdraw::IPdraw::IRawVideoSink *sink,
+					const struct pdraw_media_info *info,
+					bool restart) override;
 
 	void onRawVideoSinkSessionMetaUpdate(
 		IPdraw *pdraw,
@@ -868,11 +926,20 @@ private:
 	void onRawVideoSinkFlush(IPdraw *pdraw,
 				 IPdraw::IRawVideoSink *sink) override;
 
+	void onRawVideoSinkDrain(IPdraw *pdraw,
+				 IPdraw::IRawVideoSink *sink) override;
+
 	void alsaSourceReadyToPlay(
 		IPdraw *pdraw,
 		IPdraw::IAlsaSource *source,
 		bool ready,
 		enum pdraw_alsa_source_eos_reason eosReason) override;
+
+	void alsaSourcePlayResponse(IPdraw *pdraw,
+				    IPdraw::IAlsaSource *source) override;
+
+	void alsaSourcePauseResponse(IPdraw *pdraw,
+				     IPdraw::IAlsaSource *source) override;
 
 	void alsaSourceFrameReady(IPdraw *pdraw,
 				  IPdraw::IAlsaSource *source,
@@ -881,7 +948,22 @@ private:
 	void onAudioSourceFlushed(IPdraw *pdraw,
 				  IPdraw::IAudioSource *source) override;
 
+	void onAudioSourceDrained(IPdraw *pdraw,
+				  IPdraw::IAudioSource *source) override;
+
+	void
+	onAudioSinkMediaAdded(Pdraw::IPdraw *pdraw,
+			      Pdraw::IPdraw::IAudioSink *sink,
+			      const struct pdraw_media_info *info) override;
+
+	void onAudioSinkMediaRemoved(Pdraw::IPdraw *pdraw,
+				     Pdraw::IPdraw::IAudioSink *sink,
+				     const struct pdraw_media_info *info,
+				     bool restart) override;
+
 	void onAudioSinkFlush(IPdraw *pdraw, IPdraw::IAudioSink *sink) override;
+
+	void onAudioSinkDrain(IPdraw *pdraw, IPdraw::IAudioSink *sink) override;
 
 	void
 	videoEncoderFrameOutput(IPdraw *pdraw,
@@ -1125,6 +1207,9 @@ private:
 	void
 	internalCodedVideoSourceFlush(PdrawBackend::CodedVideoSource *source);
 
+	void
+	internalCodedVideoSourceDrain(PdrawBackend::CodedVideoSource *source);
+
 	void internalCodedVideoSourceSetSessionMetadata(
 		PdrawBackend::CodedVideoSource *source);
 
@@ -1142,6 +1227,8 @@ private:
 
 	void internalRawVideoSourceFlush(PdrawBackend::RawVideoSource *source);
 
+	void internalRawVideoSourceDrain(PdrawBackend::RawVideoSource *source);
+
 	void internalRawVideoSourceSetSessionMetadata(
 		PdrawBackend::RawVideoSource *source);
 
@@ -1155,6 +1242,13 @@ private:
 
 	void internalCodedVideoSinkDestroy(PdrawBackend::CodedVideoSink *sink);
 
+	void
+	internalCodedVideoSinkSetMediaId(PdrawBackend::CodedVideoSink *sink,
+					 unsigned int mediaId);
+
+	void
+	internalCodedVideoSinkGetMediaId(PdrawBackend::CodedVideoSink *sink);
+
 	void internalCodedVideoSinkResync(PdrawBackend::CodedVideoSink *sink);
 
 	void internalCodedVideoSinkGetQueue(PdrawBackend::CodedVideoSink *sink);
@@ -1163,15 +1257,25 @@ private:
 	internalCodedVideoSinkQueueFlushed(PdrawBackend::CodedVideoSink *sink);
 
 	void
+	internalCodedVideoSinkQueueDrained(PdrawBackend::CodedVideoSink *sink);
+
+	void
 	internalRawVideoSinkCreate(unsigned int mediaId,
 				   const struct pdraw_video_sink_params *params,
 				   IPdraw::IRawVideoSink::Listener *listener);
 
 	void internalRawVideoSinkDestroy(PdrawBackend::RawVideoSink *sink);
 
+	void internalRawVideoSinkSetMediaId(PdrawBackend::RawVideoSink *sink,
+					    unsigned int mediaId);
+
+	void internalRawVideoSinkGetMediaId(PdrawBackend::RawVideoSink *sink);
+
 	void internalRawVideoSinkGetQueue(PdrawBackend::RawVideoSink *sink);
 
 	void internalRawVideoSinkQueueFlushed(PdrawBackend::RawVideoSink *sink);
+
+	void internalRawVideoSinkQueueDrained(PdrawBackend::RawVideoSink *sink);
 
 	void
 	internalAlsaSourceCreate(const struct pdraw_alsa_source_params *params,
@@ -1197,14 +1301,23 @@ private:
 
 	void internalAudioSourceFlush(PdrawBackend::AudioSource *source);
 
+	void internalAudioSourceDrain(PdrawBackend::AudioSource *source);
+
 	void internalAudioSinkCreate(unsigned int mediaId,
 				     IPdraw::IAudioSink::Listener *listener);
 
 	void internalAudioSinkDestroy(PdrawBackend::AudioSink *sink);
 
+	void internalAudioSinkSetMediaId(PdrawBackend::AudioSink *sink,
+					 unsigned int mediaId);
+
+	void internalAudioSinkGetMediaId(PdrawBackend::AudioSink *sink);
+
 	void internalAudioSinkGetQueue(PdrawBackend::AudioSink *sink);
 
 	void internalAudioSinkQueueFlushed(PdrawBackend::AudioSink *sink);
+
+	void internalAudioSinkQueueDrained(PdrawBackend::AudioSink *sink);
 
 	void internalAudioRendererCreate(
 		unsigned int mediaId,

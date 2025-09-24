@@ -90,6 +90,8 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void setRtmpState(RtmpStreamMuxer::RtmpState state);
 
 	static const char *getRtmpStateStr(RtmpStreamMuxer::RtmpState val);

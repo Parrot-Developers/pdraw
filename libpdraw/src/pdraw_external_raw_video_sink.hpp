@@ -49,6 +49,7 @@ public:
 			     Element::Listener *elementListener,
 			     IPdraw::IRawVideoSink::Listener *listener,
 			     RawVideoSinkWrapper *wrapper,
+			     unsigned int mediaId,
 			     const struct pdraw_video_sink_params *params);
 
 	~ExternalRawVideoSink(void);
@@ -57,7 +58,16 @@ public:
 
 	int stop(void) override;
 
-	int flushDone(void);
+	int setMediaId(unsigned int mediaId);
+
+	unsigned int getMediaId(void) const;
+
+	int flushDone(bool discard = true);
+
+	inline int drainDone(void)
+	{
+		return flushDone(false);
+	}
 
 	struct mbuf_raw_video_frame_queue *getQueue(void) const
 	{
@@ -69,8 +79,17 @@ public:
 		return mVideoSink;
 	}
 
+	int addInputMedia(Media *media) override;
+
+	int removeInputMedia(Media *media) override;
+
 private:
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int channelTeardown(RawVideoChannel *channel);
 
@@ -80,9 +99,17 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelTeardown(Channel *channel) override;
 
 	void onChannelSessionMetaUpdate(Channel *channel) override;
+
+	void onChannelReconfigure(Channel *channel) override;
+
+	void onChannelResolutionChange(Channel *channel) override;
+
+	void onChannelFramerateChange(Channel *channel) override;
 
 	int prepareRawVideoFrame(RawVideoChannel *channel,
 				 struct mbuf_raw_video_frame *frame);
@@ -92,14 +119,20 @@ private:
 	/* Video sink listener calls from idle functions */
 	static void callVideoSinkFlush(void *userdata);
 
+	static void idleRenewMedia(void *userdata);
+
 	IPdraw::IRawVideoSink *mVideoSink;
 	IPdraw::IRawVideoSink::Listener *mVideoSinkListener;
 	struct pdraw_video_sink_params mParams;
 	RawVideoMedia *mInputMedia;
+	struct pdraw_media_info mMediaInfo;
+	struct vmeta_session mMediaInfoSessionMeta;
+	unsigned int mMediaId;
+	unsigned int mTargetMediaId;
 	struct mbuf_raw_video_frame_queue *mInputFrameQueue;
-	bool mIsFlushed;
 	bool mInputChannelFlushPending;
 	bool mTearingDown;
+	bool mPendingRestart;
 };
 
 
@@ -107,16 +140,21 @@ class RawVideoSinkWrapper : public IPdraw::IRawVideoSink,
 			    public ElementWrapper {
 public:
 	RawVideoSinkWrapper(Session *session,
+			    unsigned int mediaId,
 			    const struct pdraw_video_sink_params *params,
 			    IPdraw::IRawVideoSink::Listener *listener);
 
 	~RawVideoSinkWrapper(void);
 
-	int resync(void);
+	int setMediaId(unsigned int mediaId) override;
+
+	unsigned int getMediaId(void) override;
 
 	struct mbuf_raw_video_frame_queue *getQueue(void) override;
 
 	int queueFlushed(void) override;
+
+	int queueDrained(void) override;
 
 	void clearElement(void) override
 	{
@@ -135,6 +173,11 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() || mSink == nullptr);
+	}
+
 	ExternalRawVideoSink *mSink;
 };
 

@@ -550,6 +550,26 @@ public:
 				mUserdata);
 	}
 
+	void vipcSourcePlayResponse(IPdraw *pdraw, IPdraw::IVipcSource *source)
+	{
+		if (mCbs.play_resp)
+			(*mCbs.play_resp)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_vipc_source *>(
+					source),
+				mUserdata);
+	}
+
+	void vipcSourcePauseResponse(IPdraw *pdraw, IPdraw::IVipcSource *source)
+	{
+		if (mCbs.pause_resp)
+			(*mCbs.pause_resp)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_vipc_source *>(
+					source),
+				mUserdata);
+	}
+
 	bool vipcSourceFramerateChanged(Pdraw::IPdraw *pdraw,
 					Pdraw::IPdraw::IVipcSource *source,
 					const struct vdef_frac *prevFramerate,
@@ -653,6 +673,17 @@ public:
 				mUserdata);
 	}
 
+	void onCodedVideoSourceDrained(Pdraw::IPdraw *pdraw,
+				       Pdraw::IPdraw::ICodedVideoSource *source)
+	{
+		if (mCbs.drained)
+			(*mCbs.drained)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_coded_video_source
+							 *>(source),
+				mUserdata);
+	}
+
 	Pdraw::IPdraw::ICodedVideoSource *getCodedVideoSource()
 	{
 		return mSource;
@@ -696,6 +727,17 @@ public:
 				mUserdata);
 	}
 
+	void onRawVideoSourceDrained(Pdraw::IPdraw *pdraw,
+				     Pdraw::IPdraw::IRawVideoSource *source)
+	{
+		if (mCbs.drained)
+			(*mCbs.drained)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_raw_video_source
+							 *>(source),
+				mUserdata);
+	}
+
 	Pdraw::IPdraw::IRawVideoSource *getRawVideoSource()
 	{
 		return mSource;
@@ -728,11 +770,50 @@ public:
 
 	~PdrawBackendCodedVideoSinkListener() {}
 
+	void onCodedVideoSinkMediaAdded(Pdraw::IPdraw *pdraw,
+					Pdraw::IPdraw::ICodedVideoSink *sink,
+					const struct pdraw_media_info *info)
+	{
+		if (mCbs.media_added)
+			(*mCbs.media_added)(
+				mPdraw,
+				reinterpret_cast<
+					struct pdraw_coded_video_sink *>(sink),
+				info,
+				mUserdata);
+	}
+
+	void onCodedVideoSinkMediaRemoved(Pdraw::IPdraw *pdraw,
+					  Pdraw::IPdraw::ICodedVideoSink *sink,
+					  const struct pdraw_media_info *info,
+					  bool restart)
+	{
+		if (mCbs.media_removed)
+			(*mCbs.media_removed)(
+				mPdraw,
+				reinterpret_cast<
+					struct pdraw_coded_video_sink *>(sink),
+				info,
+				restart,
+				mUserdata);
+	}
+
 	void onCodedVideoSinkFlush(Pdraw::IPdraw *pdraw,
 				   Pdraw::IPdraw::ICodedVideoSink *sink)
 	{
 		if (mCbs.flush)
 			(*mCbs.flush)(
+				mPdraw,
+				reinterpret_cast<
+					struct pdraw_coded_video_sink *>(sink),
+				mUserdata);
+	}
+
+	void onCodedVideoSinkDrain(Pdraw::IPdraw *pdraw,
+				   Pdraw::IPdraw::ICodedVideoSink *sink)
+	{
+		if (mCbs.drain)
+			(*mCbs.drain)(
 				mPdraw,
 				reinterpret_cast<
 					struct pdraw_coded_video_sink *>(sink),
@@ -784,11 +865,50 @@ public:
 
 	~PdrawBackendRawVideoSinkListener() {}
 
+	void onRawVideoSinkMediaAdded(Pdraw::IPdraw *pdraw,
+				      Pdraw::IPdraw::IRawVideoSink *sink,
+				      const struct pdraw_media_info *info)
+	{
+		if (mCbs.media_added)
+			(*mCbs.media_added)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_raw_video_sink *>(
+					sink),
+				info,
+				mUserdata);
+	}
+
+	void onRawVideoSinkMediaRemoved(Pdraw::IPdraw *pdraw,
+					Pdraw::IPdraw::IRawVideoSink *sink,
+					const struct pdraw_media_info *info,
+					bool restart)
+	{
+		if (mCbs.media_removed)
+			(*mCbs.media_removed)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_raw_video_sink *>(
+					sink),
+				info,
+				restart,
+				mUserdata);
+	}
+
 	void onRawVideoSinkFlush(Pdraw::IPdraw *pdraw,
 				 Pdraw::IPdraw::IRawVideoSink *sink)
 	{
 		if (mCbs.flush)
 			(*mCbs.flush)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_raw_video_sink *>(
+					sink),
+				mUserdata);
+	}
+
+	void onRawVideoSinkDrain(Pdraw::IPdraw *pdraw,
+				 Pdraw::IPdraw::IRawVideoSink *sink)
+	{
+		if (mCbs.drain)
+			(*mCbs.drain)(
 				mPdraw,
 				reinterpret_cast<struct pdraw_raw_video_sink *>(
 					sink),
@@ -855,6 +975,26 @@ public:
 				mUserdata);
 	}
 
+	void alsaSourcePlayResponse(IPdraw *pdraw, IPdraw::IAlsaSource *source)
+	{
+		if (mCbs.play_resp)
+			(*mCbs.play_resp)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_alsa_source *>(
+					source),
+				mUserdata);
+	}
+
+	void alsaSourcePauseResponse(IPdraw *pdraw, IPdraw::IAlsaSource *source)
+	{
+		if (mCbs.pause_resp)
+			(*mCbs.pause_resp)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_alsa_source *>(
+					source),
+				mUserdata);
+	}
+
 	void alsaSourceFrameReady(IPdraw *pdraw,
 				  IPdraw::IAlsaSource *source,
 				  struct mbuf_audio_frame *frame)
@@ -911,6 +1051,17 @@ public:
 				mUserdata);
 	}
 
+	void onAudioSourceDrained(Pdraw::IPdraw *pdraw,
+				  Pdraw::IPdraw::IAudioSource *source)
+	{
+		if (mCbs.drained)
+			(*mCbs.drained)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_source *>(
+					source),
+				mUserdata);
+	}
+
 	Pdraw::IPdraw::IAudioSource *getAudioSource()
 	{
 		return mSource;
@@ -943,11 +1094,50 @@ public:
 
 	~PdrawBackendAudioSinkListener() {}
 
+	void onAudioSinkMediaAdded(Pdraw::IPdraw *pdraw,
+				   Pdraw::IPdraw::IAudioSink *sink,
+				   const struct pdraw_media_info *info)
+	{
+		if (mCbs.media_added)
+			(*mCbs.media_added)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_sink *>(
+					sink),
+				info,
+				mUserdata);
+	}
+
+	void onAudioSinkMediaRemoved(Pdraw::IPdraw *pdraw,
+				     Pdraw::IPdraw::IAudioSink *sink,
+				     const struct pdraw_media_info *info,
+				     bool restart)
+	{
+		if (mCbs.media_removed)
+			(*mCbs.media_removed)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_sink *>(
+					sink),
+				info,
+				restart,
+				mUserdata);
+	}
+
 	void onAudioSinkFlush(Pdraw::IPdraw *pdraw,
 			      Pdraw::IPdraw::IAudioSink *sink)
 	{
 		if (mCbs.flush)
 			(*mCbs.flush)(
+				mPdraw,
+				reinterpret_cast<struct pdraw_audio_sink *>(
+					sink),
+				mUserdata);
+	}
+
+	void onAudioSinkDrain(Pdraw::IPdraw *pdraw,
+			      Pdraw::IPdraw::IAudioSink *sink)
+	{
+		if (mCbs.drain)
+			(*mCbs.drain)(
 				mPdraw,
 				reinterpret_cast<struct pdraw_audio_sink *>(
 					sink),
@@ -2548,6 +2738,7 @@ int pdraw_be_coded_video_source_new(
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs->flushed == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->drained == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
 	PdrawBackendCodedVideoSourceListener *l =
@@ -2626,6 +2817,19 @@ int pdraw_be_coded_video_source_flush(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_coded_video_source_drain(struct pdraw_backend *self,
+				      struct pdraw_coded_video_source *source)
+{
+	Pdraw::IPdraw::ICodedVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	return s->drain();
+}
+
+
 int pdraw_be_coded_video_source_set_session_metadata(
 	struct pdraw_backend *self,
 	struct pdraw_coded_video_source *source,
@@ -2670,6 +2874,7 @@ int pdraw_be_raw_video_source_new(
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs->flushed == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->drained == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
 	PdrawBackendRawVideoSourceListener *l =
@@ -2748,6 +2953,19 @@ int pdraw_be_raw_video_source_flush(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_raw_video_source_drain(struct pdraw_backend *self,
+				    struct pdraw_raw_video_source *source)
+{
+	Pdraw::IPdraw::IRawVideoSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	return s->drain();
+}
+
+
 int pdraw_be_raw_video_source_set_session_metadata(
 	struct pdraw_backend *self,
 	struct pdraw_raw_video_source *source,
@@ -2793,6 +3011,7 @@ int pdraw_be_coded_video_sink_new(
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs->flush == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->drain == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
 	PdrawBackendCodedVideoSinkListener *l =
@@ -2857,6 +3076,36 @@ int pdraw_be_coded_video_sink_resync(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_coded_video_sink_set_media_id(struct pdraw_backend *self,
+					   struct pdraw_coded_video_sink *sink,
+					   unsigned int media_id)
+{
+	Pdraw::IPdraw::ICodedVideoSink *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	return s->setMediaId(media_id);
+}
+
+
+unsigned int
+pdraw_be_coded_video_sink_get_media_id(struct pdraw_backend *self,
+				       struct pdraw_coded_video_sink *sink)
+{
+	Pdraw::IPdraw::ICodedVideoSink *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSink *>(sink);
+
+	if (self == nullptr)
+		return 0;
+	if (s == nullptr)
+		return 0;
+
+	return s->getMediaId();
+}
+
+
 struct mbuf_coded_video_frame_queue *
 pdraw_be_coded_video_sink_get_queue(struct pdraw_backend *self,
 				    struct pdraw_coded_video_sink *sink)
@@ -2884,6 +3133,19 @@ int pdraw_be_coded_video_sink_queue_flushed(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_coded_video_sink_queue_drained(struct pdraw_backend *self,
+					    struct pdraw_coded_video_sink *sink)
+{
+	Pdraw::IPdraw::ICodedVideoSink *s =
+		reinterpret_cast<Pdraw::IPdraw::ICodedVideoSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	return s->queueDrained();
+}
+
+
 int pdraw_be_raw_video_sink_new(
 	struct pdraw_backend *self,
 	unsigned int media_id,
@@ -2899,6 +3161,7 @@ int pdraw_be_raw_video_sink_new(
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs->flush == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->drain == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
 	PdrawBackendRawVideoSinkListener *l =
@@ -2964,6 +3227,36 @@ pdraw_be_raw_video_sink_get_queue(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_raw_video_sink_set_media_id(struct pdraw_backend *self,
+					 struct pdraw_raw_video_sink *sink,
+					 unsigned int media_id)
+{
+	Pdraw::IPdraw::IRawVideoSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	return s->setMediaId(media_id);
+}
+
+
+unsigned int
+pdraw_be_raw_video_sink_get_media_id(struct pdraw_backend *self,
+				     struct pdraw_raw_video_sink *sink)
+{
+	Pdraw::IPdraw::IRawVideoSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSink *>(sink);
+
+	if (self == nullptr)
+		return 0;
+	if (s == nullptr)
+		return 0;
+
+	return s->getMediaId();
+}
+
+
 int pdraw_be_raw_video_sink_queue_flushed(struct pdraw_backend *self,
 					  struct pdraw_raw_video_sink *sink)
 {
@@ -2974,6 +3267,19 @@ int pdraw_be_raw_video_sink_queue_flushed(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
 
 	return s->queueFlushed();
+}
+
+
+int pdraw_be_raw_video_sink_queue_drained(struct pdraw_backend *self,
+					  struct pdraw_raw_video_sink *sink)
+{
+	Pdraw::IPdraw::IRawVideoSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IRawVideoSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	return s->queueDrained();
 }
 
 
@@ -3105,6 +3411,7 @@ int pdraw_be_audio_source_new(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs->flushed == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->drained == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
 	PdrawBackendAudioSourceListener *l =
@@ -3183,6 +3490,19 @@ int pdraw_be_audio_source_flush(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_audio_source_drain(struct pdraw_backend *self,
+				struct pdraw_audio_source *source)
+{
+	Pdraw::IPdraw::IAudioSource *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSource *>(source);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(source == nullptr, EINVAL);
+
+	return s->drain();
+}
+
+
 int pdraw_be_audio_sink_new(struct pdraw_backend *self,
 			    unsigned int media_id,
 			    const struct pdraw_backend_audio_sink_cbs *cbs,
@@ -3195,6 +3515,7 @@ int pdraw_be_audio_sink_new(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(cbs->flush == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(cbs->drain == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(ret_obj == nullptr, EINVAL);
 
 	PdrawBackendAudioSinkListener *l =
@@ -3246,6 +3567,35 @@ int pdraw_be_audio_sink_destroy(struct pdraw_backend *self,
 }
 
 
+int pdraw_be_audio_sink_set_media_id(struct pdraw_backend *self,
+				     struct pdraw_audio_sink *sink,
+				     unsigned int media_id)
+{
+	Pdraw::IPdraw::IAudioSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	return s->setMediaId(media_id);
+}
+
+
+unsigned int pdraw_be_audio_sink_get_media_id(struct pdraw_backend *self,
+					      struct pdraw_audio_sink *sink)
+{
+	Pdraw::IPdraw::IAudioSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSink *>(sink);
+
+	if (self == nullptr)
+		return 0;
+	if (s == nullptr)
+		return 0;
+
+	return s->getMediaId();
+}
+
+
 struct mbuf_audio_frame_queue *
 pdraw_be_audio_sink_get_queue(struct pdraw_backend *self,
 			      struct pdraw_audio_sink *sink)
@@ -3270,6 +3620,19 @@ int pdraw_be_audio_sink_queue_flushed(struct pdraw_backend *self,
 	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
 
 	return s->queueFlushed();
+}
+
+
+int pdraw_be_audio_sink_queue_drained(struct pdraw_backend *self,
+				      struct pdraw_audio_sink *sink)
+{
+	Pdraw::IPdraw::IAudioSink *s =
+		reinterpret_cast<Pdraw::IPdraw::IAudioSink *>(sink);
+
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(sink == nullptr, EINVAL);
+
+	return s->queueDrained();
 }
 
 

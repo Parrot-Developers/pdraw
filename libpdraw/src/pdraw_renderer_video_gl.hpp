@@ -98,6 +98,8 @@ protected:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelSos(Channel *channel) override;
 
 	void onChannelEos(Channel *channel) override;
@@ -152,10 +154,20 @@ protected:
 	unsigned int mTargetPrimaryMediaId;
 	unsigned int mPrimaryMediaId;
 	std::atomic_bool mRunning;
-	struct mbuf_raw_video_frame *mCurrentFrame;
-	RawVideoMedia::Frame mCurrentFrameData;
-	struct vdef_raw_frame mCurrentFrameInfo;
-	struct vmeta_frame *mCurrentFrameMetadata;
+	/* Currently loaded frame */
+	struct {
+		struct mbuf_raw_video_frame *frame;
+		struct vdef_raw_frame info;
+		RawVideoMedia::Frame data;
+		struct vmeta_frame *metadata;
+	} mLoadedFrame;
+	/* Next frame to be processed */
+	struct {
+		struct mbuf_raw_video_frame *frame;
+		struct vdef_raw_frame info;
+		RawVideoMedia::Frame data;
+		struct vmeta_frame *metadata;
+	} mNextFrame;
 	RawVideoMedia *mPrimaryMedia;
 	struct pdraw_media_info mMediaInfo;
 	struct vmeta_session mMediaInfoSessionMeta;
@@ -207,6 +219,8 @@ protected:
 private:
 	int setupExtTexture(const struct vdef_raw_frame *frameInfo);
 
+	void onNextFrameLoaded(void);
+
 	void setNormalization(void);
 
 	static bool queueFilter(struct mbuf_raw_video_frame *frame,
@@ -236,6 +250,8 @@ private:
 	static void idleRenewMedia(void *userdata);
 
 	static void idleStart(void *renderer);
+
+	static void idleDrain(void *renderer);
 
 	void onChannelSessionMetaUpdate(Channel *channel) override;
 };

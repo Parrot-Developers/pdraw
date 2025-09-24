@@ -56,7 +56,20 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-enum cmd_type {
+/* codecheck_ignore[COMPLEX_MACRO] */
+#define ENUM_CASE(_prefix, _name)                                              \
+	case _prefix##_name:                                                   \
+		return #_name
+
+
+#define PDRAW_CHECK_WRITER_THREAD(expectWriter)                                \
+	logThreadCheckWarning(__func__, expectWriter)
+
+#define PDRAW_CHECK_WRITER_THREAD_SELF(self_ptr, expectWriter)                 \
+	(self_ptr)->logThreadCheckWarning(__func__, expectWriter)
+
+
+enum cmd_type : unsigned int {
 	CMD_TYPE_ADD_TRACK,
 	CMD_TYPE_ADD_QUEUE_EVENT,
 	CMD_TYPE_REMOVE_QUEUE_EVENT,
@@ -64,10 +77,34 @@ enum cmd_type {
 	CMD_TYPE_ADD_CHAPTER,
 	CMD_TYPE_SET_METADATA,
 	CMD_TYPE_FLUSH,
+	CMD_TYPE_DRAIN,
 	CMD_TYPE_STOP_THREAD,
 	CMD_TYPE_SET_DYN_PARAMS,
 	CMD_TYPE_FORCE_SYNC,
 };
+
+
+static const char *cmdTypeToStr(enum cmd_type type)
+{
+	/* clang-format off */
+	switch (type) {
+	ENUM_CASE(CMD_TYPE_, ADD_TRACK);
+	ENUM_CASE(CMD_TYPE_, ADD_QUEUE_EVENT);
+	ENUM_CASE(CMD_TYPE_, REMOVE_QUEUE_EVENT);
+	ENUM_CASE(CMD_TYPE_, SET_THUMBNAIL);
+	ENUM_CASE(CMD_TYPE_, ADD_CHAPTER);
+	ENUM_CASE(CMD_TYPE_, SET_METADATA);
+	ENUM_CASE(CMD_TYPE_, FLUSH);
+	ENUM_CASE(CMD_TYPE_, DRAIN);
+	ENUM_CASE(CMD_TYPE_, STOP_THREAD);
+	ENUM_CASE(CMD_TYPE_, SET_DYN_PARAMS);
+	ENUM_CASE(CMD_TYPE_, FORCE_SYNC);
+	default:
+		return "UNKNOWN";
+	}
+	/* clang-format on */
+}
+
 
 struct add_track_params {
 	uint32_t mediaId;
@@ -77,8 +114,10 @@ struct add_track_params {
 	struct pdraw_muxer_media_params *params;
 };
 
+
 struct cmd_msg {
 	enum cmd_type type;
+	size_t id;
 	union {
 		struct {
 			struct add_track_params params;
@@ -104,6 +143,9 @@ struct cmd_msg {
 			uint32_t mediaId;
 			struct vmeta_session *metadata;
 		} set_metadata;
+		struct {
+			Channel *channel;
+		} flush;
 		struct {
 			struct pdraw_muxer_dyn_params dyn_params;
 		} set_dyn_params;
@@ -153,7 +195,8 @@ RecordMuxer::RecordMuxer(Session *session,
 		mFileName(fileName), mFileMode(0), mMux(nullptr), mMediaDate(0),
 		mMediaDateGmtOff(0), mHasChaptersTrack(false),
 		mChaptersTrackId(0), mMetaBuffer(nullptr), mStats({}),
-		mFreeSpaceLeft(0), mPendingStop(false), mTimerSync(nullptr),
+		mFreeSpaceLeft(0), mPendingStop(false),
+		mStopThreadReceived(false), mTimerSync(nullptr),
 		mTablesSyncPeriodMs(0), mTimerTablesSync(nullptr)
 {
 	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
@@ -161,10 +204,10 @@ RecordMuxer::RecordMuxer(Session *session,
 	Element::setClassName(__func__);
 
 	mWriterThread.thread = 0;
-	mWriterThread.started = false;
-	mWriterThread.running = false;
+	mWriterThread.state = State::INVALID;
 	mWriterThread.shouldStop = false;
 	mWriterThread.loop = nullptr;
+	mWriterThread.cmdIdCounter = 0;
 
 	mWriterThread.mbox = mbox_new(sizeof(cmd_msg));
 	if (mWriterThread.mbox == nullptr)
@@ -195,6 +238,7 @@ RecordMuxer::RecordMuxer(Session *session,
 
 	mTablesSyncPeriodMs = params->tables_sync_period_ms;
 	mRecovery.metadataChanged = true;
+	mStats.type = PDRAW_MUXER_TYPE_RECORD;
 }
 
 
@@ -206,13 +250,15 @@ RecordMuxer::~RecordMuxer(void)
 	if (err < 0)
 		PDRAW_LOG_ERRNO("internalStop", -err);
 
-	if (mWriterThread.started) {
+	if (isThreadAlive()) {
 		mWriterThread.shouldStop = true;
-		if (mWriterThread.running) {
+		if (isThreadRunning()) {
 			err = pomp_loop_wakeup(mWriterThread.loop);
 			if (err < 0)
 				PDRAW_LOG_ERRNO("pomp_loop_wakeup", -err);
 		}
+	}
+	if (isThreadJoinable()) {
 		err = pthread_join(mWriterThread.thread, nullptr);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("pthread_join", -err);
@@ -236,12 +282,18 @@ int RecordMuxer::addTrackForMedia(Media *media,
 {
 	int ret;
 	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_ADD_TRACK;
 	CodedVideoMedia *codedMedia = dynamic_cast<CodedVideoMedia *>(media);
 	RawVideoMedia *rawMedia = dynamic_cast<RawVideoMedia *>(media);
 	AudioMedia *audioMedia = dynamic_cast<AudioMedia *>(media);
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
+
+	if (!canSendCmdToThread(cmdType)) {
+		ret = -EPROTO;
+		PDRAW_LOGE("%s: cannot send command to thread", __func__);
+		goto out;
+	}
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -249,7 +301,7 @@ int RecordMuxer::addTrackForMedia(Media *media,
 		PDRAW_LOG_ERRNO("calloc", -ret);
 		goto out;
 	}
-	cmd->type = CMD_TYPE_ADD_TRACK;
+	cmd->type = cmdType;
 	cmd->add_track.params.mediaId = media->id;
 	cmd->add_track.params.trackTime = 0;
 	media->fillMediaInfo(&cmd->add_track.params.mediaInfo);
@@ -289,9 +341,9 @@ int RecordMuxer::addTrackForMedia(Media *media,
 		}
 	}
 
-	ret = mbox_push(mWriterThread.mbox, cmd);
+	ret = sendCommand(cmd);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -ret);
+		PDRAW_LOG_ERRNO("sendCommand", -ret);
 		goto out;
 	}
 
@@ -315,6 +367,7 @@ int RecordMuxer::addInputMedia(Media *media,
 {
 	int ret, err;
 	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_ADD_QUEUE_EVENT;
 	CodedVideoChannel *codedChannel = nullptr;
 	RawVideoChannel *rawChannel = nullptr;
 	AudioChannel *audioChannel = nullptr;
@@ -322,17 +375,17 @@ int RecordMuxer::addInputMedia(Media *media,
 	struct mbuf_raw_video_frame_queue *rawQueue = nullptr;
 	struct mbuf_audio_frame_queue *audioQueue = nullptr;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
-
-	if (mWriterThread.mbox == nullptr) {
-		PDRAW_LOGE("%s: mbox wasn't created", __func__);
-		return -EPROTO;
-	}
+	PDRAW_CHECK_WRITER_THREAD(false);
 
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: unsupported input media", __func__);
 		return -EINVAL;
+	}
+
+	if (!canSendCmdToThread(cmdType)) {
+		ret = -EPROTO;
+		PDRAW_LOGE("%s: cannot send command to thread", __func__);
+		return ret;
 	}
 
 	Sink::lock();
@@ -354,8 +407,7 @@ int RecordMuxer::addInputMedia(Media *media,
 		PDRAW_LOG_ERRNO("calloc", -ret);
 		goto error;
 	}
-
-	cmd->type = CMD_TYPE_ADD_QUEUE_EVENT;
+	cmd->type = cmdType;
 
 	codedChannel =
 		dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
@@ -394,9 +446,9 @@ int RecordMuxer::addInputMedia(Media *media,
 		goto error;
 	}
 
-	ret = mbox_push(mWriterThread.mbox, cmd);
+	ret = sendCommand(cmd);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -ret);
+		PDRAW_LOG_ERRNO("sendCommand", -ret);
 		goto error;
 	}
 
@@ -451,6 +503,7 @@ int RecordMuxer::removeInputMedia(Media *media)
 	int res;
 	Sink::lock();
 	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_REMOVE_QUEUE_EVENT;
 	CodedVideoChannel *codedChannel = nullptr;
 	struct mbuf_coded_video_frame_queue *codedQueue = nullptr;
 	RawVideoChannel *rawChannel = nullptr;
@@ -458,14 +511,8 @@ int RecordMuxer::removeInputMedia(Media *media)
 	AudioChannel *audioChannel = nullptr;
 	struct mbuf_audio_frame_queue *audioQueue = nullptr;
 
-	if (!mWriterThread.running)
+	if (!canSendCmdToThread(cmdType))
 		goto remove;
-
-	if (mWriterThread.mbox == nullptr) {
-		PDRAW_LOGE("%s: mbox wasn't created", __func__);
-		res = -EPROTO;
-		goto out;
-	}
 
 	codedChannel =
 		dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
@@ -490,8 +537,7 @@ int RecordMuxer::removeInputMedia(Media *media)
 		PDRAW_LOG_ERRNO("calloc", -res);
 		goto out;
 	}
-
-	cmd->type = CMD_TYPE_REMOVE_QUEUE_EVENT;
+	cmd->type = cmdType;
 
 	if (codedQueue) {
 		cmd->remove_queue_event.mediaType = Media::Type::CODED_VIDEO;
@@ -504,9 +550,9 @@ int RecordMuxer::removeInputMedia(Media *media)
 		cmd->remove_queue_event.queue = audioQueue;
 	}
 
-	res = mbox_push(mWriterThread.mbox, cmd);
+	res = sendCommand(cmd);
 	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -res);
+		PDRAW_LOG_ERRNO("sendCommand", -res);
 		goto out;
 	}
 
@@ -535,23 +581,30 @@ out:
 int RecordMuxer::setDynParams(const struct pdraw_muxer_dyn_params *dyn_params)
 {
 	int ret = 0;
+	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_SET_DYN_PARAMS;
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(dyn_params == nullptr, EINVAL);
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
-	struct cmd_msg *cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (!canSendCmdToThread(cmdType)) {
+		ret = -EPROTO;
+		PDRAW_LOGE("%s: cannot send command to thread", __func__);
+		return ret;
+	}
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
 		ret = -ENOMEM;
 		PDRAW_LOG_ERRNO("calloc", -ret);
 		goto out;
 	}
+	cmd->type = cmdType;
 	cmd->set_dyn_params.dyn_params = *dyn_params;
-	cmd->type = CMD_TYPE_SET_DYN_PARAMS;
-	ret = mbox_push(mWriterThread.mbox, cmd);
+	ret = sendCommand(cmd);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -ret);
+		PDRAW_LOG_ERRNO("sendCommand", -ret);
 		goto error_next;
 	}
 
@@ -570,8 +623,7 @@ int RecordMuxer::getDynParams(struct pdraw_muxer_dyn_params *dyn_params)
 {
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(dyn_params == nullptr, EINVAL);
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
 	dyn_params->tables_sync_period_ms = mTablesSyncPeriodMs;
 
@@ -583,23 +635,27 @@ int RecordMuxer::getDynParams(struct pdraw_muxer_dyn_params *dyn_params)
 int RecordMuxer::forceSync(void)
 {
 	int ret = 0;
+	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_FORCE_SYNC;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
-	if (mMux == nullptr)
-		return -EPROTO;
+	if (!canSendCmdToThread(cmdType)) {
+		ret = -EPROTO;
+		PDRAW_LOGE("%s: cannot send command to thread", __func__);
+		return ret;
+	}
 
-	struct cmd_msg *cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
 		ret = -ENOMEM;
 		PDRAW_LOG_ERRNO("calloc", -ret);
 		goto out;
 	}
-	cmd->type = CMD_TYPE_FORCE_SYNC;
-	ret = mbox_push(mWriterThread.mbox, cmd);
+	cmd->type = cmdType;
+	ret = sendCommand(cmd);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -ret);
+		PDRAW_LOG_ERRNO("sendCommand", -ret);
 		goto out;
 	}
 
@@ -615,8 +671,7 @@ int RecordMuxer::internalSync(bool writeTables)
 	int ret = 0;
 	int err = 0;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (mMux != nullptr) {
 		if (mRecovery.metadataChanged) {
@@ -652,6 +707,103 @@ int RecordMuxer::internalSync(bool writeTables)
 }
 
 
+/* Called from any thread */
+bool RecordMuxer::isThreadAlive(void) const
+{
+	switch (getThreadState()) {
+	case State::CREATED:
+	case State::STARTING:
+	case State::STARTED:
+	case State::STOPPING:
+		return true;
+	case State::STOPPED:
+	case State::INVALID:
+	default:
+		return false;
+	}
+}
+
+
+/* Called from any thread */
+Element::State RecordMuxer::getThreadState(void) const
+{
+	return mWriterThread.state.load();
+}
+
+
+/* Called from any thread */
+void RecordMuxer::setThreadState(Element::State state)
+{
+	Element::State old = mWriterThread.state.exchange(state);
+
+	if (old == state)
+		return;
+
+	PDRAW_LOGI("thread state change to %s", getElementStateStr(state));
+}
+
+
+/* Called on the loop thread */
+bool RecordMuxer::canSendCmdToThread(enum cmd_type type) const
+{
+	if (mWriterThread.mbox == nullptr)
+		return false;
+	if (!isThreadAlive())
+		return false;
+	if (getThreadState() == State::STOPPING)
+		return false;
+	/* Stop is pending */
+	if (mPendingStop)
+		return false;
+	switch (type) {
+	/* List of commands requiring mMux */
+	case CMD_TYPE_ADD_TRACK:
+	case CMD_TYPE_SET_THUMBNAIL:
+	case CMD_TYPE_ADD_CHAPTER:
+	case CMD_TYPE_SET_METADATA:
+	case CMD_TYPE_SET_DYN_PARAMS:
+	case CMD_TYPE_FORCE_SYNC:
+		if (mMux == nullptr)
+			return false;
+		break;
+	case CMD_TYPE_ADD_QUEUE_EVENT:
+	case CMD_TYPE_REMOVE_QUEUE_EVENT:
+	case CMD_TYPE_FLUSH:
+	case CMD_TYPE_STOP_THREAD:
+	default:
+		break;
+	}
+	return true;
+}
+
+
+/* Called on the loop thread */
+int RecordMuxer::sendCommand(struct cmd_msg *cmd)
+{
+	cmd->id = ++mWriterThread.cmdIdCounter;
+
+	PDRAW_LOGD(
+		"sending command #%zu '%s'", cmd->id, cmdTypeToStr(cmd->type));
+
+	int ret = mbox_push(mWriterThread.mbox, cmd);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("mbox_push", -ret);
+	return ret;
+}
+
+
+void RecordMuxer::logThreadCheckWarning(const char *funcName,
+					bool shouldBeWriterThread) const
+{
+	bool calledFromWriter =
+		(std::this_thread::get_id() == mWriterThread.id);
+	if (shouldBeWriterThread && !calledFromWriter)
+		PDRAW_LOGW("%s not called from the writer thread", funcName);
+	else if (!shouldBeWriterThread && calledFromWriter)
+		PDRAW_LOGW("%s called from the writer thread", funcName);
+}
+
+
 /* Called on the writer thread */
 void RecordMuxer::syncCb(struct pomp_timer *timer, void *userdata)
 {
@@ -678,6 +830,10 @@ void *RecordMuxer::writerThread(void *arg)
 	int err = 0;
 	struct mbox_mux_loop muxArg = {nullptr, nullptr};
 	size_t inputMediaCount;
+
+	self->mWriterThread.id = std::this_thread::get_id();
+
+	self->setThreadState(State::STARTING);
 
 #if defined(__APPLE__)
 #	if !TARGET_OS_IPHONE
@@ -752,7 +908,7 @@ void *RecordMuxer::writerThread(void *arg)
 			PDRAW_LOG_ERRNO("pomp_timer_set_periodic", -err);
 	}
 
-	self->mWriterThread.running = true;
+	self->setThreadState(State::STARTED);
 
 	while (!self->mWriterThread.shouldStop) {
 		err = pomp_loop_wait_and_process(self->mWriterThread.loop,
@@ -761,7 +917,7 @@ void *RecordMuxer::writerThread(void *arg)
 			PDRAW_LOG_ERRNO("pomp_loop_wait_and_process", -err);
 	}
 
-	self->mWriterThread.running = false;
+	self->setThreadState(State::STOPPING);
 
 	self->Sink::lock();
 
@@ -847,7 +1003,7 @@ out:
 		self->mWriterThread.loop = nullptr;
 	}
 
-	if (self->mState == STOPPING) {
+	if (self->mState.load() == State::STOPPING) {
 		/* Call completeStop on the loop thread */
 		err = pomp_loop_idle_add_with_cookie(self->mSession->getLoop(),
 						     &callCompleteStop,
@@ -860,6 +1016,8 @@ out:
 	/* Free the metadata buffer */
 	free(self->mMetaBuffer);
 
+	self->setThreadState(State::STOPPED);
+
 	return nullptr;
 }
 
@@ -869,8 +1027,7 @@ int RecordMuxer::internalStart(void)
 {
 	int res, inputMediaCount, i, err;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
 	err = time_local_get(&mMediaDate, &mMediaDateGmtOff);
 	if (err < 0)
@@ -932,13 +1089,13 @@ int RecordMuxer::internalStart(void)
 
 	Sink::unlock();
 
-	mWriterThread.started = true;
+	setThreadState(State::CREATED);
 
 	res = pthread_create(
 		&mWriterThread.thread, nullptr, &writerThread, this);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("pthread_create", res);
-		mWriterThread.started = false;
+		setThreadState(State::INVALID);
 	}
 
 	return res;
@@ -950,13 +1107,13 @@ int RecordMuxer::internalStop(void)
 {
 	int ret, err;
 	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_STOP_THREAD;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
 	/* Writer thread is not running and stop is not pending, return
 	 * immediately */
-	if (!mWriterThread.running && !mPendingStop)
+	if (!canSendCmdToThread(cmdType))
 		return 0;
 
 	mReadyToStop = false;
@@ -965,6 +1122,11 @@ int RecordMuxer::internalStop(void)
 	 * thread exits */
 	if (mPendingStop)
 		return 0;
+
+	/* All media must be removed before stopping the thread */
+	err = removeInputMedias();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("removeInputMedias", -err);
 
 	mPendingStop = true;
 
@@ -976,10 +1138,10 @@ int RecordMuxer::internalStop(void)
 		mPendingStop = false;
 		return ret;
 	}
-	cmd->type = CMD_TYPE_STOP_THREAD;
-	err = mbox_push(mWriterThread.mbox, cmd);
+	cmd->type = cmdType;
+	err = sendCommand(cmd);
 	if (err < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -err);
+		PDRAW_LOG_ERRNO("sendCommand", -err);
 		mPendingStop = false;
 	}
 	free(cmd);
@@ -995,17 +1157,20 @@ int RecordMuxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 {
 	int ret = 0, err;
 	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_SET_THUMBNAIL;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
 	ULOG_ERRNO_RETURN_ERR_IF(type == PDRAW_MUXER_THUMBNAIL_TYPE_UNKNOWN,
 				 EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(data == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(size == 0, EINVAL);
 
-	if (mMux == nullptr)
-		return -EPROTO;
+	if (!canSendCmdToThread(cmdType)) {
+		ret = -EPROTO;
+		PDRAW_LOGE("%s: cannot send command to thread", __func__);
+		return ret;
+	}
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1013,7 +1178,7 @@ int RecordMuxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 		PDRAW_LOG_ERRNO("calloc", -ret);
 		return ret;
 	}
-	cmd->type = CMD_TYPE_SET_THUMBNAIL;
+	cmd->type = cmdType;
 	cmd->set_thumbnail.type = type;
 	cmd->set_thumbnail.size = size;
 	cmd->set_thumbnail.data = (uint8_t *)calloc(1, size);
@@ -1023,9 +1188,9 @@ int RecordMuxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 		goto error;
 	}
 	memcpy(cmd->set_thumbnail.data, data, size);
-	err = mbox_push(mWriterThread.mbox, cmd);
+	err = sendCommand(cmd);
 	if (err < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -err);
+		PDRAW_LOG_ERRNO("sendCommand", -err);
 		goto error;
 	}
 
@@ -1045,15 +1210,18 @@ int RecordMuxer::addChapter(uint64_t timestamp, const char *name)
 {
 	int ret = 0, err;
 	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_ADD_CHAPTER;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
 	ULOG_ERRNO_RETURN_ERR_IF(name == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(strlen(name) < 1, EINVAL);
 
-	if (mMux == nullptr)
-		return -EPROTO;
+	if (!canSendCmdToThread(cmdType)) {
+		ret = -EPROTO;
+		PDRAW_LOGE("%s: cannot send command to thread", __func__);
+		return ret;
+	}
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1061,12 +1229,12 @@ int RecordMuxer::addChapter(uint64_t timestamp, const char *name)
 		PDRAW_LOG_ERRNO("calloc", -ret);
 		return ret;
 	}
-	cmd->type = CMD_TYPE_ADD_CHAPTER;
+	cmd->type = cmdType;
 	cmd->add_chapter.timestamp = timestamp;
 	cmd->add_chapter.name = xstrdup(name);
-	err = mbox_push(mWriterThread.mbox, cmd);
+	err = sendCommand(cmd);
 	if (err < 0) {
-		PDRAW_LOG_ERRNO("mbox_push", -err);
+		PDRAW_LOG_ERRNO("sendCommand", -err);
 		goto error;
 	}
 
@@ -1086,16 +1254,17 @@ void RecordMuxer::onChannelFlush(Channel *channel)
 {
 	int err;
 	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_FLUSH;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
-	mAsyncFlush = (!!mWriterThread.running);
+	mAsyncFlush = canSendCmdToThread(cmdType);
 
-	Muxer::onChannelFlush(channel);
-
-	if (!mAsyncFlush)
+	if (!mAsyncFlush) {
+		/* Thread is not running, call flush on the loop thread */
+		Muxer::onChannelFlush(channel);
 		return;
+	}
 
 	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
 	if (cmd == nullptr) {
@@ -1103,10 +1272,46 @@ void RecordMuxer::onChannelFlush(Channel *channel)
 		PDRAW_LOG_ERRNO("calloc", -err);
 		return;
 	}
-	cmd->type = CMD_TYPE_FLUSH;
-	err = mbox_push(mWriterThread.mbox, cmd);
+	cmd->type = cmdType;
+	cmd->flush.channel = channel;
+	err = sendCommand(cmd);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("mbox_push", -err);
+		PDRAW_LOG_ERRNO("sendCommand", -err);
+	free(cmd);
+}
+
+
+/* Called on the loop thread */
+void RecordMuxer::onChannelDrain(Channel *channel)
+{
+	int err;
+	struct cmd_msg *cmd = nullptr;
+	enum cmd_type cmdType = CMD_TYPE_DRAIN;
+
+	PDRAW_CHECK_WRITER_THREAD(false);
+
+	if (pthread_self() == mWriterThread.thread)
+		PDRAW_LOGW("%s called from the writer thread", __func__);
+
+	mAsyncFlush = canSendCmdToThread(cmdType);
+
+	if (!mAsyncFlush) {
+		/* Thread is not running, call drain on the loop thread */
+		Muxer::onChannelDrain(channel);
+		return;
+	}
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		err = -ENOMEM;
+		PDRAW_LOG_ERRNO("calloc", -err);
+		return;
+	}
+	cmd->type = cmdType;
+	cmd->flush.channel = channel;
+	err = sendCommand(cmd);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("sendCommand", -err);
 	free(cmd);
 }
 
@@ -1115,14 +1320,19 @@ void RecordMuxer::onChannelFlush(Channel *channel)
 void RecordMuxer::onChannelSessionMetaUpdate(Channel *channel)
 {
 	size_t inputMediaCount;
+	enum cmd_type cmdType = CMD_TYPE_SET_METADATA;
 
-	if (pthread_self() == mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
 	Sink::onChannelSessionMetaUpdate(channel);
 
 	if (channel == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	if (!canSendCmdToThread(cmdType)) {
+		PDRAW_LOGE("%s: cannot send command to thread", __func__);
 		return;
 	}
 
@@ -1151,7 +1361,7 @@ void RecordMuxer::onChannelSessionMetaUpdate(Channel *channel)
 			PDRAW_LOG_ERRNO("calloc", -err);
 			continue;
 		}
-		cmd->type = CMD_TYPE_SET_METADATA;
+		cmd->type = cmdType;
 		cmd->set_metadata.mediaId = media->id;
 		cmd->set_metadata.metadata = (struct vmeta_session *)calloc(
 			1, sizeof(struct vmeta_session));
@@ -1163,9 +1373,9 @@ void RecordMuxer::onChannelSessionMetaUpdate(Channel *channel)
 		*cmd->set_metadata.metadata = codedMedia != nullptr
 						      ? codedMedia->sessionMeta
 						      : rawMedia->sessionMeta;
-		err = mbox_push(mWriterThread.mbox, cmd);
+		err = sendCommand(cmd);
 		if (err < 0) {
-			PDRAW_LOG_ERRNO("mbox_push", -err);
+			PDRAW_LOG_ERRNO("sendCommand", -err);
 			goto error_next;
 		}
 		free(cmd);
@@ -1191,13 +1401,12 @@ void RecordMuxer::mergeSessionMetadata(void)
 	size_t i = 0;
 	size_t videoTrackCount = 0;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
+	for (auto &t : mTracks) {
 		/* Ignoring audio tracks */
-		if (it->second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
-		    it->second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
+		if (t.second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
+		    t.second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
 			continue;
 		videoTrackCount++;
 	}
@@ -1211,30 +1420,30 @@ void RecordMuxer::mergeSessionMetadata(void)
 	}
 
 	/* Set first_frame_sample_index/first_frame_capture_ts */
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
+	for (auto &t : mTracks) {
 		/* Ignoring audio tracks */
-		if (it->second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
-		    it->second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
+		if (t.second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
+		    t.second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
 			continue;
 		/* First frame capture timestamp is always needed on raw video
 		 * tracks because capture_ts is not serialized in the MP4 */
-		if (it->second.mMediaType == Pdraw::Media::Type::CODED_VIDEO &&
-		    it->second.mFirstSampleIndex == 0)
+		if (t.second.mMediaType == Pdraw::Media::Type::CODED_VIDEO &&
+		    t.second.mFirstSampleIndex == 0)
 			continue;
-		it->second.mSessionMeta.first_frame_sample_index =
-			it->second.mFirstSampleIndex;
-		it->second.mSessionMeta.first_frame_capture_ts =
-			it->second.mFirstCaptureTs;
+		t.second.mSessionMeta.first_frame_sample_index =
+			t.second.mFirstSampleIndex;
+		t.second.mSessionMeta.first_frame_capture_ts =
+			t.second.mFirstCaptureTs;
 	}
 
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
+	for (auto &t : mTracks) {
 		/* Ignoring audio tracks */
-		if (it->second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
-		    it->second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
+		if (t.second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
+		    t.second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
 			continue;
 		tracksSessionMeta[i] = (vmeta_session *)calloc(
 			sizeof(*tracksSessionMeta[i]), 1);
-		*tracksSessionMeta[i] = it->second.mSessionMeta;
+		*tracksSessionMeta[i] = t.second.mSessionMeta;
 		i++;
 	}
 
@@ -1244,12 +1453,12 @@ void RecordMuxer::mergeSessionMetadata(void)
 		PDRAW_LOG_ERRNO("vmeta_session_merge", -err);
 
 	i = 0;
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
+	for (auto &t : mTracks) {
 		/* Ignoring audio tracks */
-		if (it->second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
-		    it->second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
+		if (t.second.mMediaType != Pdraw::Media::Type::CODED_VIDEO &&
+		    t.second.mMediaType != Pdraw::Media::Type::RAW_VIDEO)
 			continue;
-		Track &track = it->second;
+		Track &track = t.second;
 		struct vmeta_session *trackSessionMeta = tracksSessionMeta[i];
 		struct SessionMetaWriteTrackCbUserdata ud = {
 			.muxer = this,
@@ -1302,8 +1511,7 @@ int RecordMuxer::internalAddTrackForMedia(const struct add_track_params *params)
 	videoMedia = (codedMedia || rawMedia);
 	audioMedia = (params->type == Media::Type::AUDIO);
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mMux == nullptr, EAGAIN);
 
@@ -1519,8 +1727,7 @@ int RecordMuxer::addChaptersTrack(void)
 	int res;
 	Track *ref = nullptr;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mHasChaptersTrack, EALREADY);
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mChaptersTrackId > 0, EALREADY);
@@ -1529,8 +1736,8 @@ int RecordMuxer::addChaptersTrack(void)
 		return -EPROTO;
 
 	/* Search for default coded video track */
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
-		Track &track = it->second;
+	for (auto &t : mTracks) {
+		Track &track = t.second;
 		if (track.mMediaType != Media::Type::CODED_VIDEO)
 			continue;
 		if (!track.mIsDefault)
@@ -1560,8 +1767,8 @@ int RecordMuxer::addChaptersTrack(void)
 	mHasChaptersTrack = true;
 	mChaptersTrackId = (uint32_t)res;
 
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
-		Track &track = it->second;
+	for (auto &t : mTracks) {
+		Track &track = t.second;
 		if (!track.mHasChaptersTrack) {
 			/* Add track reference to every tracks */
 			res = mp4_mux_add_ref_to_track(
@@ -1577,9 +1784,8 @@ int RecordMuxer::addChaptersTrack(void)
 	}
 
 	/* Process pending chapters if needed */
-	for (auto it = mPendingChapters.begin(); it != mPendingChapters.end();
-	     it++) {
-		int err = internalAddChapter(it->first, it->second.c_str());
+	for (auto &c : mPendingChapters) {
+		int err = internalAddChapter(c.first, c.second.c_str());
 		if (err < 0)
 			PDRAW_LOG_ERRNO("internalAddChapter", -err);
 	}
@@ -1596,8 +1802,7 @@ int RecordMuxer::addMetadataTrack(Track *ref, enum vmeta_frame_type metaType)
 	const char *mimeType = nullptr;
 	const char *contentEncoding = nullptr;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(ref == nullptr, EINVAL);
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(ref->mHasMetadataTrack, EALREADY);
@@ -1692,10 +1897,9 @@ int RecordMuxer::process(void)
 {
 	int inputMediaCount, i;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
-	if (mState != STARTED)
+	if (mState.load() != State::STARTED)
 		return 0;
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mMux == nullptr, EAGAIN);
@@ -1718,8 +1922,7 @@ int RecordMuxer::processMedia(int index)
 	int res = 0, err;
 	uint32_t trackId = UINT32_MAX;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	Sink::lock();
 
@@ -1731,8 +1934,8 @@ int RecordMuxer::processMedia(int index)
 		return res;
 	}
 
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
-		Track &track = it->second;
+	for (auto &t : mTracks) {
+		Track &track = t.second;
 		if (track.mMediaId == media->id) {
 			trackId = track.mTrackId;
 			break;
@@ -1892,8 +2095,7 @@ void RecordMuxer::callCompleteStop(void *userdata)
 	RecordMuxer *self = reinterpret_cast<RecordMuxer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	if (pthread_self() == self->mWriterThread.thread)
-		PDRAW_LOGW("%s called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD_SELF(self, false);
 
 	self->mPendingStop = false;
 	idleCompleteStop(userdata);
@@ -1915,13 +2117,12 @@ int RecordMuxer::processFrame(Track *track,
 	size_t *frameNalusSize = nullptr;
 	uint64_t spaceNeeded = 0;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (mUnrecoverableError)
 		return -EPROTO;
 
-	if (mMux == nullptr || !mWriterThread.running)
+	if (mMux == nullptr || !isThreadRunning())
 		return -EPROTO;
 
 	sample.nbuffers = mbuf_coded_video_frame_get_nalu_count(frame);
@@ -2119,13 +2320,12 @@ int RecordMuxer::processFrame(Track *track, struct mbuf_raw_video_frame *frame)
 	RawVideoMedia::Frame *meta;
 	const void *aData;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (mUnrecoverableError)
 		return -EPROTO;
 
-	if (mMux == nullptr || !mWriterThread.running)
+	if (mMux == nullptr || !isThreadRunning())
 		return -EPROTO;
 
 	res = mbuf_raw_video_frame_get_frame_info(frame, &info);
@@ -2280,13 +2480,12 @@ int RecordMuxer::processFrame(Track *track, struct mbuf_audio_frame *frame)
 	AudioMedia::Frame *meta;
 	const void *aData;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (mUnrecoverableError)
 		return -EPROTO;
 
-	if (mMux == nullptr || !mWriterThread.running)
+	if (mMux == nullptr || !isThreadRunning())
 		return -EPROTO;
 
 	res = mbuf_audio_frame_get_frame_info(frame, &info);
@@ -2371,8 +2570,7 @@ int RecordMuxer::internalSetDynParams(
 	int ret = 0;
 	int err = 0;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (mTablesSyncPeriodMs == dyn_params->tables_sync_period_ms)
 		return 0;
@@ -2428,8 +2626,7 @@ void RecordMuxer::mboxCb(int fd, uint32_t revents, void *userdata)
 	if (param->loop == nullptr || self == nullptr)
 		return;
 
-	if (pthread_self() != self->mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD_SELF(self, true);
 
 	message = malloc(sizeof(cmd_msg));
 	if (message == nullptr) {
@@ -2446,6 +2643,17 @@ void RecordMuxer::mboxCb(int fd, uint32_t revents, void *userdata)
 			if (err != -EAGAIN)
 				PDRAW_LOG_ERRNO("mbox_peek", -err);
 			break;
+		}
+
+		/* Warn if a command has been received after STOP_THREAD */
+		if (self->mStopThreadReceived) {
+			PDRAW_LOGW("received command #%zu '%s' while stopping",
+				   msg->id,
+				   cmdTypeToStr(msg->type));
+		} else {
+			PDRAW_LOGD("received command #%zu '%s'",
+				   msg->id,
+				   cmdTypeToStr(msg->type));
 		}
 
 		switch (msg->type) {
@@ -2505,7 +2713,12 @@ void RecordMuxer::mboxCb(int fd, uint32_t revents, void *userdata)
 			free(msg->set_metadata.metadata);
 			break;
 		case CMD_TYPE_FLUSH:
-			err = self->internalFlush();
+			err = self->internalFlush(msg->flush.channel, true);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("internalFlush", -err);
+			break;
+		case CMD_TYPE_DRAIN:
+			err = self->internalFlush(msg->flush.channel, false);
 			if (err < 0)
 				PDRAW_LOG_ERRNO("internalFlush", -err);
 			break;
@@ -2539,8 +2752,7 @@ int RecordMuxer::internalAddQueueEvtToLoop(Media::Type type, void *queue)
 {
 	int ret;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	switch (type) {
 	case Media::Type::CODED_VIDEO: {
@@ -2581,8 +2793,7 @@ int RecordMuxer::internalRemoveQueueEvtFromLoop(Media::Type type, void *queue)
 {
 	int err;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	switch (type) {
 	case Media::Type::CODED_VIDEO: {
@@ -2663,8 +2874,7 @@ int RecordMuxer::internalSetThumbnail(enum pdraw_muxer_thumbnail_type type,
 {
 	int ret = 0;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	ret = mp4_mux_set_file_cover(
 		mMux, thumbnailTypeToCoverType(type), data, size);
@@ -2682,8 +2892,7 @@ int RecordMuxer::internalAddChapter(uint64_t timestamp, const char *name)
 	unsigned int bufLen = 0;
 	uint32_t dts = 0;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (!mHasChaptersTrack) {
 		/* Add a first chapter if missing */
@@ -2741,11 +2950,10 @@ int RecordMuxer::internalSetMetadata(uint32_t mediaId,
 {
 	ULOG_ERRNO_RETURN_ERR_IF(metadata == nullptr, EINVAL);
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
-	for (auto it = mTracks.begin(); it != mTracks.end(); it++) {
-		Track &track = it->second;
+	for (auto &t : mTracks) {
+		Track &track = t.second;
 		if (track.mMediaId == mediaId) {
 			track.mSessionMeta = *metadata;
 			mRecovery.metadataChanged = true;
@@ -2758,17 +2966,23 @@ int RecordMuxer::internalSetMetadata(uint32_t mediaId,
 
 
 /* Called on the writer thread */
-int RecordMuxer::internalFlush(void)
+int RecordMuxer::internalFlush(Channel *channel, bool discard)
 {
 	int ret;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
-	ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), &idleCompleteFlush, this, this);
+	if (discard) {
+		Muxer::onChannelFlush(channel);
+	} else {
+		/* Drain the queues */
+		process();
+		Muxer::onChannelDrain(channel);
+	}
+
+	ret = asyncCompleteFlush(channel, discard);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("asyncCompleteFlush", -ret);
 		return ret;
 	}
 	return 0;
@@ -2780,8 +2994,7 @@ int RecordMuxer::internalStopThread(void)
 {
 	int err;
 
-	if (pthread_self() != mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (mTimerSync != nullptr) {
 		err = pomp_timer_clear(mTimerSync);
@@ -2798,6 +3011,12 @@ int RecordMuxer::internalStopThread(void)
 		PDRAW_LOG_ERRNO("mp4_mux_close", -err);
 	mMux = nullptr;
 	mWriterThread.shouldStop = true;
+	mStopThreadReceived = true;
+
+	err = pomp_loop_wakeup(mWriterThread.loop);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_wakeup", -err);
+
 	return 0;
 }
 
@@ -2813,8 +3032,7 @@ void RecordMuxer::sessionMetaWriteFileCb(enum vmeta_record_type type,
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	if (pthread_self() != self->mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD_SELF(self, true);
 
 	res = mp4_mux_add_file_metadata(self->mMux, key, value);
 	if (res < 0)
@@ -2839,8 +3057,7 @@ void RecordMuxer::sessionMetaWriteTrackCb(enum vmeta_record_type type,
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	if (pthread_self() != self->mWriterThread.thread)
-		PDRAW_LOGW("%s not called from the writer thread", __func__);
+	PDRAW_CHECK_WRITER_THREAD_SELF(self, true);
 
 	res = mp4_mux_add_track_metadata(self->mMux, trackId, key, value);
 	if (res < 0)

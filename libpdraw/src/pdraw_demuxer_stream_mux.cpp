@@ -80,7 +80,7 @@ StreamDemuxerMux::StreamDemuxerMux(Session *session,
 
 	mUrl = url;
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -374,9 +374,11 @@ void StreamDemuxerMux::VideoMediaMux::legacyDataCb(struct mux_ctx *ctx,
 		goto out;
 	}
 
-	res = vstrm_receiver_recv_data(self->mReceiver, pkt);
-	if (res < 0)
-		PDRAW_LOG_ERRNO("vstrm_receiver_recv_data", -res);
+	if (!self->isRtpPaused()) {
+		res = vstrm_receiver_recv_data(self->mReceiver, pkt);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("vstrm_receiver_recv_data", -res);
+	}
 
 out:
 	tpkt_unref(pkt);
@@ -420,9 +422,11 @@ void StreamDemuxerMux::VideoMediaMux::legacyCtrlCb(struct mux_ctx *ctx,
 		goto out;
 	}
 
-	res = vstrm_receiver_recv_ctrl(self->mReceiver, pkt);
-	if (res < 0)
-		PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl", -res);
+	if (!self->isRtpPaused()) {
+		res = vstrm_receiver_recv_ctrl(self->mReceiver, pkt);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl", -res);
+	}
 
 out:
 	tpkt_unref(pkt);
@@ -568,9 +572,13 @@ void StreamDemuxerMux::VideoMediaMux::dataCb(int fd,
 				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
 				break;
 			}
-			/* Process received packet */
-			res = vstrm_receiver_recv_data(self->mReceiver,
-						       self->mRxPkt);
+			if (!self->isRtpPaused()) {
+				/* Process received packet */
+				res = vstrm_receiver_recv_data(self->mReceiver,
+							       self->mRxPkt);
+			} else {
+				res = 0;
+			}
 			/* Replace processed packet with new one */
 			tpkt_unref(self->mRxPkt);
 			self->mRxPkt = newPkt;
@@ -616,9 +624,13 @@ void StreamDemuxerMux::VideoMediaMux::ctrlCb(int fd,
 				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
 				break;
 			}
-			/* Process received packet */
-			res = vstrm_receiver_recv_ctrl(self->mReceiver,
-						       self->mRxPkt);
+			if (!self->isRtpPaused()) {
+				/* Process received packet */
+				res = vstrm_receiver_recv_ctrl(self->mReceiver,
+							       self->mRxPkt);
+			} else {
+				res = 0;
+			}
 			/* Replace processed packet with new one */
 			tpkt_unref(self->mRxPkt);
 			self->mRxPkt = newPkt;

@@ -177,13 +177,33 @@ protected:
 
 		void play(void);
 
+		void onPlayComplete(void);
+
 		void pause(void);
+
+		void onPauseComplete(void);
 
 		void resync(void);
 
+		void seek(void);
+
+		void previous(void);
+
+		void next(void);
+
 		void stop(void);
 
-		void flush(bool destroy = false);
+		void flush(bool discard = true);
+
+		inline void drain()
+		{
+			flush(false);
+		}
+
+		bool isSeeking(void)
+		{
+			return mPendingSeek;
+		}
 
 		void setTearingDown(void);
 
@@ -192,7 +212,19 @@ protected:
 			return mTearingDown;
 		}
 
+		bool isRtpPaused(void)
+		{
+			return mRtpPaused;
+		}
+
+		void setDestroyAfterFlush(bool destroy)
+		{
+			mDestroyAfterFlush = destroy;
+		}
+
 		void channelFlushed(Channel *channel);
+
+		void channelDrained(Channel *channel);
 
 		void channelUnlink(Channel *channel);
 
@@ -227,6 +259,12 @@ protected:
 		int setupMedia(void);
 
 		void teardownMedia(void);
+
+		void asyncCompleteSeek(void);
+
+		static void idleCompleteSeek(void *userdata);
+
+		void completeSeek(void);
 
 		static void h264UserDataSeiCb(
 			struct h264_ctx *ctx,
@@ -289,6 +327,10 @@ protected:
 		struct pomp_timer *mRangeTimer;
 		uint32_t mSsrc;
 		bool mFlushing;
+		bool mFlushDiscard;
+		bool mPendingSeek;
+		int mSeekResponse;
+		bool mAsyncCompleteSeekCalled;
 		bool mDestroyAfterFlush;
 		bool mPendingTearDown;
 		bool mTearingDown;
@@ -299,6 +341,7 @@ protected:
 		struct vstrm_codec_info mCodecInfo;
 		bool mWaitForCodecInfo;
 		bool mCodecInfoChanging;
+		bool mRtcpMediaChangeReceived;
 		bool mWaitForSync;
 		int mRecoveryFrameCount;
 		std::queue<struct vstrm_frame *> mTempQueue;
@@ -309,6 +352,7 @@ protected:
 		struct vmeta_session mSessionMetaFromSdp;
 		static const struct vstrm_receiver_cbs mReceiverCbs;
 		static const struct h264_ctx_cbs mH264Cbs;
+		bool mRtpPaused;
 	};
 
 	struct SetupRequest {
@@ -350,6 +394,7 @@ protected:
 	std::string mRtspAddr;
 	std::string mRtspPath;
 	const char *mContentBase;
+	const char *mShortContentBase;
 	std::string mLocalAddr;
 	std::string mRemoteAddr;
 	SessionProtocol mSessionProtocol;
@@ -375,9 +420,7 @@ private:
 
 	int internalPause(void);
 
-	int flush(void) override;
-
-	int flush(bool destroyMedias);
+	int flush(bool discard = true) override;
 
 	void completeTeardown(void);
 
@@ -391,6 +434,8 @@ private:
 
 	void onChannelFlushed(Channel *channel) override;
 
+	void onChannelDrained(Channel *channel) override;
+
 	void onChannelUnlink(Channel *channel) override;
 
 	void onChannelResync(Channel *channel) override;
@@ -401,6 +446,8 @@ private:
 	void onNewSdp(const char *content_base, const char *sdp);
 
 	void setRtspState(StreamDemuxer::RtspState state);
+
+	void onMediaSeekComplete(int seekResponse);
 
 	static const char *getRtspStateStr(StreamDemuxer::RtspState val);
 
@@ -512,7 +559,9 @@ private:
 	struct rtsp_client *mRtspClient;
 	const char *mRtspSessionId;
 	bool mRunning;
-	bool mFlushing;
+	/* Whether mRunning has been set to true at least once;
+	 * needed to handle the start_in_pause (PAUSE_NEXT) feature */
+	bool mWasRunningOnce;
 	bool mDestroyMediasAfterFlush;
 	unsigned int mFlushChannelCount;
 	uint64_t mStartTime;
@@ -521,12 +570,15 @@ private:
 	bool mUpdateTrackDuration;
 	uint64_t mCurrentTime;
 	uint64_t mPausePoint;
+	uint64_t mPlayNtpTime;
 	int64_t mNtpToNptOffset;
 	unsigned int mRtpClockRate;
 	float mSpeed;
 	bool mFrameByFrame;
 	bool mEndOfRangeNotified;
 	bool mSeeking;
+	bool mSeekingNetwork;
+	int mSeekResponse;
 	static const struct rtsp_client_cbs mRtspClientCbs;
 };
 

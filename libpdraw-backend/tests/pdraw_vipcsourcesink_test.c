@@ -149,8 +149,35 @@ static void sink_flush_cb(struct pdraw_backend *pdraw,
 }
 
 
+static void sink_drain_cb(struct pdraw_backend *pdraw,
+			  struct pdraw_raw_video_sink *sink,
+			  void *userdata)
+{
+	struct pdraw_backend_app *self = userdata;
+	int res;
+
+	ULOGI("%s", __func__);
+
+	if (self->out_queue == NULL)
+		return;
+
+	pthread_mutex_lock(&self->mutex);
+
+	res = mbuf_raw_video_frame_queue_flush(self->out_queue);
+	if (res < 0)
+		ULOG_ERRNO("mbuf_raw_video_frame_queue_flush", -res);
+
+	res = pdraw_be_raw_video_sink_queue_drained(self->pdraw, self->sink);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_raw_video_sink_queue_drained", -res);
+
+	pthread_mutex_unlock(&self->mutex);
+}
+
+
 static const struct pdraw_backend_raw_video_sink_cbs sink_cbs = {
 	.flush = &sink_flush_cb,
+	.drain = &sink_drain_cb,
 };
 
 

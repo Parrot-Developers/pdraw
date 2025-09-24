@@ -58,7 +58,12 @@ public:
 
 	int stop(void) override;
 
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int setSessionMetadata(const struct vmeta_session *meta);
 
@@ -75,6 +80,8 @@ public:
 	}
 
 private:
+	int process(void);
+
 	int processFrame(struct mbuf_raw_video_frame *frame);
 
 	void completeFlush(void);
@@ -85,12 +92,19 @@ private:
 
 	void onChannelFlushed(Channel *channel) override;
 
+	void onChannelDrained(Channel *channel) override;
+
 	void onChannelUnlink(Channel *channel) override;
+
+	int removeQueueEvtFromLoop(struct mbuf_raw_video_frame_queue *queue,
+				   struct pomp_loop *loop);
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
 	static bool inputFilter(struct mbuf_raw_video_frame *frame,
 				void *userdata);
+
+	static void idleCompleteFlush(void *userdata);
 
 	/* Video source listener calls from idle functions */
 	static void callOnMediaAdded(void *userdata);
@@ -103,7 +117,6 @@ private:
 	struct mbuf_raw_video_frame_queue *mFrameQueue;
 	RawVideoMedia *mOutputMedia;
 	uint64_t mLastTimestamp;
-	bool mFlushPending;
 };
 
 
@@ -119,6 +132,8 @@ public:
 	struct mbuf_raw_video_frame_queue *getQueue(void) override;
 
 	int flush(void) override;
+
+	int drain(void) override;
 
 	int setSessionMetadata(const struct vmeta_session *meta) override;
 
@@ -141,6 +156,12 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() ||
+			mSource == nullptr);
+	}
+
 	ExternalRawVideoSource *mSource;
 };
 

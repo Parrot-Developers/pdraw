@@ -55,7 +55,8 @@ Demuxer::Demuxer(Session *session,
 		mDemuxer(wrapper), mDemuxerListener(demuxerListener),
 		mReadyToPlay(false), mUnrecoverableError(false),
 		mCalledOpenResp(false), mCallingSelectMedia(false),
-		mMediaList(nullptr), mMediaListSize(0)
+		mMediaList(nullptr), mMediaListSize(0),
+		mPendingCmd(Command::NONE), mWatchdogTimer(nullptr)
 {
 	mParams = *params;
 }
@@ -63,15 +64,26 @@ Demuxer::Demuxer(Session *session,
 
 Demuxer::~Demuxer(void)
 {
+	int err;
+
 	/* Make sure listener functions will no longer be called */
 	mDemuxerListener = nullptr;
 
 	clearMediaList();
 
 	/* Remove any leftover idle callbacks */
-	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
 	if (err < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+
+	if (mWatchdogTimer != nullptr) {
+		err = pomp_timer_clear(mWatchdogTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+		err = pomp_timer_destroy(mWatchdogTimer);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
+	}
 }
 
 
@@ -86,7 +98,7 @@ int Demuxer::getMediaList(struct pdraw_demuxer_media **mediaList,
 		return -EINVAL;
 	}
 
-	if ((mState != STARTING) && (mState != STARTED)) {
+	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
@@ -122,7 +134,7 @@ int Demuxer::selectMedia(uint32_t selectedMedias)
 {
 	int ret;
 
-	if ((mState != STARTING) && (mState != STARTED)) {
+	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
 		return -EPROTO;
 	}
@@ -154,13 +166,9 @@ int Demuxer::selectMedia(uint32_t selectedMedias)
 				   mSelectedMedias.back()->name);
 		} else {
 			PDRAW_LOGI("auto-selecting medias {");
-			for (auto m = mDefaultMedias.begin();
-			     m != mDefaultMedias.end();
-			     m++) {
-				mSelectedMedias.push_back((*m));
-				PDRAW_LOGI(" - %d (%s)",
-					   (*m)->media_id,
-					   (*m)->name);
+			for (auto m : mDefaultMedias) {
+				mSelectedMedias.push_back(m);
+				PDRAW_LOGI(" - %d (%s)", m->media_id, m->name);
 			}
 			PDRAW_LOGI("}");
 		}
@@ -327,10 +335,9 @@ int Demuxer::updateMediaList(
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(selectedMedias == nullptr, EINVAL);
 
 	uint32_t bitfield = 0;
-	for (auto it = mSelectedMedias.begin(); it != mSelectedMedias.end();
-	     it++) {
+	for (auto m : mSelectedMedias) {
 		for (size_t i = 0; i < newMediaListSize; i++) {
-			if (strcmp((*it)->name, newMediaList[i].name) != 0)
+			if (strcmp(m->name, newMediaList[i].name) != 0)
 				continue;
 			/* Selected media is in the new list */
 			bitfield |= (1 << newMediaList[i].media_id);
@@ -367,11 +374,104 @@ void Demuxer::clearMediaList(void)
 uint32_t Demuxer::selectedMediasToBitfield(void)
 {
 	uint32_t bitfield = 0;
-	for (auto it = mSelectedMedias.begin(); it != mSelectedMedias.end();
-	     it++) {
-		bitfield |= (1 << (*it)->media_id);
-	}
+	for (auto m : mSelectedMedias)
+		bitfield |= (1 << m->media_id);
 	return bitfield;
+}
+
+
+const char *Demuxer::getCommandStr(Demuxer::Command cmd)
+{
+	switch (cmd) {
+	case Command::NONE:
+		return "NONE";
+	case Command::PLAY:
+		return "PLAY";
+	case Command::PAUSE:
+		return "PAUSE";
+	case Command::PAUSE_NEXT:
+		return "PAUSE_NEXT";
+	case Command::SEEK:
+		return "SEEK";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+
+void Demuxer::watchdogTimerCb(struct pomp_timer *timer, void *userdata)
+{
+
+	Demuxer *self = reinterpret_cast<Demuxer *>(userdata);
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	PDRAW_LOGE("pending operation (%s) timed out",
+		   getCommandStr(self->mPendingCmd));
+
+	switch (self->mPendingCmd) {
+	case Command::PLAY:
+		self->playResponse(-ETIMEDOUT, 0, 0);
+		break;
+	case Command::PAUSE:
+	case Command::PAUSE_NEXT:
+		self->pauseResponse(-ETIMEDOUT, 0);
+		break;
+	case Command::SEEK:
+		self->seekResponse(-ETIMEDOUT, 0, 0);
+		break;
+	default:
+		PDRAW_LOGW("unsupported operation (%s)",
+			   getCommandStr(self->mPendingCmd));
+		self->clearPendingCommand();
+		break;
+	}
+}
+
+
+int Demuxer::setPendingCommand(Demuxer::Command cmd)
+{
+	int ret;
+
+	if (mPendingCmd != Command::NONE) {
+		PDRAW_LOGE("%s: another operation (%s) is pending",
+			   __func__,
+			   getCommandStr(mPendingCmd));
+		return -EBUSY;
+	}
+
+	if (mWatchdogTimer == nullptr) {
+		mWatchdogTimer = pomp_timer_new(
+			mSession->getLoop(), watchdogTimerCb, this);
+		if (mWatchdogTimer == nullptr) {
+			ret = -ENOMEM;
+			PDRAW_LOGE("pomp_timer_new failed");
+			goto error;
+		}
+	}
+
+	ret = pomp_timer_set(mWatchdogTimer,
+			     DEMUXER_PENDING_COMMAND_TIMEOUT_MS);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("pomp_timer_set", -ret);
+		goto error;
+	}
+
+	mPendingCmd = cmd;
+
+	return 0;
+
+error:
+	return ret;
+}
+
+
+void Demuxer::clearPendingCommand(void)
+{
+	int err = pomp_timer_clear(mWatchdogTimer);
+	if (err < 0) {
+		PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+	}
+	mPendingCmd = Command::NONE;
 }
 
 
@@ -470,6 +570,15 @@ void Demuxer::callPlayResponse(void *userdata)
 	self->mPlayRespTimestampArgs.pop();
 	self->mPlayRespSpeedArgs.pop();
 
+	if (self->mPendingCmd == Command::NONE) {
+		PDRAW_LOGE("%s: no pending command", __func__);
+	} else if (self->mPendingCmd != Command::PLAY) {
+		PDRAW_LOGE("%s: unexpected pending command (%s)",
+			   __func__,
+			   getCommandStr(self->mPendingCmd));
+	}
+	self->clearPendingCommand();
+
 	if (self->mDemuxerListener == nullptr)
 		return;
 
@@ -488,6 +597,16 @@ void Demuxer::callPauseResponse(void *userdata)
 	uint64_t timestamp = self->mPauseRespTimestampArgs.front();
 	self->mPauseRespStatusArgs.pop();
 	self->mPauseRespTimestampArgs.pop();
+
+	if (self->mPendingCmd == Command::NONE) {
+		PDRAW_LOGE("%s: no pending command", __func__);
+	} else if ((self->mPendingCmd != Command::PAUSE) &&
+		   (self->mPendingCmd != Command::PAUSE_NEXT)) {
+		PDRAW_LOGE("%s: unexpected pending command (%s)",
+			   __func__,
+			   getCommandStr(self->mPendingCmd));
+	}
+	self->clearPendingCommand();
 
 	if (self->mDemuxerListener == nullptr)
 		return;
@@ -509,6 +628,15 @@ void Demuxer::callSeekResponse(void *userdata)
 	self->mSeekRespStatusArgs.pop();
 	self->mSeekRespTimestampArgs.pop();
 	self->mSeekRespSpeedArgs.pop();
+
+	if (self->mPendingCmd == Command::NONE) {
+		PDRAW_LOGE("%s: no pending command", __func__);
+	} else if (self->mPendingCmd != Command::SEEK) {
+		PDRAW_LOGE("%s: unexpected pending command (%s)",
+			   __func__,
+			   getCommandStr(self->mPendingCmd));
+	}
+	self->clearPendingCommand();
 
 	if (self->mDemuxerListener == nullptr)
 		return;
@@ -594,9 +722,13 @@ DemuxerWrapper::~DemuxerWrapper(void)
 	 * (to allow calling the closeResponse listener function) */
 	mDemuxer->clearDemuxerListener();
 
+	if (mElementStopped)
+		return;
+
 	int res = mDemuxer->stop();
 	if (res < 0)
 		ULOG_ERRNO("Demuxer::stop", -res);
+	mElementStopped = true;
 }
 
 
@@ -604,7 +736,7 @@ int DemuxerWrapper::close(void)
 {
 	int res;
 
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	res = mDemuxer->stop();
@@ -615,7 +747,7 @@ int DemuxerWrapper::close(void)
 
 	/* Waiting for the asynchronous stop; closeResponse()
 	 * will be called when it's done */
-	mDemuxer = nullptr;
+	mElementStopped = true;
 	return 0;
 }
 
@@ -624,7 +756,7 @@ int DemuxerWrapper::getMediaList(struct pdraw_demuxer_media **mediaList,
 				 size_t *mediaCount,
 				 uint32_t *selectedMedias)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return 0;
 
 	return mDemuxer->getMediaList(mediaList, mediaCount, selectedMedias);
@@ -633,7 +765,7 @@ int DemuxerWrapper::getMediaList(struct pdraw_demuxer_media **mediaList,
 
 int DemuxerWrapper::selectMedia(uint32_t selectedMedias)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return 0;
 
 	return mDemuxer->selectMedia(selectedMedias);
@@ -642,7 +774,7 @@ int DemuxerWrapper::selectMedia(uint32_t selectedMedias)
 
 uint16_t DemuxerWrapper::getSingleStreamLocalStreamPort(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return 0;
 
 	StreamDemuxerNet *demuxer = dynamic_cast<StreamDemuxerNet *>(mDemuxer);
@@ -657,7 +789,7 @@ uint16_t DemuxerWrapper::getSingleStreamLocalStreamPort(void)
 
 uint16_t DemuxerWrapper::getSingleStreamLocalControlPort(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return 0;
 
 	StreamDemuxerNet *demuxer = dynamic_cast<StreamDemuxerNet *>(mDemuxer);
@@ -672,7 +804,7 @@ uint16_t DemuxerWrapper::getSingleStreamLocalControlPort(void)
 
 bool DemuxerWrapper::isReadyToPlay(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return false;
 
 	return mDemuxer->isReadyToPlay();
@@ -681,7 +813,7 @@ bool DemuxerWrapper::isReadyToPlay(void)
 
 bool DemuxerWrapper::isPaused(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return false;
 
 	return mDemuxer->isPaused();
@@ -690,7 +822,7 @@ bool DemuxerWrapper::isPaused(void)
 
 int DemuxerWrapper::play(float speed)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mDemuxer->play(speed);
@@ -705,7 +837,7 @@ int DemuxerWrapper::pause(void)
 
 int DemuxerWrapper::previousFrame(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mDemuxer->previous();
 }
@@ -713,7 +845,7 @@ int DemuxerWrapper::previousFrame(void)
 
 int DemuxerWrapper::nextFrame(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mDemuxer->next();
 }
@@ -721,9 +853,8 @@ int DemuxerWrapper::nextFrame(void)
 
 int DemuxerWrapper::seek(int64_t delta, bool exact)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
-
 	return mDemuxer->seek(delta, exact);
 }
 
@@ -742,9 +873,8 @@ int DemuxerWrapper::seekBack(uint64_t delta, bool exact)
 
 int DemuxerWrapper::seekTo(uint64_t timestamp, bool exact)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
-
 	return mDemuxer->seekTo(timestamp, exact);
 }
 
@@ -752,7 +882,7 @@ int DemuxerWrapper::seekTo(uint64_t timestamp, bool exact)
 int DemuxerWrapper::getChapterList(struct pdraw_chapter **chapterList,
 				   size_t *chapterCount)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return 0;
 
 	return mDemuxer->getChapterList(chapterList, chapterCount);
@@ -761,7 +891,7 @@ int DemuxerWrapper::getChapterList(struct pdraw_chapter **chapterList,
 
 uint64_t DemuxerWrapper::getDuration(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return 0;
 
 	return mDemuxer->getDuration();
@@ -770,7 +900,7 @@ uint64_t DemuxerWrapper::getDuration(void)
 
 uint64_t DemuxerWrapper::getCurrentTime(void)
 {
-	if (mDemuxer == nullptr)
+	if (isElementStopped())
 		return 0;
 
 	return mDemuxer->getCurrentTime();

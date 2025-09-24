@@ -98,23 +98,31 @@ enum cmd_type {
 	CMD_TYPE_CODED_VIDEO_SOURCE_DESTROY,
 	CMD_TYPE_CODED_VIDEO_SOURCE_GET_QUEUE,
 	CMD_TYPE_CODED_VIDEO_SOURCE_FLUSH,
+	CMD_TYPE_CODED_VIDEO_SOURCE_DRAIN,
 	CMD_TYPE_CODED_VIDEO_SOURCE_SET_SESSION_METADATA,
 	CMD_TYPE_CODED_VIDEO_SOURCE_GET_SESSION_METADATA,
 	CMD_TYPE_RAW_VIDEO_SOURCE_CREATE,
 	CMD_TYPE_RAW_VIDEO_SOURCE_DESTROY,
 	CMD_TYPE_RAW_VIDEO_SOURCE_GET_QUEUE,
 	CMD_TYPE_RAW_VIDEO_SOURCE_FLUSH,
+	CMD_TYPE_RAW_VIDEO_SOURCE_DRAIN,
 	CMD_TYPE_RAW_VIDEO_SOURCE_SET_SESSION_METADATA,
 	CMD_TYPE_RAW_VIDEO_SOURCE_GET_SESSION_METADATA,
 	CMD_TYPE_CODED_VIDEO_SINK_CREATE,
 	CMD_TYPE_CODED_VIDEO_SINK_DESTROY,
+	CMD_TYPE_CODED_VIDEO_SINK_SET_MEDIA_ID,
+	CMD_TYPE_CODED_VIDEO_SINK_GET_MEDIA_ID,
 	CMD_TYPE_CODED_VIDEO_SINK_RESYNC,
 	CMD_TYPE_CODED_VIDEO_SINK_GET_QUEUE,
 	CMD_TYPE_CODED_VIDEO_SINK_QUEUE_FLUSHED,
+	CMD_TYPE_CODED_VIDEO_SINK_QUEUE_DRAINED,
 	CMD_TYPE_RAW_VIDEO_SINK_CREATE,
 	CMD_TYPE_RAW_VIDEO_SINK_DESTROY,
+	CMD_TYPE_RAW_VIDEO_SINK_SET_MEDIA_ID,
+	CMD_TYPE_RAW_VIDEO_SINK_GET_MEDIA_ID,
 	CMD_TYPE_RAW_VIDEO_SINK_GET_QUEUE,
 	CMD_TYPE_RAW_VIDEO_SINK_QUEUE_FLUSHED,
+	CMD_TYPE_RAW_VIDEO_SINK_QUEUE_DRAINED,
 	CMD_TYPE_ALSA_SOURCE_CREATE,
 	CMD_TYPE_ALSA_SOURCE_DESTROY,
 	CMD_TYPE_ALSA_SOURCE_IS_READY_TO_PLAY,
@@ -125,10 +133,14 @@ enum cmd_type {
 	CMD_TYPE_AUDIO_SOURCE_DESTROY,
 	CMD_TYPE_AUDIO_SOURCE_GET_QUEUE,
 	CMD_TYPE_AUDIO_SOURCE_FLUSH,
+	CMD_TYPE_AUDIO_SOURCE_DRAIN,
 	CMD_TYPE_AUDIO_SINK_CREATE,
 	CMD_TYPE_AUDIO_SINK_DESTROY,
+	CMD_TYPE_AUDIO_SINK_SET_MEDIA_ID,
+	CMD_TYPE_AUDIO_SINK_GET_MEDIA_ID,
 	CMD_TYPE_AUDIO_SINK_GET_QUEUE,
 	CMD_TYPE_AUDIO_SINK_QUEUE_FLUSHED,
+	CMD_TYPE_AUDIO_SINK_QUEUE_DRAINED,
 	CMD_TYPE_AUDIO_RENDERER_CREATE,
 	CMD_TYPE_AUDIO_RENDERER_DESTROY,
 	CMD_TYPE_AUDIO_RENDERER_SET_MEDIA_ID,
@@ -235,10 +247,19 @@ struct cmd_msg {
 			IPdraw::ICodedVideoSink::Listener *listener;
 		} coded_video_sink_create;
 		struct {
+			PdrawBackend::CodedVideoSink *sink;
+			unsigned int media_id;
+		} coded_video_sink_set_media_id;
+		struct {
 			unsigned int media_id;
 			struct pdraw_video_sink_params params;
 			IPdraw::IRawVideoSink::Listener *listener;
 		} raw_video_sink_create;
+
+		struct {
+			PdrawBackend::RawVideoSink *sink;
+			unsigned int media_id;
+		} raw_video_sink_set_media_id;
 		struct {
 			struct pdraw_alsa_source_params params;
 			IPdraw::IAlsaSource::Listener *listener;
@@ -251,6 +272,10 @@ struct cmd_msg {
 			unsigned int media_id;
 			IPdraw::IAudioSink::Listener *listener;
 		} audio_sink_create;
+		struct {
+			PdrawBackend::AudioSink *sink;
+			unsigned int media_id;
+		} audio_sink_set_media_id;
 		struct {
 			unsigned int media_id;
 			struct pdraw_audio_renderer_params params;
@@ -3111,6 +3136,53 @@ out2:
 }
 
 
+int PdrawBackend::CodedVideoSource::drain(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSource->drain();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_CODED_VIDEO_SOURCE_DRAIN;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
 int PdrawBackend::CodedVideoSource::setSessionMetadata(
 	const struct vmeta_session *meta)
 {
@@ -3414,6 +3486,53 @@ out2:
 }
 
 
+int PdrawBackend::RawVideoSource::drain(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSource->drain();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_RAW_VIDEO_SOURCE_DRAIN;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
 int PdrawBackend::RawVideoSource::setSessionMetadata(
 	const struct vmeta_session *meta)
 {
@@ -3623,6 +3742,103 @@ out2:
 }
 
 
+int PdrawBackend::CodedVideoSink::setMediaId(unsigned int mediaId)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSink->setMediaId(mediaId);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_CODED_VIDEO_SINK_SET_MEDIA_ID;
+	cmd->coded_video_sink_set_media_id.sink = this;
+	cmd->coded_video_sink_set_media_id.media_id = mediaId;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+unsigned int PdrawBackend::CodedVideoSink::getMediaId(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+	unsigned int ret = 0;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mSink->getMediaId();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_CODED_VIDEO_SINK_GET_MEDIA_ID;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetUint;
+	mBackend->mRetUint = 0;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
 int PdrawBackend::CodedVideoSink::resync(void)
 {
 	int res;
@@ -3767,6 +3983,52 @@ out2:
 }
 
 
+int PdrawBackend::CodedVideoSink::queueDrained(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSink->queueDrained();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_CODED_VIDEO_SINK_QUEUE_DRAINED;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
 int PdrawBackend::createRawVideoSink(
 	unsigned int mediaId,
 	const struct pdraw_video_sink_params *params,
@@ -3878,6 +4140,103 @@ out2:
 }
 
 
+int PdrawBackend::RawVideoSink::setMediaId(unsigned int mediaId)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSink->setMediaId(mediaId);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_RAW_VIDEO_SINK_SET_MEDIA_ID;
+	cmd->raw_video_sink_set_media_id.sink = this;
+	cmd->raw_video_sink_set_media_id.media_id = mediaId;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+unsigned int PdrawBackend::RawVideoSink::getMediaId(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+	unsigned int ret = 0;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mSink->getMediaId();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_RAW_VIDEO_SINK_GET_MEDIA_ID;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetUint;
+	mBackend->mRetUint = 0;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
 struct mbuf_raw_video_frame_queue *PdrawBackend::RawVideoSink::getQueue(void)
 {
 	int res;
@@ -3957,6 +4316,52 @@ int PdrawBackend::RawVideoSink::queueFlushed(void)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_RAW_VIDEO_SINK_QUEUE_FLUSHED;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::RawVideoSink::queueDrained(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSink->queueDrained();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_RAW_VIDEO_SINK_QUEUE_DRAINED;
 	cmd->generic.ptr = this;
 	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
@@ -4481,6 +4886,52 @@ out2:
 }
 
 
+int PdrawBackend::AudioSource::drain(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSource == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSource->drain();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SOURCE_DRAIN;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
 int PdrawBackend::createAudioSink(unsigned int mediaId,
 				  IPdraw::IAudioSink::Listener *listener,
 				  IPdraw::IAudioSink **retObj)
@@ -4587,6 +5038,103 @@ out2:
 }
 
 
+int PdrawBackend::AudioSink::setMediaId(unsigned int mediaId)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSink->setMediaId(mediaId);
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SINK_SET_MEDIA_ID;
+	cmd->audio_sink_set_media_id.sink = this;
+	cmd->audio_sink_set_media_id.media_id = mediaId;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+unsigned int PdrawBackend::AudioSink::getMediaId(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+	unsigned int ret = 0;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		ret = mSink->getMediaId();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SINK_GET_MEDIA_ID;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+	ret = mBackend->mRetUint;
+	mBackend->mRetUint = 0;
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return ret;
+}
+
+
 struct mbuf_audio_frame_queue *PdrawBackend::AudioSink::getQueue(void)
 {
 	int res;
@@ -4665,6 +5213,52 @@ int PdrawBackend::AudioSink::queueFlushed(void)
 
 	/* Send a message to the loop */
 	cmd->type = CMD_TYPE_AUDIO_SINK_QUEUE_FLUSHED;
+	cmd->generic.ptr = this;
+	res = mBackend->pushCmdAndWait(cmd);
+	if (res < 0) {
+		ULOG_ERRNO("pushCmdAndWait", -res);
+		goto out;
+	}
+
+out:
+	free(cmd);
+	pthread_mutex_unlock(&mBackend->mMutex);
+
+out2:
+	pthread_mutex_unlock(&mBackend->mApiMutex);
+	return res;
+}
+
+
+int PdrawBackend::AudioSink::queueDrained(void)
+{
+	int res;
+	struct cmd_msg *cmd = nullptr;
+
+	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(mSink == nullptr, EPROTO);
+
+	pthread_mutex_lock(&mBackend->mApiMutex);
+
+	if (pthread_self() == mBackend->mLoopThread) {
+		/* Execution is on the loop thread,
+		 * call the function directly */
+		res = mSink->queueDrained();
+		goto out2;
+	}
+
+	pthread_mutex_lock(&mBackend->mMutex);
+
+	cmd = (struct cmd_msg *)calloc(1, sizeof(cmd_msg));
+	if (cmd == nullptr) {
+		res = -ENOMEM;
+		ULOG_ERRNO("calloc", -res);
+		goto out;
+	}
+
+	/* Send a message to the loop */
+	cmd->type = CMD_TYPE_AUDIO_SINK_QUEUE_DRAINED;
 	cmd->generic.ptr = this;
 	res = mBackend->pushCmdAndWait(cmd);
 	if (res < 0) {
@@ -6767,6 +7361,72 @@ void PdrawBackend::vipcSourceReadyToPlay(
 }
 
 
+void PdrawBackend::vipcSourcePlayResponse(IPdraw *pdraw,
+					  IPdraw::IVipcSource *source)
+{
+	std::map<IPdraw::IVipcSource *, struct vipcSourceAndListener>::iterator
+		it;
+	struct vipcSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mVipcSourceListenersMap.find(source);
+	if (it == mVipcSourceListenersMap.end())
+		sl = mPendingVipcSourceAndListener;
+	else
+		sl = it->second;
+
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the VIPC source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the VIPC source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->vipcSourcePlayResponse(this, sl.s);
+}
+
+
+void PdrawBackend::vipcSourcePauseResponse(IPdraw *pdraw,
+					   IPdraw::IVipcSource *source)
+{
+	std::map<IPdraw::IVipcSource *, struct vipcSourceAndListener>::iterator
+		it;
+	struct vipcSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mVipcSourceListenersMap.find(source);
+	if (it == mVipcSourceListenersMap.end())
+		sl = mPendingVipcSourceAndListener;
+	else
+		sl = it->second;
+
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the VIPC source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the VIPC source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->vipcSourcePauseResponse(this, sl.s);
+}
+
+
 bool PdrawBackend::vipcSourceFramerateChanged(
 	Pdraw::IPdraw *pdraw,
 	Pdraw::IPdraw::IVipcSource *source,
@@ -6942,6 +7602,39 @@ void PdrawBackend::onCodedVideoSourceFlushed(IPdraw *pdraw,
 }
 
 
+void PdrawBackend::onCodedVideoSourceDrained(IPdraw *pdraw,
+					     IPdraw::ICodedVideoSource *source)
+{
+	std::map<IPdraw::ICodedVideoSource *,
+		 struct codedVideoSourceAndListener>::iterator it;
+	struct codedVideoSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mCodedVideoSourceListenersMap.find(source);
+	if (it == mCodedVideoSourceListenersMap.end()) {
+		sl = mPendingCodedVideoSourceAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->onCodedVideoSourceDrained(this, sl.s);
+}
+
+
 void PdrawBackend::onRawVideoSourceFlushed(IPdraw *pdraw,
 					   IPdraw::IRawVideoSource *source)
 {
@@ -6975,6 +7668,110 @@ void PdrawBackend::onRawVideoSourceFlushed(IPdraw *pdraw,
 }
 
 
+void PdrawBackend::onCodedVideoSinkMediaAdded(
+	Pdraw::IPdraw *pdraw,
+	Pdraw::IPdraw::ICodedVideoSink *sink,
+	const struct pdraw_media_info *info)
+{
+	std::map<IPdraw::ICodedVideoSink *,
+		 struct codedVideoSinkAndListener>::iterator it;
+	struct codedVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mCodedVideoSinkListenersMap.find(sink);
+	if (it == mCodedVideoSinkListenersMap.end()) {
+		sl = mPendingCodedVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onCodedVideoSinkMediaAdded(this, sl.s, info);
+}
+
+
+void PdrawBackend::onCodedVideoSinkMediaRemoved(
+	Pdraw::IPdraw *pdraw,
+	Pdraw::IPdraw::ICodedVideoSink *sink,
+	const struct pdraw_media_info *info,
+	bool restart)
+{
+	std::map<IPdraw::ICodedVideoSink *,
+		 struct codedVideoSinkAndListener>::iterator it;
+	struct codedVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mCodedVideoSinkListenersMap.find(sink);
+	if (it == mCodedVideoSinkListenersMap.end()) {
+		sl = mPendingCodedVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video sink "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onCodedVideoSinkMediaRemoved(this, sl.s, info, restart);
+}
+
+
+void PdrawBackend::onRawVideoSourceDrained(IPdraw *pdraw,
+					   IPdraw::IRawVideoSource *source)
+{
+	std::map<IPdraw::IRawVideoSource *,
+		 struct rawVideoSourceAndListener>::iterator it;
+	struct rawVideoSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mRawVideoSourceListenersMap.find(source);
+	if (it == mRawVideoSourceListenersMap.end()) {
+		sl = mPendingRawVideoSourceAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->onRawVideoSourceDrained(this, sl.s);
+}
+
+
 void PdrawBackend::onCodedVideoSinkFlush(IPdraw *pdraw,
 					 IPdraw::ICodedVideoSink *sink)
 {
@@ -7004,6 +7801,38 @@ void PdrawBackend::onCodedVideoSinkFlush(IPdraw *pdraw,
 	}
 
 	sl.l->onCodedVideoSinkFlush(this, sl.s);
+}
+
+
+void PdrawBackend::onCodedVideoSinkDrain(IPdraw *pdraw,
+					 IPdraw::ICodedVideoSink *sink)
+{
+	std::map<IPdraw::ICodedVideoSink *,
+		 struct codedVideoSinkAndListener>::iterator it;
+	struct codedVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mCodedVideoSinkListenersMap.find(sink);
+	if (it == mCodedVideoSinkListenersMap.end()) {
+		sl = mPendingCodedVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video sink listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onCodedVideoSinkDrain(this, sl.s);
 }
 
 
@@ -7070,6 +7899,108 @@ void PdrawBackend::onRawVideoSinkFlush(IPdraw *pdraw,
 	}
 
 	sl.l->onRawVideoSinkFlush(this, sl.s);
+}
+
+
+void PdrawBackend::onRawVideoSinkDrain(IPdraw *pdraw,
+				       IPdraw::IRawVideoSink *sink)
+{
+	std::map<IPdraw::IRawVideoSink *,
+		 struct rawVideoSinkAndListener>::iterator it;
+	struct rawVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mRawVideoSinkListenersMap.find(sink);
+	if (it == mRawVideoSinkListenersMap.end()) {
+		sl = mPendingRawVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video sink listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onRawVideoSinkDrain(this, sl.s);
+}
+
+
+void PdrawBackend::onRawVideoSinkMediaAdded(Pdraw::IPdraw *pdraw,
+					    Pdraw::IPdraw::IRawVideoSink *sink,
+					    const struct pdraw_media_info *info)
+{
+	std::map<IPdraw::IRawVideoSink *,
+		 struct rawVideoSinkAndListener>::iterator it;
+	struct rawVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mRawVideoSinkListenersMap.find(sink);
+	if (it == mRawVideoSinkListenersMap.end()) {
+		sl = mPendingRawVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onRawVideoSinkMediaAdded(this, sl.s, info);
+}
+
+
+void PdrawBackend::onRawVideoSinkMediaRemoved(
+	Pdraw::IPdraw *pdraw,
+	Pdraw::IPdraw::IRawVideoSink *sink,
+	const struct pdraw_media_info *info,
+	bool restart)
+{
+	std::map<IPdraw::IRawVideoSink *,
+		 struct rawVideoSinkAndListener>::iterator it;
+	struct rawVideoSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mRawVideoSinkListenersMap.find(sink);
+	if (it == mRawVideoSinkListenersMap.end()) {
+		sl = mPendingRawVideoSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the video sink "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the video sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onRawVideoSinkMediaRemoved(this, sl.s, info, restart);
 }
 
 
@@ -7143,6 +8074,72 @@ void PdrawBackend::alsaSourceReadyToPlay(
 }
 
 
+void PdrawBackend::alsaSourcePlayResponse(IPdraw *pdraw,
+					  IPdraw::IAlsaSource *source)
+{
+	std::map<IPdraw::IAlsaSource *, struct alsaSourceAndListener>::iterator
+		it;
+	struct alsaSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAlsaSourceListenersMap.find(source);
+	if (it == mAlsaSourceListenersMap.end())
+		sl = mPendingAlsaSourceAndListener;
+	else
+		sl = it->second;
+
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the ALSA source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the ALSA source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->alsaSourcePlayResponse(this, sl.s);
+}
+
+
+void PdrawBackend::alsaSourcePauseResponse(IPdraw *pdraw,
+					   IPdraw::IAlsaSource *source)
+{
+	std::map<IPdraw::IAlsaSource *, struct alsaSourceAndListener>::iterator
+		it;
+	struct alsaSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAlsaSourceListenersMap.find(source);
+	if (it == mAlsaSourceListenersMap.end())
+		sl = mPendingAlsaSourceAndListener;
+	else
+		sl = it->second;
+
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the ALSA source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the ALSA source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->alsaSourcePauseResponse(this, sl.s);
+}
+
+
 void PdrawBackend::alsaSourceFrameReady(IPdraw *pdraw,
 					IPdraw::IAlsaSource *source,
 					struct mbuf_audio_frame *frame)
@@ -7210,6 +8207,108 @@ void PdrawBackend::onAudioSourceFlushed(IPdraw *pdraw,
 }
 
 
+void PdrawBackend::onAudioSourceDrained(IPdraw *pdraw,
+					IPdraw::IAudioSource *source)
+{
+	std::map<IPdraw::IAudioSource *,
+		 struct audioSourceAndListener>::iterator it;
+	struct audioSourceAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioSourceListenersMap.find(source);
+	if (it == mAudioSourceListenersMap.end()) {
+		sl = mPendingAudioSourceAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the audio source listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the audio source in the map",
+		      __func__);
+		return;
+	}
+
+	sl.l->onAudioSourceDrained(this, sl.s);
+}
+
+
+void PdrawBackend::onAudioSinkMediaAdded(Pdraw::IPdraw *pdraw,
+					 Pdraw::IPdraw::IAudioSink *sink,
+					 const struct pdraw_media_info *info)
+{
+	std::map<IPdraw::IAudioSink *, struct audioSinkAndListener>::iterator
+		it;
+	struct audioSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioSinkListenersMap.find(sink);
+	if (it == mAudioSinkListenersMap.end()) {
+		sl = mPendingAudioSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the audio sink "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the audio sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onAudioSinkMediaAdded(this, sl.s, info);
+}
+
+
+void PdrawBackend::onAudioSinkMediaRemoved(Pdraw::IPdraw *pdraw,
+					   Pdraw::IPdraw::IAudioSink *sink,
+					   const struct pdraw_media_info *info,
+					   bool restart)
+{
+	std::map<IPdraw::IAudioSink *, struct audioSinkAndListener>::iterator
+		it;
+	struct audioSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioSinkListenersMap.find(sink);
+	if (it == mAudioSinkListenersMap.end()) {
+		sl = mPendingAudioSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the audio sink "
+		      "listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the audio sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onAudioSinkMediaRemoved(this, sl.s, info, restart);
+}
+
+
 void PdrawBackend::onAudioSinkFlush(IPdraw *pdraw, IPdraw::IAudioSink *sink)
 {
 	std::map<IPdraw::IAudioSink *, struct audioSinkAndListener>::iterator
@@ -7238,6 +8337,37 @@ void PdrawBackend::onAudioSinkFlush(IPdraw *pdraw, IPdraw::IAudioSink *sink)
 	}
 
 	sl.l->onAudioSinkFlush(this, sl.s);
+}
+
+
+void PdrawBackend::onAudioSinkDrain(IPdraw *pdraw, IPdraw::IAudioSink *sink)
+{
+	std::map<IPdraw::IAudioSink *, struct audioSinkAndListener>::iterator
+		it;
+	struct audioSinkAndListener sl;
+
+	if (pthread_self() != mLoopThread)
+		ULOGW("%s not called from the loop thread", __func__);
+
+	pthread_mutex_lock(&mMapsMutex);
+	it = mAudioSinkListenersMap.find(sink);
+	if (it == mAudioSinkListenersMap.end()) {
+		sl = mPendingAudioSinkAndListener;
+	} else {
+		sl = it->second;
+	}
+	pthread_mutex_unlock(&mMapsMutex);
+	if (sl.l == nullptr) {
+		ULOGE("%s: failed to find the audio sink listener in the map",
+		      __func__);
+		return;
+	}
+	if (sl.s == nullptr) {
+		ULOGE("%s: failed to find the audio sink in the map", __func__);
+		return;
+	}
+
+	sl.l->onAudioSinkDrain(this, sl.s);
 }
 
 
@@ -7808,6 +8938,12 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 							 *>(msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_CODED_VIDEO_SOURCE_DRAIN: {
+			self->internalCodedVideoSourceDrain(
+				reinterpret_cast<PdrawBackend::CodedVideoSource
+							 *>(msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_CODED_VIDEO_SOURCE_SET_SESSION_METADATA: {
 			self->internalCodedVideoSourceSetSessionMetadata(
 				reinterpret_cast<PdrawBackend::CodedVideoSource
@@ -7843,6 +8979,12 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 							 *>(msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_RAW_VIDEO_SOURCE_DRAIN: {
+			self->internalRawVideoSourceDrain(
+				reinterpret_cast<PdrawBackend::RawVideoSource
+							 *>(msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_RAW_VIDEO_SOURCE_SET_SESSION_METADATA: {
 			self->internalRawVideoSourceSetSessionMetadata(
 				reinterpret_cast<PdrawBackend::RawVideoSource
@@ -7868,6 +9010,18 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 							 *>(msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_CODED_VIDEO_SINK_SET_MEDIA_ID: {
+			self->internalCodedVideoSinkSetMediaId(
+				msg->coded_video_sink_set_media_id.sink,
+				msg->coded_video_sink_set_media_id.media_id);
+			break;
+		}
+		case CMD_TYPE_CODED_VIDEO_SINK_GET_MEDIA_ID: {
+			self->internalCodedVideoSinkGetMediaId(
+				reinterpret_cast<PdrawBackend::CodedVideoSink
+							 *>(msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_CODED_VIDEO_SINK_RESYNC: {
 			self->internalCodedVideoSinkResync(
 				reinterpret_cast<PdrawBackend::CodedVideoSink
@@ -7886,6 +9040,12 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 							 *>(msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_CODED_VIDEO_SINK_QUEUE_DRAINED: {
+			self->internalCodedVideoSinkQueueDrained(
+				reinterpret_cast<PdrawBackend::CodedVideoSink
+							 *>(msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_RAW_VIDEO_SINK_CREATE: {
 			self->internalRawVideoSinkCreate(
 				msg->raw_video_sink_create.media_id,
@@ -7899,6 +9059,18 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 					msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_RAW_VIDEO_SINK_SET_MEDIA_ID: {
+			self->internalRawVideoSinkSetMediaId(
+				msg->raw_video_sink_set_media_id.sink,
+				msg->raw_video_sink_set_media_id.media_id);
+			break;
+		}
+		case CMD_TYPE_RAW_VIDEO_SINK_GET_MEDIA_ID: {
+			self->internalRawVideoSinkGetMediaId(
+				reinterpret_cast<PdrawBackend::RawVideoSink *>(
+					msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_RAW_VIDEO_SINK_GET_QUEUE: {
 			self->internalRawVideoSinkGetQueue(
 				reinterpret_cast<PdrawBackend::RawVideoSink *>(
@@ -7907,6 +9079,12 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 		}
 		case CMD_TYPE_RAW_VIDEO_SINK_QUEUE_FLUSHED: {
 			self->internalRawVideoSinkQueueFlushed(
+				reinterpret_cast<PdrawBackend::RawVideoSink *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_RAW_VIDEO_SINK_QUEUE_DRAINED: {
+			self->internalRawVideoSinkQueueDrained(
 				reinterpret_cast<PdrawBackend::RawVideoSink *>(
 					msg->generic.ptr));
 			break;
@@ -7971,6 +9149,12 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 					msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_AUDIO_SOURCE_DRAIN: {
+			self->internalAudioSourceDrain(
+				reinterpret_cast<PdrawBackend::AudioSource *>(
+					msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_AUDIO_SINK_CREATE: {
 			self->internalAudioSinkCreate(
 				msg->audio_sink_create.media_id,
@@ -7983,6 +9167,18 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 					msg->generic.ptr));
 			break;
 		}
+		case CMD_TYPE_AUDIO_SINK_SET_MEDIA_ID: {
+			self->internalAudioSinkSetMediaId(
+				msg->audio_sink_set_media_id.sink,
+				msg->audio_sink_set_media_id.media_id);
+			break;
+		}
+		case CMD_TYPE_AUDIO_SINK_GET_MEDIA_ID: {
+			self->internalAudioSinkGetMediaId(
+				reinterpret_cast<PdrawBackend::AudioSink *>(
+					msg->generic.ptr));
+			break;
+		}
 		case CMD_TYPE_AUDIO_SINK_GET_QUEUE: {
 			self->internalAudioSinkGetQueue(
 				reinterpret_cast<PdrawBackend::AudioSink *>(
@@ -7991,6 +9187,12 @@ void PdrawBackend::mboxCb(int fd, uint32_t revents, void *userdata)
 		}
 		case CMD_TYPE_AUDIO_SINK_QUEUE_FLUSHED: {
 			self->internalAudioSinkQueueFlushed(
+				reinterpret_cast<PdrawBackend::AudioSink *>(
+					msg->generic.ptr));
+			break;
+		}
+		case CMD_TYPE_AUDIO_SINK_QUEUE_DRAINED: {
+			self->internalAudioSinkQueueDrained(
 				reinterpret_cast<PdrawBackend::AudioSink *>(
 					msg->generic.ptr));
 			break;
@@ -9648,6 +10850,19 @@ void PdrawBackend::internalCodedVideoSourceFlush(
 }
 
 
+void PdrawBackend::internalCodedVideoSourceDrain(
+	PdrawBackend::CodedVideoSource *source)
+{
+	int res = source->getCodedVideoSource()->drain();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalCodedVideoSourceSetSessionMetadata(
 	PdrawBackend::CodedVideoSource *source)
 {
@@ -9765,6 +10980,19 @@ void PdrawBackend::internalRawVideoSourceFlush(
 }
 
 
+void PdrawBackend::internalRawVideoSourceDrain(
+	PdrawBackend::RawVideoSource *source)
+{
+	int res = source->getRawVideoSource()->drain();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalRawVideoSourceSetSessionMetadata(
 	PdrawBackend::RawVideoSource *source)
 {
@@ -9841,6 +11069,33 @@ void PdrawBackend::internalCodedVideoSinkDestroy(
 }
 
 
+void PdrawBackend::internalCodedVideoSinkSetMediaId(
+	PdrawBackend::CodedVideoSink *sink,
+	unsigned int mediaId)
+{
+	int res = sink->getCodedVideoSink()->setMediaId(mediaId);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalCodedVideoSinkGetMediaId(
+	PdrawBackend::CodedVideoSink *sink)
+{
+	int res = sink->getCodedVideoSink()->getMediaId();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalCodedVideoSinkResync(
 	PdrawBackend::CodedVideoSink *sink)
 {
@@ -9872,6 +11127,19 @@ void PdrawBackend::internalCodedVideoSinkQueueFlushed(
 	PdrawBackend::CodedVideoSink *sink)
 {
 	int res = sink->getCodedVideoSink()->queueFlushed();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalCodedVideoSinkQueueDrained(
+	PdrawBackend::CodedVideoSink *sink)
+{
+	int res = sink->getCodedVideoSink()->queueDrained();
 
 	pthread_mutex_lock(&mMutex);
 	mRetStatus = res;
@@ -9921,6 +11189,33 @@ void PdrawBackend::internalRawVideoSinkDestroy(PdrawBackend::RawVideoSink *sink)
 }
 
 
+void PdrawBackend::internalRawVideoSinkSetMediaId(
+	PdrawBackend::RawVideoSink *sink,
+	unsigned int mediaId)
+{
+	int res = sink->getRawVideoSink()->setMediaId(mediaId);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalRawVideoSinkGetMediaId(
+	PdrawBackend::RawVideoSink *sink)
+{
+	int res = sink->getRawVideoSink()->getMediaId();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalRawVideoSinkGetQueue(
 	PdrawBackend::RawVideoSink *sink)
 {
@@ -9939,6 +11234,19 @@ void PdrawBackend::internalRawVideoSinkQueueFlushed(
 	PdrawBackend::RawVideoSink *sink)
 {
 	int res = sink->getRawVideoSink()->queueFlushed();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalRawVideoSinkQueueDrained(
+	PdrawBackend::RawVideoSink *sink)
+{
+	int res = sink->getRawVideoSink()->queueDrained();
 
 	pthread_mutex_lock(&mMutex);
 	mRetStatus = res;
@@ -10122,6 +11430,18 @@ void PdrawBackend::internalAudioSourceFlush(PdrawBackend::AudioSource *source)
 }
 
 
+void PdrawBackend::internalAudioSourceDrain(PdrawBackend::AudioSource *source)
+{
+	int res = source->getAudioSource()->drain();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalAudioSinkCreate(
 	unsigned int mediaId,
 	IPdraw::IAudioSink::Listener *listener)
@@ -10161,6 +11481,31 @@ void PdrawBackend::internalAudioSinkDestroy(PdrawBackend::AudioSink *sink)
 }
 
 
+void PdrawBackend::internalAudioSinkSetMediaId(PdrawBackend::AudioSink *sink,
+					       unsigned int mediaId)
+{
+	int res = sink->getAudioSink()->setMediaId(mediaId);
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSinkGetMediaId(PdrawBackend::AudioSink *sink)
+{
+	int res = sink->getAudioSink()->getMediaId();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
 void PdrawBackend::internalAudioSinkGetQueue(PdrawBackend::AudioSink *sink)
 {
 	struct mbuf_audio_frame_queue *res = sink->getAudioSink()->getQueue();
@@ -10176,6 +11521,18 @@ void PdrawBackend::internalAudioSinkGetQueue(PdrawBackend::AudioSink *sink)
 void PdrawBackend::internalAudioSinkQueueFlushed(PdrawBackend::AudioSink *sink)
 {
 	int res = sink->getAudioSink()->queueFlushed();
+
+	pthread_mutex_lock(&mMutex);
+	mRetStatus = res;
+	mRetValReady = true;
+	pthread_mutex_unlock(&mMutex);
+	pthread_cond_signal(&mCond);
+}
+
+
+void PdrawBackend::internalAudioSinkQueueDrained(PdrawBackend::AudioSink *sink)
+{
+	int res = sink->getAudioSink()->queueDrained();
 
 	pthread_mutex_lock(&mMutex);
 	mRetStatus = res;

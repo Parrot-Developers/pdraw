@@ -52,6 +52,7 @@ public:
 		Element::Listener *elementListener,
 		IPdraw::ICodedVideoSink::Listener *listener,
 		CodedVideoSinkWrapper *wrapper,
+		unsigned int mediaId,
 		const struct pdraw_video_sink_params *params);
 
 	~ExternalCodedVideoSink(void);
@@ -60,10 +61,18 @@ public:
 
 	int stop(void) override;
 
+	int setMediaId(unsigned int mediaId);
+
+	unsigned int getMediaId(void) const;
+
 	int resync(void);
 
+	int flushDone(bool discard = true);
 
-	int flushDone(void);
+	inline int drainDone(void)
+	{
+		return flushDone(false);
+	}
 
 	struct mbuf_coded_video_frame_queue *getQueue(void) const
 	{
@@ -75,8 +84,17 @@ public:
 		return mVideoSink;
 	}
 
+	int addInputMedia(Media *media) override;
+
+	int removeInputMedia(Media *media) override;
+
 private:
-	int flush(void);
+	int flush(bool discard = true);
+
+	inline int drain(void)
+	{
+		return flush(false);
+	}
 
 	int channelTeardown(CodedVideoChannel *channel);
 
@@ -86,9 +104,17 @@ private:
 
 	void onChannelFlush(Channel *channel) override;
 
+	void onChannelDrain(Channel *channel) override;
+
 	void onChannelTeardown(Channel *channel) override;
 
 	void onChannelSessionMetaUpdate(Channel *channel) override;
+
+	void onChannelReconfigure(Channel *channel) override;
+
+	void onChannelResolutionChange(Channel *channel) override;
+
+	void onChannelFramerateChange(Channel *channel) override;
 
 	int prepareCodedVideoFrame(CodedVideoChannel *channel,
 				   struct mbuf_coded_video_frame *frame);
@@ -133,14 +159,20 @@ private:
 	/* Video sink listener calls from idle functions */
 	static void callVideoSinkFlush(void *userdata);
 
+	static void idleRenewMedia(void *userdata);
+
 	IPdraw::ICodedVideoSink *mVideoSink;
 	IPdraw::ICodedVideoSink::Listener *mVideoSinkListener;
 	struct pdraw_video_sink_params mParams;
 	CodedVideoMedia *mInputMedia;
+	struct pdraw_media_info mMediaInfo;
+	struct vmeta_session mMediaInfoSessionMeta;
+	unsigned int mMediaId;
+	unsigned int mTargetMediaId;
 	struct mbuf_coded_video_frame_queue *mInputFrameQueue;
-	bool mIsFlushed;
 	bool mInputChannelFlushPending;
 	bool mTearingDown;
+	bool mPendingRestart;
 	bool mNeedSync;
 	struct h264_reader *mH264Reader;
 	static const struct h264_ctx_cbs mH264ReaderCbs;
@@ -151,16 +183,23 @@ class CodedVideoSinkWrapper : public IPdraw::ICodedVideoSink,
 			      public ElementWrapper {
 public:
 	CodedVideoSinkWrapper(Session *session,
+			      unsigned int mediaId,
 			      const struct pdraw_video_sink_params *params,
 			      IPdraw::ICodedVideoSink::Listener *listener);
 
 	~CodedVideoSinkWrapper(void);
+
+	int setMediaId(unsigned int mediaId) override;
+
+	unsigned int getMediaId(void) override;
 
 	int resync(void) override;
 
 	struct mbuf_coded_video_frame_queue *getQueue(void) override;
 
 	int queueFlushed(void) override;
+
+	int queueDrained(void) override;
 
 	void clearElement(void) override
 	{
@@ -179,6 +218,11 @@ public:
 	}
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped() || mSink == nullptr);
+	}
+
 	ExternalCodedVideoSink *mSink;
 };
 

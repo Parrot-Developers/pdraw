@@ -146,18 +146,19 @@ static const GLchar *textureNoconvFragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
-	"    return texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).rgb;\n"
+	"    return texture2D(s_texture_0, min(max_clamp[0], coord)).rgb;\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
-	"    return texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).rgb;\n"
+	"    return texture2D(s_texture_0, min(max_clamp[0], coord + offset_px * stride[0])).rgb;\n"
 	"}\n";
 
 static const GLchar *textureI420FragmentShader =
@@ -165,25 +166,32 @@ static const GLchar *textureI420FragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
-	"    yuv.g = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0)).r;\n"
-	"    yuv.b = texture2D(s_texture_2, min(coord, max_coords[2] - stride[2] / 2.0)).r;\n"
-	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
+	"    vec2 texCoord_y = min(max_clamp[0], coord);\n"
+	"    vec2 texCoord_u = min(max_clamp[1], coord * max_coords_ratio[1]);\n"
+	"    vec2 texCoord_v = min(max_clamp[2], coord * max_coords_ratio[2]);\n"
+	"    yuv.r = texture2D(s_texture_0, texCoord_y).r;\n"
+	"    yuv.g = texture2D(s_texture_1, texCoord_u).r;\n"
+	"    yuv.b = texture2D(s_texture_2, texCoord_v).r;\n"
+	"    return yuv2rgb_mat * (yuv + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
-	"    yuv.g = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0)).r;\n"
-	"    yuv.b = texture2D(s_texture_2, min(coord + offset_px * stride[2], max_coords[2] - stride[2] / 2.0)).r;\n"
+	"    vec2 texCoord_y = min(max_clamp[0], coord + offset_px * stride[0]);\n"
+	"    vec2 texCoord_u = min(max_clamp[1], coord * max_coords_ratio[1] + offset_px * stride[1]);\n"
+	"    vec2 texCoord_v = min(max_clamp[2], coord * max_coords_ratio[2] + offset_px * stride[2]);\n"
+	"    yuv.r = texture2D(s_texture_0, texCoord_y).r;\n"
+	"    yuv.g = texture2D(s_texture_1, texCoord_u).r;\n"
+	"    yuv.b = texture2D(s_texture_2, texCoord_v).r;\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
@@ -194,16 +202,20 @@ static const GLchar *textureI42010LELowFragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    vec4 y = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
-	"    vec4 u = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0));\n"
-	"    vec4 v = texture2D(s_texture_2, min(coord, max_coords[2] - stride[2] / 2.0));\n"
+	"    vec2 texCoord_y = min(max_clamp[0], coord);\n"
+	"    vec2 texCoord_u = min(max_clamp[1], coord * max_coords_ratio[1]);\n"
+	"    vec2 texCoord_v = min(max_clamp[2], coord * max_coords_ratio[2]);\n"
+	"    vec4 y = texture2D(s_texture_0, texCoord_y);\n"
+	"    vec4 u = texture2D(s_texture_1, texCoord_u);\n"
+	"    vec4 v = texture2D(s_texture_2, texCoord_v);\n"
 	"    yuv.r = y.a * 64. + y.r / 4.;\n"
 	"    yuv.g = u.a * 64. + u.r / 4.;\n"
 	"    yuv.b = v.a * 64. + v.r / 4.;\n"
@@ -213,9 +225,12 @@ static const GLchar *textureI42010LELowFragmentShader =
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    vec4 y = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
-	"    vec4 u = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0));\n"
-	"    vec4 v = texture2D(s_texture_2, min(coord + offset_px * stride[2], max_coords[2] - stride[2] / 2.0));\n"
+	"    vec2 texCoord_y = min(max_clamp[0], coord + offset_px * stride[0]);\n"
+	"    vec2 texCoord_u = min(max_clamp[1], coord * max_coords_ratio[1] + offset_px * stride[1]);\n"
+	"    vec2 texCoord_v = min(max_clamp[2], coord * max_coords_ratio[2] + offset_px * stride[2]);\n"
+	"    vec4 y = texture2D(s_texture_0, texCoord_y);\n"
+	"    vec4 u = texture2D(s_texture_1, texCoord_u);\n"
+	"    vec4 v = texture2D(s_texture_2, texCoord_v);\n"
 	"    yuv.r = y.a * 64. + y.r / 4.;\n"
 	"    yuv.g = u.a * 64. + u.r / 4.;\n"
 	"    yuv.b = v.a * 64. + v.r / 4.;\n"
@@ -227,23 +242,28 @@ static const GLchar *textureNV12FragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
-	"    yuv.gb = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0)).ra;\n"
+	"    vec2 texCoord_y  = min(max_clamp[0], coord);\n"
+	"    vec2 texCoord_uv = min(max_clamp[1], coord * max_coords_ratio[1]);\n"
+	"    yuv.r  = texture2D(s_texture_0,  texCoord_y).r;\n"
+	"    yuv.gb = texture2D(s_texture_1, texCoord_uv).ra;\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    yuv.r = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
-	"    yuv.gb = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0)).ra;\n"
+	"    vec2 texCoord_y  = min(max_clamp[0], coord + offset_px * stride[0]);\n"
+	"    vec2 texCoord_uv = min(max_clamp[1], coord * max_coords_ratio[1] + offset_px * stride[1]);\n"
+	"    yuv.r  = texture2D(s_texture_0,  texCoord_y).r;\n"
+	"    yuv.gb = texture2D(s_texture_1, texCoord_uv).ra;\n"
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
@@ -254,15 +274,18 @@ static const GLchar *textureNV1210LEHighFragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"uniform mat3 yuv2rgb_mat;\n"
 	"uniform vec3 yuv2rgb_offset;\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    vec4 y = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
-	"    vec4 uv = texture2D(s_texture_1, min(coord, max_coords[1] - stride[1] / 2.0));\n"
+	"    vec2 texCoord_y  = min(max_clamp[0], coord);\n"
+	"    vec2 texCoord_uv = min(max_clamp[1], coord * max_coords_ratio[1]);\n"
+	"    vec4 y  = texture2D(s_texture_0,  texCoord_y);\n"
+	"    vec4 uv = texture2D(s_texture_1, texCoord_uv);\n"
 	"    yuv.r = y.a + y.r / 256.;\n"
 	"    yuv.g = uv.g + uv.b / 256.;\n"
 	"    yuv.b = uv.a + uv.r / 256.;\n"
@@ -272,8 +295,10 @@ static const GLchar *textureNV1210LEHighFragmentShader =
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
 	"    vec3 yuv;\n"
-	"    vec4 y = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
-	"    vec4 uv = texture2D(s_texture_1, min(coord + offset_px * stride[1], max_coords[1] - stride[1] / 2.0));\n"
+	"    vec2 texCoord_y  = min(max_clamp[0], coord + offset_px * stride[0]);\n"
+	"    vec2 texCoord_uv = min(max_clamp[1], coord * max_coords_ratio[1] + offset_px * stride[1]);\n"
+	"    vec4 y  = texture2D(s_texture_0,  texCoord_y);\n"
+	"    vec4 uv = texture2D(s_texture_1, texCoord_uv);\n"
 	"    yuv.r = y.a + y.r / 256.;\n"
 	"    yuv.g = uv.g + uv.b / 256.;\n"
 	"    yuv.b = uv.a + uv.r / 256.;\n"
@@ -285,17 +310,18 @@ static const GLchar *textureGrayFragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
-	"    float gray = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    float gray = texture2D(s_texture_0, min(max_clamp[0], coord)).r;\n"
 	"    return vec3(gray, gray, gray);\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
-	"    float gray = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0)).r;\n"
+	"    float gray = texture2D(s_texture_0, min(max_clamp[0], coord + offset_px * stride[0])).r;\n"
 	"    return vec3(gray, gray, gray);\n"
 	"}\n";
 
@@ -304,18 +330,19 @@ static const GLchar *textureGray16FragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
-	"    vec4 p = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 p = texture2D(s_texture_0, min(max_clamp[0], coord));\n"
 	"    float gray = p.a + p.r / 256.;\n"
 	"    return vec3(gray, gray, gray);\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
-	"    vec4 p = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 p = texture2D(s_texture_0, min(max_clamp[0], coord + offset_px * stride[0]));\n"
 	"    float gray = p.a + p.r / 256.;\n"
 	"    return vec3(gray, gray, gray);\n"
 	"}\n";
@@ -325,18 +352,19 @@ static const GLchar *textureGray32FragmentShader =
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
 	"uniform vec2 stride[3];\n"
-	"uniform vec2 max_coords[3];\n"
+	"uniform vec2 max_coords_ratio[3];\n"
+	"uniform vec2 max_clamp[3];\n"
 	"\n"
 	"vec3 read_rgb(vec2 coord)\n"
 	"{\n"
-	"    vec4 p = texture2D(s_texture_0, min(coord, max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 p = texture2D(s_texture_0, min(max_clamp[0], coord));\n"
 	"    float gray = p.a + p.r / 256. + p.g / 256. / 256. + p.b / 256. / 256. / 256.;\n"
 	"    return vec3(gray, gray, gray);\n"
 	"}\n"
 	"\n"
 	"vec3 read_rgb_with_offset(vec2 coord, vec2 offset_px)\n"
 	"{\n"
-	"    vec4 p = texture2D(s_texture_0, min(coord + offset_px * stride[0], max_coords[0] - stride[0] / 2.0));\n"
+	"    vec4 p = texture2D(s_texture_0, min(max_clamp[0], coord + offset_px * stride[0]));\n"
 	"    float gray = p.a + p.r / 256. + p.g / 256. / 256. + p.b / 256. / 256. / 256.;\n"
 	"    return vec3(gray, gray, gray);\n"
 	"}\n";
@@ -766,7 +794,8 @@ GlVideo::GlVideo(Session *session,
 	memset(mProgramYuv2RgbMatrix, 0, sizeof(mProgramYuv2RgbMatrix));
 	memset(mProgramYuv2RgbOffset, 0, sizeof(mProgramYuv2RgbOffset));
 	memset(mProgramStride, 0, sizeof(mProgramStride));
-	memset(mProgramMaxCoords, 0, sizeof(mProgramMaxCoords));
+	memset(mProgramMaxCoordsRatio, 0, sizeof(mProgramMaxCoordsRatio));
+	memset(mProgramMaxClamp, 0, sizeof(mProgramMaxClamp));
 	memset(mProgramBrightnessCoef, 0, sizeof(mProgramBrightnessCoef));
 	memset(mProgramContrastCoef, 0, sizeof(mProgramContrastCoef));
 	memset(mProgramGammaCoef, 0, sizeof(mProgramGammaCoef));
@@ -825,7 +854,8 @@ GlVideo::GlVideo(Session *session,
 	memset(mHistogramContrastCoef, 0, sizeof(mHistogramContrastCoef));
 	memset(mHistogramGammaCoef, 0, sizeof(mHistogramGammaCoef));
 	memset(mHistogramStride, 0, sizeof(mHistogramStride));
-	memset(mHistogramMaxCoords, 0, sizeof(mHistogramMaxCoords));
+	memset(mHistogramMaxCoordsRatio, 0, sizeof(mHistogramMaxCoordsRatio));
+	memset(mHistogramMaxClamp, 0, sizeof(mHistogramMaxClamp));
 	memset(mHistogramUniformSampler, 0, sizeof(mHistogramUniformSampler));
 	memset(mHistogramPositionHandle, 0, sizeof(mHistogramPositionHandle));
 	memset(mHistogramTexcoordHandle, 0, sizeof(mHistogramTexcoordHandle));
@@ -988,8 +1018,10 @@ GlVideo::GlVideo(Session *session,
 		mProgramYuv2RgbOffset[i] =
 			glGetUniformLocation(mProgram[i], "yuv2rgb_offset");
 		mProgramStride[i] = glGetUniformLocation(mProgram[i], "stride");
-		mProgramMaxCoords[i] =
-			glGetUniformLocation(mProgram[i], "max_coords");
+		mProgramMaxCoordsRatio[i] =
+			glGetUniformLocation(mProgram[i], "max_coords_ratio");
+		mProgramMaxClamp[i] =
+			glGetUniformLocation(mProgram[i], "max_clamp");
 		mProgramBrightnessCoef[i] =
 			glGetUniformLocation(mProgram[i], "brightness_coef");
 		mProgramContrastCoef[i] =
@@ -1500,6 +1532,27 @@ void GlVideo::cleanupBlurFbo(void)
 }
 
 
+static inline void computeMaxCoordsRatioAndClamp(
+	const float (&stride)[GL_VIDEO_TEX_UNIT_COUNT * 2],
+	const float (&maxCoords)[GL_VIDEO_TEX_UNIT_COUNT * 2],
+	float (&maxCoordsRatio)[GL_VIDEO_TEX_UNIT_COUNT * 2],
+	float (&maxClamp)[GL_VIDEO_TEX_UNIT_COUNT * 2])
+{
+	for (unsigned int i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
+		unsigned int x = 2 * i;
+		unsigned int y = 2 * i + 1;
+		maxCoordsRatio[x] = (maxCoords[0] != 0)
+					    ? (maxCoords[x] / maxCoords[0])
+					    : 1.;
+		maxCoordsRatio[y] = (maxCoords[1] != 0)
+					    ? (maxCoords[y] / maxCoords[1])
+					    : 1.;
+		maxClamp[x] = maxCoords[x] - stride[x] / 2.0;
+		maxClamp[y] = maxCoords[y] - stride[y] / 2.0;
+	}
+}
+
+
 void GlVideo::renderBlur(
 	const size_t framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT],
 	const struct vdef_raw_format *format,
@@ -1513,6 +1566,8 @@ void GlVideo::renderBlur(
 	unsigned int i;
 	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
@@ -1598,10 +1653,16 @@ void GlVideo::renderBlur(
 		break;
 	}
 
+	computeMaxCoordsRatioAndClamp(
+		stride, maxCoords, maxCoordsRatio, maxClamp);
+
 	GLCHK(glUniform2fv(
 		mProgramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
+	GLCHK(glUniform2fv(mProgramMaxCoordsRatio[prog],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   maxCoordsRatio));
 	GLCHK(glUniform2fv(
-		mProgramMaxCoords[prog], GL_VIDEO_TEX_UNIT_COUNT, maxCoords));
+		mProgramMaxClamp[prog], GL_VIDEO_TEX_UNIT_COUNT, maxClamp));
 	fillYuv2RgbMatrix(info->matrix_coefs,
 			  info->full_range,
 			  swapUv,
@@ -1927,6 +1988,8 @@ void GlVideo::renderPadding(
 	unsigned int i;
 	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
@@ -2026,10 +2089,16 @@ void GlVideo::renderPadding(
 		break;
 	}
 
+	computeMaxCoordsRatioAndClamp(
+		stride, maxCoords, maxCoordsRatio, maxClamp);
+
 	GLCHK(glUniform2fv(
 		mProgramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
+	GLCHK(glUniform2fv(mProgramMaxCoordsRatio[prog],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   maxCoordsRatio));
 	GLCHK(glUniform2fv(
-		mProgramMaxCoords[prog], GL_VIDEO_TEX_UNIT_COUNT, maxCoords));
+		mProgramMaxClamp[prog], GL_VIDEO_TEX_UNIT_COUNT, maxClamp));
 	fillYuv2RgbMatrix(info->matrix_coefs,
 			  info->full_range,
 			  swapUv,
@@ -2448,8 +2517,10 @@ int GlVideo::setupHistograms(void)
 			mHistogramProgram[i], "gamma_coef");
 		mHistogramStride[i] =
 			glGetUniformLocation(mHistogramProgram[i], "stride");
-		mHistogramMaxCoords[i] = glGetUniformLocation(
-			mHistogramProgram[i], "max_coords");
+		mHistogramMaxCoordsRatio[i] = glGetUniformLocation(
+			mHistogramProgram[i], "max_coords_ratio");
+		mHistogramMaxClamp[i] =
+			glGetUniformLocation(mHistogramProgram[i], "max_clamp");
 		mHistogramUniformSampler[i][0] = glGetUniformLocation(
 			mHistogramProgram[i], "s_texture_0");
 		mHistogramUniformSampler[i][1] = glGetUniformLocation(
@@ -2570,6 +2641,8 @@ void GlVideo::computeHistograms(
 {
 	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
@@ -2683,10 +2756,16 @@ void GlVideo::computeHistograms(
 		break;
 	}
 
+	computeMaxCoordsRatioAndClamp(
+		stride, maxCoords, maxCoordsRatio, maxClamp);
+
 	GLCHK(glUniform2fv(
 		mHistogramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
+	GLCHK(glUniform2fv(mHistogramMaxCoordsRatio[prog],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   maxCoordsRatio));
 	GLCHK(glUniform2fv(
-		mHistogramMaxCoords[prog], GL_VIDEO_TEX_UNIT_COUNT, maxCoords));
+		mHistogramMaxClamp[prog], GL_VIDEO_TEX_UNIT_COUNT, maxClamp));
 
 	fillYuv2RgbMatrix(info->matrix_coefs,
 			  info->full_range,
@@ -3197,6 +3276,8 @@ int GlVideo::renderFrame(
 	unsigned int i;
 	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
@@ -3452,11 +3533,17 @@ int GlVideo::renderFrame(
 			break;
 		}
 
+		computeMaxCoordsRatioAndClamp(
+			stride, maxCoords, maxCoordsRatio, maxClamp);
+
 		GLCHK(glUniform2fv(
 			mProgramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
-		GLCHK(glUniform2fv(mProgramMaxCoords[prog],
+		GLCHK(glUniform2fv(mProgramMaxCoordsRatio[prog],
 				   GL_VIDEO_TEX_UNIT_COUNT,
-				   maxCoords));
+				   maxCoordsRatio));
+		GLCHK(glUniform2fv(mProgramMaxClamp[prog],
+				   GL_VIDEO_TEX_UNIT_COUNT,
+				   maxClamp));
 		fillYuv2RgbMatrix(_info.matrix_coefs,
 				  _info.full_range,
 				  swapUv,

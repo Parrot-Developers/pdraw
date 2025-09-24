@@ -473,6 +473,23 @@ struct pdraw_backend_vipc_source_cbs {
 			      enum pdraw_vipc_source_eos_reason eos_reason,
 			      void *userdata);
 
+	/* Play response function, called when a play operation is complete.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: video IPC source handle
+	 * @param userdata: user data pointer */
+	void (*play_resp)(struct pdraw_backend *pdraw,
+			  struct pdraw_vipc_source *source,
+			  void *userdata);
+
+	/* Pause response function, called when a pause operation is complete.
+	 * Once paused, all frames are drained from the pipeline.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: video IPC source handle
+	 * @param userdata: user data pointer */
+	void (*pause_resp)(struct pdraw_backend *pdraw,
+			   struct pdraw_vipc_source *source,
+			   void *userdata);
+
 	/* Framerate changed function, called when the video IPC framerate has
 	 * changed (new status). The return value is a boolean indicating
 	 * whether the framerate change must be ignored or not. If 'false', the
@@ -549,6 +566,16 @@ struct pdraw_backend_coded_video_source_cbs {
 	void (*flushed)(struct pdraw_backend *pdraw,
 			struct pdraw_coded_video_source *source,
 			void *userdata);
+
+	/* Coded video source drained callback function (mandatory),
+	 * called to signal that draining is complete after the
+	 * pdraw_be_coded_video_source_drain() function has been called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: coded video source handle
+	 * @param userdata: user data pointer */
+	void (*drained)(struct pdraw_backend *pdraw,
+			struct pdraw_coded_video_source *source,
+			void *userdata);
 };
 
 
@@ -563,11 +590,48 @@ struct pdraw_backend_raw_video_source_cbs {
 	void (*flushed)(struct pdraw_backend *pdraw,
 			struct pdraw_raw_video_source *source,
 			void *userdata);
+
+	/* Raw video source drained callback function (mandatory),
+	 * called to signal that draining is complete after the
+	 * pdraw_be_raw_video_source_drain() function has been called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: raw video source handle
+	 * @param userdata: user data pointer */
+	void (*drained)(struct pdraw_backend *pdraw,
+			struct pdraw_raw_video_source *source,
+			void *userdata);
 };
 
 
 /* Coded video sink callback functions */
 struct pdraw_backend_coded_video_sink_cbs {
+	/* Media added callback function, called when a media has been added
+	 * internally to the coded video sink. Medias are coded video medias.
+	 * This function is called from the pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: coded video sink handle
+	 * @param info: pointer on the media information
+	 * @param userdata: user data pointer */
+	void (*media_added)(struct pdraw_backend *pdraw,
+			    struct pdraw_coded_video_sink *sink,
+			    const struct pdraw_media_info *info,
+			    void *userdata);
+
+	/* Media removed callback function, called when a media has been removed
+	 * internally from the coded video sink. Medias are coded video medias.
+	 * This function is called from the pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: coded video sink handle
+	 * @param info: pointer on the media information
+	 * @param restart: true if a new media should follow shortly
+	 *                 (reconfiguration, resolution change...)
+	 * @param userdata: user data pointer */
+	void (*media_removed)(struct pdraw_backend *pdraw,
+			      struct pdraw_coded_video_sink *sink,
+			      const struct pdraw_media_info *info,
+			      int restart,
+			      void *userdata);
+
 	/* Video sink flush callback function, called when flushing is required
 	 * (mandatory). When this function is called, the application must flush
 	 * the sink queue by calling mbuf_coded_video_frame_queue_flush() and
@@ -575,9 +639,22 @@ struct pdraw_backend_coded_video_sink_cbs {
 	 * mbuf_coded_video_frame_unref(); once the flushing is done, the
 	 * pdraw_be_coded_video_sink_queue_flushed() function must be called.
 	 * @param pdraw: PDrAW back-end instance handle
-	 * @param sink: video sink handle
+	 * @param sink: coded video sink handle
 	 * @param userdata: user data pointer */
 	void (*flush)(struct pdraw_backend *pdraw,
+		      struct pdraw_coded_video_sink *sink,
+		      void *userdata);
+
+	/* Video sink drain callback function, called when draining is required
+	 * (mandatory). When this function is called, the application must drain
+	 * the sink queue and must return all frames outside of the queue by
+	 * calling mbuf_coded_video_frame_unref(); once the draining is done,
+	 * the pdraw_be_coded_video_sink_queue_drained() function must be
+	 * called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: coded video sink handle
+	 * @param userdata: user data pointer */
+	void (*drain)(struct pdraw_backend *pdraw,
 		      struct pdraw_coded_video_sink *sink,
 		      void *userdata);
 
@@ -596,6 +673,33 @@ struct pdraw_backend_coded_video_sink_cbs {
 
 /* Video sink callback functions */
 struct pdraw_backend_raw_video_sink_cbs {
+	/* Media added callback function, called when a media has been added
+	 * internally to the raw video sink. Medias are raw video medias.
+	 * This function is called from the pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: raw video sink handle
+	 * @param info: pointer on the media information
+	 * @param userdata: user data pointer */
+	void (*media_added)(struct pdraw_backend *pdraw,
+			    struct pdraw_raw_video_sink *sink,
+			    const struct pdraw_media_info *info,
+			    void *userdata);
+
+	/* Media removed callback function, called when a media has been removed
+	 * internally from the raw video sink. Medias are raw video medias.
+	 * This function is called from the pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: raw video sink handle
+	 * @param info: pointer on the media information
+	 * @param restart: true if a new media should follow shortly
+	 *                 (reconfiguration, resolution change...)
+	 * @param userdata: user data pointer */
+	void (*media_removed)(struct pdraw_backend *pdraw,
+			      struct pdraw_raw_video_sink *sink,
+			      const struct pdraw_media_info *info,
+			      int restart,
+			      void *userdata);
+
 	/* Video sink flush callback function, called when flushing is required
 	 * (mandatory). When this function is called, the application must flush
 	 * the sink queue by calling mbuf_raw_video_frame_queue_flush() and
@@ -603,9 +707,21 @@ struct pdraw_backend_raw_video_sink_cbs {
 	 * mbuf_raw_video_frame_unref(); once the flushing is done, the
 	 * pdraw_be_raw_video_sink_queue_flushed() function must be called.
 	 * @param pdraw: PDrAW back-end instance handle
-	 * @param sink: video sink handle
+	 * @param sink: raw video sink handle
 	 * @param userdata: user data pointer */
 	void (*flush)(struct pdraw_backend *pdraw,
+		      struct pdraw_raw_video_sink *sink,
+		      void *userdata);
+
+	/* Video sink drain callback function, called when draining is required
+	 * (mandatory). When this function is called, the application must drain
+	 * the sink queue and must return all frames outside of the queue by
+	 * calling mbuf_raw_video_frame_unref(); once the draining is done, the
+	 * pdraw_be_raw_video_sink_queue_drained() function must be called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: raw video sink handle
+	 * @param userdata: user data pointer */
+	void (*drain)(struct pdraw_backend *pdraw,
 		      struct pdraw_raw_video_sink *sink,
 		      void *userdata);
 
@@ -640,6 +756,23 @@ struct pdraw_backend_alsa_source_cbs {
 			      enum pdraw_alsa_source_eos_reason eos_reason,
 			      void *userdata);
 
+	/* Play response function, called when a play operation is complete.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: ALSA source handle
+	 * @param userdata: user data pointer */
+	void (*play_resp)(struct pdraw_backend *pdraw,
+			  struct pdraw_alsa_source *source,
+			  void *userdata);
+
+	/* Pause response function, called when a pause operation is complete.
+	 * Once paused, all frames are drained from the pipeline.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: ALSA source handle
+	 * @param userdata: user data pointer */
+	void (*pause_resp)(struct pdraw_backend *pdraw,
+			   struct pdraw_alsa_source *source,
+			   void *userdata);
+
 	/* Frame ready function, called when an audio frame has been received
 	 * and before it is propagated downstream in the pipeline.
 	 * This can be used to associate metadata with the frame.
@@ -665,11 +798,48 @@ struct pdraw_backend_audio_source_cbs {
 	void (*flushed)(struct pdraw_backend *pdraw,
 			struct pdraw_audio_source *source,
 			void *userdata);
+
+	/* Audio source drained callback function (mandatory),
+	 * called to signal that draining is complete after the
+	 * pdraw_be_audio_source_drain() function has been called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param source: audio source handle
+	 * @param userdata: user data pointer */
+	void (*drained)(struct pdraw_backend *pdraw,
+			struct pdraw_audio_source *source,
+			void *userdata);
 };
 
 
 /* Audio sink callback functions */
 struct pdraw_backend_audio_sink_cbs {
+	/* Media added callback function, called when a media has been added
+	 * internally to the audio sink. Medias are audio medias.
+	 * This function is called from the pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: audio sink handle
+	 * @param info: pointer on the media information
+	 * @param userdata: user data pointer */
+	void (*media_added)(struct pdraw_backend *pdraw,
+			    struct pdraw_audio_sink *sink,
+			    const struct pdraw_media_info *info,
+			    void *userdata);
+
+	/* Media removed callback function, called when a media has been removed
+	 * internally from the audio sink. Medias are audio medias.
+	 * This function is called from the pomp_loop thread.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: audio sink handle
+	 * @param info: pointer on the media information
+	 * @param restart: true if a new media should follow shortly
+	 *                 (reconfiguration, resolution change...)
+	 * @param userdata: user data pointer */
+	void (*media_removed)(struct pdraw_backend *pdraw,
+			      struct pdraw_audio_sink *sink,
+			      const struct pdraw_media_info *info,
+			      int restart,
+			      void *userdata);
+
 	/* Audio sink flush callback function, called when flushing is
 	 * required (mandatory). When this function is called, the application
 	 * must flush the sink queue by calling mbuf_audio_frame_queue_flush()
@@ -680,6 +850,18 @@ struct pdraw_backend_audio_sink_cbs {
 	 * @param sink: audio sink handle
 	 * @param userdata: user data pointer */
 	void (*flush)(struct pdraw_backend *pdraw,
+		      struct pdraw_audio_sink *sink,
+		      void *userdata);
+
+	/* Audio sink drain callback function, called when draining is
+	 * required (mandatory). When this function is called, the application
+	 * must drain the sink queue and must return all frames outside of the
+	 * queue by calling mbuf_audio_frame_unref(); once the draining is done,
+	 * the pdraw_be_audio_sink_queue_drained() function must be called.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param sink: audio sink handle
+	 * @param userdata: user data pointer */
+	void (*drain)(struct pdraw_backend *pdraw,
 		      struct pdraw_audio_sink *sink,
 		      void *userdata);
 };
@@ -1725,7 +1907,7 @@ pdraw_be_audio_renderer_destroy(struct pdraw_backend *self,
  * @param renderer: renderer handle
  * @param media_id: identifier of the audio media to render (from a
  *                  pdraw_media_info structure); if zero the first audio media
- *                  found is used for rendering
+ *                  found is used
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
@@ -1846,10 +2028,14 @@ pdraw_be_vipc_source_is_paused(struct pdraw_backend *self,
 
 
 /**
- * Start receiving frames on the video IPC.
- * This function starts the video IPC if it is ready to play. Otherwise
- * an error is returned. Receiving frames can be halted by calling the
- * pdraw_be_vipc_source_pause() function.
+ * Start receiving frames on the video IPC source.
+ * This function starts the VIPC source if it is ready to play. Otherwise an
+ * error is returned. Receiving frames can be halted by calling the
+ * pdraw_be_vipc_source_pause() function. The function returns before the actual
+ * operation is done. If the function returns 0, the play_resp callback
+ * function will be called once the operation is successful. If the function
+ * returns a negative errno value (immediate failure), the play_resp
+ * callback function will not be called.
  * @param self: PDrAW back-end instance handle
  * @param source: video IPC source handle
  * @return 0 on success, negative errno value in case of error
@@ -1860,9 +2046,14 @@ pdraw_be_vipc_source_play(struct pdraw_backend *self,
 
 
 /**
- * Stop receiving frames on the video IPC.
- * This function halts the video IPC to stop receiving frames. Receiving
+ * Stop receiving frames on the video IPC source.
+ * This function halts the VIPC source to stop receiving frames. Receiving
  * frames can be resumed by calling the pdraw_be_vipc_source_play() function.
+ * The function returns before the actual operation is done. If the function
+ * returns 0, the pause_resp callback function will be called once the
+ * operation is successful. If the function returns a negative errno value
+ * (immediate failure), the pause_resp callback function will not be called.
+ * Once paused, all frames are drained from the pipeline.
  * @param self: PDrAW back-end instance handle
  * @param source: video IPC source handle
  * @return 0 on success, negative errno value in case of error
@@ -2017,6 +2208,21 @@ pdraw_be_coded_video_source_flush(struct pdraw_backend *self,
 
 
 /**
+ * Coded video source drain function.
+ * This function is to be called when draining is required. When this function
+ * is called, all frames previously pushed to the queue will be returned; once
+ * the draining is done, the drained() coded video source callback function
+ * will be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: video source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_coded_video_source_drain(struct pdraw_backend *self,
+				  struct pdraw_coded_video_source *source);
+
+
+/**
  * Set the session metadata of the coded video source.
  * This function updates the session metadata on a running coded video source,
  * and propgates this structure to all elements downstream in the pipeline. The
@@ -2118,6 +2324,21 @@ pdraw_be_raw_video_source_flush(struct pdraw_backend *self,
 
 
 /**
+ * Raw video source drain function.
+ * This function is to be called when draining is required. When this function
+ * is called, all frames previously pushed to the queue will be returned; once
+ * the draining is done, the drained() raw video source callback function
+ * will be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: video source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_raw_video_source_drain(struct pdraw_backend *self,
+				struct pdraw_raw_video_source *source);
+
+
+/**
  * Set the session metadata of the raw video source.
  * This function updates the session metadata on a running raw video source,
  * and propgates this structure to all elements downstream in the pipeline. The
@@ -2154,7 +2375,8 @@ PDRAW_BACKEND_API int pdraw_be_raw_video_source_get_session_metadata(
 
 /**
  * Create a coded video sink.
- * This function creates a video sink on a media of the given media_id.
+ * This function creates a video sink on a media of the given media id;
+ * if the media id is zero the first coded media encountered is used.
  * The media idenfifiers are known when the media_added or media_removed
  * general callback functions are called.
  * Once the sink is created, video frames are retrieved by getting buffers
@@ -2177,7 +2399,7 @@ PDRAW_BACKEND_API int pdraw_be_raw_video_source_get_session_metadata(
  * @param params: video sink parameters
  * @param cbs: video sink callback functions
  * @param userdata: callback functions user data (optional, can be null)
- * @param ret_obj: video sink handle (output)
+ * @param ret_obj: coded video sink handle (output)
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_coded_video_sink_new(
@@ -2197,12 +2419,43 @@ PDRAW_BACKEND_API int pdraw_be_coded_video_sink_new(
  * sink is destroyed the queue returned by pdraw_be_coded_video_sink_get_queue()
  * must no longer be used.
  * @param pdraw: PDrAW back-end instance handle
- * @param sink: video sink handle
+ * @param sink: coded video sink handle
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
 pdraw_be_coded_video_sink_destroy(struct pdraw_backend *self,
 				  struct pdraw_coded_video_sink *sink);
+
+
+/**
+ * Set the coded video sink media identifier.
+ * This function updates the identifier of the media connected to the sink; if
+ * the media id is zero the first coded media encountered is used.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: coded video sink handle
+ * @param media_id: identifier of the coded media to use (from a
+ *                  pdraw_media_info structure); if zero the first coded media
+ *                  found is used
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_coded_video_sink_set_media_id(struct pdraw_backend *self,
+				       struct pdraw_coded_video_sink *sink,
+				       unsigned int media_id);
+
+
+/**
+ * Get the coded video sink media identifier.
+ * This function retrieves the identifier of the media connected to the coded
+ * video sink.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: coded video sink handle
+ * @return the identifier of the media on success, 0 if no media is being
+ *         connected or in case of error
+ */
+PDRAW_API unsigned int
+pdraw_be_coded_video_sink_get_media_id(struct pdraw_backend *pdraw,
+				       struct pdraw_coded_video_sink *sink);
 
 
 /**
@@ -2214,7 +2467,7 @@ pdraw_be_coded_video_sink_destroy(struct pdraw_backend *self,
  * therefore it is not necessary to call this function immediately after a
  * video sink creation.
  * @param pdraw: PDrAW back-end instance handle
- * @param sink: video sink handle
+ * @param sink: coded video sink handle
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
@@ -2228,7 +2481,7 @@ pdraw_be_coded_video_sink_resync(struct pdraw_backend *self,
  * from a running video sink. Frames are retrieved from the queue by using the
  * mbuf_coded_video_frame_queue_pop() function.
  * @param pdraw: PDrAW back-end instance handle
- * @param sink: video sink handle
+ * @param sink: coded video sink handle
  * @return a pointer on a mbuf_coded_video_frame_queue object on success, NULL
  * in case of error
  */
@@ -2245,7 +2498,7 @@ pdraw_be_coded_video_sink_get_queue(struct pdraw_backend *self,
  * frames outside of the queue by calling mbuf_coded_video_frame_unref(); once
  * the flushing is complete, this function must be called.
  * @param pdraw: PDrAW back-end instance handle
- * @param sink: video sink handle
+ * @param sink: coded video sink handle
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
@@ -2254,8 +2507,25 @@ pdraw_be_coded_video_sink_queue_flushed(struct pdraw_backend *self,
 
 
 /**
+ * Signal that a coded video sink has been drained.
+ * This function is used to signal that draining is complete. When the drain
+ * video sink callback function is called, the application must drain the sink
+ * queue and must return all frames outside of the queue by calling
+ * mbuf_coded_video_frame_unref(); once the draining is complete, this function
+ * must be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: coded video sink handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_coded_video_sink_queue_drained(struct pdraw_backend *self,
+					struct pdraw_coded_video_sink *sink);
+
+
+/**
  * Create a raw video sink.
- * This function creates a video sink on a media of the given media_id.
+ * This function creates a video sink on a media of the given media id;
+ * if the media id is zero the first raw media encountered is used.
  * The media idenfifiers are known when the media_added or media_removed
  * general callback functions are called.
  * Once the sink is created, video frames are retrieved by getting buffers
@@ -2278,7 +2548,7 @@ pdraw_be_coded_video_sink_queue_flushed(struct pdraw_backend *self,
  * @param params: video sink parameters
  * @param cbs: video sink callback functions
  * @param userdata: callback functions user data (optional, can be null)
- * @param ret_obj: video sink handle (output)
+ * @param ret_obj: raw video sink handle (output)
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
@@ -2298,7 +2568,7 @@ pdraw_be_raw_video_sink_new(struct pdraw_backend *self,
  * sink is destroyed the queue returned by pdraw_be_raw_video_sink_get_queue()
  * must no longer be used.
  * @param pdraw: PDrAW back-end instance handle
- * @param sink: video sink handle
+ * @param sink: raw video sink handle
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
@@ -2307,12 +2577,43 @@ pdraw_be_raw_video_sink_destroy(struct pdraw_backend *self,
 
 
 /**
+ * Set the raw video sink media identifier.
+ * This function updates the identifier of the media connected to the sink; if
+ * the media id is zero the first raw media encountered is used.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: raw video sink handle
+ * @param media_id: identifier of the raw media to use (from a
+ *                  pdraw_media_info structure); if zero the first raw media
+ *                  found is used
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_raw_video_sink_set_media_id(struct pdraw_backend *self,
+				     struct pdraw_raw_video_sink *sink,
+				     unsigned int media_id);
+
+
+/**
+ * Get the raw video sink media identifier.
+ * This function retrieves the identifier of the media connected to the raw
+ * video sink.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: raw video sink handle
+ * @return the identifier of the media on success, 0 if no media is being
+ *         connected or in case of error
+ */
+PDRAW_API unsigned int
+pdraw_be_raw_video_sink_get_media_id(struct pdraw_backend *pdraw,
+				     struct pdraw_raw_video_sink *sink);
+
+
+/**
  * Get the raw video sink frame queue.
  * This function returns the frame queue to use in order to retrieve frames
  * from a running video sink. Frames are retrieved from the queue by using the
  * mbuf_raw_video_frame_queue_pop() function.
  * @param pdraw: PDrAW back-end instance handle
- * @param sink: video sink handle
+ * @param sink: raw video sink handle
  * @return a pointer on a mbuf_raw_video_frame_queue object on success, NULL
  * in case of error
  */
@@ -2329,11 +2630,27 @@ pdraw_be_raw_video_sink_get_queue(struct pdraw_backend *self,
  * frames outside of the queue by calling mbuf_raw_video_frame_unref(); once
  * the flushing is complete, this function must be called.
  * @param pdraw: PDrAW back-end instance handle
- * @param sink: video sink handle
+ * @param sink: raw video sink handle
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
 pdraw_be_raw_video_sink_queue_flushed(struct pdraw_backend *self,
+				      struct pdraw_raw_video_sink *sink);
+
+
+/**
+ * Signal that a raw video sink has been drained.
+ * This function is used to signal that draining is complete. When the drain
+ * video sink callback function is called, the application must drain the sink
+ * queue and must return all frames outside of the queue by calling
+ * mbuf_raw_video_frame_unref(); once the draining is complete, this function
+ * must be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: raw video sink handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_raw_video_sink_queue_drained(struct pdraw_backend *self,
 				      struct pdraw_raw_video_sink *sink);
 
 
@@ -2405,7 +2722,11 @@ pdraw_be_alsa_source_is_paused(struct pdraw_backend *pdraw,
  * Start receiving frames on the ALSA source.
  * This function starts the ALSA source if it is ready to play. Otherwise an
  * error is returned. Receiving frames can be halted by calling the
- * pdraw_alsa_source_pause() function.
+ * pdraw_be_alsa_source_pause() function. The function returns before the actual
+ * operation is done. If the function returns 0, the play_resp callback
+ * function will be called once the operation is successful. If the function
+ * returns a negative errno value (immediate failure), the play_resp
+ * callback function will not be called.
  * @param pdraw: PDrAW back-end instance handle
  * @param source: ALSA source handle
  * @return 0 on success, negative errno value in case of error
@@ -2418,7 +2739,12 @@ pdraw_be_alsa_source_play(struct pdraw_backend *pdraw,
 /**
  * Stop receiving frames on the ALSA source.
  * This function halts the ALSA source to stop receiving frames. Receiving
- * frames can be resumed by calling the pdraw_alsa_source_play() function.
+ * frames can be resumed by calling the pdraw_be_alsa_source_play() function.
+ * The function returns before the actual operation is done. If the function
+ * returns 0, the pause_resp callback function will be called once the
+ * operation is successful. If the function returns a negative errno value
+ * (immediate failure), the pause_resp callback function will not be called.
+ * Once paused, all frames are drained from the pipeline.
  * @param pdraw: PDrAW back-end instance handle
  * @param source: ALSA source handle
  * @return 0 on success, negative errno value in case of error
@@ -2503,12 +2829,28 @@ pdraw_be_audio_source_flush(struct pdraw_backend *pdraw,
 
 
 /**
+ * Audio source drain function.
+ * This function is to be called when draining is required. When this function
+ * is called, all frames previously pushed to the queue will be returned; once
+ * the draining is done, the drained() audio source callback function
+ * will be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param source: audio source handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_source_drain(struct pdraw_backend *pdraw,
+			    struct pdraw_audio_source *source);
+
+
+/**
  * Audio sink API
  */
 
 /**
  * Create an audio sink.
- * This function creates an audio sink on a media of the given media_id.
+ * This function creates an audio sink on a media of the given media id;
+ * if the media id is zero the first audio media encountered is used.
  * The media idenfifiers are known when the media_added or media_removed
  * general callback functions are called.
  * Once the sink is created, audio frames are retrieved by getting them
@@ -2555,6 +2897,37 @@ pdraw_be_audio_sink_destroy(struct pdraw_backend *pdraw,
 
 
 /**
+ * Set the audio sink media identifier.
+ * This function updates the identifier of the media connected to the sink; if
+ * the media id is zero the first raw media encountered is used.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: audio sink handle
+ * @param media_id: identifier of the raw media to use (from a
+ *                  pdraw_media_info structure); if zero the first raw media
+ *                  found is used
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_sink_set_media_id(struct pdraw_backend *self,
+				 struct pdraw_audio_sink *sink,
+				 unsigned int media_id);
+
+
+/**
+ * Get the audio sink media identifier.
+ * This function retrieves the identifier of the media connected to the raw
+ * audio sink.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: audio sink handle
+ * @return the identifier of the media on success, 0 if no media is being
+ *         connected or in case of error
+ */
+PDRAW_API unsigned int
+pdraw_be_audio_sink_get_media_id(struct pdraw_backend *pdraw,
+				 struct pdraw_audio_sink *sink);
+
+
+/**
  * Get the audio sink frame queue.
  * This function returns the frame queue to use in order to retrieve frames
  * from a running audio sink. Frames are retrieved from the queue by using the
@@ -2582,6 +2955,22 @@ pdraw_be_audio_sink_get_queue(struct pdraw_backend *pdraw,
  */
 PDRAW_BACKEND_API int
 pdraw_be_audio_sink_queue_flushed(struct pdraw_backend *pdraw,
+				  struct pdraw_audio_sink *sink);
+
+
+/**
+ * Signal that an audio sink has been drained.
+ * This function is used to signal that draining is complete. When the drain
+ * audio sink callback function is called, the application must drain the sink
+ * queue and must return all frames outside of the queue by calling
+ * mbuf_audio_frame_unref(); once the draining is complete, this function must
+ * be called.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param sink: audio sink handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_audio_sink_queue_drained(struct pdraw_backend *pdraw,
 				  struct pdraw_audio_sink *sink);
 
 

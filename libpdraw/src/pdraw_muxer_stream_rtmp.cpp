@@ -398,7 +398,7 @@ int RtmpStreamMuxer::process(void)
 {
 	int res, inputMediaCount, i;
 
-	if (mState != STARTED)
+	if (mState != State::STARTED)
 		return 0;
 
 	Sink::lock();
@@ -603,6 +603,27 @@ void RtmpStreamMuxer::onChannelFlush(Channel *channel)
 }
 
 
+void RtmpStreamMuxer::onChannelDrain(Channel *channel)
+{
+	int err;
+
+	/* Process all remaining frames */
+	err = process();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("process", -err);
+
+	Muxer::onChannelDrain(channel);
+
+	/* Flush the RTMP client (dataUnrefCb will be called for each pending
+	 * frame) */
+	if (mRtmpClient != nullptr) {
+		err = rtmp_client_flush(mRtmpClient);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("rtmp_client_flush", -err);
+	}
+}
+
+
 void RtmpStreamMuxer::setRtmpState(RtmpStreamMuxer::RtmpState state)
 {
 	if (state == mRtmpState)
@@ -694,7 +715,7 @@ int RtmpStreamMuxer::reconnect(void)
 
 	ULOG_ERRNO_RETURN_ERR_IF(mRtmpClient == nullptr, EPROTO);
 
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -729,8 +750,14 @@ int RtmpStreamMuxer::reconnect(void)
 int RtmpStreamMuxer::scheduleReconnection(void)
 {
 	int ret;
-	if (mReconnectionCount >= mReconnectionMaxCount)
+	if (mReconnectionCount >= mReconnectionMaxCount) {
+		PDRAW_LOGE(
+			"maximum number of reconnection attempts reached "
+			"(%d/%d), aborting",
+			mReconnectionCount,
+			mReconnectionMaxCount);
 		return -ETIMEDOUT;
+	}
 
 	/* Schedule next attempt */
 	ret = pomp_timer_set(mReconnectionTimer,
@@ -772,7 +799,8 @@ void RtmpStreamMuxer::connectionStateCb(
 
 	switch (state) {
 	case RTMP_CLIENT_CONN_STATE_DISCONNECTED:
-		if ((self->mState == STARTING) || (self->mState == STARTED)) {
+		if ((self->mState == State::STARTING) ||
+		    (self->mState == State::STARTED)) {
 			self->mConfigured = false;
 			if (self->mDummyAudioTimer != nullptr) {
 				err = pomp_timer_clear(self->mDummyAudioTimer);
@@ -799,7 +827,8 @@ void RtmpStreamMuxer::connectionStateCb(
 		}
 		break;
 	case RTMP_CLIENT_CONN_STATE_CONNECTING:
-		if ((self->mState == STARTING) || (self->mState == STARTED)) {
+		if ((self->mState == State::STARTING) ||
+		    (self->mState == State::STARTED)) {
 			/* Arm the connection watchdog */
 			err = pomp_timer_set(
 				self->mConnectionWatchdog,
@@ -811,7 +840,8 @@ void RtmpStreamMuxer::connectionStateCb(
 		break;
 	case RTMP_CLIENT_CONN_STATE_CONNECTED:
 		self->mReconnectionCount = 0;
-		if ((self->mState == STARTING) || (self->mState == STARTED)) {
+		if ((self->mState == State::STARTING) ||
+		    (self->mState == State::STARTED)) {
 			/* Disarm the connection watchdog */
 			err = pomp_timer_clear(self->mConnectionWatchdog);
 			if (err < 0)
@@ -937,7 +967,7 @@ void RtmpStreamMuxer::reconnectionTimerCb(struct pomp_timer *timer,
 	self->mReconnectionCount++;
 	self->mReconnectionMaxCount = reconnectionCount;
 
-	if (self->mReconnectionCount >= self->mReconnectionMaxCount)
+	if (self->mReconnectionCount > self->mReconnectionMaxCount)
 		goto abort;
 
 	PDRAW_LOGI("reconnecting (%d/%d)",

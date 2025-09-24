@@ -93,6 +93,9 @@ public:
 
 	int seekTo(uint64_t timestamp, bool exact = false);
 
+	int getChapterList(struct pdraw_chapter **chapterList,
+			   size_t *chapterCount);
+
 	uint64_t getDuration(void);
 
 	uint64_t getCurrentTime(void);

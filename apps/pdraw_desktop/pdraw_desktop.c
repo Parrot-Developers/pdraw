@@ -140,19 +140,37 @@ void pdraw_desktop_toggle_play_pause(struct pdraw_desktop *self)
 	int res;
 	if (self->demuxer != NULL) {
 		if (pdraw_be_demuxer_is_paused(self->pdraw, self->demuxer) !=
-		    0) {
-			res = pdraw_be_demuxer_play_with_speed(
-				self->pdraw,
-				self->demuxer,
-				self->speed * self->speed_sign);
-			if (res < 0)
-				ULOG_ERRNO("pdraw_be_demuxer_play_with_speed",
-					   -res);
+			    0 &&
+		    !self->start_paused) {
+			if (self->start_time_us &&
+			    (pdraw_be_demuxer_get_duration(
+				     self->pdraw, self->demuxer) != 0)) {
+				pdraw_desktop_goto_timestamp(
+					self, self->start_time_us);
+				self->start_time_us = 0;
+				self->start_time_pending = 1;
+			} else {
+				res = pdraw_be_demuxer_play_with_speed(
+					self->pdraw,
+					self->demuxer,
+					self->speed * self->speed_sign);
+				if (res < 0) {
+					ULOG_ERRNO(
+						"pdraw_be_demuxer_play"
+						"_with_speed",
+						-res);
+				}
+				self->start_time_pending = 0;
+			}
 		} else {
 			res = pdraw_be_demuxer_pause(self->pdraw,
 						     self->demuxer);
 			if (res < 0)
 				ULOG_ERRNO("pdraw_be_demuxer_pause", -res);
+			if (self->start_paused) {
+				self->start_paused = 0;
+				self->start_paused_pending = 1;
+			}
 		}
 	}
 	if (self->source != NULL) {
@@ -335,6 +353,17 @@ void pdraw_desktop_goto_beginning(struct pdraw_desktop *self)
 	if (self->demuxer == NULL)
 		return;
 	int res = pdraw_be_demuxer_seek_to(self->pdraw, self->demuxer, 0, 1);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_demuxer_seek_to", -res);
+}
+
+
+void pdraw_desktop_goto_timestamp(struct pdraw_desktop *self, uint64_t ts_us)
+{
+	if (self->demuxer == NULL)
+		return;
+	int res =
+		pdraw_be_demuxer_seek_to(self->pdraw, self->demuxer, ts_us, 1);
 	if (res < 0)
 		ULOG_ERRNO("pdraw_be_demuxer_seek_to", -res);
 }
@@ -717,8 +746,7 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	if ((self->recorder_media_id == 0) &&
 	    (info->type == PDRAW_MEDIA_TYPE_VIDEO) &&
-	    (info->video.format == VDEF_FRAME_TYPE_CODED) &&
-	    (info->video.coded.format.encoding == VDEF_ENCODING_H264)) {
+	    (info->video.format == VDEF_FRAME_TYPE_CODED)) {
 		self->recorder_media_id = info->id;
 		if (self->recorder != NULL) {
 			ULOGI("adding media %d to MP4 muxer",
@@ -752,6 +780,7 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 			     void *element_userdata,
 			     void *userdata)
 {
+	int index = -1;
 	struct pdraw_desktop *self = userdata;
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
 	/* Cleanup any pending media */
@@ -761,6 +790,21 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 	}
 	if (self->video_renderer_pending_media_id == info->id)
 		self->video_renderer_pending_media_id = 0;
+	for (size_t i = 0; i < SIZEOF_ARRAY(self->removed_medias); i++) {
+		if (self->removed_medias[i] == 0) {
+			index = i;
+			break;
+		}
+	}
+	if (index < 0) {
+		/* Replace oldest index */
+		index = (self->latest_removed_media_index + 1) %
+			SIZEOF_ARRAY(self->removed_medias);
+	}
+	self->removed_medias[index] = info->id;
+	self->latest_removed_media_index = index;
+	if (self->recorder_media_id == info->id)
+		self->recorder_media_id = 0;
 }
 
 
@@ -1415,8 +1459,11 @@ enum args_id {
 	ARGS_ID_NORM,
 	ARGS_ID_EXT_TEX,
 	ARGS_ID_DEMUX,
+	ARGS_ID_PAUSE,
+	ARGS_ID_START_TIME,
 	ARGS_ID_SCHEDMODE,
 	ARGS_ID_FILLMODE,
+	ARGS_ID_DISPLAY_INDEX,
 };
 
 
@@ -1432,7 +1479,10 @@ static const struct option long_options[] = {
 	{"rstrmp", required_argument, NULL, 'S'},
 	{"rctrlp", required_argument, NULL, 'C'},
 	{"demux", required_argument, NULL, ARGS_ID_DEMUX},
-	{"fullscreen", no_argument, NULL, 'F'},
+	{"start-paused", no_argument, NULL, ARGS_ID_PAUSE},
+	{"start-time", required_argument, NULL, ARGS_ID_START_TIME},
+	{"full-screen", no_argument, NULL, 'F'},
+	{"display-index", required_argument, NULL, ARGS_ID_DISPLAY_INDEX},
 	{"always-on-top", no_argument, NULL, 'T'},
 	{"hud", required_argument, NULL, 'H'},
 	{"overlay", required_argument, NULL, 'O'},
@@ -1475,8 +1525,17 @@ static void usage(char *prog_name)
 	       "to select all medias (e.g. \"0\" or \"1,3,5\" or \"all\");\n"
 	       "                                   "
 	       "if not specified the user will be prompted if necessary\n\n"
-	       "  -F | --fullscreen                "
-	       "Start in full-screen mode\n\n"
+	       "       --start-paused              "
+	       "Start playing in pause and enable frame-by-frame\n\n"
+	       "       --start-time <time_sec>     "
+	       "Start at the given time as seconds (e.g. \"3.5\") "
+	       "or as a timecode (e.g. \"mm:ss\" or \"hh:mm:ss\"),\n"
+	       "                                   "
+	       "with optional fractional seconds using a dot as separator\n\n"
+	       "  -F | --full-screen               "
+	       "Launch the window in full screen\n\n"
+	       "       --display-index <idx>       "
+	       "Launch the window on the given display\n\n"
 	       "  -T | --always-on-top             "
 	       "Force window to stay on top\n\n"
 	       "  -H | --hud <type>                "
@@ -1570,11 +1629,55 @@ static enum pdraw_video_renderer_fill_mode parse_fill_mode(const char *value)
 }
 
 
+static int parse_time_code(const char *optarg, float *timecode)
+{
+	int ret;
+	int h = 0, m = 0, n = 0;
+	float s = 0.;
+
+	if (optarg == NULL || timecode == NULL)
+		return -EINVAL;
+
+	/* Format: ss.(ss) */
+	ret = sscanf(optarg, "%f%n", &s, &n);
+	if (ret == 1 && optarg[n] == '\0') {
+		if (s < 0.f)
+			return -EINVAL;
+		*timecode = s;
+		return 0;
+	}
+
+	/* Format: mm:ss(.ss) */
+	ret = sscanf(optarg, "%d:%f%n", &m, &s, &n);
+	if (ret == 2 && optarg[n] == '\0') {
+		if (!((m >= 0) && (s >= 0.f && s < 60.f)))
+			return -EINVAL;
+		*timecode = (m * 60) + s;
+		return 0;
+	}
+
+	/* Format: hh:mm:ss(.ss) */
+	ret = sscanf(optarg, "%d:%d:%f%n", &h, &m, &s, &n);
+	if (ret == 3 && optarg[n] == '\0') {
+		if (!((h >= 0) && (m >= 0 && m <= 59) &&
+		      (s >= 0.f && s < 60.f)))
+			return -EINVAL;
+		*timecode = (h * 60 * 60) + (m * 60) + s;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+
 int main(int argc, char **argv)
 {
 	int res, status = EXIT_SUCCESS;
 	int idx, c;
 	struct pdraw_desktop *self = NULL;
+	int parsedint;
+	float parsedfloat;
+	char *endptr = NULL;
 
 	welcome();
 
@@ -1591,6 +1694,7 @@ int main(int argc, char **argv)
 		goto out;
 	}
 	self->speed = 1.0;
+	self->display_index = 0;
 	self->speed_sign = 1;
 	self->skyctrl_battery_percentage = 255;
 	self->default_scheduling_mode =
@@ -1652,8 +1756,34 @@ int main(int argc, char **argv)
 			self->demuxer_media_list = strdup(optarg);
 			break;
 
+		case ARGS_ID_PAUSE:
+			self->start_paused = 1;
+			break;
+
+		case ARGS_ID_START_TIME:
+			res = parse_time_code(optarg, &parsedfloat);
+			if (res < 0) {
+				usage(argv[0]);
+				status = EXIT_FAILURE;
+				goto out;
+			}
+			self->start_time_us = (parsedfloat * 1000000.);
+			break;
+
 		case 'F':
 			self->fullscreen = 1;
+			break;
+
+		case ARGS_ID_DISPLAY_INDEX:
+			errno = 0;
+			parsedint = strtol(optarg, &endptr, 0);
+			if (optarg[0] == '\0' || endptr[0] != '\0' ||
+			    parsedint < 0 || errno != 0) {
+				usage(argv[0]);
+				status = EXIT_FAILURE;
+				goto out;
+			}
+			self->display_index = parsedint;
 			break;
 
 		case 'T':

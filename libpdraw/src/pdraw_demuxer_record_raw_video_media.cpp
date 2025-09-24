@@ -69,7 +69,7 @@ RecordDemuxer::DemuxerRawVideoMedia::~DemuxerRawVideoMedia(void)
 }
 
 
-void RecordDemuxer::DemuxerRawVideoMedia::flush(bool destroy)
+void RecordDemuxer::DemuxerRawVideoMedia::flush(bool discard)
 {
 	if (mCurrentFrame != nullptr) {
 		int err = mbuf_raw_video_frame_unref(mCurrentFrame);
@@ -85,7 +85,7 @@ void RecordDemuxer::DemuxerRawVideoMedia::flush(bool destroy)
 		mCurrentMem = nullptr;
 	}
 
-	DemuxerMedia::flush(destroy);
+	DemuxerMedia::flush(discard);
 }
 
 
@@ -356,6 +356,25 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		goto exit;
 	}
 
+	/* Get a sample size */
+	ret = mp4_demux_get_track_sample(
+		mDemuxer->mDemux, mTrackId, 0, nullptr, 0, nullptr, 0, sample);
+	if (ret != 0) {
+		PDRAW_LOG_ERRNO("mp4_demux_get_track_sample", -ret);
+		goto exit;
+	}
+	/* Reallocate if needed */
+	if (mMetadataBufferSize < sample->metadata_size) {
+		uint8_t *tmp = (uint8_t *)realloc(mMetadataBuffer,
+						  sample->metadata_size);
+		if (tmp == nullptr) {
+			ret = -ENOMEM;
+			PDRAW_LOG_ERRNO("realloc", -ret);
+			goto exit;
+		}
+		mMetadataBuffer = tmp;
+		mMetadataBufferSize = sample->metadata_size;
+	}
 	/* Get a sample */
 	ret = mp4_demux_get_track_sample(mDemuxer->mDemux,
 					 mTrackId,
@@ -382,9 +401,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		goto exit;
 	}
 	if (sample->size == 0) {
-		if (mDemuxer->mFrameByFrame)
-			mDemuxer->mRunning = false;
-		ret = 0;
+		ret = -ENOENT;
 		goto exit;
 	}
 	*silent = ((sample->silent) && (mPendingSeekExact)) ? true : false;
@@ -492,7 +509,8 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		1; /* no estimation here, the precision is 1 microsecond */
 	data.recvStartTimestamp = curTime;
 	data.recvEndTimestamp = curTime;
-	mDemuxer->mCurrentTime = data.playTimestamp;
+	if (isReference())
+		mDemuxer->mCurrentTime = data.playTimestamp;
 
 	frameInfo.info.capture_timestamp = mCurrentFrameCaptureTs;
 
@@ -512,13 +530,6 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_add_ancillary_buffer",
 				-ret);
 		goto exit;
-	}
-
-	if (*didSeek) {
-		/* TODO: signal once, not for all medias */
-		mDemuxer->seekResponse(mSeekResponse,
-				       mDemuxer->mCurrentTime,
-				       mDemuxer->mSpeed);
 	}
 
 	ret = mbuf_raw_video_frame_finalize(mCurrentFrame);
@@ -553,9 +564,10 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		}
 
 		ret = channel->queue(mCurrentFrame);
-		if (ret < 0) {
+		if (ret < 0)
 			PDRAW_LOG_ERRNO("channel->queue", -ret);
-		}
+		else
+			mDemuxer->setFlushingState(FlushingState::UNFLUSHED);
 	}
 	if ((mFirstSample) &&
 	    (!(frameInfo.info.flags & VDEF_FRAME_FLAG_SILENT))) {

@@ -91,9 +91,10 @@ VipcSource::VipcSource(Session *session,
 		mOutputMedia(nullptr), mOutputMediaChanging(false),
 		mKeepMedia(false), mVipcConnected(false), mReady(false),
 		mWasReady(false), mRunning(false), mWasRunning(false),
-		mFirstFrame(true), mInputFramesCount(0), mNextFrameIndex(0),
+		mFirstFrame(true), mPausePending(false), mInputFramesCount(0),
+		mUsedFrameCount(0), mNextFrameIndex(0),
 		mTimescale(DEFAULT_TIMESCALE), mLastTimestamp(UINT64_MAX),
-		mFlushPending(false), mWatchdogTimer(nullptr)
+		mWatchdogTimer(nullptr)
 {
 	Element::setClassName(__func__);
 
@@ -137,7 +138,7 @@ VipcSource::VipcSource(Session *session,
 	if (mParams.frame_timeout_ms == 0)
 		mParams.frame_timeout_ms = DEFAULT_TIMEOUT_MS;
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -148,7 +149,7 @@ VipcSource::~VipcSource(void)
 	/* Make sure listener functions will no longer be called */
 	mVipcSourceListener = nullptr;
 
-	if (mState == STARTED)
+	if (mState == State::STARTED)
 		PDRAW_LOGW("VIPC source is still running");
 
 	/* Remove any leftover idle callbacks */
@@ -182,15 +183,15 @@ int VipcSource::start(void)
 {
 	int ret;
 
-	if ((mState == STARTED) || (mState == STARTING))
+	if ((mState == State::STARTED) || (mState == State::STARTING))
 		return 0;
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
 		return -EPROTO;
 	}
-	setState(STARTING);
+	setState(State::STARTING);
 
 	const Backend *backend =
 		getBackend(mParams.backend_name, true, &mBackendType);
@@ -237,7 +238,7 @@ int VipcSource::start(void)
 		}
 	}
 
-	setState(STARTED);
+	setState(State::STARTED);
 	return 0;
 
 error:
@@ -250,16 +251,16 @@ int VipcSource::stop(void)
 {
 	int ret, err;
 
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
-	if ((mState != STARTED) && (mState != STARTING)) {
+	if ((mState != State::STARTED) && (mState != State::STARTING)) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
 		return -EPROTO;
 	}
 
-	setState(STOPPING);
+	setState(State::STOPPING);
 
 	/* Make sure listener functions will no longer be called */
 	mVipcSourceListener = nullptr;
@@ -278,8 +279,10 @@ int VipcSource::stop(void)
 
 	/* Flush everything */
 	ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+	else
+		ret = 0;
 
 	/* When the flush is complete, stopping will be triggered */
 	return ret;
@@ -290,7 +293,7 @@ int VipcSource::tryStop(void)
 {
 	int pendingCount;
 
-	if (mState != STOPPING)
+	if (mState != State::STOPPING)
 		return 0;
 
 	pendingCount = teardownChannels();
@@ -314,6 +317,16 @@ void VipcSource::completeStop(void)
 
 	outputChannelCount = getOutputChannelCount(mOutputMedia);
 	if (outputChannelCount > 0) {
+		Source::unlock();
+		return;
+	}
+
+	if (mUsedFrameCount > 0) {
+		PDRAW_LOGI(
+			"%s: %u frame(s) still not released,"
+			" trying again later",
+			__func__,
+			mUsedFrameCount.load());
 		Source::unlock();
 		return;
 	}
@@ -348,7 +361,25 @@ exit:
 		mWatchdogTimer = nullptr;
 	}
 
-	setState(STOPPED);
+	setState(State::STOPPED);
+}
+
+
+void VipcSource::playResponse(void)
+{
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callPlayResponse, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+}
+
+
+void VipcSource::pauseResponse(void)
+{
+	int err = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), callPauseResponse, this, this);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 }
 
 
@@ -361,7 +392,7 @@ void VipcSource::onChannelUnlink(Channel *channel)
 
 	Source::onChannelUnlink(channel);
 
-	if (mState == STOPPING) {
+	if (mState == State::STOPPING) {
 		completeStop();
 		return;
 	}
@@ -385,10 +416,33 @@ void VipcSource::onChannelUnlink(Channel *channel)
 }
 
 
-int VipcSource::flush(void)
+int VipcSource::flush(bool discard)
 {
 	int err;
+	int ret = 0;
+	bool channelFound = false;
 	Channel *outputChannel;
+
+	switch (getFlushingState()) {
+	case FlushingState::UNFLUSHED:
+		/* OK */
+		break;
+	case FlushingState::FLUSHING:
+		return -EALREADY;
+	case FlushingState::FLUSHED:
+		PDRAW_LOGD("vipc source is already flushed, nothing to do");
+		ret = pomp_loop_idle_add_with_cookie(
+			mSession->getLoop(), &idleCompleteFlush, this, this);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		else
+			setFlushingState(FlushingState::FLUSHING, discard);
+		return ret;
+	default:
+		break;
+	}
+
+	setFlushingState(FlushingState::FLUSHING, discard);
 
 	/* Flush the output channels (async) */
 	Source::lock();
@@ -404,16 +458,24 @@ int VipcSource::flush(void)
 					i);
 				continue;
 			}
-			err = outputChannel->flush();
-			if (err < 0)
-				PDRAW_LOG_ERRNO("channel->flush", -err);
+			if (mFlushDiscard)
+				err = outputChannel->flush();
 			else
-				mFlushPending = true;
+				err = outputChannel->drain();
+			if (err < 0 && err != -EALREADY) {
+				PDRAW_LOG_ERRNO(
+					"channel->%s (channel index=%u)",
+					-err,
+					mFlushDiscard ? "flush" : "drain",
+					i);
+			} else {
+				channelFound = true;
+			}
 		}
 	}
 	Source::unlock();
 
-	if (!mFlushPending)
+	if (!channelFound)
 		completeFlush();
 
 	return 0;
@@ -438,7 +500,8 @@ void VipcSource::completeFlush(void)
 					i);
 				continue;
 			}
-			if (outputChannel->isFlushPending()) {
+			if (outputChannel->isFlushPending() ||
+			    outputChannel->isDrainPending()) {
 				pending = true;
 				break;
 			}
@@ -448,14 +511,18 @@ void VipcSource::completeFlush(void)
 
 	if (pending)
 		return;
-	mFlushPending = false;
 
-	if ((mState != STOPPING) && (!mOutputMediaChanging))
+	setFlushingState(FlushingState::FLUSHED);
+
+	if (mPausePending)
+		pauseResponse();
+
+	if ((mState != State::STOPPING) && (!mOutputMediaChanging))
 		return;
 
 	int pendingCount = teardownChannels();
 	if (pendingCount == 0) {
-		if (mState == STOPPING) {
+		if (mState == State::STOPPING) {
 			completeStop();
 		} else if (mOutputMediaChanging) {
 			(void)destroyMedia();
@@ -487,6 +554,27 @@ void VipcSource::onChannelFlushed(Channel *channel)
 }
 
 
+void VipcSource::onChannelDrained(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		PDRAW_LOGE("%s: output media not found", __func__);
+		return;
+	}
+	PDRAW_LOGD("'%s': channel drained media name=%s (channel owner=%p)",
+		   Element::getName().c_str(),
+		   media->getName().c_str(),
+		   channel->getOwner());
+
+	completeFlush();
+}
+
+
 bool VipcSource::isReadyToPlay(void)
 {
 	return mReady;
@@ -501,7 +589,7 @@ bool VipcSource::isPaused(void)
 
 int VipcSource::play(void)
 {
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -529,39 +617,52 @@ int VipcSource::play(void)
 	}
 
 	mRunning = true;
+
+	playResponse();
+
 	return 0;
 }
 
 
 int VipcSource::pause(void)
 {
-	if (mState != STARTED) {
+	int ret;
+
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
 		return -EPROTO;
 	}
-	if (!mReady) {
-		PDRAW_LOGE("%s: not ready to play", __func__);
-		return -EPROTO;
+
+	if (mPausePending)
+		return -EALREADY;
+
+	if (mReady && mRunning) {
+		ret = vipcc_stop(mClient);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("vipcc_stop", -ret);
+			return ret;
+		}
+
+		if (mWatchdogTimer != nullptr) {
+			int err = pomp_timer_clear(mWatchdogTimer);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+		}
+
+		mRunning = false;
 	}
 
-	if (!mRunning)
-		return 0;
-
-	int ret = vipcc_stop(mClient);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("vipcc_stop", -ret);
+	/* Drain */
+	ret = drain();
+	if (ret < 0 && ret != -EALREADY) {
+		PDRAW_LOG_ERRNO("drain", -ret);
 		return ret;
 	}
 
-	if (mWatchdogTimer != nullptr) {
-		int err = pomp_timer_clear(mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-	}
+	mPausePending = true;
 
-	mRunning = false;
 	return 0;
 }
 
@@ -760,6 +861,8 @@ int VipcSource::insertGreyFrame(uint64_t tsUs)
 		err = channel->queue(frame);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("channel->queue", -err);
+		else
+			setFlushingState(FlushingState::UNFLUSHED);
 	}
 
 	/* Save frame timestamp as last_timestamp */
@@ -820,6 +923,24 @@ int VipcSource::getSessionMetadata(struct vmeta_session *meta)
 }
 
 
+void VipcSource::incrementUsedFrameCount(void)
+{
+	mUsedFrameCount++;
+}
+
+
+void VipcSource::decrementUsedFrameCount(void)
+{
+	if (mUsedFrameCount <= 0) {
+		PDRAW_LOGE("%s: mUsedFrameCount <= 0 (%d)",
+			   __func__,
+			   mUsedFrameCount.load());
+	} else {
+		mUsedFrameCount--;
+	}
+}
+
+
 int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 			     struct mbuf_mem *mem)
 {
@@ -832,7 +953,7 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 	uint64_t curTime = 0;
 	unsigned int outputChannelCount;
 
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -1021,6 +1142,8 @@ int VipcSource::processFrame(const struct vipc_frame *vipcFrame,
 		err = channel->queue(mbufFrame);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("channel->queue", -err);
+		else
+			setFlushingState(FlushingState::UNFLUSHED);
 	}
 
 	/* Save frame timestamp as last_timestamp */
@@ -1077,10 +1200,10 @@ int VipcSource::setupMedia(void)
 {
 	bool validStatus = (mStatus != nullptr);
 
-	if (mState == STOPPED)
+	if (mState == State::STOPPED)
 		return 0;
 
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -1101,6 +1224,10 @@ int VipcSource::setupMedia(void)
 		if (!mKeepMedia)
 			mOutputMediaChanging = true;
 		int ret = flush();
+		if (ret < 0 && ret != -EALREADY)
+			PDRAW_LOG_ERRNO("flush", -ret);
+		else
+			ret = 0;
 		Source::unlock();
 		return ret;
 	}
@@ -1134,12 +1261,54 @@ void VipcSource::callOnMediaAdded(void *userdata)
 }
 
 
+void VipcSource::idleCompleteFlush(void *userdata)
+{
+	VipcSource *self = (VipcSource *)userdata;
+	(void)self->completeFlush();
+}
+
+
+void VipcSource::idleCompleteStop(void *userdata)
+{
+	VipcSource *self = (VipcSource *)userdata;
+	(void)self->completeStop();
+}
+
+
+/* Listener call from an idle function */
+void VipcSource::callPlayResponse(void *userdata)
+{
+	VipcSource *self = reinterpret_cast<VipcSource *>(userdata);
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	if (self->mVipcSourceListener != nullptr) {
+		self->mVipcSourceListener->vipcSourcePlayResponse(
+			self->mSession, self->getVipcSource());
+	}
+}
+
+
+/* Listener call from an idle function */
+void VipcSource::callPauseResponse(void *userdata)
+{
+	VipcSource *self = reinterpret_cast<VipcSource *>(userdata);
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	self->mPausePending = false;
+
+	if (self->mVipcSourceListener != nullptr) {
+		self->mVipcSourceListener->vipcSourcePauseResponse(
+			self->mSession, self->getVipcSource());
+	}
+}
+
+
 int VipcSource::createMedia(void)
 {
 	int ret, err;
 	std::string path;
 
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -1270,8 +1439,8 @@ int VipcSource::destroyMedia(void)
 {
 	int ret;
 
-	if ((mState != STARTED) && (mState != STOPPING) &&
-	    (mState != STOPPED)) {
+	if ((mState != State::STARTED) && (mState != State::STOPPING) &&
+	    (mState != State::STOPPED)) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -1306,7 +1475,8 @@ int VipcSource::destroyMedia(void)
 
 	if (mWasReady) {
 		mWasReady = false;
-		if ((mVipcSourceListener != nullptr) && (mState == STARTED)) {
+		if ((mVipcSourceListener != nullptr) &&
+		    (mState == State::STARTED)) {
 			mVipcSourceListener->vipcSourceReadyToPlay(
 				mSession,
 				getVipcSource(),
@@ -1379,7 +1549,7 @@ void VipcSource::statusCb(struct vipcc_ctx *ctx,
 		vdef_tone_mapping_to_str(status->tone_mapping),
 		status->full_range ? "full" : "limited");
 
-	if (self->mState != STARTED) {
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGI("%s: ignored in state %s",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -1553,7 +1723,7 @@ void VipcSource::configureCb(struct vipcc_ctx *ctx,
 			   config->crop.top + config->crop.height);
 	}
 
-	if (self->mState != STARTED) {
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGI("%s: ignored in state %s",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -1570,7 +1740,20 @@ void VipcSource::configureCb(struct vipcc_ctx *ctx,
 void VipcSource::releaseFrameCb(void *data, size_t len, void *userdata)
 {
 	FrameCtx *f = reinterpret_cast<FrameCtx *>(userdata);
+	VipcSource *self = f->self;
 	vipcc_release_safe(f->frame);
+	self->decrementUsedFrameCount();
+
+	if ((self->mUsedFrameCount == 0) && (self->mState == State::STOPPING)) {
+		int err = pomp_loop_idle_add_with_cookie(
+			self->mSession->getLoop(),
+			&idleCompleteStop,
+			self,
+			self);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+	}
+
 	free(f);
 }
 #	endif
@@ -1590,7 +1773,9 @@ void VipcSource::dmabufFrameCb(struct vipcc_ctx *ctx,
 	struct mbuf_mem *mem = nullptr;
 	size_t totalSize = 0;
 
-	if (self->mState != STARTED) {
+	self->incrementUsedFrameCount();
+
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -1616,6 +1801,7 @@ void VipcSource::dmabufFrameCb(struct vipcc_ctx *ctx,
 		PDRAW_LOG_ERRNO("calloc", ENOMEM);
 		goto unref;
 	}
+	f->self = self;
 	f->client = ctx;
 	f->frame = frame;
 
@@ -1644,6 +1830,7 @@ unref:
 			ULOG_ERRNO("mbuf_mem_unref", -err);
 	} else {
 		vipcc_release(ctx, frame);
+		self->decrementUsedFrameCount();
 		free(f);
 	}
 }
@@ -1664,7 +1851,9 @@ void VipcSource::hisiFrameCb(struct vipcc_ctx *ctx,
 	struct mbuf_mem *mem = nullptr;
 	size_t totalSize = 0;
 
-	if (self->mState != STARTED) {
+	self->incrementUsedFrameCount();
+
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -1690,6 +1879,7 @@ void VipcSource::hisiFrameCb(struct vipcc_ctx *ctx,
 		PDRAW_LOG_ERRNO("calloc", ENOMEM);
 		goto unref;
 	}
+	f->self = self;
 	f->client = ctx;
 	f->frame = frame;
 
@@ -1718,6 +1908,7 @@ unref:
 			ULOG_ERRNO("mbuf_mem_unref", -err);
 	} else {
 		vipcc_release(ctx, frame);
+		self->decrementUsedFrameCount();
 		free(f);
 	}
 }
@@ -1736,7 +1927,9 @@ void VipcSource::shmFrameCb(struct vipcc_ctx *ctx,
 	struct mbuf_mem *mem = nullptr;
 	size_t totalSize = 0;
 
-	if (self->mState != STARTED) {
+	self->incrementUsedFrameCount();
+
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -1762,6 +1955,7 @@ void VipcSource::shmFrameCb(struct vipcc_ctx *ctx,
 		PDRAW_LOG_ERRNO("calloc", ENOMEM);
 		goto unref;
 	}
+	f->self = self;
 	f->client = ctx;
 	f->frame = frame;
 
@@ -1789,6 +1983,7 @@ unref:
 			ULOG_ERRNO("mbuf_mem_unref", -err);
 	} else {
 		vipcc_release(ctx, frame);
+		self->decrementUsedFrameCount();
 		free(f);
 	}
 }
@@ -1807,7 +2002,9 @@ void VipcSource::cbufFrameCb(struct vipcc_ctx *ctx,
 	size_t totalSize = 0, cap;
 	void *data;
 
-	if (self->mState != STARTED) {
+	self->incrementUsedFrameCount();
+
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -1917,6 +2114,7 @@ unref:
 			ULOG_ERRNO("mbuf_mem_unref", -err);
 	}
 	vipcc_release(ctx, frame);
+	self->decrementUsedFrameCount();
 }
 #	endif
 
@@ -1955,7 +2153,7 @@ void VipcSource::eosCb(struct vipcc_ctx *ctx,
 		   vipc_eos_reason_to_str(reason),
 		   reason);
 
-	if (self->mState != STARTED) {
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGI("%s: ignored in state %s",
 			   __func__,
 			   Element::getElementStateStr(self->mState));
@@ -2022,7 +2220,7 @@ void VipcSource::eosCb(struct vipcc_ctx *ctx,
 	if (self->mKeepMedia && self->mWasReady) {
 		self->mWasReady = false;
 		if ((self->mVipcSourceListener != nullptr) &&
-		    (self->mState == STARTED)) {
+		    (self->mState == State::STARTED)) {
 			self->mVipcSourceListener->vipcSourceReadyToPlay(
 				self->mSession,
 				self->getVipcSource(),
@@ -2144,7 +2342,7 @@ VipcSourceWrapper::VipcSourceWrapper(
 VipcSourceWrapper::~VipcSourceWrapper(void)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return;
 	int ret = mSource->stop();
 	if (ret < 0)
@@ -2156,7 +2354,7 @@ VipcSourceWrapper::~VipcSourceWrapper(void)
 bool VipcSourceWrapper::isReadyToPlay(void)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return false;
 	return mSource->isReadyToPlay();
 #else
@@ -2168,7 +2366,7 @@ bool VipcSourceWrapper::isReadyToPlay(void)
 bool VipcSourceWrapper::isPaused(void)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return false;
 	return mSource->isPaused();
 #else
@@ -2180,7 +2378,7 @@ bool VipcSourceWrapper::isPaused(void)
 int VipcSourceWrapper::play(void)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->play();
 #else
@@ -2192,7 +2390,7 @@ int VipcSourceWrapper::play(void)
 int VipcSourceWrapper::pause(void)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->pause();
 #else
@@ -2205,7 +2403,7 @@ int VipcSourceWrapper::configure(const struct vdef_dim *resolution,
 				 const struct vdef_rectf *crop)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->configure(resolution, crop);
 #else
@@ -2217,7 +2415,7 @@ int VipcSourceWrapper::configure(const struct vdef_dim *resolution,
 int VipcSourceWrapper::insertGreyFrame(uint64_t tsUs)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->insertGreyFrame(tsUs);
 #else
@@ -2229,7 +2427,7 @@ int VipcSourceWrapper::insertGreyFrame(uint64_t tsUs)
 int VipcSourceWrapper::setSessionMetadata(const struct vmeta_session *meta)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->setSessionMetadata(meta);
 #else
@@ -2241,7 +2439,7 @@ int VipcSourceWrapper::setSessionMetadata(const struct vmeta_session *meta)
 int VipcSourceWrapper::getSessionMetadata(struct vmeta_session *meta)
 {
 #ifdef BUILD_LIBVIDEO_IPC
-	if (mSource == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mSource->getSessionMetadata(meta);
 #else

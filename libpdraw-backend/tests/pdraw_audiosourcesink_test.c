@@ -60,14 +60,19 @@ struct pdraw_backend_app {
 	bool media_added;
 	bool media_removed;
 	bool flushed_resp;
+	bool drained_resp;
 	bool stop_resp;
 	int stop_resp_status;
 	struct araw_reader *reader;
 	struct araw_writer *writer;
 	struct mbuf_audio_frame_queue *in_queue;
 	struct mbuf_audio_frame_queue *out_queue;
+	unsigned int in_count;
 	unsigned int out_count;
 };
+
+
+static void process_output(struct pdraw_backend_app *self);
 
 
 static void source_flushed_cb(struct pdraw_backend *pdraw,
@@ -83,8 +88,22 @@ static void source_flushed_cb(struct pdraw_backend *pdraw,
 }
 
 
+static void source_drained_cb(struct pdraw_backend *pdraw,
+			      struct pdraw_audio_source *source,
+			      void *userdata)
+{
+	struct pdraw_backend_app *self = userdata;
+	ULOGI("%s", __func__);
+	pthread_mutex_lock(&self->mutex);
+	self->drained_resp = true;
+	pthread_mutex_unlock(&self->mutex);
+	pthread_cond_signal(&self->cond);
+}
+
+
 static const struct pdraw_backend_audio_source_cbs source_cbs = {
 	.flushed = &source_flushed_cb,
+	.drained = &source_drained_cb,
 };
 
 
@@ -114,8 +133,45 @@ static void sink_flush_cb(struct pdraw_backend *pdraw,
 }
 
 
+static void sink_drain_cb(struct pdraw_backend *pdraw,
+			  struct pdraw_audio_sink *sink,
+			  void *userdata)
+{
+	struct pdraw_backend_app *self = userdata;
+	int res;
+
+	ULOGI("%s", __func__);
+
+	if (self->out_queue == NULL)
+		return;
+
+	pthread_mutex_lock(&self->mutex);
+
+	while (true) {
+		res = mbuf_audio_frame_queue_get_count(self->out_queue);
+		if (res < 0) {
+			ULOG_ERRNO("mbuf_audio_frame_queue_get_count", -res);
+			break;
+		}
+		ULOGI("draining: %d frames remaining", res);
+		if (res == 0)
+			break;
+		pthread_mutex_unlock(&self->mutex);
+		process_output(self);
+		pthread_mutex_lock(&self->mutex);
+	}
+
+	res = pdraw_be_audio_sink_queue_drained(self->pdraw, self->sink);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_audio_sink_queue_drained", -res);
+
+	pthread_mutex_unlock(&self->mutex);
+}
+
+
 static const struct pdraw_backend_audio_sink_cbs sink_cbs = {
 	.flush = &sink_flush_cb,
+	.drain = &sink_drain_cb,
 };
 
 
@@ -333,7 +389,7 @@ int main(int argc, char **argv)
 	struct araw_reader_config reader_config = {0};
 	struct araw_writer_config writer_config = {0};
 	size_t frame_len = 0;
-	unsigned int max_count = UINT_MAX, in_count = 0;
+	unsigned int max_count = UINT_MAX;
 
 	welcome(argc, argv);
 
@@ -475,7 +531,7 @@ int main(int argc, char **argv)
 
 	/* Main loop */
 	res = 0;
-	while ((res == 0) && (in_count < max_count)) {
+	while ((res == 0) && (self->in_count < max_count)) {
 		struct araw_frame in_frame = {0};
 		struct mbuf_audio_frame *frame = NULL;
 		struct mbuf_mem *mem = NULL;
@@ -509,7 +565,7 @@ int main(int argc, char **argv)
 		ULOGI("read frame #%d ts=%" PRIu64,
 		      in_frame.frame.info.index,
 		      in_frame.frame.info.timestamp);
-		in_count++;
+		self->in_count++;
 
 		res = mbuf_audio_frame_new(&in_frame.frame, &frame);
 		if (res < 0) {
@@ -556,27 +612,19 @@ end:
 		process_output(self);
 	}
 
-	/* Process the remaining frames */
-	while (self->out_count < in_count) {
-		/* TODO: there should be an API to drain the remaining frames */
-		ULOGI("%u %u", self->out_count, in_count);
-		usleep(5000);
-		process_output(self);
-	}
-
-	/* Flush the audio source */
-	res = pdraw_be_audio_source_flush(self->pdraw, self->source);
+	/* Drain the audio source */
+	res = pdraw_be_audio_source_drain(self->pdraw, self->source);
 	if (res < 0) {
-		ULOG_ERRNO("pdraw_be_audio_source_flush", -res);
+		ULOG_ERRNO("pdraw_be_audio_source_drain", -res);
 		status = EXIT_FAILURE;
 		goto out;
 	}
 	pthread_mutex_lock(&self->mutex);
-	while (!self->flushed_resp)
+	while (!self->drained_resp)
 		pthread_cond_wait(&self->cond, &self->mutex);
-	self->flushed_resp = false;
+	self->drained_resp = false;
 	pthread_mutex_unlock(&self->mutex);
-	ULOGI("source flushed");
+	ULOGI("source drained");
 
 	/* Destroy the audio source */
 	res = pdraw_be_audio_source_destroy(self->pdraw, self->source);
@@ -614,6 +662,9 @@ end:
 		goto out;
 	}
 	ULOGI("stopped");
+	ULOGI("%d frames read, %d frames written",
+	      self->in_count,
+	      self->out_count);
 
 out:
 	if (self != NULL) {

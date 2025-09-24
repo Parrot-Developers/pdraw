@@ -68,7 +68,7 @@ Muxer::Muxer(Session *session,
 
 	mParams = *params;
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -83,7 +83,7 @@ Muxer::~Muxer(void)
 	if (err < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 
-	if ((mState == STARTED) || (mState == STARTING))
+	if ((mState == State::STARTED) || (mState == State::STARTING))
 		PDRAW_LOGW("%s: still running (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -101,16 +101,16 @@ int Muxer::start(void)
 {
 	int res;
 
-	if ((mState == STARTED) || (mState == STARTING)) {
+	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
 	}
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
 		return -EPROTO;
 	}
-	setState(STARTING);
+	setState(State::STARTING);
 
 	mReadyToStart = true;
 
@@ -119,14 +119,14 @@ int Muxer::start(void)
 		goto error;
 
 	if (mReadyToStart)
-		setState(STARTED);
+		setState(State::STARTED);
 
 	return 0;
 
 error:
 	/* Do not call stop() here to avoid replying with muxerCloseResponse on
 	 * internally called stop */
-	setState(STOPPING);
+	setState(State::STOPPING);
 
 	(void)completeStop();
 	return res;
@@ -135,15 +135,15 @@ error:
 
 int Muxer::stop(void)
 {
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
-	if ((mState != STARTED) && (mState != STARTING)) {
+	if ((mState != State::STARTED) && (mState != State::STARTING)) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
 		return -EPROTO;
 	}
-	setState(STOPPING);
+	setState(State::STOPPING);
 
 	mClosing = true;
 
@@ -165,9 +165,9 @@ int Muxer::completeStop(void)
 {
 	int res;
 
-	if ((mState == STOPPED))
+	if ((mState == State::STOPPED))
 		return 0;
-	if (mState != STOPPING) {
+	if (mState != State::STOPPING) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
 			   Element::getElementStateStr(mState));
@@ -188,20 +188,22 @@ int Muxer::completeStop(void)
 		return res;
 
 	if (!mClosing) {
-		setState(STOPPED);
+		setState(State::STOPPED);
 	} else {
 		closeResponse(0);
-		setStateAsyncNotify(STOPPED);
+		setStateAsyncNotify(State::STOPPED);
 	}
 
 	return 0;
 }
 
 
-void Muxer::completeFlush(void)
+void Muxer::completeFlush(Channel *channel, bool discard)
 {
 	int err, inputMediaCount, i;
-	mFlushing = false;
+	bool flushPending = false;
+
+	PDRAW_LOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 
@@ -210,48 +212,115 @@ void Muxer::completeFlush(void)
 		Media *media = getInputMedia(i);
 		if (media == nullptr)
 			continue;
-		CodedVideoChannel *codedChannel =
-			dynamic_cast<CodedVideoChannel *>(
-				getInputChannel(media));
-		RawVideoChannel *rawChannel =
-			dynamic_cast<RawVideoChannel *>(getInputChannel(media));
-		AudioChannel *audioChannel =
-			dynamic_cast<AudioChannel *>(getInputChannel(media));
-		if (codedChannel != nullptr) {
-			err = codedChannel->flushDone();
-			if (err < 0)
-				PDRAW_LOG_ERRNO("codedChannel->flushDone",
-						-err);
-		} else if (rawChannel != nullptr) {
-			err = rawChannel->flushDone();
-			if (err < 0)
-				PDRAW_LOG_ERRNO("rawChannel->flushDone", -err);
-		} else if (audioChannel != nullptr) {
-			err = audioChannel->flushDone();
-			if (err < 0)
-				PDRAW_LOG_ERRNO("audioChannel->flushDone",
-						-err);
+		Channel *_channel = getInputChannel(media);
+		if (_channel != channel)
+			continue;
+		if (discard)
+			err = _channel->flushDone();
+		else
+			err = _channel->drainDone();
+		if (err < 0) {
+			PDRAW_LOG_ERRNO("channel->%s",
+					-err,
+					discard ? "flushDone" : "drainDone");
 		}
+		break;
 	}
+
+	inputMediaCount = getInputMediaCount();
+	for (i = 0; i < inputMediaCount; i++) {
+		Media *media = getInputMedia(i);
+		if (media == nullptr)
+			continue;
+		Channel *_channel = getInputChannel(media);
+		if (_channel == nullptr)
+			continue;
+		flushPending |= (_channel->isFlushPending() ||
+				 _channel->isDrainPending());
+	}
+
+	mFlushing = flushPending;
 
 	Sink::unlock();
 
-	if (mState == STOPPING)
+	if ((!mFlushing) && (mState == State::STOPPING))
 		(void)completeStop();
 }
 
 
-void Muxer::idleCompleteStop(void *userdata)
+struct asyncCompleteFlushParams {
+	Muxer *muxer;
+	Channel *channel;
+	bool discard;
+};
+
+
+int Muxer::asyncCompleteFlush(Channel *channel, bool discard)
 {
-	Muxer *self = (Muxer *)userdata;
-	self->completeStop();
+	int ret;
+	struct asyncCompleteFlushParams *params = nullptr;
+
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(channel == nullptr, EINVAL);
+
+	params =
+		(struct asyncCompleteFlushParams *)(calloc(1, sizeof(*params)));
+	if (params == nullptr) {
+		ret = -ENOMEM;
+		PDRAW_LOG_ERRNO("calloc", -ret);
+		return ret;
+	}
+	params->muxer = this;
+	params->channel = channel;
+	params->discard = discard;
+
+	ret = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), idleCompleteFlush, params, this);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		return ret;
+	}
+	return 0;
+}
+
+
+int Muxer::asyncCompleteStop(void)
+{
+	int ret;
+
+	ret = pomp_loop_idle_add_with_cookie(
+		mSession->getLoop(), idleCompleteStop, this, this);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		return ret;
+	}
+	return 0;
 }
 
 
 void Muxer::idleCompleteFlush(void *userdata)
 {
-	Muxer *self = (Muxer *)userdata;
-	self->completeFlush();
+	Muxer *self = nullptr;
+	struct asyncCompleteFlushParams *params = nullptr;
+
+	params = reinterpret_cast<struct asyncCompleteFlushParams *>(userdata);
+	ULOG_ERRNO_RETURN_IF(params == nullptr, EPROTO);
+
+	self = params->muxer;
+	PDRAW_LOG_ERRNO_RETURN_IF(params->muxer == nullptr, EPROTO);
+	PDRAW_LOG_ERRNO_RETURN_IF(params->channel == nullptr, EPROTO);
+
+	params->muxer->completeFlush(params->channel, params->discard);
+
+	free(params);
+}
+
+
+void Muxer::idleCompleteStop(void *userdata)
+{
+	Muxer *self = reinterpret_cast<Muxer *>(userdata);
+	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EPROTO);
+
+	self->completeStop();
 }
 
 
@@ -620,16 +689,34 @@ void Muxer::queueEventCb(struct pomp_evt *evt, void *userdata)
 }
 
 
+/* Can be called from any thread */
 void Muxer::onChannelFlush(Channel *channel)
 {
-	int ret;
+	int ret, inputMediaCount, i;
+	bool found = false;
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
+
+	/* Find back input channel */
+	inputMediaCount = getInputMediaCount();
+	for (i = 0; i < inputMediaCount; i++) {
+		Media *media = getInputMedia(i);
+		if (media == nullptr)
+			continue;
+		Channel *_channel = getInputChannel(media);
+		if (_channel != channel)
+			continue;
+		found = true;
+		break;
+	}
+	if (!found) {
+		Sink::unlock();
+		ret = -EINVAL;
+		PDRAW_LOG_ERRNO("channel not found (%p)", -ret, channel);
+		return;
+	}
 
 	CodedVideoChannel *cvchannel =
 		dynamic_cast<CodedVideoChannel *>(channel);
@@ -691,10 +778,131 @@ void Muxer::onChannelFlush(Channel *channel)
 	if (mAsyncFlush)
 		return;
 
-	ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), &idleCompleteFlush, this, this);
+	ret = asyncCompleteFlush(channel, true);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("asyncCompleteFlush", -ret);
+}
+
+
+/* Can be called from any thread */
+void Muxer::onChannelDrain(Channel *channel)
+{
+	int ret, inputMediaCount, i;
+	bool found = false;
+
+	PDRAW_LOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+
+	Sink::lock();
+
+	/* Find back input channel */
+	inputMediaCount = getInputMediaCount();
+	for (i = 0; i < inputMediaCount; i++) {
+		Media *media = getInputMedia(i);
+		if (media == nullptr)
+			continue;
+		Channel *_channel = getInputChannel(media);
+		if (_channel != channel)
+			continue;
+		found = true;
+		break;
+	}
+	if (!found) {
+		Sink::unlock();
+		ret = -EINVAL;
+		PDRAW_LOG_ERRNO("channel not found (%p)", -ret, channel);
+		return;
+	}
+
+	CodedVideoChannel *cvchannel =
+		dynamic_cast<CodedVideoChannel *>(channel);
+	RawVideoChannel *rvchannel = dynamic_cast<RawVideoChannel *>(channel);
+	AudioChannel *achannel = dynamic_cast<AudioChannel *>(channel);
+
+	if (cvchannel != nullptr) {
+		struct mbuf_coded_video_frame_queue *queue =
+			cvchannel->getQueue(this);
+		if (queue == nullptr) {
+			Sink::unlock();
+			PDRAW_LOGE("invalid queue");
+			return;
+		}
+		ret = mbuf_coded_video_frame_queue_get_count(queue);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO(
+				"mbuf_coded_video_frame_queue_get_count", -ret);
+			return;
+		} else if (ret > 0) {
+			PDRAW_LOGW(
+				"%s: %d frames still in queue", __func__, ret);
+		}
+		ret = mbuf_coded_video_frame_queue_flush(queue);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_flush",
+					-ret);
+			return;
+		}
+	} else if (rvchannel != nullptr) {
+		struct mbuf_raw_video_frame_queue *queue =
+			rvchannel->getQueue(this);
+		if (queue == nullptr) {
+			Sink::unlock();
+			PDRAW_LOGE("invalid queue");
+			return;
+		}
+		ret = mbuf_raw_video_frame_queue_get_count(queue);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_get_count",
+					-ret);
+			return;
+		} else if (ret > 0) {
+			PDRAW_LOGW(
+				"%s: %d frames still in queue", __func__, ret);
+		}
+		ret = mbuf_raw_video_frame_queue_flush(queue);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
+					-ret);
+			return;
+		}
+	} else if (achannel != nullptr) {
+		struct mbuf_audio_frame_queue *queue = achannel->getQueue(this);
+		if (queue == nullptr) {
+			Sink::unlock();
+			PDRAW_LOGE("invalid queue");
+			return;
+		}
+		ret = mbuf_audio_frame_queue_get_count(queue);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_count",
+					-ret);
+			return;
+		} else if (ret > 0) {
+			PDRAW_LOGW(
+				"%s: %d frames still in queue", __func__, ret);
+		}
+		ret = mbuf_audio_frame_queue_flush(queue);
+		if (ret < 0) {
+			Sink::unlock();
+			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -ret);
+			return;
+		}
+	}
+
+	Sink::unlock();
+
+	mFlushing = true;
+
+	if (mAsyncFlush)
+		return;
+
+	ret = asyncCompleteFlush(channel, false);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("asyncCompleteFlush", -ret);
 }
 
 
@@ -894,9 +1102,13 @@ MuxerWrapper::~MuxerWrapper(void)
 	 * (to allow calling the closeResponse listener function) */
 	mMuxer->clearMuxerListener();
 
+	if (mElementStopped)
+		return;
+
 	int res = mMuxer->stop();
 	if (res < 0)
 		ULOG_ERRNO("Muxer::stop", -res);
+	mElementStopped = true;
 }
 
 
@@ -904,7 +1116,7 @@ int MuxerWrapper::close(void)
 {
 	int res;
 
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	res = mMuxer->stop();
@@ -915,7 +1127,7 @@ int MuxerWrapper::close(void)
 
 	/* Waiting for the asynchronous stop; closeResponse()
 	 * will be called when it's done */
-	mMuxer = nullptr;
+	mElementStopped = true;
 	return 0;
 }
 
@@ -924,7 +1136,7 @@ int MuxerWrapper::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 			       const uint8_t *data,
 			       size_t size)
 {
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mMuxer->setThumbnail(type, data, size);
@@ -933,7 +1145,7 @@ int MuxerWrapper::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 
 int MuxerWrapper::addChapter(uint64_t timestamp, const char *name)
 {
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mMuxer->addChapter(timestamp, name);
@@ -942,7 +1154,7 @@ int MuxerWrapper::addChapter(uint64_t timestamp, const char *name)
 
 int MuxerWrapper::getStats(struct pdraw_muxer_stats *stats)
 {
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mMuxer->getStats(stats);
@@ -951,7 +1163,7 @@ int MuxerWrapper::getStats(struct pdraw_muxer_stats *stats)
 
 int MuxerWrapper::setDynParams(const struct pdraw_muxer_dyn_params *dyn_params)
 {
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mMuxer->setDynParams(dyn_params);
@@ -960,7 +1172,7 @@ int MuxerWrapper::setDynParams(const struct pdraw_muxer_dyn_params *dyn_params)
 
 int MuxerWrapper::getDynParams(struct pdraw_muxer_dyn_params *dyn_params)
 {
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mMuxer->getDynParams(dyn_params);
@@ -969,7 +1181,7 @@ int MuxerWrapper::getDynParams(struct pdraw_muxer_dyn_params *dyn_params)
 
 int MuxerWrapper::forceSync(void)
 {
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mMuxer->forceSync();
@@ -979,7 +1191,7 @@ int MuxerWrapper::forceSync(void)
 int MuxerWrapper::addMedia(unsigned int mediaId,
 			   const struct pdraw_muxer_media_params *params)
 {
-	if (mMuxer == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 
 	return mMuxer->addMedia(mediaId, params);

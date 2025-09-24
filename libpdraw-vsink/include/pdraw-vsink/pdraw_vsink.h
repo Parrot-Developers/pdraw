@@ -57,34 +57,58 @@ struct pdraw_vsink;
 /* Callback functions */
 struct pdraw_vsink_cbs {
 	/* Called when a frame is ready (optional, can be null).
-	 * This function is called from the pdraw_vsink thread.
+	 * The frame does not need to be unreferenced in the callback
+	 * implementation, but if the frame needs to be kept to be used later by
+	 * the application it should be referenced and later unreferenced when
+	 * no longer needed by calling mbuf_raw_video_frame_ref() and
+	 * mbuf_raw_video_frame_unref().
+	 * This function is called from the pdraw_vsink internal thread.
 	 * Note: the caller must ensure thread safety and should keep in mind
 	 * that the pdraw_vsink thread is blocked by this function call.
-	 * The returned frame is properly referenced, so the caller will need to
-	 * call mbuf_raw_video_frame_unref() when the frame is no longer needed.
-	 * @param frame_info: information about the frame
 	 * @param frame: the mbuf_raw_video_frame structure
+	 * @param frame_info: information about the frame
 	 * @param userdata: user data pointer */
-	void (*get_frame_cb_t)(struct pdraw_video_frame *frame_info,
-			       struct mbuf_raw_video_frame *frame);
+	void (*frame_ready)(struct mbuf_raw_video_frame *frame,
+			    struct pdraw_video_frame *frame_info,
+			    void *userdata);
+};
+
+
+/* Instance parameters */
+struct pdraw_vsink_params {
+	/* Network URL or local file (mandatory) */
+	const char *url;
+
+	/* Camera type to select (optional; set to VMETA_CAMERA_TYPE_UNKNOWN to
+	 * select the default camera) */
+	enum vmeta_camera_type camera_type;
+
+	/* Callback functions (optional; if the frame_ready callback is not
+	 * provided, use the pdraw_vsink_get_frame() function to retrieve
+	 * frames) */
+	struct pdraw_vsink_cbs cbs;
+
+	/* Callback functions user data pointer */
+	void *cbs_userdata;
 };
 
 
 /**
  * Create a pdraw_vsink instance and connect to a URL.
- * The instance handle is returned through the ret_obj parameter.
- * When no longer needed, the instance must be freed using the
+ * The parameters structure is mandatory but only the url field needs to be
+ * filled (network URL or local file); other fields are optional and can be
+ * null. The camera_type value can be set to VMETA_CAMERA_TYPE_UNKNOWN to select
+ * the default camera. The instance handle is returned through the ret_obj
+ * parameter. When no longer needed, the instance must be freed using the
  * pdraw_vsink_stop() function.
- * @param url: URL to open (network URL or local file)
- * @param cbs: pdraw_vsink callbacks (optional, can be null).
-	       Set the frame_cb to use pdraw_vsink in asynchronous mode.
- * @param media_info: media info pointer to fill if not NULL.
- * Note: mdeia_info will be freed in pdraw_vsink_stop().
+ * @param params: instance parameters
+ * @param media_info: optional pointer to a media info structure (output)
+ *                    Note: the ownership of the memory stays with the library
+ *                    instance and will be freed in pdraw_vsink_stop().
  * @param ret_obj: pdraw_vsink instance handle (output)
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_VSINK_API int pdraw_vsink_start(const char *url,
-				      struct pdraw_vsink_cbs *cbs,
+PDRAW_VSINK_API int pdraw_vsink_start(const struct pdraw_vsink_params *params,
 				      struct pdraw_media_info **media_info,
 				      struct pdraw_vsink **ret_obj);
 
@@ -103,6 +127,8 @@ PDRAW_VSINK_API int pdraw_vsink_stop(struct pdraw_vsink *self);
  * call will allocate a memory internally. The returned frame is properly
  * referenced, so the caller will need to call mbuf_raw_video_frame_unref() when
  * the frame is no longer needed.
+ * Note: this function cannot be used if a get_frame_cb_t callback function has
+ * been provided in the initial parameters.
  * @param self: pdraw_vsink instance handle
  * @param timeout_ms: timeout of wait, 0 to return immediately (non-blocking
  *                    mode) or -1 for infinite wait
@@ -110,7 +136,7 @@ PDRAW_VSINK_API int pdraw_vsink_stop(struct pdraw_vsink *self);
  * @param frame_info: frame information (output)
  * @param ret_frame: frame (output)
  * @return 0 in case of success, -ETIMEDOUT if timeout occurred,
- * negative errno value in case of error
+ *         negative errno value in case of error
  */
 PDRAW_VSINK_API int
 pdraw_vsink_get_frame(struct pdraw_vsink *self,

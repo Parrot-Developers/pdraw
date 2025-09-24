@@ -149,6 +149,8 @@ protected:
 
 	virtual void onChannelFlush(Channel *channel) = 0;
 
+	virtual void onChannelDrain(Channel *channel) = 0;
+
 	virtual void onChannelTeardown(Channel *channel);
 
 	virtual void onChannelSos(Channel *channel);

@@ -107,10 +107,14 @@ GlVideoRenderer::GlVideoRenderer(
 	mTargetPrimaryMediaId = mediaId;
 	mPrimaryMediaId = 0;
 	mRunning = false;
-	mCurrentFrame = nullptr;
-	mCurrentFrameData = {};
-	mCurrentFrameInfo = {};
-	mCurrentFrameMetadata = nullptr;
+	mLoadedFrame.frame = nullptr;
+	mLoadedFrame.data = {};
+	mLoadedFrame.info = {};
+	mLoadedFrame.metadata = nullptr;
+	mNextFrame.frame = nullptr;
+	mNextFrame.data = {};
+	mNextFrame.info = {};
+	mNextFrame.metadata = nullptr;
 	mPrimaryMedia = nullptr;
 	mMediaInfo = {};
 	mMediaInfoSessionMeta = {};
@@ -181,7 +185,7 @@ GlVideoRenderer::GlVideoRenderer(
 	}
 
 	/* Post a message on the loop thread */
-	setStateAsyncNotify(CREATED);
+	setStateAsyncNotify(State::CREATED);
 	return;
 }
 
@@ -191,7 +195,7 @@ GlVideoRenderer::~GlVideoRenderer(void)
 {
 	int ret;
 
-	if (mState == STARTED)
+	if (mState == State::STARTED)
 		PDRAW_LOGW("renderer is still running");
 
 	mExtLoadVideoTexture = false;
@@ -210,16 +214,25 @@ GlVideoRenderer::~GlVideoRenderer(void)
 			PDRAW_LOG_ERRNO("removeInputMedias", -ret);
 	}
 
-	if (mCurrentFrameMetadata != nullptr) {
-		vmeta_frame_unref(mCurrentFrameMetadata);
-		mCurrentFrameMetadata = nullptr;
+	if (mLoadedFrame.metadata != nullptr) {
+		vmeta_frame_unref(mLoadedFrame.metadata);
+		mLoadedFrame.metadata = nullptr;
 	}
-	if (mCurrentFrame != nullptr) {
-		int releaseRet = mbuf_raw_video_frame_unref(mCurrentFrame);
-		if (releaseRet < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref",
-					-releaseRet);
-		mCurrentFrame = nullptr;
+	if (mLoadedFrame.frame != nullptr) {
+		int err = mbuf_raw_video_frame_unref(mLoadedFrame.frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mLoadedFrame.frame = nullptr;
+	}
+	if (mNextFrame.metadata != nullptr) {
+		vmeta_frame_unref(mNextFrame.metadata);
+		mNextFrame.metadata = nullptr;
+	}
+	if (mNextFrame.frame != nullptr) {
+		int err = mbuf_raw_video_frame_unref(mNextFrame.frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mNextFrame.frame = nullptr;
 	}
 
 	Media::cleanupMediaInfo(&mMediaInfo);
@@ -271,7 +284,7 @@ int GlVideoRenderer::setup(const struct pdraw_rect *renderPos,
 	if (renderPos == nullptr)
 		return -EINVAL;
 
-	if ((mState != INVALID) && (mState != CREATED)) {
+	if ((mState != State::INVALID) && (mState != State::CREATED)) {
 		PDRAW_LOGE("invalid state");
 		return -EPROTO;
 	}
@@ -323,15 +336,15 @@ out:
 /* Called on the rendering thread */
 int GlVideoRenderer::start(void)
 {
-	if ((mState == STARTED) || (mState == STARTING)) {
+	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
 	}
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("renderer is not created");
 		return -EPROTO;
 	}
 	/* Post a message on the loop thread */
-	setStateAsyncNotify(STARTING);
+	setStateAsyncNotify(State::STARTING);
 
 	mRunning = true;
 
@@ -350,7 +363,7 @@ void GlVideoRenderer::idleStart(void *renderer)
 	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	int err;
 
-	if (self->mState != STARTING) {
+	if (self->mState != State::STARTING) {
 		PDRAW_LOGE("renderer is not starting");
 		return;
 	}
@@ -392,7 +405,7 @@ void GlVideoRenderer::idleStart(void *renderer)
 	pthread_mutex_unlock(&self->mListenerMutex);
 
 	/* Post a message on the loop thread */
-	self->setState(STARTED);
+	self->setState(State::STARTED);
 	return;
 
 error:
@@ -426,16 +439,48 @@ error:
 }
 
 
+/* Called on the loop thread */
+void GlVideoRenderer::idleDrain(void *renderer)
+{
+	int err = 0;
+	RawVideoChannel *channel = nullptr;
+	GlVideoRenderer *self = reinterpret_cast<GlVideoRenderer *>(renderer);
+
+	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+
+	self->lock();
+	if (self->mPrimaryMedia == nullptr) {
+		self->unlock();
+		return;
+	}
+
+	channel = dynamic_cast<RawVideoChannel *>(
+		self->getInputChannel(self->mPrimaryMedia));
+	if (channel == nullptr) {
+		PDRAW_LOGE("failed to get input channel");
+		self->unlock();
+		return;
+	}
+
+	err = channel->asyncDrainDone();
+	if (err < 0)
+		PDRAW_LOG_ERRNO("Channel::asyncFlushDone", -err);
+
+	self->unlock();
+	self->setFlushingState(FlushingState::FLUSHED);
+}
+
+
 /* Called on the rendering thread */
 int GlVideoRenderer::stop(void)
 {
 	int err;
 
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
 
 	/* Post a message on the loop thread */
-	setStateAsyncNotify(STOPPING);
+	setStateAsyncNotify(State::STOPPING);
 
 	/* Make sure listener functions will no longer be called.
 	 * Note: remaining medias will be removed in the completeStop function
@@ -456,11 +501,17 @@ int GlVideoRenderer::stop(void)
 					-err);
 		}
 	}
-	if (mCurrentFrame != nullptr) {
-		err = mbuf_raw_video_frame_unref(mCurrentFrame);
+	if (mLoadedFrame.frame != nullptr) {
+		err = mbuf_raw_video_frame_unref(mLoadedFrame.frame);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
-		mCurrentFrame = nullptr;
+		mLoadedFrame.frame = nullptr;
+	}
+	if (mNextFrame.frame != nullptr) {
+		err = mbuf_raw_video_frame_unref(mNextFrame.frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mNextFrame.frame = nullptr;
 	}
 	Sink::unlock();
 
@@ -493,7 +544,7 @@ void GlVideoRenderer::completeStop(void)
 {
 	int ret;
 
-	if (mState == STOPPED)
+	if (mState == State::STOPPED)
 		return;
 
 	if (mTimer != nullptr) {
@@ -516,7 +567,7 @@ void GlVideoRenderer::completeStop(void)
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("removeInputMedias", -ret);
 
-	setState(STOPPED);
+	setState(State::STOPPED);
 }
 
 
@@ -534,7 +585,7 @@ void GlVideoRenderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 		return;
 	}
 
-	if ((!self->mRunning) || (self->mState != STARTED))
+	if ((!self->mRunning) || (self->mState != State::STARTED))
 		return;
 
 	self->Sink::lock();
@@ -625,7 +676,7 @@ void GlVideoRenderer::timerCb(struct pomp_timer *timer, void *userdata)
 		return;
 	}
 
-	if ((!self->mRunning) || (self->mState != STARTED))
+	if ((!self->mRunning) || (self->mState != State::STARTED))
 		goto out;
 
 	self->Sink::lock();
@@ -706,7 +757,7 @@ void GlVideoRenderer::watchdogTimerCb(struct pomp_timer *timer, void *userdata)
 {
 	GlVideoRenderer *self = (GlVideoRenderer *)userdata;
 
-	if ((!self->mRunning) || (self->mState != STARTED))
+	if ((!self->mRunning) || (self->mState != State::STARTED))
 		return;
 
 	bool expected = false;
@@ -722,7 +773,7 @@ void GlVideoRenderer::videoPresStatsTimerCb(struct pomp_timer *timer,
 {
 	GlVideoRenderer *self = (GlVideoRenderer *)userdata;
 
-	if ((!self->mRunning) || (self->mState != STARTED))
+	if ((!self->mRunning) || (self->mState != State::STARTED))
 		return;
 
 	self->Sink::lock();
@@ -762,6 +813,8 @@ void GlVideoRenderer::onChannelFlush(Channel *channel)
 
 	Sink::lock();
 
+	setFlushingState(FlushingState::FLUSHING);
+
 	struct mbuf_raw_video_frame_queue *queue = c->getQueue(this);
 	if (queue != nullptr) {
 		ret = mbuf_raw_video_frame_queue_flush(queue);
@@ -769,17 +822,70 @@ void GlVideoRenderer::onChannelFlush(Channel *channel)
 			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
 					-ret);
 	}
-	if (mCurrentFrame != nullptr) {
-		int releaseRet = mbuf_raw_video_frame_unref(mCurrentFrame);
-		if (releaseRet < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref",
-					-releaseRet);
-		mCurrentFrame = nullptr;
+	if (mLoadedFrame.frame != nullptr) {
+		int err = mbuf_raw_video_frame_unref(mLoadedFrame.frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mLoadedFrame.frame = nullptr;
 	}
+	if (mNextFrame.frame != nullptr) {
+		int err = mbuf_raw_video_frame_unref(mNextFrame.frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mNextFrame.frame = nullptr;
+	}
+
+	setFlushingState(FlushingState::FLUSHED);
 
 	Sink::unlock();
 
 	ret = c->asyncFlushDone();
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("Channel::asyncFlushDone", -ret);
+}
+
+
+/* Must be called on the loop thread */
+void GlVideoRenderer::onChannelDrain(Channel *channel)
+{
+	int ret;
+	struct mbuf_raw_video_frame_queue *queue = nullptr;
+	RawVideoChannel *c = dynamic_cast<RawVideoChannel *>(channel);
+	if (c == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	PDRAW_LOGD("draining input channel");
+
+	Sink::lock();
+
+	setFlushingState(FlushingState::FLUSHING, false);
+
+	/* Don't flush the queue */
+	if (mLoadedFrame.frame != nullptr) {
+		int err = mbuf_raw_video_frame_unref(mLoadedFrame.frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mLoadedFrame.frame = nullptr;
+	}
+	if (mNextFrame.frame != nullptr) {
+		int err = mbuf_raw_video_frame_unref(mNextFrame.frame);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
+		mNextFrame.frame = nullptr;
+	}
+
+	Sink::unlock();
+
+	queue = c->getQueue(this);
+	if ((queue != nullptr) &&
+	    (mbuf_raw_video_frame_queue_get_count(queue) > 0))
+		return;
+
+	setFlushingState(FlushingState::FLUSHED);
+
+	ret = c->asyncDrainDone();
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("Channel::asyncFlushDone", -ret);
 }
@@ -1042,7 +1148,7 @@ int GlVideoRenderer::addInputMedia(Media *media)
 		return -EPERM;
 	if (mPrimaryMedia != nullptr)
 		return -EBUSY;
-	if ((!mRunning) || (mState != STARTED))
+	if ((!mRunning) || (mState != State::STARTED))
 		return -EAGAIN;
 
 	Sink::lock();
@@ -1193,13 +1299,20 @@ int GlVideoRenderer::removeInputMedia(Media *media)
 		}
 		pthread_mutex_unlock(&mListenerMutex);
 
-		if (mCurrentFrame != nullptr) {
-			int releaseRet =
-				mbuf_raw_video_frame_unref(mCurrentFrame);
-			if (releaseRet < 0)
+		if (mLoadedFrame.frame != nullptr) {
+			int err =
+				mbuf_raw_video_frame_unref(mLoadedFrame.frame);
+			if (err < 0)
 				PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref",
-						-releaseRet);
-			mCurrentFrame = nullptr;
+						-err);
+			mLoadedFrame.frame = nullptr;
+		}
+		if (mNextFrame.frame != nullptr) {
+			int err = mbuf_raw_video_frame_unref(mNextFrame.frame);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref",
+						-err);
+			mNextFrame.frame = nullptr;
 		}
 
 		Media::cleanupMediaInfo(&mMediaInfo);
@@ -1410,6 +1523,24 @@ out:
 }
 
 
+void GlVideoRenderer::onNextFrameLoaded(void)
+{
+	if (mLoadedFrame.frame != nullptr)
+		(void)mbuf_raw_video_frame_unref(mLoadedFrame.frame);
+	mLoadedFrame.frame = mNextFrame.frame;
+	(void)mbuf_raw_video_frame_ref(mLoadedFrame.frame);
+
+	mLoadedFrame.info = mNextFrame.info;
+	mLoadedFrame.data = mNextFrame.data;
+
+	if (mLoadedFrame.metadata != nullptr)
+		(void)vmeta_frame_unref(mLoadedFrame.metadata);
+	mLoadedFrame.metadata = mNextFrame.metadata;
+	if (mLoadedFrame.metadata != nullptr)
+		(void)vmeta_frame_ref(mLoadedFrame.metadata);
+}
+
+
 void GlVideoRenderer::setNormalization(void)
 {
 	int err;
@@ -1425,34 +1556,34 @@ void GlVideoRenderer::setNormalization(void)
 	    VMETA_CAMERA_SPECTRUM_THERMAL)
 		goto reset;
 
-	if (mCurrentFrameMetadata == nullptr ||
-	    mCurrentFrameMetadata->type != VMETA_FRAME_TYPE_PROTO)
+	if (mNextFrame.metadata == nullptr ||
+	    mNextFrame.metadata->type != VMETA_FRAME_TYPE_PROTO)
 		goto reset;
 
 	const Vmeta__TimedMetadata *tm;
-	err = vmeta_frame_proto_get_unpacked(mCurrentFrameMetadata, &tm);
+	err = vmeta_frame_proto_get_unpacked(mNextFrame.metadata, &tm);
 	if (err < 0)
 		goto reset;
 
 	if (tm->thermal == nullptr || tm->thermal->min == nullptr ||
 	    tm->thermal->max == nullptr) {
-		vmeta_frame_proto_release_unpacked(mCurrentFrameMetadata, tm);
+		vmeta_frame_proto_release_unpacked(mNextFrame.metadata, tm);
 		goto reset;
 	}
 
 	minVal = (float)tm->thermal->min->value;
 	maxVal = (float)tm->thermal->max->value;
 	if (minVal >= maxVal) {
-		vmeta_frame_proto_release_unpacked(mCurrentFrameMetadata, tm);
+		vmeta_frame_proto_release_unpacked(mNextFrame.metadata, tm);
 		goto reset;
 	}
 
-	contrast = (1 << mCurrentFrameInfo.format.pix_size) / (maxVal - minVal);
-	brightness = -minVal / (1 << mCurrentFrameInfo.format.pix_size);
+	contrast = (1 << mLoadedFrame.info.format.pix_size) / (maxVal - minVal);
+	brightness = -minVal / (1 << mLoadedFrame.info.format.pix_size);
 
 	mGlVideo->setBrightnessCoef(brightness);
 	mGlVideo->setContrastCoef(contrast);
-	vmeta_frame_proto_release_unpacked(mCurrentFrameMetadata, tm);
+	vmeta_frame_proto_release_unpacked(mNextFrame.metadata, tm);
 	return;
 
 reset:
@@ -1470,8 +1601,8 @@ int GlVideoRenderer::loadVideoFrame(struct mbuf_raw_video_frame *frame)
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
 	uint8_t *mbStatus = nullptr;
 
-	if (vdef_dim_is_null(&mCurrentFrameInfo.info.resolution) ||
-	    vdef_dim_is_null(&mCurrentFrameInfo.info.sar)) {
+	if (vdef_dim_is_null(&mNextFrame.info.info.resolution) ||
+	    vdef_dim_is_null(&mNextFrame.info.info.sar)) {
 		PDRAW_LOGE("invalid frame dimensions");
 		ret = -EINVAL;
 		goto out;
@@ -1486,7 +1617,7 @@ int GlVideoRenderer::loadVideoFrame(struct mbuf_raw_video_frame *frame)
 		}
 	}
 
-	planeCount = vdef_get_raw_frame_plane_count(&mCurrentFrameInfo.format);
+	planeCount = vdef_get_raw_frame_plane_count(&mNextFrame.info.format);
 	for (unsigned int i = 0; i < planeCount; i++) {
 		size_t dummyPlaneLen;
 		ret = mbuf_raw_video_frame_get_plane(
@@ -1499,12 +1630,15 @@ int GlVideoRenderer::loadVideoFrame(struct mbuf_raw_video_frame *frame)
 	}
 
 	ret = mGlVideo->loadFrame((const uint8_t **)planes,
-				  mCurrentFrameInfo.plane_stride,
-				  &mCurrentFrameInfo.format,
-				  &mCurrentFrameInfo.info,
+				  mNextFrame.info.plane_stride,
+				  &mNextFrame.info.format,
+				  &mNextFrame.info.info,
 				  mbStatus);
-	if (ret < 0)
+	if (ret < 0) {
 		PDRAW_LOG_ERRNO("gles2Video->loadFrame", -ret);
+	} else {
+		onNextFrameLoaded();
+	}
 
 	setNormalization();
 
@@ -1556,8 +1690,8 @@ int GlVideoRenderer::loadExternalVideoFrame(
 			userData, &frameUserdataLen);
 	}
 
-	if (vdef_dim_is_null(&mCurrentFrameInfo.info.resolution) ||
-	    vdef_dim_is_null(&mCurrentFrameInfo.info.sar)) {
+	if (vdef_dim_is_null(&mNextFrame.info.info.resolution) ||
+	    vdef_dim_is_null(&mNextFrame.info.info.sar)) {
 		PDRAW_LOGE("invalid frame dimensions");
 		ret = -EINVAL;
 		goto out;
@@ -1578,6 +1712,8 @@ int GlVideoRenderer::loadExternalVideoFrame(
 			frame,
 			frameUserdata,
 			(size_t)frameUserdataLen);
+		if (ret == 0)
+			onNextFrameLoaded();
 	}
 	pthread_mutex_unlock(&mListenerMutex);
 
@@ -1600,16 +1736,16 @@ int GlVideoRenderer::renderVideoFrame(const struct pdraw_rect *renderPos,
 	struct vdef_rect crop = {
 		.left = 0,
 		.top = 0,
-		.width = mCurrentFrameInfo.info.resolution.width,
-		.height = mCurrentFrameInfo.info.resolution.height,
+		.width = mLoadedFrame.info.info.resolution.width,
+		.height = mLoadedFrame.info.info.resolution.height,
 	};
 
 	return mGlVideo->renderFrame(renderPos,
 				     contentPos,
 				     viewProjMat,
-				     mCurrentFrameInfo.plane_stride,
-				     &mCurrentFrameInfo.format,
-				     &mCurrentFrameInfo.info,
+				     mLoadedFrame.info.plane_stride,
+				     &mLoadedFrame.info.format,
+				     &mLoadedFrame.info.info,
 				     &crop,
 				     &mParams);
 }
@@ -1621,7 +1757,7 @@ int GlVideoRenderer::renderExternalVideoFrame(
 	struct pdraw_rect *contentPos,
 	Eigen::Matrix4f &viewProjMat)
 {
-	struct vdef_frame_info info = mCurrentFrameInfo.info;
+	struct vdef_frame_info info = mLoadedFrame.info.info;
 	struct vdef_rect crop = {
 		.left = 0,
 		.top = 0,
@@ -1630,9 +1766,9 @@ int GlVideoRenderer::renderExternalVideoFrame(
 	};
 	size_t frameStride[3] = {mExtVideoTextureWidth, 0, 0};
 
-	info.sar.width = mCurrentFrameInfo.info.resolution.width *
+	info.sar.width = mLoadedFrame.info.info.resolution.width *
 			 mExtVideoTextureHeight;
-	info.sar.height = mCurrentFrameInfo.info.resolution.height *
+	info.sar.height = mLoadedFrame.info.info.resolution.height *
 			  mExtVideoTextureWidth;
 
 	return mGlVideo->renderFrame(renderPos,
@@ -2059,9 +2195,12 @@ int GlVideoRenderer::scheduleFrame(uint64_t curTime,
 			break;
 		}
 
-		if (mCurrentFrame != nullptr)
-			(void)mbuf_raw_video_frame_unref(mCurrentFrame);
-		mCurrentFrame = frame;
+		if (getFlushingState() != FlushingState::FLUSHING)
+			setFlushingState(FlushingState::UNFLUSHED);
+
+		if (mNextFrame.frame != nullptr)
+			(void)mbuf_raw_video_frame_unref(mNextFrame.frame);
+		mNextFrame.frame = frame;
 		_load = true;
 		frame = nullptr;
 		mSchedLastOutputTimestamp = curTime + compensation;
@@ -2070,6 +2209,22 @@ int GlVideoRenderer::scheduleFrame(uint64_t curTime,
 			*compensationUs = compensation;
 	} while (true);
 
+	if (getFlushingState() == FlushingState::FLUSHING) {
+		count = mbuf_raw_video_frame_queue_get_count(queue);
+		if (count == 0) {
+			if (getPrimaryMediaQueue() == queue) {
+				int ret = pomp_loop_idle_add_with_cookie(
+					mSession->getLoop(),
+					idleDrain,
+					this,
+					this);
+				if (ret < 0)
+					PDRAW_LOG_ERRNO(
+						"pomp_loop_idle_add_with_cookie",
+						-ret);
+			}
+		}
+	}
 out:
 	if ((ret == 0) && (load != nullptr))
 		*load = _load;
@@ -2136,7 +2291,7 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 	if (contentPos != nullptr)
 		*contentPos = content;
 
-	if ((!mRunning) || (mState != STARTED))
+	if ((!mRunning) || (mState != State::STARTED))
 		return 0;
 
 	if ((mWidth == 0) || (mHeight == 0))
@@ -2231,18 +2386,18 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 		}
 	}
 
-	if (mCurrentFrame == nullptr) {
+	if (mNextFrame.frame == nullptr) {
 		/* No new frame to load */
 		goto skip_dequeue;
 	}
 
-	if (mCurrentFrameMetadata) {
-		vmeta_frame_unref(mCurrentFrameMetadata);
-		mCurrentFrameMetadata = nullptr;
+	if (mNextFrame.metadata) {
+		vmeta_frame_unref(mNextFrame.metadata);
+		mNextFrame.metadata = nullptr;
 	}
 
 	err = mbuf_raw_video_frame_get_ancillary_data(
-		mCurrentFrame,
+		mNextFrame.frame,
 		PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME,
 		&ancillaryData);
 	if (err < 0) {
@@ -2258,26 +2413,26 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 		PDRAW_LOGE("invalid ancillary data pointer");
 		goto skip_render;
 	}
-	mCurrentFrameData = *data;
+	mNextFrame.data = *data;
 	mbuf_ancillary_data_unref(ancillaryData);
 
-	err = mbuf_raw_video_frame_get_frame_info(mCurrentFrame,
-						  &mCurrentFrameInfo);
+	err = mbuf_raw_video_frame_get_frame_info(mNextFrame.frame,
+						  &mNextFrame.info);
 	if (err < 0) {
 		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_frame_info", -err);
 		goto skip_render;
 	}
 
-	err = mbuf_raw_video_frame_get_metadata(mCurrentFrame,
-						&mCurrentFrameMetadata);
+	err = mbuf_raw_video_frame_get_metadata(mNextFrame.frame,
+						&mNextFrame.metadata);
 	if (err < 0 && err != -ENOENT) {
 		Sink::unlock();
 		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_metadata", -err);
 		goto skip_render;
 	}
 
-	inputTime = getFrameU64(mCurrentFrame, mAncillaryKey.c_str());
+	inputTime = getFrameU64(mNextFrame.frame, mAncillaryKey.c_str());
 	delay = (inputTime != 0) ? curTime - inputTime : 0;
 
 	if (mFirstFrame) {
@@ -2289,7 +2444,7 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 		if (err != 0)
 			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
 		if (mExtLoadVideoTexture) {
-			err = setupExtTexture(&mCurrentFrameInfo);
+			err = setupExtTexture(&mNextFrame.info);
 			if (err < 0)
 				PDRAW_LOG_ERRNO("setupExtTexture", -err);
 		}
@@ -2308,16 +2463,16 @@ skip_dequeue:
 		goto skip_render;
 	}
 
-	if (mCurrentFrame != nullptr) {
+	if (mNextFrame.frame != nullptr) {
 		if (mExtLoadVideoTexture) {
-			err = loadExternalVideoFrame(mCurrentFrame,
+			err = loadExternalVideoFrame(mNextFrame.frame,
 						     mediaInfoPtr);
 			if (err < 0) {
 				Sink::unlock();
 				goto skip_render;
 			}
 		} else if (load) {
-			err = loadVideoFrame(mCurrentFrame);
+			err = loadVideoFrame(mNextFrame.frame);
 			if (err < 0) {
 				Sink::unlock();
 				goto skip_render;
@@ -2325,7 +2480,7 @@ skip_dequeue:
 		}
 	}
 
-	if (mCurrentFrame != nullptr && load) {
+	if (mLoadedFrame.frame != nullptr && load) {
 		/* First rendering of the current frame */
 
 		int queueCount = 0;
@@ -2336,17 +2491,17 @@ skip_dequeue:
 				mbuf_raw_video_frame_queue_get_count(queue);
 		}
 
-		mCurrentFrameData.renderTimestamp = curTime;
+		mLoadedFrame.data.renderTimestamp = curTime;
 		uint64_t timestampDelta = 0;
-		if ((mCurrentFrameData.ntpRawTimestamp != 0) &&
+		if ((mLoadedFrame.data.ntpRawTimestamp != 0) &&
 		    (mLastFrameTimestamp != UINT64_MAX)) {
-			timestampDelta = mCurrentFrameData.ntpRawTimestamp -
+			timestampDelta = mLoadedFrame.data.ntpRawTimestamp -
 					 mLastFrameTimestamp;
 		}
 		uint64_t loadDelta = 0;
-		if ((mCurrentFrameData.renderTimestamp != 0) &&
+		if ((mLoadedFrame.data.renderTimestamp != 0) &&
 		    (mLastLoadTimestamp != UINT64_MAX)) {
-			loadDelta = mCurrentFrameData.renderTimestamp -
+			loadDelta = mLoadedFrame.data.renderTimestamp -
 				    mLastLoadTimestamp;
 		}
 		int64_t timingError = 0;
@@ -2357,27 +2512,27 @@ skip_dequeue:
 		uint64_t timingErrorAbs =
 			(timingError < 0) ? -timingError : timingError;
 		uint64_t estLatency = 0;
-		if ((mCurrentFrameData.renderTimestamp != 0) &&
-		    (mCurrentFrameData.localTimestamp != 0) &&
-		    (mCurrentFrameData.renderTimestamp >
-		     mCurrentFrameData.localTimestamp)) {
-			estLatency = mCurrentFrameData.renderTimestamp -
-				     mCurrentFrameData.localTimestamp;
+		if ((mLoadedFrame.data.renderTimestamp != 0) &&
+		    (mLoadedFrame.data.localTimestamp != 0) &&
+		    (mLoadedFrame.data.renderTimestamp >
+		     mLoadedFrame.data.localTimestamp)) {
+			estLatency = mLoadedFrame.data.renderTimestamp -
+				     mLoadedFrame.data.localTimestamp;
 		}
 		uint64_t playerLatency = 0;
-		if ((mCurrentFrameData.renderTimestamp != 0) &&
-		    (mCurrentFrameData.recvStartTimestamp != 0) &&
-		    (mCurrentFrameData.renderTimestamp >
-		     mCurrentFrameData.recvStartTimestamp)) {
-			playerLatency = mCurrentFrameData.renderTimestamp -
-					mCurrentFrameData.recvStartTimestamp;
+		if ((mLoadedFrame.data.renderTimestamp != 0) &&
+		    (mLoadedFrame.data.recvStartTimestamp != 0) &&
+		    (mLoadedFrame.data.renderTimestamp >
+		     mLoadedFrame.data.recvStartTimestamp)) {
+			playerLatency = mLoadedFrame.data.renderTimestamp -
+					mLoadedFrame.data.recvStartTimestamp;
 		}
 		PDRAW_LOGD(
 			"frame #%u loaded est_total_latency=%.2fms "
 			"player_latency=%.2fms load_interval=%.2fms "
 			"render_delay=%.2fms timing_error=%.2fms "
 			"avg_render_rate=%.2ffps queue_count=%u",
-			mCurrentFrameInfo.info.index,
+			mLoadedFrame.info.info.index,
 			(float)estLatency / 1000.,
 			(float)playerLatency / 1000.,
 			(float)loadDelta / 1000.,
@@ -2385,7 +2540,7 @@ skip_dequeue:
 			(float)timingError / 1000.,
 			mAvgRenderRate,
 			queueCount);
-		mVideoPresStats.timestamp = mCurrentFrameData.captureTimestamp;
+		mVideoPresStats.timestamp = mLoadedFrame.data.captureTimestamp;
 		mVideoPresStats.presentationFrameCount++;
 		mVideoPresStats.presentationTimestampDeltaIntegral +=
 			timestampDelta;
@@ -2403,10 +2558,10 @@ skip_dequeue:
 		mVideoPresStats.playerLatencyIntegralSq +=
 			playerLatency * playerLatency;
 		mVideoPresStats.estimatedLatencyPrecisionIntegral +=
-			mCurrentFrameData.localTimestampPrecision;
+			mNextFrame.data.localTimestampPrecision;
 		mLastLoadTimestamp =
-			mCurrentFrameData.renderTimestamp + compensation;
-		mLastFrameTimestamp = mCurrentFrameData.ntpRawTimestamp;
+			mLoadedFrame.data.renderTimestamp + compensation;
+		mLastFrameTimestamp = mLoadedFrame.data.ntpRawTimestamp;
 	}
 
 	Sink::unlock();
@@ -2451,15 +2606,15 @@ skip_render:
 		struct vmeta_frame *frameMetaPtr = nullptr;
 		const struct pdraw_video_frame_extra *frameExtraPtr = nullptr;
 		if (render) {
-			frameExtra.info = mCurrentFrameInfo.info;
+			frameExtra.info = mLoadedFrame.info.info;
 			frameExtra.play_timestamp =
-				mCurrentFrameData.playTimestamp;
+				mLoadedFrame.data.playTimestamp;
 			if (mGlVideo) {
 				mGlVideo->getHistograms(
 					frameExtra.histogram,
 					frameExtra.histogram_len);
 			}
-			frameMetaPtr = mCurrentFrameMetadata;
+			frameMetaPtr = mLoadedFrame.metadata;
 			frameExtraPtr = &frameExtra;
 		}
 		pthread_mutex_lock(&mListenerMutex);

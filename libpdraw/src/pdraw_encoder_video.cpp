@@ -41,6 +41,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <vector>
 
+#define DEFAULT_ENCODING VDEF_ENCODING_H264
+
 namespace Pdraw {
 
 
@@ -73,8 +75,9 @@ VideoEncoder::VideoEncoder(Session *session,
 		mEncoder(wrapper), mEncoderListener(listener),
 		mInputMedia(nullptr), mOutputMedia(nullptr),
 		mInputBufferPool(nullptr), mInputBufferQueue(nullptr),
-		mEncoderConfig(nullptr), mVenc(nullptr), mIsFlushed(true),
-		mInputChannelFlushPending(false), mVencFlushPending(false),
+		mEncoderConfig(nullptr), mVenc(nullptr),
+		mInputChannelFlushPending(false),
+		mOutputChannelDrainRequired(false), mVencFlushPending(false),
 		mVencStopPending(false)
 {
 	int err;
@@ -110,7 +113,9 @@ skip_mutex:
 
 	/* Supported input formats */
 	supportedInputFormatsCount = venc_get_supported_input_formats(
-		VENC_ENCODER_IMPLEM_AUTO, &supportedInputFormats);
+		VENC_ENCODER_IMPLEM_AUTO,
+		(params != nullptr) ? params->encoding : DEFAULT_ENCODING,
+		&supportedInputFormats);
 	if (supportedInputFormatsCount < 0)
 		PDRAW_LOG_ERRNO("venc_get_supported_input_formats",
 				-supportedInputFormatsCount);
@@ -133,7 +138,7 @@ skip_mutex:
 		}
 	}
 
-	setState(CREATED);
+	setState(State::CREATED);
 }
 
 
@@ -141,7 +146,7 @@ VideoEncoder::~VideoEncoder(void)
 {
 	int err;
 
-	if (mState != STOPPED)
+	if (mState != State::STOPPED)
 		PDRAW_LOGW("encoder is still running");
 
 	/* Make sure listener functions will no longer be called */
@@ -177,14 +182,14 @@ int VideoEncoder::start(void)
 	Channel *c = nullptr;
 	RawVideoChannel *channel = nullptr;
 
-	if ((mState == STARTED) || (mState == STARTING)) {
+	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
 	}
-	if (mState != CREATED) {
+	if (mState != State::CREATED) {
 		PDRAW_LOGE("%s: encoder is not created", __func__);
 		return -EPROTO;
 	}
-	setState(STARTING);
+	setState(State::STARTING);
 
 	/* Get the input media and port */
 	Sink::lock();
@@ -254,7 +259,7 @@ int VideoEncoder::start(void)
 			goto error;
 		}
 		mEncoderConfig->implem = VENC_ENCODER_IMPLEM_AUTO;
-		mEncoderConfig->encoding = VDEF_ENCODING_H264; /* TODO */
+		mEncoderConfig->encoding = DEFAULT_ENCODING;
 		mEncoderConfig->input.format = mInputMedia->format;
 		mEncoderConfig->input.info = mInputMedia->info;
 		if (vdef_frac_is_null(&mEncoderConfig->input.info.framerate)) {
@@ -295,7 +300,7 @@ int VideoEncoder::start(void)
 
 	Sink::unlock();
 
-	setState(STARTED);
+	setState(State::STARTED);
 
 	return 0;
 
@@ -322,13 +327,13 @@ int VideoEncoder::stop(void)
 {
 	int ret;
 
-	if ((mState == STOPPED) || (mState == STOPPING))
+	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
-	if ((mState != STARTING) && (mState != STARTED)) {
+	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: encoder is not started", __func__);
 		return -EPROTO;
 	}
-	setState(STOPPING);
+	setState(State::STOPPING);
 	mVencStopPending = true;
 
 	/* Make sure listener functions will no longer be called */
@@ -341,50 +346,73 @@ int VideoEncoder::stop(void)
 
 	/* Flush everything */
 	ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+	else
+		ret = 0;
 
 	/* When the flush is complete, stopping will be triggered */
 	return ret;
 }
 
 
-int VideoEncoder::flush(void)
+int VideoEncoder::flush(bool discard)
 {
 	int ret = 0;
 	int err;
 	unsigned int outputChannelCount, i;
 	Channel *outputChannel;
 
-	if (mIsFlushed) {
-		PDRAW_LOGD("encoder is already flushed, nothing to do");
+	switch (getFlushingState()) {
+	case FlushingState::UNFLUSHED:
+		/* OK */
+		break;
+	case FlushingState::FLUSHING:
+		return -EALREADY;
+	case FlushingState::FLUSHED:
+		PDRAW_LOGD("encoder is already %s, nothing to do",
+			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
 			mSession->getLoop(), &idleCompleteFlush, this, this);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		else
+			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
+	default:
+		break;
 	}
 
-	/* Flush the output channels (async) */
+	setFlushingState(FlushingState::FLUSHING, discard);
+
 	Source::lock();
 	if (mOutputMedia != nullptr) {
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
-		for (i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
-			if (outputChannel == nullptr) {
-				PDRAW_LOGW(
-					"failed to get output channel "
-					"at index %d",
-					i);
-				continue;
+		if (mFlushDiscard) {
+			/* Flush the output channels (async) */
+			outputChannelCount =
+				getOutputChannelCount(mOutputMedia);
+			for (i = 0; i < outputChannelCount; i++) {
+				outputChannel =
+					getOutputChannel(mOutputMedia, i);
+				if (outputChannel == nullptr) {
+					PDRAW_LOGW(
+						"failed to get output channel "
+						"at index %d",
+						i);
+					continue;
+				}
+				err = outputChannel->flush();
+				if (err < 0 && err != -EALREADY) {
+					PDRAW_LOG_ERRNO(
+						"channel->flush "
+						"(channel index=%u)",
+						-err,
+						i);
+				}
 			}
-			err = outputChannel->flush();
-			if (err < 0) {
-				PDRAW_LOG_ERRNO(
-					"channel->flush (channel index=%u)",
-					-err,
-					i);
-			}
+		} else {
+			/* Drain event is called once flush is complete */
+			mOutputChannelDrainRequired = true;
 		}
 	}
 	Source::unlock();
@@ -393,7 +421,7 @@ int VideoEncoder::flush(void)
 	 * (the input channel queue is flushed by venc) */
 	if (mVenc != nullptr) {
 		if (!mVencFlushPending) {
-			ret = venc_flush(mVenc, 1);
+			ret = venc_flush(mVenc, mFlushDiscard);
 			if (ret < 0)
 				PDRAW_LOG_ERRNO("venc_flush", -ret);
 			else
@@ -409,7 +437,7 @@ int VideoEncoder::flush(void)
 
 void VideoEncoder::completeFlush(void)
 {
-	int ret;
+	int ret, err;
 	unsigned int outputChannelCount, i;
 	Channel *outputChannel;
 	bool pending = false;
@@ -417,7 +445,30 @@ void VideoEncoder::completeFlush(void)
 	if (mVencFlushPending)
 		return;
 
+	/* Drain the output channels (async) */
 	Source::lock();
+	if (!mFlushDiscard && mOutputChannelDrainRequired &&
+	    mOutputMedia != nullptr) {
+		mOutputChannelDrainRequired = false;
+		outputChannelCount = getOutputChannelCount(mOutputMedia);
+		for (i = 0; i < outputChannelCount; i++) {
+			outputChannel = getOutputChannel(mOutputMedia, i);
+			if (outputChannel == nullptr) {
+				PDRAW_LOGW(
+					"failed to get output channel "
+					"at index %d",
+					i);
+				continue;
+			}
+			err = outputChannel->drain();
+			if (err < 0 && err != -EALREADY) {
+				PDRAW_LOG_ERRNO(
+					"channel->drain (channel index=%u)",
+					-err,
+					i);
+			}
+		}
+	}
 	if (mOutputMedia != nullptr) {
 		outputChannelCount = getOutputChannelCount(mOutputMedia);
 		for (i = 0; i < outputChannelCount; i++) {
@@ -429,7 +480,8 @@ void VideoEncoder::completeFlush(void)
 					i);
 				continue;
 			}
-			if (outputChannel->isFlushPending()) {
+			if (outputChannel->isFlushPending() ||
+			    outputChannel->isDrainPending()) {
 				pending = true;
 				break;
 			}
@@ -440,9 +492,10 @@ void VideoEncoder::completeFlush(void)
 	if (pending)
 		return;
 
+	setFlushingState(FlushingState::FLUSHED);
+
 	Sink::lock();
 	if (mInputMedia != nullptr) {
-		mIsFlushed = true;
 		if (mInputChannelFlushPending) {
 			mInputChannelFlushPending = false;
 			RawVideoChannel *inputChannel =
@@ -451,10 +504,16 @@ void VideoEncoder::completeFlush(void)
 			if (inputChannel == nullptr) {
 				PDRAW_LOGE("failed to get input channel");
 			} else {
-				ret = inputChannel->flushDone();
+				if (mFlushDiscard)
+					ret = inputChannel->flushDone();
+				else
+					ret = inputChannel->drainDone();
 				if (ret < 0)
-					PDRAW_LOG_ERRNO("channel->flushDone",
-							-ret);
+					PDRAW_LOG_ERRNO("channel->%s",
+							-ret,
+							mFlushDiscard
+								? "flushDone"
+								: "drainDone");
 			}
 		}
 	}
@@ -476,7 +535,7 @@ int VideoEncoder::tryStop(void)
 	int ret;
 	int outputChannelCount = 0, i;
 
-	if (mState != STOPPING)
+	if (mState != State::STOPPING)
 		return 0;
 
 	/* Remove the input port */
@@ -569,13 +628,13 @@ void VideoEncoder::completeStop(void)
 
 exit:
 	if ((!mVencStopPending) && (mOutputMedia == nullptr))
-		setState(STOPPED);
+		setState(State::STOPPED);
 }
 
 
 int VideoEncoder::configure(const struct venc_dyn_config *config)
 {
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: encoder is not started", __func__);
 		return -EPROTO;
 	}
@@ -592,7 +651,7 @@ int VideoEncoder::configure(const struct venc_dyn_config *config)
 
 int VideoEncoder::getConfig(struct venc_dyn_config *config)
 {
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: encoder is not started", __func__);
 		return -EPROTO;
 	}
@@ -784,7 +843,7 @@ void VideoEncoder::onRawVideoChannelQueue(RawVideoChannel *channel,
 		PDRAW_LOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	if (mState != STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("frame input: encoder is not started");
 		return;
 	}
@@ -806,7 +865,7 @@ void VideoEncoder::onRawVideoChannelQueue(RawVideoChannel *channel,
 	}
 
 	Sink::onRawVideoChannelQueue(channel, frame);
-	mIsFlushed = false;
+	setFlushingState(FlushingState::UNFLUSHED);
 	Sink::unlock();
 }
 
@@ -822,8 +881,24 @@ void VideoEncoder::onChannelFlush(Channel *channel)
 	mInputChannelFlushPending = true;
 
 	int ret = flush();
-	if (ret < 0)
+	if (ret < 0 && ret != -EALREADY)
 		PDRAW_LOG_ERRNO("flush", -ret);
+}
+
+
+void VideoEncoder::onChannelDrain(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	PDRAW_LOGD("draining input channel");
+	mInputChannelFlushPending = true;
+
+	int ret = drain();
+	if (ret < 0 && ret != -EALREADY)
+		PDRAW_LOG_ERRNO("drain", -ret);
 }
 
 
@@ -840,6 +915,27 @@ void VideoEncoder::onChannelFlushed(Channel *channel)
 		return;
 	}
 	PDRAW_LOGD("'%s': channel flushed media name=%s (channel owner=%p)",
+		   Element::getName().c_str(),
+		   media->getName().c_str(),
+		   channel->getOwner());
+
+	completeFlush();
+}
+
+
+void VideoEncoder::onChannelDrained(Channel *channel)
+{
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("channel", EINVAL);
+		return;
+	}
+
+	Media *media = getOutputMediaFromChannel(channel);
+	if (media == nullptr) {
+		PDRAW_LOGE("%s: output media not found", __func__);
+		return;
+	}
+	PDRAW_LOGD("'%s': channel drained media name=%s (channel owner=%p)",
 		   Element::getName().c_str(),
 		   media->getName().c_str(),
 		   channel->getOwner());
@@ -872,7 +968,7 @@ void VideoEncoder::onChannelUnlink(Channel *channel)
 
 	Source::onChannelUnlink(channel);
 
-	if (mState == STOPPING)
+	if (mState == State::STOPPING)
 		completeStop();
 }
 
@@ -936,11 +1032,12 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		PDRAW_LOG_ERRNO("out_frame", EINVAL);
 		return;
 	}
-	if (self->mState != STARTED) {
+	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("frame output: encoder is not started");
 		return;
 	}
-	if ((self->mVencFlushPending) || (self->mInputChannelFlushPending)) {
+	if (self->mFlushDiscard &&
+	    (self->mVencFlushPending || self->mInputChannelFlushPending)) {
 		PDRAW_LOGI("frame output: flush pending, discard frame");
 		return;
 	}
@@ -1117,7 +1214,7 @@ VideoEncoderWrapper::VideoEncoderWrapper(
 
 VideoEncoderWrapper::~VideoEncoderWrapper(void)
 {
-	if (mEncoder == nullptr)
+	if (isElementStopped())
 		return;
 	int ret = mEncoder->stop();
 	if (ret < 0)
@@ -1127,7 +1224,7 @@ VideoEncoderWrapper::~VideoEncoderWrapper(void)
 
 int VideoEncoderWrapper::configure(const struct venc_dyn_config *config)
 {
-	if (mEncoder == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mEncoder->configure(config);
 }
@@ -1135,7 +1232,7 @@ int VideoEncoderWrapper::configure(const struct venc_dyn_config *config)
 
 int VideoEncoderWrapper::getConfig(struct venc_dyn_config *config)
 {
-	if (mEncoder == nullptr)
+	if (isElementStopped())
 		return -EPROTO;
 	return mEncoder->getConfig(config);
 }

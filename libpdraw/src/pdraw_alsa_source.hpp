@@ -77,6 +77,11 @@ public:
 
 	int pause(void);
 
+	inline int drain(void)
+	{
+		return flush(false);
+	}
+
 	static int getCapabilities(const std::string &address,
 				   struct pdraw_alsa_source_caps *caps);
 
@@ -98,7 +103,7 @@ private:
 
 	int teardownChannels(void);
 
-	int flush(void);
+	int flush(bool discard = true);
 
 	void completeFlush(void);
 
@@ -106,7 +111,13 @@ private:
 
 	void completeStop(void);
 
+	void playResponse(void);
+
+	void pauseResponse(void);
+
 	void onChannelFlushed(Channel *channel) override;
+
+	void onChannelDrained(Channel *channel) override;
 
 	void onChannelUnlink(Channel *channel) override;
 
@@ -115,7 +126,13 @@ private:
 	/* Alsa source listener calls from idle functions */
 	static void callOnMediaAdded(void *userdata);
 
+	static void callPlayResponse(void *userdata);
+
+	static void callPauseResponse(void *userdata);
+
 	static void timerCb(struct pomp_timer *timer, void *userdata);
+
+	static void idleCompleteFlush(void *userdata);
 
 	IPdraw::IAlsaSource *mAlsaSource;
 	IPdraw::IAlsaSource::Listener *mAlsaSourceListener;
@@ -127,10 +144,10 @@ private:
 	bool mReady;
 	bool mRunning;
 	bool mFirstFrame;
+	bool mPausePending;
 	unsigned int mFrameIndex;
 	uint32_t mTimescale;
 	uint64_t mLastTimestamp;
-	bool mFlushPending;
 	snd_pcm_t *mHandle;
 	snd_pcm_hw_params_t *mHwParams;
 	struct pomp_timer *mTimer;
@@ -180,6 +197,15 @@ public:
 #endif
 
 private:
+	bool isElementStopped(void) const override
+	{
+		return (ElementWrapper::isElementStopped()
+#ifdef PDRAW_USE_ALSA
+			|| mSource == nullptr
+#endif
+		);
+	}
+
 #ifdef PDRAW_USE_ALSA
 	AlsaSource *mSource;
 #endif
