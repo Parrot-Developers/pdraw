@@ -2056,6 +2056,7 @@ void StreamDemuxer::onNewSdp(const char *content_base, const char *sdp)
 		 * before setting the state. If we have any media, remove them
 		 */
 		mDestroyMediasAfterFlush = true;
+		clearMediaList();
 		flush();
 		tryCompleteStart();
 		noError = true;

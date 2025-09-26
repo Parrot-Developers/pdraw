@@ -757,7 +757,7 @@ int DemuxerWrapper::getMediaList(struct pdraw_demuxer_media **mediaList,
 				 uint32_t *selectedMedias)
 {
 	if (isElementStopped())
-		return 0;
+		return -EPROTO;
 
 	return mDemuxer->getMediaList(mediaList, mediaCount, selectedMedias);
 }
@@ -766,7 +766,7 @@ int DemuxerWrapper::getMediaList(struct pdraw_demuxer_media **mediaList,
 int DemuxerWrapper::selectMedia(uint32_t selectedMedias)
 {
 	if (isElementStopped())
-		return 0;
+		return -EPROTO;
 
 	return mDemuxer->selectMedia(selectedMedias);
 }
@@ -883,7 +883,7 @@ int DemuxerWrapper::getChapterList(struct pdraw_chapter **chapterList,
 				   size_t *chapterCount)
 {
 	if (isElementStopped())
-		return 0;
+		return -EPROTO;
 
 	return mDemuxer->getChapterList(chapterList, chapterCount);
 }
