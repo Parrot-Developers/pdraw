@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SESSION_HPP_
-#define _PDRAW_SESSION_HPP_
+#pragma once
 
 #include "pdraw_alsa_source.hpp"
 #include "pdraw_decoder_audio.hpp"
@@ -59,13 +58,14 @@
 #	undef OPAQUE
 #	undef near
 #	undef far
-#	define IPTOS_PREC_INTERNETCONTROL 0xc0
-#	define IPTOS_PREC_FLASHOVERRIDE 0x80
+constexpr unsigned int IPTOS_PREC_INTERNETCONTROL = 0xc0;
+constexpr unsigned int IPTOS_PREC_FLASHOVERRIDE = 0x80;
 #else /* !_WIN32 */
 #	include <arpa/inet.h>
 #	include <netinet/ip.h>
 #endif /* !_WIN32 */
 
+#include <mutex>
 #include <queue>
 #include <string>
 #include <vector>
@@ -75,7 +75,7 @@
 #include <pdraw/pdraw.hpp>
 
 #ifdef _WIN32
-#	define PIPE_BUF 4096
+constexpr unsigned int PIPE_BUF = 4096;
 #endif /* _WIN32 */
 
 namespace Pdraw {
@@ -97,21 +97,24 @@ public:
 
 	class PipelineFactory {
 	public:
-		PipelineFactory(Session *session);
+		explicit PipelineFactory(Session *session);
 
-		~PipelineFactory(void);
+		~PipelineFactory();
 
 		void onElementStateChanged(Element *element,
 					   Element::State state);
 
 		void onOutputMediaAdded(Source *source, Media *media);
 
-		void onOutputMediaRemoved(Source *source, Media *media);
+		void onOutputMediaRemoved(const Source *source,
+					  const Media *media) const;
 
 		int dumpPipeline(const std::string &fileName);
 
 		int addMediaToVideoRenderer(unsigned int mediaId,
 					    Pdraw::VideoRenderer *renderer);
+
+		int addAllMediaToVideoRenderer(Pdraw::VideoRenderer *renderer);
 
 		int addMediaToAudioRenderer(unsigned int mediaId,
 					    Pdraw::AudioRenderer *renderer);
@@ -158,19 +161,19 @@ public:
 		int addAudioDecoderForMedia(Source *source, AudioMedia *media);
 
 		/* VideoRenderer */
-		int addMediaToVideoRenderer(Source *source,
-					    RawVideoMedia *media,
-					    Pdraw::VideoRenderer *renderer);
+		int
+		addMediaToVideoRenderer(Source *source,
+					RawVideoMedia *media,
+					Pdraw::VideoRenderer *renderer) const;
 
 		int addMediaToAllVideoRenderers(Source *source,
 						RawVideoMedia *media);
 
-		int addAllMediaToVideoRenderer(Pdraw::VideoRenderer *renderer);
-
 		/* AudioRenderer */
-		int addMediaToAudioRenderer(Source *source,
-					    AudioMedia *media,
-					    Pdraw::AudioRenderer *renderer);
+		int
+		addMediaToAudioRenderer(Source *source,
+					AudioMedia *media,
+					Pdraw::AudioRenderer *renderer) const;
 
 		int addMediaToAllAudioRenderers(Source *source,
 						AudioMedia *media);
@@ -180,7 +183,7 @@ public:
 		/* CodedVideoSink */
 		int addMediaToCodedVideoSink(Source *source,
 					     Media *media,
-					     Pdraw::Sink *sink);
+					     Pdraw::Sink *sink) const;
 
 		int addMediaToAllToCodedVideoSinks(Source *source,
 						   CodedVideoMedia *media);
@@ -191,7 +194,7 @@ public:
 		/* RawVideoSink */
 		int addMediaToRawVideoSink(Source *source,
 					   Media *media,
-					   Pdraw::Sink *sink);
+					   Pdraw::Sink *sink) const;
 
 		int addMediaToAllToRawVideoSinks(Source *source,
 						 RawVideoMedia *media);
@@ -202,33 +205,33 @@ public:
 		/* RawVideoSink */
 		int addMediaToAudioSink(Source *source,
 					Media *media,
-					Pdraw::Sink *sink);
+					Pdraw::Sink *sink) const;
 
 		int addMediaToAllToAudioSinks(Source *source,
 					      AudioMedia *media);
 
 		int addAllMediaToAudioSink(Pdraw::ExternalAudioSink *sink);
 
-		int
-		addMediaToMuxer(Source *source,
-				Media *media,
-				Pdraw::Muxer *muxer,
-				const struct pdraw_muxer_media_params *params);
+		int addMediaToMuxer(
+			Source *source,
+			Media *media,
+			Pdraw::Muxer *muxer,
+			const struct pdraw_muxer_media_params *params) const;
 
-		Session *mSession;
+		Session *mSession = nullptr;
 	};
 
 
 	Session(struct pomp_loop *loop, IPdraw::Listener *listener);
 
-	~Session(void);
+	~Session() override;
 
 
 	/*
 	 * API methods
 	 */
 
-	int stop(void) override;
+	int stop() override;
 
 	int createDemuxer(const std::string &url,
 			  const struct pdraw_demuxer_params *params,
@@ -340,7 +343,7 @@ public:
 	 * Internal methods
 	 */
 
-	Settings *getSettings(void)
+	Settings *getSettings()
 	{
 		return &mSettings;
 	}
@@ -352,6 +355,8 @@ public:
 
 	int addMediaToVideoRenderer(unsigned int mediaId,
 				    Pdraw::VideoRenderer *renderer);
+
+	int addAllMediaToVideoRenderer(Pdraw::VideoRenderer *renderer);
 
 	int addMediaToAudioRenderer(unsigned int mediaId,
 				    Pdraw::AudioRenderer *renderer);
@@ -391,7 +396,7 @@ private:
 				    IPdraw::IAudioSink::Listener *listener,
 				    IPdraw::IAudioSink **retObj);
 
-	void setState(enum State state);
+	void setState(State state);
 
 	void onElementStateChanged(Element *element,
 				   Element::State state) override;
@@ -409,37 +414,35 @@ private:
 
 	void stopResp(int status);
 
-	static const char *stateStr(enum State val);
+	static const char *stateStr(State val);
 
 	int deleteElement(Element *element);
 
 	PipelineFactory mFactory;
-	IPdraw::Listener *mListener;
-	enum State mState;
-	struct pomp_loop *mLoop;
-	pthread_t mLoopThread;
-	pthread_mutex_t mMutex;
-	Settings mSettings;
-	std::vector<Element *> mElements;
+	IPdraw::Listener *mListener{};
+	State mState{State::STOPPED};
+	struct pomp_loop *mLoop{};
+	pthread_t mLoopThread{};
+	std::recursive_mutex mMutex{};
+	Settings mSettings{};
+	std::vector<std::unique_ptr<Element>> mElements{};
 
 	/* Calls from idle functions */
-	pthread_mutex_t mAsyncMutex;
+	std::mutex mAsyncMutex{};
 	static void idleElementStateChange(void *userdata);
-	std::queue<Element *> mElementStateChangeElementArgs;
-	std::queue<Element::State> mElementStateChangeStateArgs;
+	std::queue<Element *> mElementStateChangeElementArgs{};
+	std::queue<Element::State> mElementStateChangeStateArgs{};
 	static void idleElementDelete(void *userdata);
-	std::queue<Element *> mElementDeleteElementArgs;
+	std::queue<Element *> mElementDeleteElementArgs{};
 	static void callStopResponse(void *userdata);
-	std::queue<int> mStopRespStatusArgs;
+	std::queue<int> mStopRespStatusArgs{};
 	static void callOnMediaAdded(void *userdata);
-	std::queue<struct pdraw_media_info> mMediaAddedInfoArgs;
-	std::queue<void *> mMediaAddedElementUserDataArgs;
+	std::queue<struct pdraw_media_info> mMediaAddedInfoArgs{};
+	std::queue<void *> mMediaAddedElementUserDataArgs{};
 	static void callOnMediaRemoved(void *userdata);
-	std::queue<struct pdraw_media_info> mMediaRemovedInfoArgs;
-	std::queue<void *> mMediaRemovedElementUserDataArgs;
+	std::queue<struct pdraw_media_info> mMediaRemovedInfoArgs{};
+	std::queue<void *> mMediaRemovedElementUserDataArgs{};
 	/* callOnSocketCreated omitted. Function has to be synchronous */
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_SESSION_HPP_ */

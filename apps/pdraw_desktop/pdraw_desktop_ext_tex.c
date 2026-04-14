@@ -31,7 +31,7 @@
 #include "pdraw_desktop.h"
 
 
-static const GLchar *vertex_shader =
+static const GLchar *const vertex_shader =
 	"attribute vec4 position;\n"
 	"attribute vec2 texcoord;\n"
 	"varying vec2 v_texcoord;\n"
@@ -42,7 +42,7 @@ static const GLchar *vertex_shader =
 	"    v_texcoord = texcoord;\n"
 	"}\n";
 
-static const GLchar *fragment_shader =
+static const GLchar *const fragment_shader =
 #if defined(GL_ES_VERSION_2_0)
 	"precision mediump float;\n"
 #endif
@@ -88,9 +88,9 @@ static const GLfloat yuv2rgb_offset[3] = {
 int pdraw_desktop_ext_tex_setup(struct pdraw_desktop *self)
 {
 	int ret = 0;
-	GLint v_shader = 0, f_shader = 0;
+	GLint v_shader = 0;
+	GLint f_shader = 0;
 	GLint success = 0;
-	unsigned int i;
 
 	if (!self->ext_tex)
 		return 0;
@@ -165,7 +165,7 @@ int pdraw_desktop_ext_tex_setup(struct pdraw_desktop *self)
 		glGetAttribLocation(self->ext_tex_program, "texcoord");
 
 	glGenTextures(3, self->ext_tex_textures);
-	for (i = 0; i < 3; i++) {
+	for (unsigned int i = 0; i < 3; i++) {
 		glActiveTexture(GL_TEXTURE0 + i);
 		glBindTexture(GL_TEXTURE_2D, self->ext_tex_textures[i]);
 
@@ -217,11 +217,15 @@ int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
 			       size_t frame_userdata_len)
 {
 	int ret;
-	unsigned int i, nplanes;
+	unsigned int i;
+	unsigned int nplanes;
 	float vertices[8];
 	float texcoords[8];
 	const void *planes[VDEF_RAW_MAX_PLANE_COUNT] = {0};
-	float ar1, ar2, h, v;
+	float ar1;
+	float ar2;
+	float h;
+	float v;
 
 	struct vdef_raw_frame frame_info;
 

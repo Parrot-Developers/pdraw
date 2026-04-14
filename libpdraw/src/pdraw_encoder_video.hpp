@@ -28,16 +28,17 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_ENCODER_VIDEO_HPP_
-#define _PDRAW_ENCODER_VIDEO_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
+#include <mutex>
 #include <string>
 
 #include <media-buffers/mbuf_coded_video_frame.h>
+#include <media-buffers/mbuf_queue.hpp>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <pdraw/pdraw.hpp>
 #include <video-encode/venc.h>
@@ -56,39 +57,41 @@ public:
 		     VideoEncoderWrapper *wrapper,
 		     const struct venc_config *params);
 
-	~VideoEncoder(void);
+	~VideoEncoder() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
-	void completeFlush(void);
+	void completeFlush();
 
-	void completeStop(void);
+	void completeStop();
 
 	int configure(const struct venc_dyn_config *config);
 
 	int getConfig(struct venc_dyn_config *config);
 
-	IPdraw::IVideoEncoder *getVideoEncoder(void) const
+	int requestKeyFrame();
+
+	IPdraw::IVideoEncoder *getVideoEncoder() const
 	{
 		return mEncoder;
 	}
 
 private:
-	int createOutputMedia(struct vdef_coded_frame *frame_info,
-			      CodedVideoMedia::Frame &frame);
+	int createOutputMedia(const struct vdef_coded_frame *frame_info,
+			      const CodedVideoMedia::Frame &frame);
 
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
 
-	int tryStop(void);
+	int tryStop();
 
-	void removeEncoderListener(void);
+	void removeEncoderListener();
 
 	void
 	onRawVideoChannelQueue(RawVideoChannel *channel,
@@ -123,21 +126,21 @@ private:
 
 	static void idleCompleteFlush(void *userdata);
 
-	IPdraw::IVideoEncoder *mEncoder;
-	IPdraw::IVideoEncoder::Listener *mEncoderListener;
-	pthread_mutex_t mListenerMutex;
-	RawVideoMedia *mInputMedia;
-	CodedVideoMedia *mOutputMedia;
-	struct mbuf_pool *mInputBufferPool;
-	struct mbuf_raw_video_frame_queue *mInputBufferQueue;
-	struct venc_config *mEncoderConfig;
-	std::string mEncoderName;
-	std::string mEncoderDevice;
-	struct venc_encoder *mVenc;
-	bool mInputChannelFlushPending;
-	bool mOutputChannelDrainRequired;
-	bool mVencFlushPending;
-	bool mVencStopPending;
+	IPdraw::IVideoEncoder *mEncoder = nullptr;
+	IPdraw::IVideoEncoder::Listener *mEncoderListener = nullptr;
+	std::mutex mListenerMutex{};
+	RawVideoMedia *mInputMedia = nullptr;
+	std::unique_ptr<CodedVideoMedia> mOutputMedia{};
+	struct mbuf_pool *mInputBufferPool = nullptr;
+	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
+	struct venc_config *mEncoderConfig = nullptr;
+	std::string mEncoderName{};
+	std::string mEncoderDevice{};
+	struct venc_encoder *mVenc = nullptr;
+	bool mInputChannelFlushPending = false;
+	bool mOutputChannelDrainRequired = false;
+	bool mVencFlushPending = false;
+	bool mVencStopPending = false;
 	static const struct venc_cbs mEncoderCbs;
 };
 
@@ -149,13 +152,15 @@ public:
 			    const struct venc_config *params,
 			    IPdraw::IVideoEncoder::Listener *listener);
 
-	~VideoEncoderWrapper(void);
+	~VideoEncoderWrapper() override;
 
 	int configure(const struct venc_dyn_config *config) override;
 
 	int getConfig(struct venc_dyn_config *config) override;
 
-	void clearElement(void) override
+	int requestKeyFrame() override;
+
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mEncoder = nullptr;
@@ -172,15 +177,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mEncoder == nullptr);
 	}
 
-	VideoEncoder *mEncoder;
+	VideoEncoder *mEncoder = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_ENCODER_VIDEO_HPP_ */

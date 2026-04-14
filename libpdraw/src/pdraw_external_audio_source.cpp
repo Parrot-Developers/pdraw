@@ -37,8 +37,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <time.h>
 
-#define PDRAW_EXT_AUDIO_SOURCE_ANCILLARY_KEY_INPUT_TIME                        \
-	"pdraw.audiosource.input_time"
+constexpr const char *PDRAW_EXT_AUDIO_SOURCE_ANCILLARY_KEY_INPUT_TIME =
+	"pdraw.audiosource.input_time";
 
 namespace Pdraw {
 
@@ -56,8 +56,7 @@ ExternalAudioSource::ExternalAudioSource(
 			      1,
 			      sourceListener),
 		mAudioSource(wrapper), mAudioSourceListener(listener),
-		mParams(*params), mFrameQueue(nullptr), mOutputMedia(nullptr),
-		mLastTimestamp(UINT64_MAX)
+		mParams(*params)
 {
 	Element::setClassName(__func__);
 
@@ -65,7 +64,7 @@ ExternalAudioSource::ExternalAudioSource(
 }
 
 
-ExternalAudioSource::~ExternalAudioSource(void)
+ExternalAudioSource::~ExternalAudioSource()
 {
 	int err;
 
@@ -81,17 +80,12 @@ ExternalAudioSource::~ExternalAudioSource(void)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 
 	if (mFrameQueue != nullptr) {
-		err = mbuf_audio_frame_queue_flush(mFrameQueue);
-		if (err < 0) {
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -err);
-		}
-		err = removeQueueEvtFromLoop(mFrameQueue, mSession->getLoop());
+		err = mFrameQueue->flush();
 		if (err < 0)
-			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -err);
-		err = mbuf_audio_frame_queue_destroy(mFrameQueue);
-		if (err < 0) {
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_destroy", -err);
-		}
+			PDRAW_LOG_ERRNO("queue::flush", -err);
+		err = mFrameQueue->detachFromLoop(mSession->getLoop());
+		if (err < 0)
+			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
 	}
 
 	if (mOutputMedia != nullptr)
@@ -99,10 +93,9 @@ ExternalAudioSource::~ExternalAudioSource(void)
 }
 
 
-int ExternalAudioSource::start(void)
+int ExternalAudioSource::start()
 {
 	int ret;
-	struct pomp_evt *evt = nullptr;
 	std::string path;
 
 	if ((mState == State::STARTED) || (mState == State::STARTING))
@@ -120,22 +113,18 @@ int ExternalAudioSource::start(void)
 		.filter_userdata = this,
 		.max_frames = 0,
 	};
-	ret = mbuf_audio_frame_queue_new_with_args(&args, &mFrameQueue);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_new_with_args", -ret);
+	try {
+		mFrameQueue = mbuf::Queue::createWithArgs(&args);
+	} catch (const std::bad_alloc &) {
+		PDRAW_LOGE("queue allocation failed");
+		ret = -ENOMEM;
 		goto error;
 	}
 
-	ret = mbuf_audio_frame_queue_get_event(mFrameQueue, &evt);
+	ret = mFrameQueue->attachToLoop(
+		mSession->getLoop(), &queueEventCb, this);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_event", -ret);
-		goto error;
-	}
-
-	ret = pomp_evt_attach_to_loop(
-		evt, mSession->getLoop(), &queueEventCb, this);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_attach_to_loop", -ret);
+		PDRAW_LOG_ERRNO("queue::attachToLoop", -ret);
 		goto error;
 	}
 
@@ -143,8 +132,9 @@ int ExternalAudioSource::start(void)
 
 	Source::lock();
 
-	mOutputMedia = new AudioMedia(mSession);
-	if (mOutputMedia == nullptr) {
+	try {
+		mOutputMedia = make_unique<AudioMedia>(mSession);
+	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
 		ret = -ENOMEM;
@@ -153,7 +143,7 @@ int ExternalAudioSource::start(void)
 	path = Element::getName() + "$" + mOutputMedia->getName();
 	mOutputMedia->setPath(path);
 
-	ret = addOutputPort(mOutputMedia);
+	ret = addOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -187,7 +177,7 @@ error:
 }
 
 
-int ExternalAudioSource::stop(void)
+int ExternalAudioSource::stop()
 {
 	int ret;
 
@@ -224,27 +214,25 @@ int ExternalAudioSource::stop(void)
 
 void ExternalAudioSource::idleCompleteFlush(void *userdata)
 {
-	ExternalAudioSource *self = (ExternalAudioSource *)userdata;
+	auto *self = static_cast<ExternalAudioSource *>(userdata);
 	self->completeFlush();
 }
 
 
-int ExternalAudioSource::tryStop(void)
+int ExternalAudioSource::tryStop()
 {
-	int ret, err;
+	int ret;
+	int err;
 	int completeStopPendingCount;
 
 	if (mState != State::STOPPING)
 		return 0;
 
 	if (mFrameQueue != nullptr) {
-		err = removeQueueEvtFromLoop(mFrameQueue, mSession->getLoop());
+		err = mFrameQueue->detachFromLoop(mSession->getLoop());
 		if (err < 0)
-			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -err);
-		err = mbuf_audio_frame_queue_destroy(mFrameQueue);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_destroy", -err);
-		mFrameQueue = nullptr;
+			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
+		mFrameQueue.reset();
 	}
 
 	/* Teardown the output channels
@@ -253,10 +241,12 @@ int ExternalAudioSource::tryStop(void)
 	completeStopPendingCount = 0;
 	Source::lock();
 	if (mOutputMedia != nullptr) {
-		int outputChannelCount = getOutputChannelCount(mOutputMedia);
+		int outputChannelCount =
+			getOutputChannelCount(mOutputMedia.get());
 
 		for (int i = outputChannelCount - 1; i >= 0; i--) {
-			Channel *channel = getOutputChannel(mOutputMedia, i);
+			Channel *channel =
+				getOutputChannel(mOutputMedia.get(), i);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   i);
@@ -278,7 +268,7 @@ int ExternalAudioSource::tryStop(void)
 }
 
 
-void ExternalAudioSource::completeStop(void)
+void ExternalAudioSource::completeStop()
 {
 	int ret;
 	unsigned int outputChannelCount;
@@ -288,7 +278,7 @@ void ExternalAudioSource::completeStop(void)
 	if (mOutputMedia == nullptr)
 		goto exit;
 
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	if (outputChannelCount > 0) {
 		Source::unlock();
 		return;
@@ -297,14 +287,13 @@ void ExternalAudioSource::completeStop(void)
 	/* Remove the output port */
 	if (Source::mListener) {
 		Source::mListener->onOutputMediaRemoved(
-			this, mOutputMedia, getAudioSource());
+			this, mOutputMedia.get(), getAudioSource());
 	}
-	ret = removeOutputPort(mOutputMedia);
+	ret = removeOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("removeOutputPort", -ret);
 	} else {
-		delete mOutputMedia;
-		mOutputMedia = nullptr;
+		mOutputMedia.reset();
 	}
 
 exit:
@@ -328,38 +317,10 @@ void ExternalAudioSource::onChannelUnlink(Channel *channel)
 }
 
 
-int ExternalAudioSource::removeQueueEvtFromLoop(
-	struct mbuf_audio_frame_queue *queue,
-	struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_audio_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_event", -res);
-		return res;
-	}
-
-	if (!pomp_evt_is_attached(evt, loop))
-		return 0;
-
-	res = pomp_evt_detach_from_loop(evt, loop);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -res);
-		return res;
-	}
-
-	return 0;
-}
-
-
 int ExternalAudioSource::flush(bool discard)
 {
-	int ret, err;
+	int ret;
+	int err;
 	bool channelFound = false;
 	Channel *outputChannel;
 
@@ -370,6 +331,14 @@ int ExternalAudioSource::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
+		ret = mFrameQueue->getCount();
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("queue::getCount", -ret);
+			return ret;
+		} else if (ret > 0) {
+			setFlushingState(FlushingState::UNFLUSHED);
+			break;
+		}
 		PDRAW_LOGD("audio source is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
@@ -396,9 +365,9 @@ int ExternalAudioSource::flush(bool discard)
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		unsigned int outputChannelCount =
-			getOutputChannelCount(mOutputMedia);
+			getOutputChannelCount(mOutputMedia.get());
 		for (unsigned int i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
+			outputChannel = getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -423,11 +392,12 @@ int ExternalAudioSource::flush(bool discard)
 	}
 	Source::unlock();
 
+	/* Flush the queue */
 	if ((mFrameQueue != nullptr) && mFlushDiscard) {
-		/* Flush the queue */
-		err = mbuf_audio_frame_queue_flush(mFrameQueue);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -err);
+		err = mFrameQueue->flush();
+		if (err < 0) {
+			PDRAW_LOG_ERRNO("queue::flush", -err);
+		}
 	}
 
 	if (!channelFound)
@@ -437,7 +407,7 @@ int ExternalAudioSource::flush(bool discard)
 }
 
 
-void ExternalAudioSource::completeFlush(void)
+void ExternalAudioSource::completeFlush()
 {
 	bool pending = false;
 	int err = 0;
@@ -445,10 +415,10 @@ void ExternalAudioSource::completeFlush(void)
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		unsigned int outputChannelCount =
-			getOutputChannelCount(mOutputMedia);
+			getOutputChannelCount(mOutputMedia.get());
 		for (unsigned int i = 0; i < outputChannelCount; i++) {
-			Channel *outputChannel =
-				getOutputChannel(mOutputMedia, i);
+			const Channel *outputChannel =
+				getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -491,7 +461,7 @@ void ExternalAudioSource::onChannelFlushed(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -512,7 +482,7 @@ void ExternalAudioSource::onChannelDrained(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -526,9 +496,10 @@ void ExternalAudioSource::onChannelDrained(Channel *channel)
 }
 
 
-int ExternalAudioSource::process(void)
+int ExternalAudioSource::process()
 {
-	int ret, err;
+	int ret;
+	int err;
 	struct mbuf_audio_frame *frame = nullptr;
 
 	if (mFrameQueue == nullptr) {
@@ -538,11 +509,10 @@ int ExternalAudioSource::process(void)
 	}
 
 	do {
-		ret = mbuf_audio_frame_queue_pop(mFrameQueue, &frame);
+		ret = mFrameQueue->popFrame(&frame);
 		if (ret < 0) {
 			if (ret != -EAGAIN) {
-				PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_pop",
-						-ret);
+				PDRAW_LOG_ERRNO("queue::popFrame", -ret);
 			}
 			continue;
 		}
@@ -560,8 +530,9 @@ int ExternalAudioSource::process(void)
 
 void ExternalAudioSource::queueEventCb(struct pomp_evt *evt, void *userdata)
 {
-	ExternalAudioSource *self =
-		reinterpret_cast<ExternalAudioSource *>(userdata);
+	PDRAW_UNUSED(evt);
+
+	auto *self = static_cast<ExternalAudioSource *>(userdata);
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
@@ -588,9 +559,9 @@ void ExternalAudioSource::queueEventCb(struct pomp_evt *evt, void *userdata)
 bool ExternalAudioSource::inputFilter(struct mbuf_audio_frame *frame,
 				      void *userdata)
 {
-	ExternalAudioSource *self =
-		reinterpret_cast<ExternalAudioSource *>(userdata);
-	int ret, err;
+	auto *self = static_cast<ExternalAudioSource *>(userdata);
+	int ret;
+	int err;
 	bool accept = true;
 	uint64_t ts_us;
 	struct timespec cur_ts = {0, 0};
@@ -668,9 +639,10 @@ out:
 
 int ExternalAudioSource::processFrame(struct mbuf_audio_frame *frame)
 {
-	int ret, err;
+	int ret;
+	int err;
 	struct adef_frame info = {};
-	AudioMedia::Frame out_meta = {};
+	AudioMedia::Frame out_meta{};
 	struct timespec ts = {0, 0};
 	uint64_t curTime = 0;
 	unsigned int outputChannelCount;
@@ -714,10 +686,10 @@ int ExternalAudioSource::processFrame(struct mbuf_audio_frame *frame)
 	}
 
 	/* Queue the frame in the output channels */
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	for (unsigned int i = 0; i < outputChannelCount; i++) {
-		Channel *c = getOutputChannel(mOutputMedia, i);
-		AudioChannel *channel = dynamic_cast<AudioChannel *>(c);
+		Channel *c = getOutputChannel(mOutputMedia.get(), i);
+		auto *channel = dynamic_cast<AudioChannel *>(c);
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel at index %d", i);
 			continue;
@@ -739,8 +711,7 @@ out:
 /* Listener call from an idle function */
 void ExternalAudioSource::callOnMediaAdded(void *userdata)
 {
-	ExternalAudioSource *self =
-		reinterpret_cast<ExternalAudioSource *>(userdata);
+	auto *self = static_cast<ExternalAudioSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mOutputMedia == nullptr) {
@@ -750,7 +721,7 @@ void ExternalAudioSource::callOnMediaAdded(void *userdata)
 
 	if (self->Source::mListener) {
 		self->Source::mListener->onOutputMediaAdded(
-			self, self->mOutputMedia, self->getAudioSource());
+			self, self->mOutputMedia.get(), self->getAudioSource());
 	}
 }
 
@@ -758,8 +729,7 @@ void ExternalAudioSource::callOnMediaAdded(void *userdata)
 /* Listener call from an idle function */
 void ExternalAudioSource::callAudioSourceFlushed(void *userdata)
 {
-	ExternalAudioSource *self =
-		reinterpret_cast<ExternalAudioSource *>(userdata);
+	auto *self = static_cast<ExternalAudioSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	self->setFlushingState(FlushingState::FLUSHED);
@@ -779,14 +749,19 @@ void ExternalAudioSource::callAudioSourceFlushed(void *userdata)
 AudioSourceWrapper::AudioSourceWrapper(
 	Session *session,
 	const struct pdraw_audio_source_params *params,
-	IPdraw::IAudioSource::Listener *listener)
+	IPdraw::IAudioSource::Listener *listener) :
+		ElementWrapper(new Pdraw::ExternalAudioSource(session,
+							      session,
+							      session,
+							      listener,
+							      this,
+							      params)),
+		mSource(static_cast<Pdraw::ExternalAudioSource *>(mElement))
 {
-	mElement = mSource = new Pdraw::ExternalAudioSource(
-		session, session, session, listener, this, params);
 }
 
 
-AudioSourceWrapper::~AudioSourceWrapper(void)
+AudioSourceWrapper::~AudioSourceWrapper()
 {
 	if (isElementStopped())
 		return;
@@ -796,15 +771,22 @@ AudioSourceWrapper::~AudioSourceWrapper(void)
 }
 
 
-struct mbuf_audio_frame_queue *AudioSourceWrapper::getQueue(void)
+struct mbuf_audio_frame_queue *AudioSourceWrapper::getQueue()
 {
+	struct mbuf_audio_frame_queue *ret = nullptr;
+
 	if (isElementStopped())
 		return nullptr;
-	return mSource->getQueue();
+
+	mbuf::Queue *queue = mSource->getQueue();
+	if (queue == nullptr)
+		return nullptr;
+	queue->getCQueue(&ret);
+	return ret;
 }
 
 
-int AudioSourceWrapper::flush(void)
+int AudioSourceWrapper::flush()
 {
 	if (isElementStopped())
 		return -EPROTO;
@@ -812,7 +794,7 @@ int AudioSourceWrapper::flush(void)
 }
 
 
-int AudioSourceWrapper::drain(void)
+int AudioSourceWrapper::drain()
 {
 	if (isElementStopped())
 		return -EPROTO;

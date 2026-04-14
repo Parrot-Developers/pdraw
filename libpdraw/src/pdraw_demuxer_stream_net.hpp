@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DEMUXER_STREAM_NET_HPP_
-#define _PDRAW_DEMUXER_STREAM_NET_HPP_
+#pragma once
 
 #include "pdraw_demuxer_stream.hpp"
 
@@ -63,41 +62,42 @@ public:
 			 uint16_t remoteControlPort,
 			 const struct pdraw_demuxer_params *params);
 
-	~StreamDemuxerNet(void);
+	~StreamDemuxerNet() override;
 
-	uint16_t getSingleStreamLocalStreamPort(void);
+	uint16_t getSingleStreamLocalStreamPort();
 
-	uint16_t getSingleStreamLocalControlPort(void);
+	uint16_t getSingleStreamLocalControlPort();
 
 protected:
-	VideoMedia *createVideoMedia(void);
+	std::unique_ptr<VideoMedia>
+	createVideoMedia(enum rtsp_lower_transport transport) override;
 
 private:
-	class VideoMediaNet : StreamDemuxer::VideoMedia {
+	class VideoMediaNet : public StreamDemuxer::VideoMedia {
 	public:
-		VideoMediaNet(StreamDemuxerNet *demuxer);
+		explicit VideoMediaNet(StreamDemuxerNet *demuxer,
+				       enum rtsp_lower_transport transport);
 
-		~VideoMediaNet(void);
+		~VideoMediaNet() override;
 
-		int startRtpAvp(void) override;
+		int startRtpAvp() override;
 
-		int stopRtpAvp(void) override;
+		int stopRtpAvp() override;
 
 		int sendCtrl(struct vstrm_receiver *stream,
 			     struct tpkt_packet *pkt) override;
 
-		int prepareSetup(void) override;
+		int prepareSetup() override;
 
-		enum rtsp_lower_transport
-		getLowerTransport(void) const override;
+		enum rtsp_lower_transport getLowerTransport() const override;
 
-		uint16_t getLocalStreamPort(void) const override;
+		uint16_t getLocalStreamPort() const override;
 
-		uint16_t getLocalControlPort(void) const override;
+		uint16_t getLocalControlPort() const override;
 
-		uint16_t getRemoteStreamPort(void) const override;
+		uint16_t getRemoteStreamPort() const override;
 
-		uint16_t getRemoteControlPort(void) const override;
+		uint16_t getRemoteControlPort() const override;
 
 		void setLocalStreamPort(uint16_t port) override;
 
@@ -107,28 +107,32 @@ private:
 
 		void setRemoteControlPort(uint16_t port) override;
 
-	private:
-		int createSockets(void);
+		int processDataPkt(struct tpkt_packet *pkt) override;
 
-		struct tpkt_packet *newRxPkt(void);
+		int processCtrlPkt(struct tpkt_packet *pkt) override;
+
+	private:
+		int createSockets();
+
+		struct tpkt_packet *newRxPkt();
 
 		static void dataCb(int fd, uint32_t events, void *userdata);
 
 		static void ctrlCb(int fd, uint32_t events, void *userdata);
 
-		StreamDemuxerNet *mDemuxerNet;
-		struct tskt_socket *mStreamSock;
-		struct tskt_socket *mControlSock;
-		struct tpkt_packet *mRxPkt;
-		size_t mRxBufLen;
+		StreamDemuxerNet *mDemuxerNet = nullptr;
+		enum rtsp_lower_transport mLowerTransport =
+			RTSP_LOWER_TRANSPORT_UDP;
+		struct tskt_socket *mStreamSock = nullptr;
+		struct tskt_socket *mControlSock = nullptr;
+		struct tpkt_packet *mRxPkt = nullptr;
+		size_t mRxBufLen = 0;
 	};
 
-	uint16_t mSingleLocalStreamPort;
-	uint16_t mSingleLocalControlPort;
-	uint16_t mSingleRemoteStreamPort;
-	uint16_t mSingleRemoteControlPort;
+	uint16_t mSingleLocalStreamPort = 0;
+	uint16_t mSingleLocalControlPort = 0;
+	uint16_t mSingleRemoteStreamPort = 0;
+	uint16_t mSingleRemoteControlPort = 0;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_DEMUXER_STREAM_NET_HPP_ */

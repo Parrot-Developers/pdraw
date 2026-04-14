@@ -45,6 +45,9 @@ ULOG_DECLARE_TAG(pdraw_audiosourcesink_test);
 #include <pdraw/pdraw_backend.h>
 
 
+#define UNUSED(x) (void)(x)
+
+
 #define FRIENDLY_NAME "pdraw_audiosourcesink_test"
 
 
@@ -79,12 +82,15 @@ static void source_flushed_cb(struct pdraw_backend *pdraw,
 			      struct pdraw_audio_source *source,
 			      void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s", __func__);
 	pthread_mutex_lock(&self->mutex);
 	self->flushed_resp = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -92,12 +98,15 @@ static void source_drained_cb(struct pdraw_backend *pdraw,
 			      struct pdraw_audio_source *source,
 			      void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s", __func__);
 	pthread_mutex_lock(&self->mutex);
 	self->drained_resp = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -111,6 +120,9 @@ static void sink_flush_cb(struct pdraw_backend *pdraw,
 			  struct pdraw_audio_sink *sink,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -137,6 +149,9 @@ static void sink_drain_cb(struct pdraw_backend *pdraw,
 			  struct pdraw_audio_sink *sink,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -178,13 +193,15 @@ static const struct pdraw_backend_audio_sink_cbs sink_cbs = {
 static void
 stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 	pthread_mutex_lock(&self->mutex);
 	self->stop_resp = true;
 	self->stop_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -193,6 +210,8 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 			   void *element_userdata,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -222,8 +241,8 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	pthread_mutex_lock(&self->mutex);
 	self->media_added = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -232,6 +251,8 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 			     void *element_userdata,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -249,14 +270,17 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 
 	pthread_mutex_lock(&self->mutex);
 	self->media_removed = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
 static void
 socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(userdata);
+
 	ULOGI("%s fd=%d", __func__, fd);
 }
 
@@ -271,7 +295,8 @@ static const struct pdraw_backend_cbs be_cbs = {
 
 static void process_output(struct pdraw_backend_app *self)
 {
-	int res = 0, err;
+	int res = 0;
+	int err;
 
 	if (self->out_queue == NULL)
 		return;
@@ -357,6 +382,8 @@ static const struct option long_options[] = {
 
 static void welcome(int argc, char **argv)
 {
+	UNUSED(argc);
+
 	printf("%s - Parrot Drones Audio and Video Vector - "
 	       "Audio source to sink test program\n\n",
 	       argv[0]);
@@ -365,13 +392,16 @@ static void welcome(int argc, char **argv)
 
 static void usage(int argc, char **argv)
 {
+	UNUSED(argc);
+
 	/* clang-format off */
 	printf("Usage: %s [options] <input_file> <output_file>\n\n"
 	       "Options:\n"
 	       "  -h | --help                        "
 		       "Print this message\n"
 	       "  -f | --format <format>             "
-		       "Input file data format (e.g. \"PCM_16_44KHZ_STEREO\")\n"
+		       "Input file data format "
+		       "(e.g. \"PCM_16B_48000HZ_STEREO\")\n"
 	       "  -n | --count <n>                   "
 		       "Process at most n frames\n"
 	       "\n",
@@ -382,8 +412,10 @@ static void usage(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-	int res, status = EXIT_SUCCESS;
-	char *input = NULL, *output = NULL;
+	int res;
+	int status = EXIT_SUCCESS;
+	char *input = NULL;
+	char *output = NULL;
 	struct pdraw_backend_app *self = NULL;
 	struct pdraw_audio_source_params source_params = {0};
 	struct araw_reader_config reader_config = {0};
@@ -394,7 +426,8 @@ int main(int argc, char **argv)
 	welcome(argc, argv);
 
 	/* Command-line parameters */
-	int idx, c;
+	int idx;
+	int c;
 	while ((c = getopt_long(
 			argc, argv, short_options, long_options, &idx)) != -1) {
 		switch (c) {

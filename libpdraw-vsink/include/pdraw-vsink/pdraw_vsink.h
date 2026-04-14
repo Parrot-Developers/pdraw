@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_VSINK_H_
-#define _PDRAW_VSINK_H_
+#pragma once
 
 #include <inttypes.h>
 #include <pdraw/pdraw_defs.h>
@@ -78,6 +77,13 @@ struct pdraw_vsink_cbs {
 struct pdraw_vsink_params {
 	/* Network URL or local file (mandatory) */
 	const char *url;
+
+	/* Playback synchronization mode.
+	 * - PDRAW_PLAYBACK_MODE_REALTIME: Frames are delivered following the
+	 * original stream timestamps (synchronized with the clock).
+	 * - PDRAW_PLAYBACK_MODE_OFFLINE: Frames are delivered as fast as the
+	 * demuxing and decoding pipeline allows, ignoring real-time pacing. */
+	enum pdraw_playback_mode playback_mode;
 
 	/* Camera type to select (optional; set to VMETA_CAMERA_TYPE_UNKNOWN to
 	 * select the default camera) */
@@ -149,5 +155,3 @@ pdraw_vsink_get_frame(struct pdraw_vsink *self,
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* !_LIBPDRAW_VSINK_H_ */

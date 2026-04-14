@@ -28,13 +28,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_
-#define _PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
+#include <media-buffers/mbuf_queue.hpp>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <pdraw/pdraw.hpp>
 
@@ -52,29 +52,29 @@ public:
 			     unsigned int mediaId,
 			     const struct pdraw_video_sink_params *params);
 
-	~ExternalRawVideoSink(void);
+	~ExternalRawVideoSink() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	int setMediaId(unsigned int mediaId);
 
-	unsigned int getMediaId(void) const;
+	unsigned int getMediaId() const;
 
 	int flushDone(bool discard = true);
 
-	inline int drainDone(void)
+	inline int drainDone()
 	{
 		return flushDone(false);
 	}
 
-	struct mbuf_raw_video_frame_queue *getQueue(void) const
+	mbuf::Queue *getQueue() const
 	{
-		return mInputFrameQueue;
+		return mInputFrameQueue.get();
 	}
 
-	IPdraw::IRawVideoSink *getVideoSink(void) const
+	IPdraw::IRawVideoSink *getVideoSink() const
 	{
 		return mVideoSink;
 	}
@@ -86,7 +86,7 @@ public:
 private:
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
@@ -111,7 +111,7 @@ private:
 
 	void onChannelFramerateChange(Channel *channel) override;
 
-	int prepareRawVideoFrame(RawVideoChannel *channel,
+	int prepareRawVideoFrame(const RawVideoChannel *channel,
 				 struct mbuf_raw_video_frame *frame);
 
 	static void idleFlushDone(void *userdata);
@@ -121,18 +121,21 @@ private:
 
 	static void idleRenewMedia(void *userdata);
 
-	IPdraw::IRawVideoSink *mVideoSink;
-	IPdraw::IRawVideoSink::Listener *mVideoSinkListener;
-	struct pdraw_video_sink_params mParams;
-	RawVideoMedia *mInputMedia;
-	struct pdraw_media_info mMediaInfo;
-	struct vmeta_session mMediaInfoSessionMeta;
-	unsigned int mMediaId;
-	unsigned int mTargetMediaId;
-	struct mbuf_raw_video_frame_queue *mInputFrameQueue;
-	bool mInputChannelFlushPending;
-	bool mTearingDown;
-	bool mPendingRestart;
+	IPdraw::IRawVideoSink *mVideoSink = nullptr;
+	IPdraw::IRawVideoSink::Listener *mVideoSinkListener = nullptr;
+	struct pdraw_video_sink_params mParams {
+	};
+	RawVideoMedia *mInputMedia = nullptr;
+	struct pdraw_media_info mMediaInfo {
+	};
+	struct vmeta_session mMediaInfoSessionMeta {
+	};
+	unsigned int mMediaId = 0;
+	unsigned int mTargetMediaId = 0;
+	std::unique_ptr<mbuf::Queue> mInputFrameQueue;
+	bool mInputChannelFlushPending = false;
+	bool mTearingDown = false;
+	bool mPendingRestart = false;
 };
 
 
@@ -144,19 +147,19 @@ public:
 			    const struct pdraw_video_sink_params *params,
 			    IPdraw::IRawVideoSink::Listener *listener);
 
-	~RawVideoSinkWrapper(void);
+	~RawVideoSinkWrapper() override;
 
 	int setMediaId(unsigned int mediaId) override;
 
-	unsigned int getMediaId(void) override;
+	unsigned int getMediaId() override;
 
-	struct mbuf_raw_video_frame_queue *getQueue(void) override;
+	struct mbuf_raw_video_frame_queue *getQueue() override;
 
-	int queueFlushed(void) override;
+	int queueFlushed() override;
 
-	int queueDrained(void) override;
+	int queueDrained() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mSink = nullptr;
@@ -173,14 +176,12 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() || mSink == nullptr);
 	}
 
-	ExternalRawVideoSink *mSink;
+	ExternalRawVideoSink *mSink = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_EXTERNAL_RAW_VIDEO_SINK_HPP_ */

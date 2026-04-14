@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DEMUXER_STREAM_MUX_HPP_
-#define _PDRAW_DEMUXER_STREAM_MUX_HPP_
+#pragma once
 
 #ifdef BUILD_LIBMUX
 
@@ -56,48 +55,53 @@ public:
 			 struct mux_ctx *mux,
 			 const struct pdraw_demuxer_params *params);
 
-	~StreamDemuxerMux(void);
+	~StreamDemuxerMux() override;
 
 protected:
-	VideoMedia *createVideoMedia(void);
+	std::unique_ptr<VideoMedia>
+	createVideoMedia(enum rtsp_lower_transport transport) override;
 
 private:
-	class VideoMediaMux : StreamDemuxer::VideoMedia {
+	class VideoMediaMux : public StreamDemuxer::VideoMedia {
 	public:
-		VideoMediaMux(StreamDemuxerMux *demuxer);
+		explicit VideoMediaMux(StreamDemuxerMux *demuxer);
 
-		~VideoMediaMux(void);
+		~VideoMediaMux() override;
 
-		int startRtpAvp(void);
+		int startRtpAvp() override;
 
-		int stopRtpAvp(void);
+		int stopRtpAvp() override;
 
 		int sendCtrl(struct vstrm_receiver *stream,
-			     struct tpkt_packet *pkt);
+			     struct tpkt_packet *pkt) override;
 
-		int prepareSetup(void);
+		int prepareSetup() override;
 
-		enum rtsp_lower_transport getLowerTransport(void) const;
+		enum rtsp_lower_transport getLowerTransport() const override;
 
-		uint16_t getLocalStreamPort(void) const;
+		uint16_t getLocalStreamPort() const override;
 
-		uint16_t getLocalControlPort(void) const;
+		uint16_t getLocalControlPort() const override;
 
-		uint16_t getRemoteStreamPort(void) const;
+		uint16_t getRemoteStreamPort() const override;
 
-		uint16_t getRemoteControlPort(void) const;
+		uint16_t getRemoteControlPort() const override;
 
-		const struct rtsp_header_ext *getHeaderExt(void) const;
+		const struct rtsp_header_ext *getHeaderExt() const override;
 
-		size_t getHeaderExtCount(void) const;
+		size_t getHeaderExtCount() const override;
 
-		void setLocalStreamPort(uint16_t port);
+		void setLocalStreamPort(uint16_t port) override;
 
-		void setLocalControlPort(uint16_t port);
+		void setLocalControlPort(uint16_t port) override;
 
-		void setRemoteStreamPort(uint16_t port);
+		void setRemoteStreamPort(uint16_t port) override;
 
-		void setRemoteControlPort(uint16_t port);
+		void setRemoteControlPort(uint16_t port) override;
+
+		int processDataPkt(struct tpkt_packet *pkt) override;
+
+		int processCtrlPkt(struct tpkt_packet *pkt) override;
 
 	private:
 		static void legacyDataCb(struct mux_ctx *ctx,
@@ -112,11 +116,11 @@ private:
 					 struct pomp_buffer *buf,
 					 void *userdata);
 
-		int createSockets(void);
+		int createSockets();
 
-		void closeSockets(void);
+		void closeSockets();
 
-		struct tpkt_packet *newRxPkt(void);
+		struct tpkt_packet *newRxPkt();
 
 		static void dataCb(int fd, uint32_t events, void *userdata);
 
@@ -138,26 +142,24 @@ private:
 					  int err,
 					  void *userdata);
 
-		StreamDemuxerMux *mDemuxerMux;
-		struct tskt_socket *mStreamSock;
-		struct mux_ip_proxy *mStreamProxy;
-		bool mStreamProxyOpened;
-		struct tskt_socket *mControlSock;
-		struct mux_ip_proxy *mControlProxy;
-		bool mControlProxyOpened;
-		struct tpkt_packet *mRxPkt;
-		size_t mRxBufLen;
+		StreamDemuxerMux *mDemuxerMux = nullptr;
+		struct tskt_socket *mStreamSock = nullptr;
+		struct mux_ip_proxy *mStreamProxy = nullptr;
+		bool mStreamProxyOpened = false;
+		struct tskt_socket *mControlSock = nullptr;
+		struct mux_ip_proxy *mControlProxy = nullptr;
+		bool mControlProxyOpened = false;
+		struct tpkt_packet *mRxPkt = nullptr;
+		size_t mRxBufLen = 0;
 		static const struct rtsp_header_ext mHeaderExt;
 		static const size_t mHeaderExtCount;
 	};
 
 	bool setMux(struct mux_ctx *mux);
 
-	struct mux_ctx *mMux;
+	struct mux_ctx *mMux = nullptr;
 };
 
 } /* namespace Pdraw */
 
 #endif /* BUILD_LIBMUX */
-
-#endif /* !_PDRAW_DEMUXER_STREAM_MUX_HPP_ */

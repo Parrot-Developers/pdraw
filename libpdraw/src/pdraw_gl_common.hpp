@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_GL_COMMON_HPP_
-#define _PDRAW_GL_COMMON_HPP_
+#pragma once
 
 #ifdef PDRAW_USE_GL
 
@@ -73,5 +72,3 @@
 #	endif /* CHECK_GL_ERRORS */
 
 #endif /* PDRAW_USE_GL */
-
-#endif /* !_PDRAW_GL_COMMON_HPP_ */

@@ -28,14 +28,14 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_EXTERNAL_AUDIO_SINK_HPP_
-#define _PDRAW_EXTERNAL_AUDIO_SINK_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
 #include <media-buffers/mbuf_audio_frame.h>
+#include <media-buffers/mbuf_queue.hpp>
 #include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
@@ -51,29 +51,29 @@ public:
 			  AudioSinkWrapper *wrapper,
 			  unsigned int mediaId);
 
-	~ExternalAudioSink(void);
+	~ExternalAudioSink() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	int setMediaId(unsigned int mediaId);
 
-	unsigned int getMediaId(void) const;
+	unsigned int getMediaId() const;
 
 	int flushDone(bool discard = true);
 
-	inline int drainDone(void)
+	inline int drainDone()
 	{
 		return flushDone(false);
 	}
 
-	struct mbuf_audio_frame_queue *getQueue(void) const
+	mbuf::Queue *getQueue() const
 	{
-		return mInputFrameQueue;
+		return mInputFrameQueue.get();
 	}
 
-	IPdraw::IAudioSink *getAudioSink(void) const
+	IPdraw::IAudioSink *getAudioSink() const
 	{
 		return mAudioSink;
 	}
@@ -85,7 +85,7 @@ public:
 private:
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
@@ -103,7 +103,7 @@ private:
 
 	void onChannelTeardown(Channel *channel) override;
 
-	int prepareAudioFrame(AudioChannel *channel,
+	int prepareAudioFrame(const AudioChannel *channel,
 			      struct mbuf_audio_frame *frame);
 
 	static void idleFlushDone(void *userdata);
@@ -113,16 +113,17 @@ private:
 
 	static void idleRenewMedia(void *userdata);
 
-	IPdraw::IAudioSink *mAudioSink;
-	IPdraw::IAudioSink::Listener *mAudioSinkListener;
-	AudioMedia *mInputMedia;
-	struct pdraw_media_info mMediaInfo;
-	unsigned int mMediaId;
-	unsigned int mTargetMediaId;
-	struct mbuf_audio_frame_queue *mInputFrameQueue;
-	bool mInputChannelFlushPending;
-	bool mTearingDown;
-	bool mPendingRestart;
+	IPdraw::IAudioSink *mAudioSink = nullptr;
+	IPdraw::IAudioSink::Listener *mAudioSinkListener = nullptr;
+	AudioMedia *mInputMedia = nullptr;
+	struct pdraw_media_info mMediaInfo {
+	};
+	unsigned int mMediaId = 0;
+	unsigned int mTargetMediaId = 0;
+	std::unique_ptr<mbuf::Queue> mInputFrameQueue;
+	bool mInputChannelFlushPending = false;
+	bool mTearingDown = false;
+	bool mPendingRestart = false;
 };
 
 
@@ -132,19 +133,19 @@ public:
 			 unsigned int mediaId,
 			 IPdraw::IAudioSink::Listener *listener);
 
-	~AudioSinkWrapper(void);
+	~AudioSinkWrapper() override;
 
 	int setMediaId(unsigned int mediaId) override;
 
-	unsigned int getMediaId(void) override;
+	unsigned int getMediaId() override;
 
-	struct mbuf_audio_frame_queue *getQueue(void) override;
+	struct mbuf_audio_frame_queue *getQueue() override;
 
-	int queueFlushed(void) override;
+	int queueFlushed() override;
 
-	int queueDrained(void) override;
+	int queueDrained() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mSink = nullptr;
@@ -161,14 +162,12 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() || mSink == nullptr);
 	}
 
-	ExternalAudioSink *mSink;
+	ExternalAudioSink *mSink = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_EXTERNAL_AUDIO_SINK_HPP_ */

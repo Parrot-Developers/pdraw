@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_GLES2HUD_PRIV_HPP_
-#define _PDRAW_GLES2HUD_PRIV_HPP_
+#pragma once
 
 #include <errno.h>
 #include <math.h>
@@ -102,21 +101,28 @@ namespace profont_36 {
 
 struct glyph_info {
 	struct { /* pixel oriented data */
-		int u, v;
-		int width, height;
+		int u;
+		int v;
+		int width;
+		int height;
 		int advance;
-		int offx, offy;
+		int offx;
+		int offy;
 	} pix;
 	struct { /* normalized data */
-		float u, v; /* position in the map in normalized coords */
-		float width, height;
+		float u;
+		float v; /* position in the map in normalized coords */
+		float width;
+		float height;
 		float advance;
-		float offx, offy;
+		float offx;
+		float offy;
 	} norm;
 };
 
 struct file_header {
-	int texwidth, texheight;
+	int texwidth;
+	int texheight;
 	struct {
 		int ascent;
 		int descent;
@@ -182,7 +188,7 @@ struct pdraw_gles2hud {
 int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self);
 
 
-void pdraw_gles2hud_draw_line(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_line(const struct pdraw_gles2hud *self,
 			      float x1,
 			      float y1,
 			      float x2,
@@ -191,7 +197,7 @@ void pdraw_gles2hud_draw_line(struct pdraw_gles2hud *self,
 			      float line_width);
 
 
-void pdraw_gles2hud_draw_rect(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_rect(const struct pdraw_gles2hud *self,
 			      float x1,
 			      float y1,
 			      float x2,
@@ -200,7 +206,7 @@ void pdraw_gles2hud_draw_rect(struct pdraw_gles2hud *self,
 			      float line_width);
 
 
-void pdraw_gles2hud_draw_filled_rect(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_filled_rect(const struct pdraw_gles2hud *self,
 				     float x1,
 				     float y1,
 				     float x2,
@@ -208,7 +214,7 @@ void pdraw_gles2hud_draw_filled_rect(struct pdraw_gles2hud *self,
 				     const float color[4]);
 
 
-void pdraw_gles2hud_draw_arc(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_arc(const struct pdraw_gles2hud *self,
 			     float cx,
 			     float cy,
 			     float rx,
@@ -220,7 +226,7 @@ void pdraw_gles2hud_draw_arc(struct pdraw_gles2hud *self,
 			     float line_width);
 
 
-void pdraw_gles2hud_draw_ellipse(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_ellipse(const struct pdraw_gles2hud *self,
 				 float cx,
 				 float cy,
 				 float rx,
@@ -230,7 +236,7 @@ void pdraw_gles2hud_draw_ellipse(struct pdraw_gles2hud *self,
 				 float line_width);
 
 
-void pdraw_gles2hud_draw_filled_ellipse(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_filled_ellipse(const struct pdraw_gles2hud *self,
 					float cx,
 					float cy,
 					float rx,
@@ -239,7 +245,7 @@ void pdraw_gles2hud_draw_filled_ellipse(struct pdraw_gles2hud *self,
 					const float color[4]);
 
 
-void pdraw_gles2hud_draw_icon(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_icon(const struct pdraw_gles2hud *self,
 			      int index,
 			      float x,
 			      float y,
@@ -249,8 +255,7 @@ void pdraw_gles2hud_draw_icon(struct pdraw_gles2hud *self,
 			      const float color[4]);
 
 
-void pdraw_gles2hud_get_text_dimensions(struct pdraw_gles2hud *self,
-					const char *str,
+void pdraw_gles2hud_get_text_dimensions(const char *str,
 					float size,
 					float scalew,
 					float scaleh,
@@ -258,7 +263,7 @@ void pdraw_gles2hud_get_text_dimensions(struct pdraw_gles2hud *self,
 					float *height);
 
 
-void pdraw_gles2hud_draw_text(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_text(const struct pdraw_gles2hud *self,
 			      const char *str,
 			      float x,
 			      float y,
@@ -270,7 +275,7 @@ void pdraw_gles2hud_draw_text(struct pdraw_gles2hud *self,
 			      const float color[4]);
 
 
-void pdraw_gles2hud_draw_vumeter(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_vumeter(const struct pdraw_gles2hud *self,
 				 float x,
 				 float y,
 				 float r,
@@ -283,72 +288,69 @@ void pdraw_gles2hud_draw_vumeter(struct pdraw_gles2hud *self,
 				 const float critical_color[4]);
 
 
-void pdraw_gles2hud_draw_artificial_horizon(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_artificial_horizon(const struct pdraw_gles2hud *self,
 					    const struct vmeta_euler *drone,
 					    const struct vmeta_euler *frame,
 					    const float color[4]);
 
 
-void pdraw_gles2hud_draw_roll(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_roll(const struct pdraw_gles2hud *self,
 			      float drone_roll,
 			      const float color[4]);
 
 
-void pdraw_gles2hud_draw_heading(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_heading(const struct pdraw_gles2hud *self,
 				 float drone_yaw,
 				 float horizontal_speed,
 				 float speed_psi,
 				 const float color[4]);
 
 
-void pdraw_gles2hud_draw_altitude(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_altitude(const struct pdraw_gles2hud *self,
 				  double altitude,
 				  float ground_distance,
 				  float down_speed,
 				  const float color[4]);
 
 
-void pdraw_gles2hud_draw_speed(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_speed(const struct pdraw_gles2hud *self,
 			       float horizontal_speed,
 			       const float color[4]);
 
 
-void pdraw_gles2hud_draw_controller_radar(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_controller_radar(const struct pdraw_gles2hud *self,
 					  double distance,
-					  double bearing,
-					  float controller_yaw,
-					  float drone_yaw,
 					  float controller_radar_angle,
 					  const float color[4]);
 
 
-void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_record_timeline(const struct pdraw_gles2hud *self,
 					 uint64_t current_time,
 					 uint64_t duration,
 					 const float color[4]);
 
 
-void pdraw_gles2hud_draw_cot(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_cot(const struct pdraw_gles2hud *self,
 			     float x,
 			     float y,
 			     const float color[4]);
 
 
-void pdraw_gles2hud_draw_flight_path_vector(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_flight_path_vector(const struct pdraw_gles2hud *self,
 					    const struct vmeta_euler *frame,
 					    float speed_theta,
 					    float speed_psi,
 					    const float color[4]);
 
 
-void pdraw_gles2hud_draw_framing_grid(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_framing_grid(const struct pdraw_gles2hud *self,
 				      const struct pdraw_rect *render_pos,
 				      const struct pdraw_rect *content_pos,
 				      const float color[4]);
 
 
 void pdraw_gles2hud_draw_histograms(
-	struct pdraw_gles2hud *self,
+	const struct pdraw_gles2hud *self,
 	const struct pdraw_video_frame_extra *frame_extra);
 
 
@@ -365,9 +367,8 @@ static inline void pdraw_gles2hud_friendly_time_from_us(uint64_t time,
 	unsigned int _sec = (unsigned int)((time + 500) / 1000 -
 					   _hrs * 60 * 60000 - _min * 60000) /
 			    1000;
-	unsigned int _msec =
-		(unsigned int)((time + 500) / 1000 - _hrs * 60 * 60000 -
-			       _min * 60000 - _sec * 1000);
+	auto _msec = (unsigned int)((time + 500) / 1000 - _hrs * 60 * 60000 -
+				    _min * 60000 - _sec * 1000);
 	if (hrs)
 		*hrs = _hrs;
 	if (min)
@@ -390,7 +391,12 @@ static inline void pdraw_gles2hud_coords_distance_and_bearing(double latitude1,
 	 */
 	/* http://www.igismap.com/formula-to-find-bearing-or-heading-angle-between-two-points-latitude-longitude/
 	 */
-	double a, c, d, x, y, b;
+	double a;
+	double c;
+	double d;
+	double x;
+	double y;
+	double b;
 	double r = 6371000.; /* earth radius */
 	double lat1 = latitude1 * M_PI / 180.;
 	double lon1 = longitude1 * M_PI / 180.;
@@ -409,5 +415,3 @@ static inline void pdraw_gles2hud_coords_distance_and_bearing(double latitude1,
 	if (bearing)
 		*bearing = b;
 }
-
-#endif /* !_PDRAW_GLES2HUD_PRIV_HPP_ */

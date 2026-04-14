@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SETTINGS_HPP_
-#define _PDRAW_SETTINGS_HPP_
+#pragma once
 
 #include <inttypes.h>
 #include <math.h>
@@ -37,25 +36,26 @@
 
 #include <pdraw/pdraw_defs.h>
 
+#include <mutex>
 #include <string>
 
 namespace Pdraw {
 
 
-#define SETTINGS_DISPLAY_XDPI (200.0f)
-#define SETTINGS_DISPLAY_YDPI (200.0f)
-#define SETTINGS_DISPLAY_DEVICE_MARGIN (0.0f)
+constexpr float SETTINGS_DISPLAY_XDPI = 200.0f;
+constexpr float SETTINGS_DISPLAY_YDPI = 200.0f;
+constexpr float SETTINGS_DISPLAY_DEVICE_MARGIN = 0.0f;
 
 
 class Settings {
 public:
-	Settings(void);
+	Settings() = default;
 
-	~Settings(void);
+	~Settings() = default;
 
-	void lock(void);
+	void lock();
 
-	void unlock(void);
+	void unlock();
 
 	void getFriendlyName(std::string *friendlyName);
 
@@ -70,12 +70,10 @@ public:
 	void setSoftwareVersion(const std::string &softwareVersion);
 
 private:
-	pthread_mutex_t mMutex;
-	std::string mFriendlyName;
-	std::string mSerialNumber;
-	std::string mSoftwareVersion;
+	std::recursive_mutex mMutex{};
+	std::string mFriendlyName{};
+	std::string mSerialNumber{};
+	std::string mSoftwareVersion{};
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_SETTINGS_HPP_ */

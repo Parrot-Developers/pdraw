@@ -32,6 +32,8 @@ ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
   LOCAL_LIBRARIES += \
 	opengl
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-native")
+  LOCAL_CFLAGS += \
+	-DGL_SILENCE_DEPRECATION
   LOCAL_LDLIBS += \
 	-framework OpenGL
 else ifeq ("$(TARGET_OS)","windows")

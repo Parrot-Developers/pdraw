@@ -40,7 +40,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-Sink::Sink(Session *session,
+Sink::Sink(const Session *session,
 	   unsigned int maxInputMedias,
 	   const struct vdef_coded_format *codedVideoMediaFormatCaps,
 	   int codedVideoMediaFormatCapsCount,
@@ -57,39 +57,10 @@ Sink::Sink(Session *session,
 		mAudioMediaFormatCaps(audioMediaFormatCaps),
 		mAudioMediaFormatCapsCount(audioMediaFormatCapsCount)
 {
-	int res;
-	pthread_mutexattr_t attr;
-	bool attr_created = false;
-
-	res = pthread_mutexattr_init(&attr);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_init", res);
-		goto error;
-	}
-	attr_created = true;
-
-	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_settype", res);
-		goto error;
-	}
-
-	res = pthread_mutex_init(&mMutex, &attr);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutex_init", res);
-		goto error;
-	}
-
-	pthread_mutexattr_destroy(&attr);
-	return;
-
-error:
-	if (attr_created)
-		pthread_mutexattr_destroy(&attr);
 }
 
 
-Sink::~Sink(void)
+Sink::~Sink()
 {
 	int ret = removeInputMedias();
 	if (ret < 0)
@@ -100,47 +71,43 @@ Sink::~Sink(void)
 		ULOGW("not all input ports have been removed! (count=%d)",
 		      count);
 	}
-
-	pthread_mutex_destroy(&mMutex);
 }
 
 
-void Sink::lock(void)
+void Sink::lock()
 {
-	pthread_mutex_lock(&mMutex);
+	mMutex.lock();
 }
 
 
-void Sink::unlock(void)
+void Sink::unlock()
 {
-	pthread_mutex_unlock(&mMutex);
+	mMutex.unlock();
 }
 
 
-unsigned int Sink::getInputMediaCount(void)
+unsigned int Sink::getInputMediaCount()
 {
-	pthread_mutex_lock(&mMutex);
-	unsigned int ret = mInputPorts.size();
-	pthread_mutex_unlock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	auto ret = static_cast<unsigned int>(mInputPorts.size());
 	return ret;
 }
 
 
 Media *Sink::getInputMedia(unsigned int index)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	Media *ret = (index < mInputPorts.size()) ? mInputPorts.at(index).media
 						  : nullptr;
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-Media *Sink::findInputMedia(Media *media)
+Media *Sink::findInputMedia(const Media *media)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	Media *ret = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
 		if (p->media != media) {
@@ -150,21 +117,20 @@ Media *Sink::findInputMedia(Media *media)
 		ret = p->media;
 		break;
 	}
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-Sink::InputPort *Sink::getInputPort(Media *media)
+Sink::InputPort *Sink::getInputPort(const Media *media)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
 		return nullptr;
 	}
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	InputPort *ret = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
 		if (p->media != media) {
@@ -175,7 +141,6 @@ Sink::InputPort *Sink::getInputPort(Media *media)
 		break;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
@@ -189,19 +154,17 @@ int Sink::addInputMedia(Media *media)
 	if (media->isTearingDown())
 		return -EPERM;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	if (getInputPort(media) != nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		return -EEXIST;
 	}
 	if (mInputPorts.size() >= mMaxInputMedias) {
-		pthread_mutex_unlock(&mMutex);
 		return -ENOBUFS;
 	}
 
-	CodedVideoMedia *cvmedia = dynamic_cast<CodedVideoMedia *>(media);
-	RawVideoMedia *rvmedia = dynamic_cast<RawVideoMedia *>(media);
-	AudioMedia *amedia = dynamic_cast<AudioMedia *>(media);
+	auto *cvmedia = dynamic_cast<CodedVideoMedia *>(media);
+	auto *rvmedia = dynamic_cast<RawVideoMedia *>(media);
+	auto *amedia = dynamic_cast<AudioMedia *>(media);
 
 	if (cvmedia != nullptr) {
 		/* Coded video media */
@@ -209,7 +172,6 @@ int Sink::addInputMedia(Media *media)
 			    &cvmedia->format,
 			    mCodedVideoMediaFormatCaps,
 			    mCodedVideoMediaFormatCapsCount)) {
-			pthread_mutex_unlock(&mMutex);
 			ULOGE("%s: coded video media"
 			      " format " VDEF_CODED_FORMAT_TO_STR_FMT
 			      " not supported",
@@ -218,11 +180,12 @@ int Sink::addInputMedia(Media *media)
 			return -ENOSYS;
 		}
 
+		std::unique_ptr<CodedVideoChannel> channel;
 		port.media = cvmedia;
-		CodedVideoChannel *channel =
-			new CodedVideoChannel(this, this, this, mLoop);
-		if (channel == nullptr) {
-			pthread_mutex_unlock(&mMutex);
+		try {
+			channel = make_unique<CodedVideoChannel>(
+				this, this, this, mLoop);
+		} catch (const std::bad_alloc &) {
 			ULOGE("failed to create channel");
 			return -ENOMEM;
 		}
@@ -230,25 +193,26 @@ int Sink::addInputMedia(Media *media)
 			this,
 			mCodedVideoMediaFormatCaps,
 			mCodedVideoMediaFormatCapsCount);
-		port.channel = channel;
+		port.channel = std::move(channel);
 	} else if (rvmedia != nullptr) {
 		/* Raw video media */
 		if (!vdef_raw_format_intersect(&rvmedia->format,
 					       mRawVideoMediaFormatCaps,
 					       mRawVideoMediaFormatCapsCount)) {
-			pthread_mutex_unlock(&mMutex);
-			ULOGE("raw video media"
+			ULOGE("=> raw video media"
 			      " format " VDEF_RAW_FORMAT_TO_STR_FMT
-			      " not supported",
-			      VDEF_RAW_FORMAT_TO_STR_ARG(&rvmedia->format));
+			      " not supported (count: %d)",
+			      VDEF_RAW_FORMAT_TO_STR_ARG(&rvmedia->format),
+			      mRawVideoMediaFormatCapsCount);
 			return -ENOSYS;
 		}
 
+		std::unique_ptr<RawVideoChannel> channel;
 		port.media = rvmedia;
-		RawVideoChannel *channel =
-			new RawVideoChannel(this, this, this, mLoop);
-		if (channel == nullptr) {
-			pthread_mutex_unlock(&mMutex);
+		try {
+			channel = make_unique<RawVideoChannel>(
+				this, this, this, mLoop);
+		} catch (const std::bad_alloc &) {
 			ULOGE("failed to create channel");
 			return -ENOMEM;
 		}
@@ -256,13 +220,12 @@ int Sink::addInputMedia(Media *media)
 			this,
 			mRawVideoMediaFormatCaps,
 			mRawVideoMediaFormatCapsCount);
-		port.channel = channel;
+		port.channel = std::move(channel);
 	} else if (amedia != nullptr) {
 		/* Audio media */
 		if (!adef_format_intersect(&amedia->format,
 					   mAudioMediaFormatCaps,
 					   mAudioMediaFormatCapsCount)) {
-			pthread_mutex_unlock(&mMutex);
 			ULOGE("audio media"
 			      " format " ADEF_FORMAT_TO_STR_FMT
 			      " not supported",
@@ -270,26 +233,29 @@ int Sink::addInputMedia(Media *media)
 			return -ENOSYS;
 		}
 
+		std::unique_ptr<AudioChannel> channel;
 		port.media = amedia;
-		AudioChannel *channel =
-			new AudioChannel(this, this, this, mLoop);
+		try {
+			channel = make_unique<AudioChannel>(
+				this, this, this, mLoop);
+		} catch (const std::bad_alloc &) {
+			ULOGE("failed to create channel");
+			return -ENOMEM;
+		}
 		if (channel == nullptr) {
-			pthread_mutex_unlock(&mMutex);
 			ULOGE("failed to create channel");
 			return -ENOMEM;
 		}
 		channel->setAudioMediaFormatCaps(this,
 						 mAudioMediaFormatCaps,
 						 mAudioMediaFormatCapsCount);
-		port.channel = channel;
+		port.channel = std::move(channel);
 	} else {
-		pthread_mutex_unlock(&mMutex);
 		ULOGE("unsupported media type");
 		return -ENOSYS;
 	}
 
-	mInputPorts.push_back(port);
-	pthread_mutex_unlock(&mMutex);
+	mInputPorts.push_back(std::move(port));
 
 	ULOGI("%s: link media name=%s",
 	      getName().c_str(),
@@ -303,9 +269,9 @@ int Sink::removeInputMedia(Media *media)
 	if (media == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	bool found = false;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
 		if (p->media != media) {
@@ -319,13 +285,11 @@ int Sink::removeInputMedia(Media *media)
 		int ret = p->channel->unlink();
 		if (ret < 0)
 			ULOG_ERRNO("channel->unlink", -ret);
-		delete p->channel;
-		p->channel = nullptr;
+		p->channel.reset();
 		mInputPorts.erase(p);
 		break;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	if (!found)
 		return -ENOENT;
 
@@ -333,10 +297,10 @@ int Sink::removeInputMedia(Media *media)
 }
 
 
-int Sink::removeInputMedias(void)
+int Sink::removeInputMedias()
 {
-	pthread_mutex_lock(&mMutex);
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
 		ULOGI("%s: unlink media name=%s",
@@ -345,35 +309,31 @@ int Sink::removeInputMedias(void)
 		int ret = p->channel->unlink();
 		if (ret < 0)
 			ULOG_ERRNO("channel->unlink", -ret);
-		delete p->channel;
-		p->channel = nullptr;
+		p->channel.reset();
 		p++;
 	}
 
 	mInputPorts.clear();
 
-	pthread_mutex_unlock(&mMutex);
 	return 0;
 }
 
 
-Channel *Sink::getInputChannel(Media *media)
+Channel *Sink::getInputChannel(const Media *media)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
 		return nullptr;
 	}
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	InputPort *port = getInputPort(media);
 	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
 		return nullptr;
 	}
 
-	Channel *ret = port->channel;
-	pthread_mutex_unlock(&mMutex);
+	Channel *ret = port->channel.get();
 	return ret;
 }
 
@@ -389,15 +349,13 @@ void Sink::onCodedVideoChannelQueue(CodedVideoChannel *channel,
 		ULOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	struct mbuf_coded_video_frame_queue *queue = channel->getQueue(this);
-	if (queue == nullptr) {
-		ULOGE("invalid queue");
-		return;
-	}
 
-	int ret = mbuf_coded_video_frame_queue_push(queue, frame);
-	if (ret < 0) {
-		ULOG_ERRNO("mbuf_coded_video_frame_queue_push", -ret);
+	mbuf::Queue *queue = channel->getQueue(this);
+	if (queue == nullptr)
+		return;
+	int err = queue->pushFrame(frame);
+	if (err < 0) {
+		ULOG_ERRNO("queue::pushFrame", -err);
 		return;
 	}
 }
@@ -414,15 +372,12 @@ void Sink::onRawVideoChannelQueue(RawVideoChannel *channel,
 		ULOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
-	if (queue == nullptr) {
-		ULOGE("invalid queue");
+	mbuf::Queue *queue = channel->getQueue(this);
+	if (queue == nullptr)
 		return;
-	}
-
-	int ret = mbuf_raw_video_frame_queue_push(queue, frame);
-	if (ret < 0) {
-		ULOG_ERRNO("mbuf_raw_video_frame_queue_push", -ret);
+	int err = queue->pushFrame(frame);
+	if (err < 0) {
+		ULOG_ERRNO("queue::pushFrame", -err);
 		return;
 	}
 }
@@ -439,15 +394,13 @@ void Sink::onAudioChannelQueue(AudioChannel *channel,
 		ULOG_ERRNO("frame", EINVAL);
 		return;
 	}
-	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
-	if (queue == nullptr) {
-		ULOGE("invalid queue");
-		return;
-	}
 
-	int ret = mbuf_audio_frame_queue_push(queue, frame);
-	if (ret < 0) {
-		ULOG_ERRNO("mbuf_audio_frame_queue_push", -ret);
+	mbuf::Queue *queue = channel->getQueue(this);
+	if (queue == nullptr)
+		return;
+	int err = queue->pushFrame(frame);
+	if (err < 0) {
+		ULOG_ERRNO("queue::pushFrame", -err);
 		return;
 	}
 }
@@ -460,12 +413,13 @@ void Sink::onChannelTeardown(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+
 	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -474,19 +428,15 @@ void Sink::onChannelTeardown(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
 
 	int ret = removeInputMedia(media);
 	if (ret < 0) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("removeInputMedia", -ret);
 		return;
 	}
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -497,12 +447,12 @@ void Sink::onChannelSos(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -511,7 +461,6 @@ void Sink::onChannelSos(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -523,8 +472,6 @@ void Sink::onChannelSos(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -535,12 +482,12 @@ void Sink::onChannelEos(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -549,7 +496,6 @@ void Sink::onChannelEos(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -561,8 +507,6 @@ void Sink::onChannelEos(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -573,12 +517,12 @@ void Sink::onChannelReconfigure(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -587,7 +531,6 @@ void Sink::onChannelReconfigure(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -599,8 +542,6 @@ void Sink::onChannelReconfigure(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -611,12 +552,12 @@ void Sink::onChannelResolutionChange(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -625,7 +566,6 @@ void Sink::onChannelResolutionChange(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -637,8 +577,6 @@ void Sink::onChannelResolutionChange(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -649,12 +587,12 @@ void Sink::onChannelFramerateChange(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -663,7 +601,6 @@ void Sink::onChannelFramerateChange(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -675,8 +612,6 @@ void Sink::onChannelFramerateChange(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -687,12 +622,12 @@ void Sink::onChannelTimeout(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -701,7 +636,6 @@ void Sink::onChannelTimeout(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -713,8 +647,6 @@ void Sink::onChannelTimeout(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -725,12 +657,12 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -739,7 +671,6 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -752,8 +683,6 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -764,12 +693,12 @@ void Sink::onChannelSessionMetaUpdate(Channel *channel)
 		return;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	Media *media = nullptr;
-	std::vector<InputPort>::iterator p = mInputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Media *media = nullptr;
+	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		if (p->channel != channel) {
+		if (p->channel.get() != channel) {
 			p++;
 			continue;
 		}
@@ -778,7 +707,6 @@ void Sink::onChannelSessionMetaUpdate(Channel *channel)
 	}
 
 	if (media == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("media", ENOENT);
 		return;
 	}
@@ -791,8 +719,6 @@ void Sink::onChannelSessionMetaUpdate(Channel *channel)
 
 	/* Nothing to do here, the function should be
 	 * overloaded by sub-classes */
-
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -802,9 +728,10 @@ void Sink::onChannelDownstreamEvent(Channel *channel,
 	ULOGD("%s: channel downstream event %s",
 	      getName().c_str(),
 	      Channel::getDownstreamEventStr(
-		      (Channel::DownstreamEvent)pomp_msg_get_id(event)));
+		      static_cast<Channel::DownstreamEvent>(
+			      pomp_msg_get_id(event))));
 
-	switch (pomp_msg_get_id(event)) {
+	switch (static_cast<Channel::DownstreamEvent>(pomp_msg_get_id(event))) {
 	case Channel::DownstreamEvent::FLUSH:
 		onChannelFlush(channel);
 		break;

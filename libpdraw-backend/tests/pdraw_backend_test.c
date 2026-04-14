@@ -39,6 +39,9 @@ ULOG_DECLARE_TAG(pdraw_backend_test);
 #include <pdraw/pdraw_backend.h>
 
 
+#define UNUSED(x) (void)(x)
+
+
 struct pdraw_backend_app {
 	pthread_mutex_t mutex;
 	int mutex_created;
@@ -62,13 +65,15 @@ struct pdraw_backend_app {
 static void
 stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 	pthread_mutex_lock(&self->mutex);
 	self->stop_resp = 1;
 	self->stop_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -77,6 +82,10 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 			   void *element_userdata,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(element_userdata);
+	UNUSED(userdata);
+
 	ULOGI("%s id=%d", __func__, info->id);
 }
 
@@ -86,6 +95,10 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 			     void *element_userdata,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(element_userdata);
+	UNUSED(userdata);
+
 	ULOGI("%s id=%d", __func__, info->id);
 }
 
@@ -93,6 +106,9 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 static void
 socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(userdata);
+
 	ULOGI("%s fd=%d", __func__, fd);
 }
 
@@ -110,13 +126,16 @@ static void open_resp_cb(struct pdraw_backend *pdraw,
 			 int status,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 	pthread_mutex_lock(&self->mutex);
 	self->open_resp = 1;
 	self->open_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -125,13 +144,16 @@ static void close_resp_cb(struct pdraw_backend *pdraw,
 			  int status,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 	pthread_mutex_lock(&self->mutex);
 	self->close_resp = 1;
 	self->close_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -139,6 +161,10 @@ static void unrecoverable_error_cb(struct pdraw_backend *pdraw,
 				   struct pdraw_demuxer *demuxer,
 				   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+	UNUSED(userdata);
+
 	ULOGI("%s", __func__);
 }
 
@@ -148,13 +174,16 @@ static void ready_to_play_cb(struct pdraw_backend *pdraw,
 			     int ready,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s ready=%d", __func__, ready);
 	pthread_mutex_lock(&self->mutex);
 	self->ready_to_play_changed = 1;
 	self->ready_to_play = ready;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -163,6 +192,10 @@ static void end_of_range_cb(struct pdraw_backend *pdraw,
 			    uint64_t timestamp,
 			    void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+	UNUSED(userdata);
+
 	ULOGI("%s timestamp=%" PRIu64, __func__, timestamp);
 }
 
@@ -174,6 +207,9 @@ static void play_resp_cb(struct pdraw_backend *pdraw,
 			 float speed,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64 " speed=%f",
 	      __func__,
@@ -184,8 +220,8 @@ static void play_resp_cb(struct pdraw_backend *pdraw,
 	pthread_mutex_lock(&self->mutex);
 	self->play_resp = 1;
 	self->play_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -195,6 +231,10 @@ static void pause_resp_cb(struct pdraw_backend *pdraw,
 			  uint64_t timestamp,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+	UNUSED(userdata);
+
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64,
 	      __func__,
 	      status,
@@ -210,6 +250,10 @@ static void seek_resp_cb(struct pdraw_backend *pdraw,
 			 float speed,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+	UNUSED(userdata);
+
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64 " speed=%f",
 	      __func__,
 	      status,
@@ -247,7 +291,8 @@ static void usage(char *prog_name)
 
 int main(int argc, char **argv)
 {
-	int res, status = EXIT_SUCCESS;
+	int res;
+	int status = EXIT_SUCCESS;
 	struct pdraw_backend_app *self = NULL;
 	struct pdraw_demuxer_params params = {0};
 

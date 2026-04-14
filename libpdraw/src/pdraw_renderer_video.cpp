@@ -87,34 +87,14 @@ VideoRenderer::VideoRenderer(
 			    0),
 		mRenderer(wrapper), mRendererListener(rndListener)
 {
-	int res;
-	pthread_mutexattr_t attr;
-
-	res = pthread_mutexattr_init(&attr);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_init", res);
-		return;
-	}
-
-	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_settype", res);
-		goto exit;
-	}
-
-	res = pthread_mutex_init(&mListenerMutex, &attr);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutex_init", res);
-		goto exit;
-	}
-
-exit:
-	pthread_mutexattr_destroy(&attr);
-	return;
+	PDRAW_UNUSED(mediaTypeCaps);
+	PDRAW_UNUSED(mediaId);
+	PDRAW_UNUSED(renderPos);
+	PDRAW_UNUSED(params);
 }
 
 
-VideoRenderer::~VideoRenderer(void)
+VideoRenderer::~VideoRenderer()
 {
 	/* Make sure listener functions will no longer be called */
 	removeRendererListener();
@@ -123,20 +103,17 @@ VideoRenderer::~VideoRenderer(void)
 	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
 	if (err < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
-
-	pthread_mutex_destroy(&mListenerMutex);
 }
 
 
-void VideoRenderer::removeRendererListener(void)
+void VideoRenderer::removeRendererListener()
 {
-	pthread_mutex_lock(&mListenerMutex);
+	std::unique_lock<std::mutex> lock(mListenerMutex);
 	mRendererListener = nullptr;
-	pthread_mutex_unlock(&mListenerMutex);
 }
 
 
-void VideoRenderer::asyncCompleteStop(void)
+void VideoRenderer::asyncCompleteStop()
 {
 	int err = pomp_loop_idle_add_with_cookie(
 		mSession->getLoop(), idleCompleteStop, this, this);
@@ -148,7 +125,7 @@ void VideoRenderer::asyncCompleteStop(void)
 /* Call from an idle function on the loop thread */
 void VideoRenderer::idleCompleteStop(void *userdata)
 {
-	VideoRenderer *self = reinterpret_cast<VideoRenderer *>(userdata);
+	auto *self = static_cast<VideoRenderer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	self->completeStop();
 }
@@ -160,15 +137,21 @@ VideoRendererWrapper::VideoRendererWrapper(
 	unsigned int mediaId,
 	const struct pdraw_rect *renderPos,
 	const struct pdraw_video_renderer_params *params,
-	IPdraw::IVideoRenderer::Listener *listener)
+	IPdraw::IVideoRenderer::Listener *listener) :
+		ElementWrapper(Pdraw::VideoRenderer::create(session,
+							    session,
+							    this,
+							    listener,
+							    mediaId,
+							    renderPos,
+							    params)),
+		mRenderer(static_cast<Pdraw::VideoRenderer *>(mElement))
 {
-	mElement = mRenderer = Pdraw::VideoRenderer::create(
-		session, session, this, listener, mediaId, renderPos, params);
 }
 
 
 /* Called on the rendering thread */
-VideoRendererWrapper::~VideoRendererWrapper(void)
+VideoRendererWrapper::~VideoRendererWrapper()
 {
 	if (isElementStopped())
 		return;
@@ -200,7 +183,7 @@ int VideoRendererWrapper::setMediaId(unsigned int mediaId)
 
 
 /* Called on the rendering thread */
-unsigned int VideoRendererWrapper::getMediaId(void)
+unsigned int VideoRendererWrapper::getMediaId()
 {
 	if (isElementStopped())
 		return -EPROTO;

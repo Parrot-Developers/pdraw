@@ -28,13 +28,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_EXTERNAL_RAW_VIDEO_SOURCE_HPP_
-#define _PDRAW_EXTERNAL_RAW_VIDEO_SOURCE_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
+#include <media-buffers/mbuf_queue.hpp>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <pdraw/pdraw.hpp>
 
@@ -52,15 +52,15 @@ public:
 			       RawVideoSourceWrapper *wrapper,
 			       const struct pdraw_video_source_params *params);
 
-	~ExternalRawVideoSource(void);
+	~ExternalRawVideoSource() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
@@ -69,35 +69,32 @@ public:
 
 	int getSessionMetadata(struct vmeta_session *meta) const;
 
-	struct mbuf_raw_video_frame_queue *getQueue(void) const
+	mbuf::Queue *getQueue() const
 	{
-		return mFrameQueue;
+		return mFrameQueue.get();
 	}
 
-	IPdraw::IRawVideoSource *getVideoSource(void) const
+	IPdraw::IRawVideoSource *getVideoSource() const
 	{
 		return mVideoSource;
 	}
 
 private:
-	int process(void);
+	int process();
 
 	int processFrame(struct mbuf_raw_video_frame *frame);
 
-	void completeFlush(void);
+	void completeFlush();
 
-	int tryStop(void);
+	int tryStop();
 
-	void completeStop(void);
+	void completeStop();
 
 	void onChannelFlushed(Channel *channel) override;
 
 	void onChannelDrained(Channel *channel) override;
 
 	void onChannelUnlink(Channel *channel) override;
-
-	int removeQueueEvtFromLoop(struct mbuf_raw_video_frame_queue *queue,
-				   struct pomp_loop *loop);
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
@@ -111,12 +108,13 @@ private:
 
 	static void callVideoSourceFlushed(void *userdata);
 
-	IPdraw::IRawVideoSource *mVideoSource;
-	IPdraw::IRawVideoSource::Listener *mVideoSourceListener;
-	struct pdraw_video_source_params mParams;
-	struct mbuf_raw_video_frame_queue *mFrameQueue;
-	RawVideoMedia *mOutputMedia;
-	uint64_t mLastTimestamp;
+	IPdraw::IRawVideoSource *mVideoSource = nullptr;
+	IPdraw::IRawVideoSource::Listener *mVideoSourceListener = nullptr;
+	struct pdraw_video_source_params mParams {
+	};
+	std::unique_ptr<mbuf::Queue> mFrameQueue;
+	std::unique_ptr<RawVideoMedia> mOutputMedia{};
+	uint64_t mLastTimestamp = UINT64_MAX;
 };
 
 
@@ -127,19 +125,19 @@ public:
 			      const struct pdraw_video_source_params *params,
 			      IPdraw::IRawVideoSource::Listener *listener);
 
-	~RawVideoSourceWrapper(void);
+	~RawVideoSourceWrapper() override;
 
-	struct mbuf_raw_video_frame_queue *getQueue(void) override;
+	struct mbuf_raw_video_frame_queue *getQueue() override;
 
-	int flush(void) override;
+	int flush() override;
 
-	int drain(void) override;
+	int drain() override;
 
 	int setSessionMetadata(const struct vmeta_session *meta) override;
 
 	int getSessionMetadata(struct vmeta_session *meta) override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mSource = nullptr;
@@ -156,15 +154,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mSource == nullptr);
 	}
 
-	ExternalRawVideoSource *mSource;
+	ExternalRawVideoSource *mSource = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_EXTERNAL_RAW_VIDEO_SOURCE_HPP_ */

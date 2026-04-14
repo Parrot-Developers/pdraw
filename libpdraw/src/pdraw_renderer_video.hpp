@@ -28,10 +28,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_VIDEO_HPP_
-#define _PDRAW_RENDERER_VIDEO_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
+
+#include <mutex>
 
 #include <pdraw/pdraw.hpp>
 
@@ -42,7 +43,7 @@ class VideoRendererWrapper;
 
 class VideoRenderer : public SinkElement {
 public:
-	virtual ~VideoRenderer(void);
+	~VideoRenderer() override;
 
 	virtual int render(struct pdraw_rect *contentPos,
 			   const float *viewMat = nullptr,
@@ -52,14 +53,14 @@ public:
 
 	virtual int setMediaId(unsigned int mediaId) = 0;
 
-	virtual unsigned int getMediaId(void) = 0;
+	virtual unsigned int getMediaId() = 0;
 
 	virtual int setParams(const struct pdraw_video_renderer_params *params,
 			      bool force) = 0;
 
 	virtual int getParams(struct pdraw_video_renderer_params *params) = 0;
 
-	virtual void completeStop(void) = 0;
+	virtual void completeStop() = 0;
 
 	static VideoRenderer *
 	create(Session *session,
@@ -82,13 +83,13 @@ protected:
 		      const struct pdraw_rect *renderPos,
 		      const struct pdraw_video_renderer_params *params);
 
-	void removeRendererListener(void);
+	void removeRendererListener();
 
-	void asyncCompleteStop(void);
+	void asyncCompleteStop();
 
-	IPdraw::IVideoRenderer *mRenderer;
-	IPdraw::IVideoRenderer::Listener *mRendererListener;
-	pthread_mutex_t mListenerMutex;
+	IPdraw::IVideoRenderer *mRenderer = nullptr;
+	IPdraw::IVideoRenderer::Listener *mRendererListener = nullptr;
+	std::mutex mListenerMutex{};
 
 private:
 	static void idleCompleteStop(void *userdata);
@@ -106,7 +107,7 @@ public:
 			     IPdraw::IVideoRenderer::Listener *listener);
 
 	/* Called on the rendering thread */
-	~VideoRendererWrapper(void);
+	~VideoRendererWrapper() override;
 
 	/* Called on the rendering thread */
 	int resize(const struct pdraw_rect *renderPos) override;
@@ -115,7 +116,7 @@ public:
 	int setMediaId(unsigned int mediaId) override;
 
 	/* Called on the rendering thread */
-	unsigned int getMediaId(void) override;
+	unsigned int getMediaId() override;
 
 	/* Called on the rendering thread */
 	int
@@ -129,22 +130,20 @@ public:
 		   const float *viewMat = nullptr,
 		   const float *projMat = nullptr) override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mRenderer = nullptr;
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mRenderer == nullptr);
 	}
 
-	VideoRenderer *mRenderer;
+	VideoRenderer *mRenderer = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_RENDERER_VIDEO_HPP_ */

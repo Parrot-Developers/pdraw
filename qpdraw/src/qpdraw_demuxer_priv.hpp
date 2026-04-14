@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _QPDRAW_DEMUXER_PRIV_HPP_
-#define _QPDRAW_DEMUXER_PRIV_HPP_
+#pragma once
 
 #include <pdraw/pdraw_backend.hpp>
 #include <pdraw/qpdraw_demuxer.hpp>
@@ -44,7 +43,7 @@ class QPdrawDemuxerPriv : public IPdraw::IDemuxer::Listener {
 
 public:
 	explicit QPdrawDemuxerPriv(QPdrawDemuxer *parent);
-	~QPdrawDemuxerPriv();
+	~QPdrawDemuxerPriv() override = default;
 
 	int open(const std::string &url,
 		 const struct pdraw_demuxer_params *params);
@@ -61,7 +60,7 @@ public:
 		 struct mux_ctx *mux,
 		 const struct pdraw_demuxer_params *params);
 
-	int close(void);
+	int close();
 
 	int getMediaList(struct pdraw_demuxer_media **mediaList,
 			 size_t *mediaCount,
@@ -69,21 +68,21 @@ public:
 
 	int selectMedia(uint32_t selectedMedias);
 
-	uint16_t getSingleStreamLocalStreamPort(void);
+	uint16_t getSingleStreamLocalStreamPort();
 
-	uint16_t getSingleStreamLocalControlPort(void);
+	uint16_t getSingleStreamLocalControlPort();
 
-	bool isReadyToPlay(void);
+	bool isReadyToPlay();
 
-	bool isPaused(void);
+	bool isPaused();
 
 	int play(float speed = 1.0f);
 
-	int pause(void);
+	int pause();
 
-	int previousFrame(void);
+	int previousFrame();
 
-	int nextFrame(void);
+	int nextFrame();
 
 	int seek(int64_t delta, bool exact = false);
 
@@ -96,9 +95,9 @@ public:
 	int getChapterList(struct pdraw_chapter **chapterList,
 			   size_t *chapterCount);
 
-	uint64_t getDuration(void);
+	uint64_t getDuration();
 
-	uint64_t getCurrentTime(void);
+	uint64_t getCurrentTime();
 
 private:
 	IPdraw *getPdrawInternal();
@@ -145,12 +144,10 @@ private:
 				 uint64_t timestamp,
 				 float speed) override;
 
-	QPdrawDemuxer *mParent;
-	IPdraw::IDemuxer *mDemuxer;
-	bool mClosing;
+	QPdrawDemuxer *mParent = nullptr;
+	std::unique_ptr<IPdraw::IDemuxer> mDemuxer{};
+	bool mClosing = false;
 };
 
 } /* namespace Internal */
 } /* namespace QPdraw */
-
-#endif /* !_QPDRAW_DEMUXER_PRIV_HPP_ */

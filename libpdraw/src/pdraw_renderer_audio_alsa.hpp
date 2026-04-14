@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_AUDIO_ALSA_HPP_
-#define _PDRAW_RENDERER_AUDIO_ALSA_HPP_
+#pragma once
 
 #include "pdraw_session.hpp"
 
@@ -56,15 +55,15 @@ public:
 			  unsigned int mediaId,
 			  const struct pdraw_audio_renderer_params *params);
 
-	~AlsaAudioRenderer(void);
+	~AlsaAudioRenderer() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	int setMediaId(unsigned int mediaId) override;
 
-	unsigned int getMediaId(void) const override;
+	unsigned int getMediaId() const override;
 
 	int
 	setParams(const struct pdraw_audio_renderer_params *params) override;
@@ -75,14 +74,14 @@ public:
 
 	int removeInputMedia(Media *media) override;
 
-	int removeInputMedias(void) override;
+	int removeInputMedias() override;
 
-	void completeStop(void) override;
+	void completeStop() override;
 
 private:
-	int startAlsa(void);
+	int startAlsa();
 
-	int stopAlsa(void);
+	int stopAlsa();
 
 	void onChannelFlush(Channel *channel) override;
 
@@ -96,43 +95,41 @@ private:
 
 	static void idleDrain(void *renderer);
 
-	int render(void);
+	int render();
 
-	static void renderCb(pomp_evt *event, void *userdata);
+	static void renderCb(struct pomp_evt *event, void *userdata);
 
 	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
 
 	static bool queueFilter(struct mbuf_audio_frame *frame, void *userdata);
 
-	struct mbuf_audio_frame_queue *getLastAddedMediaQueue(void);
-
-	int removeQueueFdFromPomp(struct mbuf_audio_frame_queue *queue);
+	mbuf::Queue *getLastAddedMediaQueue();
 
 	static void idleRenewMedia(void *userdata);
 
-	unsigned int mMediaId;
-	unsigned int mCurrentMediaId;
-	bool mRunning;
-	AudioMedia *mLastAddedMedia;
-	struct pdraw_media_info mMediaInfo;
-	bool mAlsaReady;
-	struct pdraw_audio_renderer_params mParams;
-	std::string mAddress;
-	snd_pcm_t *mHandle;
-	snd_pcm_hw_params_t *mHwParams;
-	snd_pcm_sw_params_t *mSwParams;
-	size_t mFrameSize;
-	size_t mSampleCount;
+	unsigned int mMediaId = 0;
+	unsigned int mCurrentMediaId = 0;
+	bool mRunning = false;
+	AudioMedia *mLastAddedMedia = nullptr;
+	struct pdraw_media_info mMediaInfo {
+	};
+	bool mAlsaReady = false;
+	struct pdraw_audio_renderer_params mParams {
+	};
+	std::string mAddress{};
+	snd_pcm_t *mHandle = nullptr;
+	snd_pcm_hw_params_t *mHwParams = nullptr;
+	snd_pcm_sw_params_t *mSwParams = nullptr;
+	size_t mFrameSize = 0;
+	size_t mSampleCount = ALSA_AUDIO_DEFAULT_SAMPLE_COUNT;
 
 	/* Watchdog timer: triggered if no new frame is received for a given
 	 * amount of time */
-	struct pomp_timer *mWatchdogTimer;
-	std::atomic_bool mWatchdogTriggered;
-	std::atomic_bool mEos;
+	struct pomp_timer *mWatchdogTimer = nullptr;
+	std::atomic_bool mWatchdogTriggered{false};
+	std::atomic_bool mEos{false};
 };
 
 } /* namespace Pdraw */
 
 #endif /* PDRAW_USE_ALSA */
-
-#endif /* !_PDRAW_RENDERER_AUDIO_ALSA_HPP_ */

@@ -28,8 +28,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _QPDRAW_WIDGET_PRIV_HPP_
-#define _QPDRAW_WIDGET_PRIV_HPP_
+#pragma once
+
+#include <climits>
+#include <memory>
 
 #include <QTimer>
 
@@ -41,6 +43,8 @@ using namespace Pdraw;
 namespace QPdraw {
 namespace Internal {
 
+/* Default rendering framerate of the widget (Hz) */
+constexpr double QPDRAW_WIDGET_DEFAULT_FRAMERATE = 30.;
 
 class QPdrawWidgetPriv : public QObject,
 			 public IPdraw::IVideoRenderer::Listener {
@@ -48,7 +52,7 @@ class QPdrawWidgetPriv : public QObject,
 
 public:
 	explicit QPdrawWidgetPriv(QPdrawWidget *parent);
-	~QPdrawWidgetPriv();
+	~QPdrawWidgetPriv() override;
 
 	void start(QPdraw *pdraw,
 		   unsigned int mediaId,
@@ -99,20 +103,18 @@ private slots:
 	void update();
 
 private:
-	QPdrawWidget *mParent;
-	QPdraw *mPdraw;
-	IPdraw::IVideoRenderer *mRenderer;
+	QPdrawWidget *mParent = nullptr;
+	QPdraw *mPdraw = nullptr;
+	std::unique_ptr<IPdraw::IVideoRenderer> mRenderer{};
 	/* Rendering timer */
-	QTimer *mTimer;
+	std::unique_ptr<QTimer> mTimer{};
 	/* Rendering framerate (sec) */
-	float mFramerate;
+	float mFramerate = QPDRAW_WIDGET_DEFAULT_FRAMERATE;
 	/* Timestamp of the previous rendering (usec) */
-	uint64_t mPrevRenderTs;
+	uint64_t mPrevRenderTs = UINT64_MAX;
 	/* Expected timestamp of the next rendering (usec) */
-	uint64_t mNextRenderExpectedTs;
+	uint64_t mNextRenderExpectedTs = UINT64_MAX;
 };
 
 } /* namespace Internal */
 } /* namespace QPdraw */
-
-#endif /* !_QPDRAW_WIDGET_PRIV_HPP_ */

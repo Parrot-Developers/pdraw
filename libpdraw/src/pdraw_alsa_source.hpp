@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_ALSA_SOURCE_HPP_
-#define _PDRAW_ALSA_SOURCE_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
@@ -51,6 +50,8 @@ namespace Pdraw {
 
 #ifdef PDRAW_USE_ALSA
 
+constexpr size_t ALSA_SOURCE_DEFAULT_TIMESCALE = 1000000;
+
 class AlsaSourceWrapper;
 
 
@@ -63,21 +64,21 @@ public:
 		   AlsaSourceWrapper *wrapper,
 		   const struct pdraw_alsa_source_params *params);
 
-	~AlsaSource(void);
+	~AlsaSource() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
-	bool isReadyToPlay(void);
+	bool isReadyToPlay() const;
 
-	bool isPaused(void);
+	bool isPaused() const;
 
-	int play(void);
+	int play();
 
-	int pause(void);
+	int pause();
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
@@ -85,35 +86,35 @@ public:
 	static int getCapabilities(const std::string &address,
 				   struct pdraw_alsa_source_caps *caps);
 
-	IPdraw::IAlsaSource *getAlsaSource(void) const
+	IPdraw::IAlsaSource *getAlsaSource() const
 	{
 		return mAlsaSource;
 	}
 
 private:
-	int readFrame(void);
+	int readFrame();
 
 	int processFrame(struct mbuf_mem *mem, size_t len);
 
-	int setupMedia(void);
+	int setupMedia();
 
-	int createMedia(void);
+	int createMedia();
 
-	int destroyMedia(void);
+	int destroyMedia();
 
-	int teardownChannels(void);
+	int teardownChannels();
 
 	int flush(bool discard = true);
 
-	void completeFlush(void);
+	void completeFlush();
 
-	int tryStop(void);
+	int tryStop();
 
-	void completeStop(void);
+	void completeStop();
 
-	void playResponse(void);
+	void playResponse();
 
-	void pauseResponse(void);
+	void pauseResponse();
 
 	void onChannelFlushed(Channel *channel) override;
 
@@ -121,7 +122,7 @@ private:
 
 	void onChannelUnlink(Channel *channel) override;
 
-	const char *getSourceName(void) const;
+	const char *getSourceName() const;
 
 	/* Alsa source listener calls from idle functions */
 	static void callOnMediaAdded(void *userdata);
@@ -134,27 +135,27 @@ private:
 
 	static void idleCompleteFlush(void *userdata);
 
-	IPdraw::IAlsaSource *mAlsaSource;
-	IPdraw::IAlsaSource::Listener *mAlsaSourceListener;
-	struct pdraw_alsa_source_params mParams;
-	std::string mAddress;
-	enum pdraw_alsa_source_eos_reason mLastEosReason;
-	AudioMedia *mOutputMedia;
-	bool mOutputMediaChanging;
-	bool mReady;
-	bool mRunning;
-	bool mFirstFrame;
-	bool mPausePending;
-	unsigned int mFrameIndex;
-	uint32_t mTimescale;
-	uint64_t mLastTimestamp;
-	snd_pcm_t *mHandle;
-	snd_pcm_hw_params_t *mHwParams;
-	struct pomp_timer *mTimer;
-	struct mbuf_pool *mPool;
-	size_t mFrameSize;
-	uint64_t mFirstTimestamp;
-	uint64_t mCurTimestamp;
+	IPdraw::IAlsaSource *mAlsaSource = nullptr;
+	IPdraw::IAlsaSource::Listener *mAlsaSourceListener = nullptr;
+	struct pdraw_alsa_source_params mParams {
+	};
+	std::string mAddress{};
+	std::unique_ptr<AudioMedia> mOutputMedia{};
+	bool mOutputMediaChanging = false;
+	bool mReady = false;
+	bool mRunning = false;
+	bool mFirstFrame = true;
+	bool mPausePending = false;
+	unsigned int mFrameIndex = 0;
+	uint32_t mTimescale = ALSA_SOURCE_DEFAULT_TIMESCALE;
+	uint64_t mLastTimestamp = UINT64_MAX;
+	snd_pcm_t *mHandle = nullptr;
+	snd_pcm_hw_params_t *mHwParams = nullptr;
+	struct pomp_timer *mTimer = nullptr;
+	struct mbuf_pool *mPool = nullptr;
+	size_t mFrameSize = 0;
+	uint64_t mFirstTimestamp = 0;
+	uint64_t mCurTimestamp = 0;
 };
 
 #endif /* PDRAW_USE_ALSA */
@@ -166,17 +167,17 @@ public:
 			  const struct pdraw_alsa_source_params *params,
 			  IPdraw::IAlsaSource::Listener *listener);
 
-	~AlsaSourceWrapper(void);
+	~AlsaSourceWrapper() override;
 
-	bool isReadyToPlay(void) override;
+	bool isReadyToPlay() override;
 
-	bool isPaused(void) override;
+	bool isPaused() override;
 
-	int play(void) override;
+	int play() override;
 
-	int pause(void) override;
+	int pause() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 #ifdef PDRAW_USE_ALSA
@@ -197,7 +198,7 @@ public:
 #endif
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped()
 #ifdef PDRAW_USE_ALSA
@@ -207,10 +208,8 @@ private:
 	}
 
 #ifdef PDRAW_USE_ALSA
-	AlsaSource *mSource;
+	AlsaSource *mSource = nullptr;
 #endif
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_ALSA_SOURCE_HPP_ */

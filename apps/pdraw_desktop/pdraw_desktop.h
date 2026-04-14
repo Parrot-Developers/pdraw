@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DESKTOP_H_
-#define _PDRAW_DESKTOP_H_
+#pragma once
 
 #include <errno.h>
 #include <getopt.h>
@@ -71,6 +70,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
+
+
+#define UNUSED(x) (void)(x)
 
 
 #define APP_NAME "PDrAW"
@@ -273,8 +275,7 @@ void pdraw_desktop_ui_resize(struct pdraw_desktop *self);
 int pdraw_desktop_ui_loop(struct pdraw_desktop *self);
 
 
-void pdraw_desktop_view_create_matrices(struct pdraw_desktop *self,
-					unsigned int width,
+void pdraw_desktop_view_create_matrices(unsigned int width,
 					unsigned int height,
 					float *view_mat,
 					float *proj_mat,
@@ -300,5 +301,3 @@ int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* !_PDRAW_DESKTOP_H_ */

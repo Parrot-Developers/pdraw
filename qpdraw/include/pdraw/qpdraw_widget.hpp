@@ -28,8 +28,9 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _QPDRAW_WIDGET_HPP_
-#define _QPDRAW_WIDGET_HPP_
+#pragma once
+
+#include <memory>
 
 #include <QObject>
 
@@ -55,7 +56,7 @@ class QPdrawWidget : public QOpenGLWidget {
 public:
 	explicit QPdrawWidget(QWidget *parent = nullptr);
 
-	~QPdrawWidget();
+	~QPdrawWidget() override;
 
 	/**
 	 * Start a QPdraw widget.
@@ -184,16 +185,14 @@ signals:
 			   int *retVal);
 
 protected:
-	void initializeGL();
+	void initializeGL() override;
 
-	void resizeGL(int w, int h);
+	void resizeGL(int w, int h) override;
 
-	void paintGL();
+	void paintGL() override;
 
 private:
-	Internal::QPdrawWidgetPriv *mPriv;
+	std::unique_ptr<Internal::QPdrawWidgetPriv> mPriv;
 };
 
 } /* namespace QPdraw */
-
-#endif /* !_QPDRAW_WIDGET_HPP_ */

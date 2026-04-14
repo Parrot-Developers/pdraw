@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_CHANNEL_CODED_VIDEO_HPP_
-#define _PDRAW_CHANNEL_CODED_VIDEO_HPP_
+#pragma once
 
 #include "pdraw_channel.hpp"
 
@@ -45,7 +44,7 @@ class CodedVideoChannel : public Channel {
 public:
 	class CodedVideoSinkListener {
 	public:
-		virtual ~CodedVideoSinkListener(void) {}
+		virtual ~CodedVideoSinkListener() = default;
 
 		virtual void
 		onCodedVideoChannelQueue(CodedVideoChannel *channel,
@@ -57,7 +56,7 @@ public:
 			  CodedVideoSinkListener *codedVideoSinkListener,
 			  struct pomp_loop *loop);
 
-	~CodedVideoChannel(void) {}
+	~CodedVideoChannel() override = default;
 
 	int queue(mbuf_coded_video_frame *frame);
 
@@ -70,18 +69,10 @@ public:
 
 	bool onlySupportsByteStream() const;
 
-	struct mbuf_coded_video_frame_queue *getQueue(const Sink *owner) const;
-
-	void setQueue(const Sink *owner,
-		      struct mbuf_coded_video_frame_queue *queue);
-
 private:
-	CodedVideoSinkListener *mCodedVideoSinkListener;
-	const struct vdef_coded_format *mCodedVideoMediaFormatCaps;
-	int mCodedVideoMediaFormatCapsCount;
-	struct mbuf_coded_video_frame_queue *mQueue;
+	CodedVideoSinkListener *mCodedVideoSinkListener = nullptr;
+	const struct vdef_coded_format *mCodedVideoMediaFormatCaps = nullptr;
+	int mCodedVideoMediaFormatCapsCount = 0;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_CHANNEL_CODED_VIDEO_HPP_ */

@@ -55,10 +55,17 @@ AudioRenderer::create(Session *session,
 				     listener,
 				     wrapper,
 				     rndListener,
-				     Media::Type::AUDIO,
+				     static_cast<uint32_t>(Media::Type::AUDIO),
 				     mediaId,
 				     params);
 #else
+	PDRAW_UNUSED(session);
+	PDRAW_UNUSED(listener);
+	PDRAW_UNUSED(wrapper);
+	PDRAW_UNUSED(rndListener);
+	PDRAW_UNUSED(mediaId);
+	PDRAW_UNUSED(params);
+
 	ULOGE("no audio renderer implementation found");
 	return nullptr;
 #endif /* PDRAW_USE_ALSA */
@@ -86,53 +93,29 @@ AudioRenderer::AudioRenderer(Session *session,
 			    audioMediaFormatCapsCount),
 		mRenderer(wrapper), mRendererListener(rndListener)
 {
-	int res;
-	pthread_mutexattr_t attr;
-
-	res = pthread_mutexattr_init(&attr);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_init", res);
-		return;
-	}
-
-	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_settype", res);
-		goto exit;
-	}
-
-	res = pthread_mutex_init(&mListenerMutex, &attr);
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutex_init", res);
-		goto exit;
-	}
-
-exit:
-	pthread_mutexattr_destroy(&attr);
-	return;
+	PDRAW_UNUSED(mediaTypeCaps);
+	PDRAW_UNUSED(mediaId);
+	PDRAW_UNUSED(params);
 }
 
 
-AudioRenderer::~AudioRenderer(void)
+AudioRenderer::~AudioRenderer()
 {
 	/* Remove any leftover idle callbacks */
 	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
 	if (err < 0)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
-
-	pthread_mutex_destroy(&mListenerMutex);
 }
 
 
-void AudioRenderer::removeRendererListener(void)
+void AudioRenderer::removeRendererListener()
 {
-	pthread_mutex_lock(&mListenerMutex);
+	std::unique_lock<std::mutex> lock(mListenerMutex);
 	mRendererListener = nullptr;
-	pthread_mutex_unlock(&mListenerMutex);
 }
 
 
-void AudioRenderer::asyncCompleteStop(void)
+void AudioRenderer::asyncCompleteStop()
 {
 	int err = pomp_loop_idle_add_with_cookie(
 		mSession->getLoop(), idleCompleteStop, this, this);
@@ -144,7 +127,7 @@ void AudioRenderer::asyncCompleteStop(void)
 /* Listener call from an idle function */
 void AudioRenderer::idleCompleteStop(void *userdata)
 {
-	AudioRenderer *self = reinterpret_cast<AudioRenderer *>(userdata);
+	auto *self = static_cast<AudioRenderer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	self->completeStop();
 }
@@ -154,14 +137,19 @@ AudioRendererWrapper::AudioRendererWrapper(
 	Session *session,
 	unsigned int mediaId,
 	const struct pdraw_audio_renderer_params *params,
-	IPdraw::IAudioRenderer::Listener *listener)
+	IPdraw::IAudioRenderer::Listener *listener) :
+		ElementWrapper(Pdraw::AudioRenderer::create(session,
+							    session,
+							    this,
+							    listener,
+							    mediaId,
+							    params)),
+		mRenderer(static_cast<Pdraw::AudioRenderer *>(mElement))
 {
-	mElement = mRenderer = Pdraw::AudioRenderer::create(
-		session, session, this, listener, mediaId, params);
 }
 
 
-AudioRendererWrapper::~AudioRendererWrapper(void)
+AudioRendererWrapper::~AudioRendererWrapper()
 {
 	if (isElementStopped())
 		return;
@@ -180,7 +168,7 @@ int AudioRendererWrapper::setMediaId(unsigned int mediaId)
 }
 
 
-unsigned int AudioRendererWrapper::getMediaId(void)
+unsigned int AudioRendererWrapper::getMediaId()
 {
 	if (isElementStopped())
 		return -EPROTO;

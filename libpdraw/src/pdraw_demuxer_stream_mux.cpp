@@ -35,7 +35,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include "pdraw_demuxer_stream_mux.hpp"
 #include "pdraw_session.hpp"
 
-#define DEFAULT_RX_BUFFER_SIZE 1500
+constexpr size_t DEFAULT_RX_BUFFER_SIZE = 1500;
 
 #ifdef BUILD_LIBMUX
 
@@ -70,30 +70,30 @@ StreamDemuxerMux::StreamDemuxerMux(Session *session,
 			      sourceListener,
 			      wrapper,
 			      demuxerListener,
-			      params),
-		mMux(nullptr)
+			      params)
 {
 	Element::setClassName(__func__);
 
 	if (!setMux(mux))
 		PDRAW_LOGE("invalid mux handle");
 
-	mUrl = url;
+	mUrl = RtspUrl::create(url);
 
 	setState(State::CREATED);
 }
 
 
-StreamDemuxerMux::~StreamDemuxerMux(void)
+StreamDemuxerMux::~StreamDemuxerMux()
 {
 	destroyAllVideoMedias();
 	setMux(nullptr);
 }
 
 
-StreamDemuxer::VideoMedia *StreamDemuxerMux::createVideoMedia(void)
+std::unique_ptr<StreamDemuxer::VideoMedia>
+StreamDemuxerMux::createVideoMedia(enum rtsp_lower_transport transport)
 {
-	return (StreamDemuxer::VideoMedia *)new VideoMediaMux(this);
+	return make_unique<VideoMediaMux>(this);
 }
 
 
@@ -120,7 +120,7 @@ StreamDemuxerMux::VideoMediaMux::VideoMediaMux(StreamDemuxerMux *demuxer) :
 }
 
 
-StreamDemuxerMux::VideoMediaMux::~VideoMediaMux(void)
+StreamDemuxerMux::VideoMediaMux::~VideoMediaMux()
 {
 	stopRtpAvp();
 	struct pomp_loop *loop = mDemuxerMux->mSession->getLoop();
@@ -130,7 +130,7 @@ StreamDemuxerMux::VideoMediaMux::~VideoMediaMux(void)
 }
 
 
-int StreamDemuxerMux::VideoMediaMux::startRtpAvp(void)
+int StreamDemuxerMux::VideoMediaMux::startRtpAvp()
 {
 	int res;
 
@@ -139,7 +139,7 @@ int StreamDemuxerMux::VideoMediaMux::startRtpAvp(void)
 		return -EPROTO;
 	}
 
-	if (mDemuxerMux->mSessionProtocol == RTSP) {
+	if (mDemuxerMux->mSessionProtocol == SessionProtocol::RTSP) {
 		/* Everything should be done in prepareSetup() */
 	} else {
 		res = mux_channel_open(mDemuxerMux->mMux,
@@ -169,11 +169,11 @@ error:
 }
 
 
-int StreamDemuxerMux::VideoMediaMux::stopRtpAvp(void)
+int StreamDemuxerMux::VideoMediaMux::stopRtpAvp()
 {
 	destroyReceiver();
 	if (mDemuxerMux->mMux != nullptr) {
-		if (mDemuxerMux->mSessionProtocol == RTSP) {
+		if (mDemuxerMux->mSessionProtocol == SessionProtocol::RTSP) {
 			closeSockets();
 			if (mStreamProxy) {
 				mux_ip_proxy_destroy(mStreamProxy);
@@ -210,7 +210,7 @@ int StreamDemuxerMux::VideoMediaMux::sendCtrl(struct vstrm_receiver *stream,
 }
 
 
-int StreamDemuxerMux::VideoMediaMux::prepareSetup(void)
+int StreamDemuxerMux::VideoMediaMux::prepareSetup()
 {
 	/* clang-format off */
 	struct mux_ip_proxy_info info = {
@@ -270,44 +270,44 @@ error:
 
 
 enum rtsp_lower_transport
-StreamDemuxerMux::VideoMediaMux::getLowerTransport(void) const
+StreamDemuxerMux::VideoMediaMux::getLowerTransport() const
 {
 	return RTSP_LOWER_TRANSPORT_UDP;
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getLocalStreamPort(void) const
+uint16_t StreamDemuxerMux::VideoMediaMux::getLocalStreamPort() const
 {
 	return mux_ip_proxy_get_peerport(mStreamProxy);
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getLocalControlPort(void) const
+uint16_t StreamDemuxerMux::VideoMediaMux::getLocalControlPort() const
 {
 	return mux_ip_proxy_get_peerport(mControlProxy);
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteStreamPort(void) const
+uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteStreamPort() const
 {
 	return mux_ip_proxy_get_remote_port(mStreamProxy);
 }
 
 
-uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteControlPort(void) const
+uint16_t StreamDemuxerMux::VideoMediaMux::getRemoteControlPort() const
 {
 	return mux_ip_proxy_get_remote_port(mControlProxy);
 }
 
 
 const struct rtsp_header_ext *
-StreamDemuxerMux::VideoMediaMux::getHeaderExt(void) const
+StreamDemuxerMux::VideoMediaMux::getHeaderExt() const
 {
 	return &mHeaderExt;
 }
 
 
-size_t StreamDemuxerMux::VideoMediaMux::getHeaderExtCount(void) const
+size_t StreamDemuxerMux::VideoMediaMux::getHeaderExtCount() const
 {
 	return mHeaderExtCount;
 }
@@ -337,13 +337,29 @@ void StreamDemuxerMux::VideoMediaMux::setRemoteControlPort(uint16_t port)
 }
 
 
+int StreamDemuxerMux::VideoMediaMux::processDataPkt(struct tpkt_packet *pkt)
+{
+	return -ENOSYS;
+}
+
+
+int StreamDemuxerMux::VideoMediaMux::processCtrlPkt(struct tpkt_packet *pkt)
+{
+	return -ENOSYS;
+}
+
+
 void StreamDemuxerMux::VideoMediaMux::legacyDataCb(struct mux_ctx *ctx,
 						   uint32_t chanid,
 						   enum mux_channel_event event,
 						   struct pomp_buffer *buf,
 						   void *userdata)
 {
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	PDRAW_UNUSED(ctx);
+	PDRAW_UNUSED(chanid);
+	PDRAW_UNUSED(event);
+
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
 	struct tpkt_packet *pkt = nullptr;
 	struct timespec ts = {0, 0};
@@ -391,7 +407,11 @@ void StreamDemuxerMux::VideoMediaMux::legacyCtrlCb(struct mux_ctx *ctx,
 						   struct pomp_buffer *buf,
 						   void *userdata)
 {
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	PDRAW_UNUSED(ctx);
+	PDRAW_UNUSED(chanid);
+	PDRAW_UNUSED(event);
+
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
 	struct tpkt_packet *pkt = nullptr;
 	struct timespec ts = {0, 0};
@@ -433,7 +453,7 @@ out:
 }
 
 
-int StreamDemuxerMux::VideoMediaMux::createSockets(void)
+int StreamDemuxerMux::VideoMediaMux::createSockets()
 {
 	int res;
 	int rxBufSize;
@@ -509,7 +529,7 @@ error:
 	return res;
 }
 
-void StreamDemuxerMux::VideoMediaMux::closeSockets(void)
+void StreamDemuxerMux::VideoMediaMux::closeSockets()
 {
 	int err;
 	err = tskt_socket_destroy(mStreamSock);
@@ -525,7 +545,7 @@ void StreamDemuxerMux::VideoMediaMux::closeSockets(void)
 }
 
 
-struct tpkt_packet *StreamDemuxerMux::VideoMediaMux::newRxPkt(void)
+struct tpkt_packet *StreamDemuxerMux::VideoMediaMux::newRxPkt()
 {
 	struct pomp_buffer *buf = pomp_buffer_new(mRxBufLen);
 	if (!buf)
@@ -545,17 +565,20 @@ void StreamDemuxerMux::VideoMediaMux::dataCb(int fd,
 					     uint32_t events,
 					     void *userdata)
 {
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	PDRAW_UNUSED(fd);
+	PDRAW_UNUSED(events);
+
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
 	size_t readlen = 0;
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	while (1) {
+	while (true) {
 		/* Read data */
 		res = tskt_socket_read_pkt(self->mStreamSock, self->mRxPkt);
 		if (res < 0)
-			break;
+			return;
 
 		/* Discard any data received before starting a vstrm_receiver */
 		if (!self->mReceiver)
@@ -564,13 +587,13 @@ void StreamDemuxerMux::VideoMediaMux::dataCb(int fd,
 		/* Something read? */
 		res = tpkt_get_cdata(self->mRxPkt, nullptr, &readlen, nullptr);
 		if (res < 0)
-			break;
+			return;
 		if (readlen != 0) {
 			/* Allocate new packet for replacement */
 			struct tpkt_packet *newPkt = self->newRxPkt();
 			if (!newPkt) {
 				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
-				break;
+				return;
 			}
 			if (!self->isRtpPaused()) {
 				/* Process received packet */
@@ -587,7 +610,7 @@ void StreamDemuxerMux::VideoMediaMux::dataCb(int fd,
 						-res);
 		} else {
 			/* TODO: EOF */
-			break;
+			return;
 		}
 	}
 }
@@ -597,17 +620,20 @@ void StreamDemuxerMux::VideoMediaMux::ctrlCb(int fd,
 					     uint32_t events,
 					     void *userdata)
 {
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	PDRAW_UNUSED(fd);
+	PDRAW_UNUSED(events);
+
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
 	size_t readlen = 0;
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	while (1) {
+	while (true) {
 		/* Read data */
 		res = tskt_socket_read_pkt(self->mControlSock, self->mRxPkt);
 		if (res < 0)
-			break;
+			return;
 
 		/* Discard any data received before starting a vstrm_receiver */
 		if (!self->mReceiver)
@@ -616,13 +642,13 @@ void StreamDemuxerMux::VideoMediaMux::ctrlCb(int fd,
 		/* Something read? */
 		res = tpkt_get_cdata(self->mRxPkt, nullptr, &readlen, nullptr);
 		if (res < 0)
-			break;
+			return;
 		if (readlen != 0) {
 			/* Allocate new packet for replacement */
 			struct tpkt_packet *newPkt = self->newRxPkt();
 			if (!newPkt) {
 				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
-				break;
+				return;
 			}
 			if (!self->isRtpPaused()) {
 				/* Process received packet */
@@ -639,24 +665,28 @@ void StreamDemuxerMux::VideoMediaMux::ctrlCb(int fd,
 						-res);
 		} else {
 			/* TODO: EOF */
-			break;
+			return;
 		}
 	}
 }
 
+
 void StreamDemuxerMux::VideoMediaMux::callFinishSetup(void *userdata)
 {
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	self->finishSetup();
 }
+
 
 void StreamDemuxerMux::VideoMediaMux::proxyOpenCb(struct mux_ip_proxy *proxy,
 						  uint16_t localPort,
 						  void *userdata)
 {
+	PDRAW_UNUSED(localPort);
+
 	int err;
 
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	if (proxy == self->mStreamProxy) {
 		self->mStreamProxyOpened = true;
 	} else if (proxy == self->mControlProxy) {
@@ -677,10 +707,11 @@ void StreamDemuxerMux::VideoMediaMux::proxyOpenCb(struct mux_ip_proxy *proxy,
 	}
 }
 
+
 void StreamDemuxerMux::VideoMediaMux::proxyCloseCb(struct mux_ip_proxy *proxy,
 						   void *userdata)
 {
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	if (proxy == self->mStreamProxy) {
 		self->mStreamProxyOpened = false;
 	} else if (proxy == self->mControlProxy) {
@@ -691,17 +722,22 @@ void StreamDemuxerMux::VideoMediaMux::proxyCloseCb(struct mux_ip_proxy *proxy,
 	}
 }
 
+
 void StreamDemuxerMux::VideoMediaMux::proxyUpdateCb(struct mux_ip_proxy *proxy,
 						    void *userdata)
 {
+	PDRAW_UNUSED(proxy);
+	PDRAW_UNUSED(userdata);
+
 	/* TODO ? */
 }
+
 
 void StreamDemuxerMux::VideoMediaMux::proxyFailedCb(struct mux_ip_proxy *proxy,
 						    int err,
 						    void *userdata)
 {
-	VideoMediaMux *self = (VideoMediaMux *)userdata;
+	auto *self = static_cast<VideoMediaMux *>(userdata);
 	const char *name = "unknown";
 	if (proxy == self->mStreamProxy)
 		name = "stream";

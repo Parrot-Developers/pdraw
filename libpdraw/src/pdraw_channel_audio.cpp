@@ -45,14 +45,12 @@ AudioChannel::AudioChannel(Sink *owner,
 			   AudioSinkListener *audioSinkListener,
 			   struct pomp_loop *loop) :
 		Channel(owner, sinkListener, loop),
-		mAudioSinkListener(audioSinkListener),
-		mAudioMediaFormatCaps(nullptr), mAudioMediaFormatCapsCount(0),
-		mQueue(nullptr)
+		mAudioSinkListener(audioSinkListener)
 {
 }
 
 
-int AudioChannel::getAudioMediaFormatCaps(const struct adef_format **caps)
+int AudioChannel::getAudioMediaFormatCaps(const struct adef_format **caps) const
 {
 	if (caps == nullptr)
 		return -EINVAL;
@@ -61,7 +59,7 @@ int AudioChannel::getAudioMediaFormatCaps(const struct adef_format **caps)
 }
 
 
-void AudioChannel::setAudioMediaFormatCaps(Sink *owner,
+void AudioChannel::setAudioMediaFormatCaps(const Sink *owner,
 					   const struct adef_format *caps,
 					   int count)
 {
@@ -72,26 +70,6 @@ void AudioChannel::setAudioMediaFormatCaps(Sink *owner,
 	}
 	mAudioMediaFormatCaps = caps;
 	mAudioMediaFormatCapsCount = count;
-}
-
-
-struct mbuf_audio_frame_queue *AudioChannel::getQueue(Sink *owner)
-{
-	if (owner != mOwner) {
-		ULOGE("AudioChannel::getQueue: wrong owner");
-		return nullptr;
-	}
-	return mQueue;
-}
-
-
-void AudioChannel::setQueue(Sink *owner, struct mbuf_audio_frame_queue *queue)
-{
-	if (owner != mOwner) {
-		ULOGE("AudioChannel::setQueue: wrong owner");
-		return;
-	}
-	mQueue = queue;
 }
 
 

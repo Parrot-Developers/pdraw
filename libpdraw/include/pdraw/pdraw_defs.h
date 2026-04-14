@@ -27,8 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DEFS_H_
-#define _PDRAW_DEFS_H_
+#pragma once
 
 /* To be used for all public API */
 #ifdef PDRAW_API_EXPORTS
@@ -51,6 +50,17 @@
 
 #include <inttypes.h>
 #include <sys/types.h>
+#ifdef _WIN32
+#	ifndef __iovec_defined
+#		define __iovec_defined 1
+struct iovec {
+	void *iov_base;
+	size_t iov_len;
+};
+#	endif
+#else
+#	include <sys/uio.h>
+#endif
 
 #include <audio-defs/adefs.h>
 #include <audio-encode/aenc_core.h>
@@ -67,6 +77,7 @@
 /* Forward declarations */
 struct json_object;
 struct mux_ctx;
+struct iovec;
 
 
 /* Absolute maximum value of playback speed for records; if the requested
@@ -75,13 +86,13 @@ struct mux_ctx;
 #define PDRAW_PLAY_SPEED_MAX 1000.f
 
 /* mbuf ancillary data key for pdraw_video_frame structs */
-PDRAW_API_VAR const char *PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME;
+PDRAW_API_VAR const char *const PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME;
 
 /* mbuf ancillary data key for pdraw_audio_frame structs */
-PDRAW_API_VAR const char *PDRAW_ANCILLARY_DATA_KEY_AUDIOFRAME;
+PDRAW_API_VAR const char *const PDRAW_ANCILLARY_DATA_KEY_AUDIOFRAME;
 
 /* Video renderer debug flags environment variable */
-PDRAW_API_VAR const char *PDRAW_VIDEO_RENDERER_DBG_FLAGS;
+PDRAW_API_VAR const char *const PDRAW_VIDEO_RENDERER_DBG_FLAGS;
 
 /* Video renderer debug flag: macroblock status overlay (streaming only) */
 #define PDRAW_VIDEO_RENDERER_DBG_FLAG_MB_STATUS_OVERLAY (1 << 0)
@@ -111,6 +122,19 @@ enum pdraw_playback_type {
 };
 
 
+/* Playback mode */
+enum pdraw_playback_mode {
+	/** Play the video in real-time.
+	 * Video playback is synchronized with the source framerate. */
+	PDRAW_PLAYBACK_MODE_REALTIME = 0,
+
+	/* Play the video in offline mode.
+	 * Frames are processed as fast as possible, without any framerate
+	 * synchronization. Useful for transcoding or fast analysis. */
+	PDRAW_PLAYBACK_MODE_OFFLINE,
+};
+
+
 /* Media type */
 enum pdraw_media_type {
 	/* Unknown media type */
@@ -124,16 +148,6 @@ enum pdraw_media_type {
 };
 
 
-/* Video type */
-enum pdraw_video_type {
-	/* Default camera video */
-	PDRAW_VIDEO_TYPE_DEFAULT_CAMERA = 0,
-
-	/* Front camera video */
-	PDRAW_VIDEO_TYPE_FRONT_CAMERA = 0,
-};
-
-
 /* Muxer type */
 enum pdraw_muxer_type {
 	/* Unknown muxer type */
@@ -144,6 +158,9 @@ enum pdraw_muxer_type {
 
 	/* RTMP muxer */
 	PDRAW_MUXER_TYPE_RTMP,
+
+	/* RTSP muxer */
+	PDRAW_MUXER_TYPE_RTSP,
 };
 
 
@@ -188,6 +205,16 @@ enum pdraw_muxer_disconnection_reason {
 
 	/* Internal error */
 	PDRAW_MUXER_DISCONNECTION_REASON_INTERNAL_ERROR,
+};
+
+
+/* Muxer stream RTSP lower transport */
+enum pdraw_muxer_rtsp_transport {
+	/* UDP stream muxer lower transport */
+	PDRAW_MUXER_RTSP_TRANSPORT_UDP = 0,
+
+	/* TCP stream muxer lower transport (interleaved) */
+	PDRAW_MUXER_RTSP_TRANSPORT_TCP = 1,
 };
 
 
@@ -320,6 +347,25 @@ enum pdraw_muxer_thumbnail_type {
 };
 
 
+/* Muxer metadata types */
+enum pdraw_muxer_metadata_type {
+	/* Unknown metadata type */
+	PDRAW_MUXER_METADATA_TYPE_UNKNOWN = 0,
+
+	/* DNG Lens Shading Correction (binary buffer) */
+	PDRAW_MUXER_METADATA_TYPE_DNG_LSC,
+};
+
+
+/* DNG Lens Shading Correction parameters */
+struct pdraw_muxer_dng_lsc_params {
+	uint32_t width;
+	uint32_t height;
+	uint32_t count;
+	enum vdef_raw_pix_order format;
+};
+
+
 /* Raw video media information */
 struct pdraw_raw_video_info {
 	/* Raw video format */
@@ -400,9 +446,6 @@ struct pdraw_audio_info {
 struct pdraw_video_info {
 	/* Video media format */
 	enum vdef_frame_type format;
-
-	/* Video type */
-	enum pdraw_video_type type;
 
 	/* Session metadata */
 	const struct vmeta_session *session_meta;
@@ -631,6 +674,9 @@ struct pdraw_video_renderer_params {
 	/* Renderer fill mode */
 	enum pdraw_video_renderer_fill_mode fill_mode;
 
+	/* Enable vertical mirroring */
+	bool vertical_mirror;
+
 	/* Bitfield of enum pdraw_video_renderer_transition_flag to enable
 	 * video transitions in the renderer (can be set to
 	 * PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_ALL in order to enable all
@@ -748,6 +794,16 @@ struct pdraw_vipc_source_params {
 	/* Timeout for the video IPC frame reception in ms; optional, can be 0
 	 * which means using the default value (-1 means wait indefinitely) */
 	int frame_timeout_ms;
+
+	/* Media buffer memory implementation to used; optional, can be
+	 * MBUF_MEM_IMPLEM_TYPE_AUTO which means using the default implem */
+	enum mbuf_mem_implem_type mem_implem;
+
+	/* Maximum number of frames that the source is allowed to push into the
+	 * pipeline before automatically transitioning to the PAUSED state.
+	 * Optional; can be set to 0 to disable automatic pausing.
+	 * The counter is reset when play() is called successfully. */
+	uint32_t max_pushed_frame_count;
 };
 
 
@@ -841,6 +897,12 @@ struct pdraw_demuxer_params {
 	 * decoding (e.g. when no rendering is required, only a coded video
 	 * sink). */
 	enum pdraw_demuxer_autodecoding_mode autodecoding_mode;
+
+	/* Playback synchronization mode.
+	 * Defines if the demuxer should follow the stream's timestamps
+	 * (real-time) or ignore them to process data as fast as the hardware
+	 * allows (offline). */
+	enum pdraw_playback_mode playback_mode;
 };
 
 
@@ -857,17 +919,17 @@ struct pdraw_muxer_params {
 	 * optional, can be 0 which means that free space is not checked */
 	size_t free_space_limit;
 
-	/* Reserved size for MP4 tables in MB; optional, can be 0 which means
-	 * use a default value (MP4_MUX_DEFAULT_TABLE_SIZE_MB) */
+	/* Reserved size for MP4 tables in MB (ISOBMFF record muxer only);
+	 * optional, can be 0 which means use a default value
+	 * (MP4_MUX_DEFAULT_TABLE_SIZE_MB) */
 	size_t tables_size_mb;
 
+	/* Recovery params (ISOBMFF record muxer only) */
 	struct {
-		/* File used to link the tables_file, the storage UUID and the
-		 * broken file for recovery */
-		char *link_file;
-
-		/* File used to store moov box for recovery */
-		char *tables_file;
+		/* Unified recovery file used to store both the MP4 metadata
+		 * (moov box) and the linking information required for recovery
+		 */
+		const char *tables_file;
 
 		/* Tables sync period in milliseconds; optional, can be 0 which
 		 * means that tables will be never sync'ed */
@@ -877,18 +939,48 @@ struct pdraw_muxer_params {
 		 * can be false which means that storage UUID won't be check in
 		 * case of recovery */
 		bool check_storage_uuid;
+
+		/* If enabled, preallocate the recovery tables file.
+		 * Note: only the tables file is preallocated, not the main MP4
+		 * file. */
+		bool allocate_space_for_tables_file;
 	} recovery;
 
-	/* Tables internal sync period in milliseconds (record muxer only);
+	/* Tables sync period in milliseconds (ISOBMFF record muxer only);
 	 * optional, can be 0 which means that tables will be never sync'ed */
 	uint32_t tables_sync_period_ms;
+
+	/* Starting index (photo record muxers only); used to format the file
+	 * name pattern when creating the first file (e.g., if pattern is
+	 * "photo_%04d.JPG" and index is 1, first file is "photo_0001.JPG").
+	 * Must contain exactly one integer format specifier for the index. */
+	uint32_t initial_file_index;
+
+	/* RTSP Stream Muxer transport. Defines whether RTP/RTCP data should
+	 * be carried over TCP (interleaved) or UDP (RTSP stream muxer only) */
+	enum pdraw_muxer_rtsp_transport rtsp_transport;
 };
 
 
 struct pdraw_muxer_dyn_params {
-	/* Tables internal sync period in milliseconds (record muxer only);
+	/* Tables sync period in milliseconds (ISOBMFF record muxer only);
 	 * optional, can be 0 which means that tables will be never sync'ed */
 	uint32_t tables_sync_period_ms;
+
+	/* Socket transmit buffer size in bytes (stream muxer only).
+	 * Used to tune the kernel-level buffering according to the bitrate.
+	 * Helps in controlling latency and preventing bufferbloat. */
+	size_t socket_tx_buffer_size;
+
+	/* Format string used to generate file names (photo record muxers only);
+	 * (e.g. "/path/photo__%04d.JPG"). Must contain exactly one integer
+	 * format specifier for the index. */
+	const char *file_name_pattern;
+
+	/* Forces the numerical index to be used for the NEXT file created
+	 * (photo record muxers only). Overrides the muxer's internal
+	 * auto-incrementing counter. */
+	uint32_t next_file_index;
 };
 
 
@@ -949,6 +1041,51 @@ struct pdraw_muxer_stats {
 			 * that this metric is not available at the moment */
 			uint32_t max_peer_bw;
 		} rtmp;
+
+		struct {
+			/* Whether the RTSP client is connected */
+			bool is_connected;
+
+			/* Incremented every time a valid RTCP Receiver Report
+			 * is received and processed. */
+			uint32_t receiver_report_count;
+
+			/* Total number of RTP packets sent/received (excluding
+			 * RTCP) since the start of the session. */
+			uint32_t total_packet_count;
+
+			/* Total number of packets dropped internally by the
+			 * muxer/client since the start of the session (e.g.,
+			 * due to buffer overflow or queue timeout). This
+			 * indicates congestion before transmission/after
+			 * reception. */
+			uint32_t dropped_packet_count;
+
+			/* Total number of RTP packets reported as lost during
+			 * transport since the start of the session (based on
+			 * sequence number gaps, typically reported via RTCP
+			 * Receiver Reports). This indicates network
+			 * degradation. */
+			uint32_t lost_packet_count;
+
+			/* Fraction of RTP packets lost during the last
+			 * reporting interval. Range: 0.0 (0%) to 1.0 (100%).
+			 * Computed from RTCP fixed-point (val / 256.0). */
+			float lost_fraction;
+
+			/* Jitter: Inter-packet arrival jitter, expressed in
+			 * microseconds (us). High jitter indicates network
+			 * variance and forces the receiver's jitter buffer to
+			 * grow, increasing end-to-end latency. */
+			uint32_t jitter;
+
+			/* RTD: Round-Trip Delay, calculated by the RTCP module
+			 * using the DLSR/LSR fields. Expressed in microseconds
+			 * (us) if known, or UINT32_MAX otherwise. Measures
+			 * total network latency and indicates long-term
+			 * bufferbloat or congestion. */
+			uint32_t rtd;
+		} rtsp;
 	};
 };
 
@@ -1008,6 +1145,3 @@ struct pdraw_chapter {
 	/* Name of the chapter */
 	const char *name;
 };
-
-
-#endif /* !_PDRAW_DEFS_H_ */

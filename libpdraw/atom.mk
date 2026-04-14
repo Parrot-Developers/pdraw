@@ -47,13 +47,26 @@ LOCAL_SRC_FILES := \
 	src/pdraw_external_raw_video_source.cpp \
 	src/pdraw_gl_video.cpp \
 	src/pdraw_media.cpp \
+	src/pdraw_muxer_record_dng_media.cpp \
+	src/pdraw_muxer_record_dng.cpp \
+	src/pdraw_muxer_record_isobmff_media.cpp \
+	src/pdraw_muxer_record_isobmff.cpp \
+	src/pdraw_muxer_record_jfif_media.cpp \
+	src/pdraw_muxer_record_jfif.cpp \
+	src/pdraw_muxer_record_media.cpp \
+	src/pdraw_muxer_record_photo_media.cpp \
+	src/pdraw_muxer_record_photo.cpp \
+	src/pdraw_muxer_record_png_media.cpp \
+	src/pdraw_muxer_record_png.cpp \
 	src/pdraw_muxer_record.cpp \
 	src/pdraw_muxer_stream_rtmp.cpp \
+	src/pdraw_muxer_stream_rtsp_video_media.cpp \
+	src/pdraw_muxer_stream_rtsp.cpp \
 	src/pdraw_muxer.cpp \
 	src/pdraw_renderer_audio_alsa.cpp \
 	src/pdraw_renderer_audio.cpp \
-	src/pdraw_renderer_video.cpp \
 	src/pdraw_renderer_video_gl.cpp \
+	src/pdraw_renderer_video.cpp \
 	src/pdraw_scaler_video.cpp \
 	src/pdraw_session.cpp \
 	src/pdraw_settings.cpp \
@@ -75,6 +88,7 @@ LOCAL_LIBRARIES := \
 	libh264 \
 	libh265 \
 	libmedia-buffers \
+	libmedia-buffers-cpp \
 	libmedia-buffers-memory \
 	libmedia-buffers-memory-generic \
 	libmp4 \
@@ -96,6 +110,8 @@ LOCAL_LIBRARIES := \
 
 LOCAL_CONDITIONAL_LIBRARIES := \
 	OPTIONAL:json \
+	OPTIONAL:libdng-parrot \
+	OPTIONAL:libjfif \
 	OPTIONAL:libmux \
 	OPTIONAL:librtmp \
 	OPTIONAL:libvideo-ipc \
@@ -104,6 +120,7 @@ LOCAL_CONDITIONAL_LIBRARIES := \
 LOCAL_CONDITIONAL_LIBRARIES += \
 	CONFIG_PDRAW_VIPC_BACKEND_DMABUF:libvideo-ipc-dmabuf-be \
 	CONFIG_PDRAW_VIPC_BACKEND_DMABUF:libmedia-buffers-memory-ion \
+	CONFIG_PDRAW_VIPC_BACKEND_DMABUF:libmedia-buffers-memory-vacq \
 	CONFIG_PDRAW_VIPC_BACKEND_HISI:libvideo-ipc-hisibe \
 	CONFIG_PDRAW_VIPC_BACKEND_HISI:libmedia-buffers-memory-hisi \
 	CONFIG_PDRAW_VIPC_BACKEND_NETWORK_CBUF:libvideo-ipc-network-cbuf-be \
@@ -132,8 +149,10 @@ ifdef CONFIG_PDRAW_USE_GL
   else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
     LOCAL_LDLIBS += -lEGL -lGLESv2 -landroid
   else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-native")
+    LOCAL_CFLAGS += -DGL_SILENCE_DEPRECATION
     LOCAL_LDLIBS += -framework OpenGL
   else ifeq ($(TARGET_OS_FLAVOUR),$(filter %$(TARGET_OS_FLAVOUR),iphoneos iphonesimulator))
+    LOCAL_CFLAGS += -DGLES_SILENCE_DEPRECATION
     LOCAL_LDLIBS += -framework OpenGLES
   else ifeq ("$(TARGET_OS)","windows")
     LOCAL_CFLAGS += -DEPOXY_SHARED

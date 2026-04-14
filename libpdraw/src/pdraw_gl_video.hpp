@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_GL_VIDEO_HPP_
-#define _PDRAW_GL_VIDEO_HPP_
+#pragma once
 
 #ifdef PDRAW_USE_GL
 
@@ -40,27 +39,27 @@
 namespace Pdraw {
 
 
-#	define GL_VIDEO_TEX_UNIT_COUNT 3
-#	define GL_VIDEO_FBO_TEX_UNIT_COUNT 1
-#	define GL_VIDEO_MBSTATUS_TEX_UNIT_COUNT 1
-#	define GL_VIDEO_BLUR_FBO_TARGET_SIZE 512
-#	define GL_VIDEO_BLUR_TAP_COUNT 15
-#	define GL_VIDEO_PADDING_FBO_TARGET_SIZE_1 256
-#	define GL_VIDEO_PADDING_FBO_TARGET_SIZE_2 16
-#	define GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE 256
+constexpr size_t GL_VIDEO_TEX_UNIT_COUNT = 3;
+constexpr size_t GL_VIDEO_FBO_TEX_UNIT_COUNT = 1;
+constexpr size_t GL_VIDEO_MBSTATUS_TEX_UNIT_COUNT = 1;
+constexpr size_t GL_VIDEO_BLUR_FBO_TARGET_SIZE = 512;
+constexpr size_t GL_VIDEO_BLUR_TAP_COUNT = 15;
+constexpr size_t GL_VIDEO_PADDING_FBO_TARGET_SIZE_1 = 256;
+constexpr size_t GL_VIDEO_PADDING_FBO_TARGET_SIZE_2 = 16;
+constexpr size_t GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE = 256;
 
 
-enum gl_video_transition {
-	GL_VIDEO_TRANSITION_NONE = 0,
-	GL_VIDEO_TRANSITION_FADE_TO_BLACK,
-	GL_VIDEO_TRANSITION_FADE_FROM_BLACK,
-	GL_VIDEO_TRANSITION_FADE_TO_WHITE,
-	GL_VIDEO_TRANSITION_FADE_FROM_WHITE,
-	GL_VIDEO_TRANSITION_FADE_TO_BLACK_AND_WHITE,
-	GL_VIDEO_TRANSITION_FADE_FROM_BLACK_AND_WHITE,
-	GL_VIDEO_TRANSITION_FADE_TO_BLUR,
-	GL_VIDEO_TRANSITION_FADE_FROM_BLUR,
-	GL_VIDEO_TRANSITION_FLASH,
+enum class GlVideoTransition : unsigned int {
+	NONE = 0,
+	FADE_TO_BLACK,
+	FADE_FROM_BLACK,
+	FADE_TO_WHITE,
+	FADE_FROM_WHITE,
+	FADE_TO_BLACK_AND_WHITE,
+	FADE_FROM_BLACK_AND_WHITE,
+	FADE_TO_BLUR,
+	FADE_FROM_BLUR,
+	FLASH,
 };
 
 class Session;
@@ -73,15 +72,15 @@ public:
 		unsigned int firstTexUnit,
 		bool simplified);
 
-	~GlVideo(void);
+	~GlVideo();
 
-	static int getTexUnitCount(void)
+	static int getTexUnitCount()
 	{
 		return GL_VIDEO_TEX_UNIT_COUNT + GL_VIDEO_FBO_TEX_UNIT_COUNT +
 		       GL_VIDEO_MBSTATUS_TEX_UNIT_COUNT;
 	}
 
-	GLuint getDefaultFbo(void) const
+	GLuint getDefaultFbo() const
 	{
 		return mDefaultFbo;
 	}
@@ -91,7 +90,7 @@ public:
 		mDefaultFbo = defaultFbo;
 	}
 
-	float getBrightnessCoef(void) const
+	float getBrightnessCoef() const
 	{
 		return mBrightnessCoef;
 	}
@@ -101,7 +100,7 @@ public:
 		mBrightnessCoef = coef;
 	}
 
-	float getContrastCoef(void) const
+	float getContrastCoef() const
 	{
 		return mContrastCoef;
 	}
@@ -111,7 +110,7 @@ public:
 		mContrastCoef = coef;
 	}
 
-	float getGammaCoef(void) const
+	float getGammaCoef() const
 	{
 		return mGammaCoef;
 	}
@@ -121,7 +120,7 @@ public:
 		mGammaCoef = coef;
 	}
 
-	float getSatCoef(void) const
+	float getSatCoef() const
 	{
 		return mBaseSatCoef;
 	}
@@ -131,7 +130,7 @@ public:
 		mBaseSatCoef = coef < 0. ? 0. : (coef > 1. ? 1. : coef);
 	}
 
-	float getLightCoef(void) const
+	float getLightCoef() const
 	{
 		return mBaseLightCoef;
 	}
@@ -141,7 +140,7 @@ public:
 		mBaseLightCoef = coef < 0. ? 0. : (coef > 1. ? 1. : coef);
 	}
 
-	float getDarkCoef(void) const
+	float getDarkCoef() const
 	{
 		return mBaseDarkCoef;
 	}
@@ -151,11 +150,11 @@ public:
 		mBaseDarkCoef = coef < 0. ? 0. : (coef > 1. ? 1. : coef);
 	}
 
-	void startTransition(enum gl_video_transition transition,
+	void startTransition(GlVideoTransition transition,
 			     uint64_t duration,
 			     bool hold);
 
-	void abortTransition(void);
+	void abortTransition();
 
 	int loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 		      const size_t framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT],
@@ -172,7 +171,7 @@ public:
 			const struct vdef_rect *crop,
 			const struct pdraw_video_renderer_params *params);
 
-	int clear(const Eigen::Matrix4f &viewProjMat);
+	int clear(const Eigen::Matrix4f &viewProjMat) const;
 
 	void setExtTexture(GLuint texture);
 
@@ -181,34 +180,40 @@ public:
 		      size_t histogramLen[PDRAW_HISTOGRAM_CHANNEL_MAX]) const;
 
 private:
-	enum program {
-		PROGRAM_NOCONV = 0,
-		PROGRAM_YUV_TO_RGB_PLANAR,
-		PROGRAM_YUV_TO_RGB_PLANAR_10_16LE,
-		PROGRAM_YUV_TO_RGB_SEMIPLANAR,
-		PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH,
-		PROGRAM_GRAY_TO_RGB_PLANAR,
-		PROGRAM_GRAY16_TO_RGB_PLANAR,
-		PROGRAM_GRAY32_TO_RGB_PLANAR,
-		PROGRAM_MAX,
+	enum class Program : unsigned int {
+		NOCONV = 0,
+		YUV_TO_RGB_PLANAR,
+		YUV_TO_RGB_PLANAR_10_16LE,
+		YUV_TO_RGB_SEMIPLANAR,
+		YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH,
+		GRAY_TO_RGB_PLANAR,
+		GRAY16_TO_RGB_PLANAR,
+		GRAY32_TO_RGB_PLANAR,
+		MAX,
 	};
+	static constexpr size_t PROGRAM_MAX = static_cast<size_t>(Program::MAX);
 
-	enum program getProgram(const struct vdef_raw_format *format,
-				bool *swapUv) const;
+	static constexpr size_t toIndex(Program p) noexcept
+	{
+		return static_cast<size_t>(p);
+	}
+
+	Program getProgram(const struct vdef_raw_format *format,
+			   bool *swapUv) const;
 
 	void fillYuv2RgbMatrix(enum vdef_matrix_coefs matrixCoefs,
 			       bool fullRange,
 			       bool swapUv,
 			       float yuv2RgbMatrix[9],
-			       float yuv2RgbOffset[3]);
+			       float yuv2RgbOffset[3]) const;
 
-	int setupBlur(void);
+	int setupBlur();
 
-	void cleanupBlur(void);
+	void cleanupBlur();
 
-	int setupBlurFbo(void);
+	int setupBlurFbo();
 
-	void cleanupBlurFbo(void);
+	void cleanupBlurFbo();
 
 	void renderBlur(const size_t framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT],
 			const struct vdef_raw_format *format,
@@ -217,11 +222,12 @@ private:
 			const struct pdraw_rect *renderPos,
 			float videoW,
 			float videoH,
-			const Eigen::Matrix4f &viewProjMat);
+			bool verticalMirror,
+			const Eigen::Matrix4f &viewProjMat) const;
 
-	int setupPaddingFbo(void);
+	int setupPaddingFbo();
 
-	void cleanupPaddingFbo(void);
+	void cleanupPaddingFbo();
 
 	void
 	renderPadding(const size_t framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT],
@@ -233,21 +239,20 @@ private:
 		      float videoH,
 		      float videoW2,
 		      float videoH2,
-		      float videoAR,
-		      float windowAR,
+		      bool verticalMirror,
 		      bool immersive,
-		      const Eigen::Matrix4f &viewProjMat);
+		      const Eigen::Matrix4f &viewProjMat) const;
 
-	void setupZebra(enum program prog);
+	void setupZebra(Program prog) const;
 
-	void updateZebra(struct pdraw_rect *contentPos,
-			 enum program prog,
+	void updateZebra(const struct pdraw_rect *contentPos,
+			 Program prog,
 			 bool enable,
-			 float threshold);
+			 float threshold) const;
 
-	int setupHistograms(void);
+	int setupHistograms();
 
-	void cleanupHistograms(void);
+	void cleanupHistograms();
 
 	void computeHistograms(
 		const size_t framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT],
@@ -255,108 +260,110 @@ private:
 		const struct vdef_frame_info *info,
 		const struct vdef_rect *crop,
 		const struct pdraw_rect *renderPos,
+		bool verticalMirror,
 		bool enable);
 
-	void updateTransition(void);
+	void updateTransition();
 
 	static unsigned int getTextureMaxUnpackAlignment(unsigned int width);
 
-	Session *mSession;
-	unsigned int mVideoWidth;
-	unsigned int mVideoHeight;
-	enum pdraw_video_renderer_fill_mode mFillMode;
-	unsigned int mFirstTexUnit;
-	GLuint mDefaultFbo;
-	enum gl_video_transition mTransition;
-	uint64_t mTransitionStartTime;
-	uint64_t mTransitionDuration;
-	bool mTransitionHold;
-	GLint mProgram[PROGRAM_MAX];
-	GLint mProgramTransformMatrix[PROGRAM_MAX];
-	GLint mProgramYuv2RgbMatrix[PROGRAM_MAX];
-	GLint mProgramYuv2RgbOffset[PROGRAM_MAX];
-	GLint mProgramStride[PROGRAM_MAX];
-	GLint mProgramMaxCoordsRatio[PROGRAM_MAX];
-	GLint mProgramMaxClamp[PROGRAM_MAX];
-	GLint mProgramBrightnessCoef[PROGRAM_MAX];
-	GLint mProgramContrastCoef[PROGRAM_MAX];
-	GLint mProgramGammaCoef[PROGRAM_MAX];
-	GLint mProgramSatCoef[PROGRAM_MAX];
-	GLint mProgramLightCoef[PROGRAM_MAX];
-	GLint mProgramDarkCoef[PROGRAM_MAX];
-	GLint mProgramZebraEnable[PROGRAM_MAX];
-	GLint mProgramZebraThreshold[PROGRAM_MAX];
-	GLint mProgramZebraPhase[PROGRAM_MAX];
-	GLint mProgramZebraWeight[PROGRAM_MAX];
-	GLint mProgramMbStatusEnable[PROGRAM_MAX];
-	GLint mSimpleProgram;
-	GLint mSimpleProgramTransformMatrix;
-	GLint mSimpleProgramUniformSampler;
-	GLint mSimpleProgramPositionHandle;
-	GLint mSimpleProgramTexcoordHandle;
-	GLint mClearProgram;
-	GLint mClearProgramTransformMatrix;
-	GLint mClearProgramPositionHandle;
-	GLint mClearProgramTexcoordHandle;
-	GLint mClearProgramColor;
-	GLuint mTextures[GL_VIDEO_TEX_UNIT_COUNT];
-	GLuint mMbStatusTexture;
-	GLuint mExtTexture;
-	GLint mUniformSamplers[PROGRAM_MAX][GL_VIDEO_TEX_UNIT_COUNT];
-	GLint mPositionHandle[PROGRAM_MAX];
-	GLint mTexcoordHandle[PROGRAM_MAX];
-	GLint mMbStatusUniformSampler[PROGRAM_MAX];
-	bool mBlurInit;
-	bool mApplyBlur;
-	float mBlurWeights[GL_VIDEO_BLUR_TAP_COUNT];
-	unsigned int mBlurFboWidth;
-	unsigned int mBlurFboHeight;
-	GLuint mBlurFbo[2];
-	GLuint mBlurFboTexture[2];
-	GLint mBlurProgram[2];
-	GLint mBlurUniformPixelSize[2];
-	GLint mBlurUniformWeights[2];
-	GLint mBlurUniformSampler[2];
-	GLint mBlurPositionHandle[2];
-	unsigned int mPaddingPass1Width;
-	unsigned int mPaddingPass1Height;
-	unsigned int mPaddingPass2Width;
-	unsigned int mPaddingPass2Height;
-	float mPaddingBlurWeights[GL_VIDEO_BLUR_TAP_COUNT];
-	GLuint mPaddingFbo[4];
-	GLuint mPaddingFboTexture[4];
-	bool mHistogramInit;
-	uint64_t mHistogramLastComputeTime;
-	GLint mHistogramProgram[PROGRAM_MAX];
-	GLint mHistogramYuv2RgbMatrix[PROGRAM_MAX];
-	GLint mHistogramYuv2RgbOffset[PROGRAM_MAX];
-	GLint mHistogramRgb2LumaMatrix[PROGRAM_MAX];
-	GLint mHistogramRgb2LumaOffset[PROGRAM_MAX];
-	GLint mHistogramBrightnessCoef[PROGRAM_MAX];
-	GLint mHistogramContrastCoef[PROGRAM_MAX];
-	GLint mHistogramGammaCoef[PROGRAM_MAX];
-	GLint mHistogramStride[PROGRAM_MAX];
-	GLint mHistogramMaxCoordsRatio[PROGRAM_MAX];
-	GLint mHistogramMaxClamp[PROGRAM_MAX];
-	GLint mHistogramUniformSampler[PROGRAM_MAX][GL_VIDEO_TEX_UNIT_COUNT];
-	GLint mHistogramPositionHandle[PROGRAM_MAX];
-	GLint mHistogramTexcoordHandle[PROGRAM_MAX];
-	GLuint mHistogramFbo;
-	GLuint mHistogramFboTexture;
-	uint8_t *mHistogramBuffer;
-	bool mHistogramValid[PDRAW_HISTOGRAM_CHANNEL_MAX];
-	uint32_t *mHistogram[PDRAW_HISTOGRAM_CHANNEL_MAX];
-	float *mHistogramNorm[PDRAW_HISTOGRAM_CHANNEL_MAX];
-	float mBrightnessCoef;
-	float mContrastCoef;
-	float mGammaCoef;
-	float mSatCoef; /* 0.0 (greyscale) .. 1.0 (original video) */
-	float mBaseSatCoef;
-	float mLightCoef; /* 0.0 (white) .. 1.0 (video) */
-	float mBaseLightCoef;
-	float mDarkCoef; /* 0.0 (black) .. 1.0 (video) */
-	float mBaseDarkCoef;
-	bool mHasMbStatus;
+	Session *mSession = nullptr;
+	unsigned int mVideoWidth = 0;
+	unsigned int mVideoHeight = 0;
+	enum pdraw_video_renderer_fill_mode mFillMode =
+		PDRAW_VIDEO_RENDERER_FILL_MODE_FIT;
+	unsigned int mFirstTexUnit = 0;
+	GLuint mDefaultFbo = 0;
+	GlVideoTransition mTransition = GlVideoTransition::NONE;
+	uint64_t mTransitionStartTime = 0;
+	uint64_t mTransitionDuration = 0;
+	bool mTransitionHold = false;
+	GLint mProgram[PROGRAM_MAX]{};
+	GLint mProgramTransformMatrix[PROGRAM_MAX]{};
+	GLint mProgramYuv2RgbMatrix[PROGRAM_MAX]{};
+	GLint mProgramYuv2RgbOffset[PROGRAM_MAX]{};
+	GLint mProgramStride[PROGRAM_MAX]{};
+	GLint mProgramMaxCoordsRatio[PROGRAM_MAX]{};
+	GLint mProgramMaxClamp[PROGRAM_MAX]{};
+	GLint mProgramBrightnessCoef[PROGRAM_MAX]{};
+	GLint mProgramContrastCoef[PROGRAM_MAX]{};
+	GLint mProgramGammaCoef[PROGRAM_MAX]{};
+	GLint mProgramSatCoef[PROGRAM_MAX]{};
+	GLint mProgramLightCoef[PROGRAM_MAX]{};
+	GLint mProgramDarkCoef[PROGRAM_MAX]{};
+	GLint mProgramZebraEnable[PROGRAM_MAX]{};
+	GLint mProgramZebraThreshold[PROGRAM_MAX]{};
+	GLint mProgramZebraPhase[PROGRAM_MAX]{};
+	GLint mProgramZebraWeight[PROGRAM_MAX]{};
+	GLint mProgramMbStatusEnable[PROGRAM_MAX]{};
+	GLint mSimpleProgram = 0;
+	GLint mSimpleProgramTransformMatrix = 0;
+	GLint mSimpleProgramUniformSampler = 0;
+	GLint mSimpleProgramPositionHandle = 0;
+	GLint mSimpleProgramTexcoordHandle = 0;
+	GLint mClearProgram = 0;
+	GLint mClearProgramTransformMatrix = 0;
+	GLint mClearProgramPositionHandle = 0;
+	GLint mClearProgramTexcoordHandle = 0;
+	GLint mClearProgramColor = 0;
+	GLuint mTextures[GL_VIDEO_TEX_UNIT_COUNT]{};
+	GLuint mMbStatusTexture = 0;
+	GLuint mExtTexture = 0;
+	GLint mUniformSamplers[PROGRAM_MAX][GL_VIDEO_TEX_UNIT_COUNT]{};
+	GLint mPositionHandle[PROGRAM_MAX]{};
+	GLint mTexcoordHandle[PROGRAM_MAX]{};
+	GLint mMbStatusUniformSampler[PROGRAM_MAX]{};
+	bool mBlurInit = false;
+	bool mApplyBlur = false;
+	float mBlurWeights[GL_VIDEO_BLUR_TAP_COUNT]{};
+	unsigned int mBlurFboWidth = 0;
+	unsigned int mBlurFboHeight = 0;
+	GLuint mBlurFbo[2]{};
+	GLuint mBlurFboTexture[2]{};
+	GLint mBlurProgram[2]{};
+	GLint mBlurUniformPixelSize[2]{};
+	GLint mBlurUniformWeights[2]{};
+	GLint mBlurUniformSampler[2]{};
+	GLint mBlurPositionHandle[2]{};
+	unsigned int mPaddingPass1Width = 0;
+	unsigned int mPaddingPass1Height = 0;
+	unsigned int mPaddingPass2Width = 0;
+	unsigned int mPaddingPass2Height = 0;
+	float mPaddingBlurWeights[GL_VIDEO_BLUR_TAP_COUNT]{};
+	GLuint mPaddingFbo[4]{};
+	GLuint mPaddingFboTexture[4]{};
+	bool mHistogramInit = false;
+	uint64_t mHistogramLastComputeTime = 0;
+	GLint mHistogramProgram[PROGRAM_MAX]{};
+	GLint mHistogramYuv2RgbMatrix[PROGRAM_MAX]{};
+	GLint mHistogramYuv2RgbOffset[PROGRAM_MAX]{};
+	GLint mHistogramRgb2LumaMatrix[PROGRAM_MAX]{};
+	GLint mHistogramRgb2LumaOffset[PROGRAM_MAX]{};
+	GLint mHistogramBrightnessCoef[PROGRAM_MAX]{};
+	GLint mHistogramContrastCoef[PROGRAM_MAX]{};
+	GLint mHistogramGammaCoef[PROGRAM_MAX]{};
+	GLint mHistogramStride[PROGRAM_MAX]{};
+	GLint mHistogramMaxCoordsRatio[PROGRAM_MAX]{};
+	GLint mHistogramMaxClamp[PROGRAM_MAX]{};
+	GLint mHistogramUniformSampler[PROGRAM_MAX][GL_VIDEO_TEX_UNIT_COUNT]{};
+	GLint mHistogramPositionHandle[PROGRAM_MAX]{};
+	GLint mHistogramTexcoordHandle[PROGRAM_MAX]{};
+	GLuint mHistogramFbo = 0;
+	GLuint mHistogramFboTexture = 0;
+	uint8_t *mHistogramBuffer = nullptr;
+	bool mHistogramValid[PDRAW_HISTOGRAM_CHANNEL_MAX]{};
+	uint32_t *mHistogram[PDRAW_HISTOGRAM_CHANNEL_MAX]{};
+	float *mHistogramNorm[PDRAW_HISTOGRAM_CHANNEL_MAX]{};
+	float mBrightnessCoef = 0.f;
+	float mContrastCoef = 1.f;
+	float mGammaCoef = 1.f;
+	float mSatCoef = 1.f; /* 0.0 (greyscale) .. 1.0 (original video) */
+	float mBaseSatCoef = 1.f;
+	float mLightCoef = 1.f; /* 0.0 (white) .. 1.0 (video) */
+	float mBaseLightCoef = 1.f;
+	float mDarkCoef = 1.f; /* 0.0 (black) .. 1.0 (video) */
+	float mBaseDarkCoef = 1.f;
+	bool mHasMbStatus = false;
 
 	static const GLchar *videoFragmentShaders[2][PROGRAM_MAX][5];
 	static const GLchar *histogramFragmentShaders[PROGRAM_MAX][3];
@@ -365,5 +372,3 @@ private:
 } /* namespace Pdraw */
 
 #endif /* PDRAW_USE_GL */
-
-#endif /* !_PDRAW_GL_VIDEO_HPP_ */

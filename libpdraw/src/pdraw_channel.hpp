@@ -28,13 +28,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_CHANNEL_HPP_
-#define _PDRAW_CHANNEL_HPP_
+#pragma once
 
 #include <inttypes.h>
 
 #include <libpomp.h>
 #include <media-buffers/mbuf_mem.h>
+#include <media-buffers/mbuf_queue.hpp>
 
 #include "pdraw_video_pres_stats.hpp"
 
@@ -44,7 +44,7 @@ class Sink;
 
 class Channel {
 public:
-	enum DownstreamEvent {
+	enum class DownstreamEvent : uint32_t {
 		/* flush required */
 		FLUSH,
 
@@ -79,7 +79,12 @@ public:
 		SESSION_META_UPDATE,
 	};
 
-	enum UpstreamEvent {
+	static constexpr uint32_t toMsgId(DownstreamEvent ev) noexcept
+	{
+		return static_cast<uint32_t>(ev);
+	}
+
+	enum class UpstreamEvent : uint32_t {
 		/* unlink required */
 		UNLINK,
 
@@ -96,9 +101,14 @@ public:
 		VIDEO_PRES_STATS,
 	};
 
+	static constexpr uint32_t toMsgId(UpstreamEvent ev) noexcept
+	{
+		return static_cast<uint32_t>(ev);
+	}
+
 	class SinkListener {
 	public:
-		virtual ~SinkListener(void) {}
+		virtual ~SinkListener() = default;
 
 		virtual void
 		onChannelDownstreamEvent(Channel *channel,
@@ -107,7 +117,7 @@ public:
 
 	class SourceListener {
 	public:
-		virtual ~SourceListener(void) {}
+		virtual ~SourceListener() = default;
 
 		virtual void
 		onChannelUpstreamEvent(Channel *channel,
@@ -122,41 +132,41 @@ public:
 		SinkListener *sinkListener,
 		struct pomp_loop *loop);
 
-	virtual ~Channel(void) = 0;
+	virtual ~Channel() = 0;
 
-	int flush(void);
+	int flush();
 
-	bool isFlushPending(void)
+	bool isFlushPending() const
 	{
 		return mFlushPending;
 	}
 
-	int flushDone(void);
+	int flushDone();
 
-	int asyncFlushDone(void);
+	int asyncFlushDone();
 
-	int drain(void);
+	int drain();
 
-	bool isDrainPending(void)
+	bool isDrainPending() const
 	{
 		return mDrainPending;
 	}
 
-	int drainDone(void);
+	int drainDone();
 
-	int asyncDrainDone(void);
+	int asyncDrainDone();
 
-	int resync(void);
+	int resync();
 
-	int unlink(void);
+	int unlink();
 
-	int teardown(void);
+	int teardown();
 
-	int sendVideoPresStats(VideoPresStats *stats);
+	int sendVideoPresStats(const VideoPresStats *stats);
 
 	int sendDownstreamEvent(DownstreamEvent downstreamEvent);
 
-	SourceListener *getSourceListener(void) const
+	SourceListener *getSourceListener() const
 	{
 		return mSourceListener;
 	}
@@ -166,9 +176,18 @@ public:
 		mSourceListener = sourceListener;
 	}
 
-	Sink *getOwner(void) const
+	Sink *getOwner() const
 	{
 		return mOwner;
+	}
+
+	mbuf::Queue *getQueue(const Sink *owner) const;
+
+	void setQueue(const Sink *owner, mbuf::Queue *queue);
+
+	bool hasQueue(const mbuf::Queue *queue) const
+	{
+		return mQueue == queue;
 	}
 
 	struct mbuf_pool *getPool(const Sink *owner) const;
@@ -176,21 +195,20 @@ public:
 	void setPool(const Sink *owner, struct mbuf_pool *pool);
 
 protected:
-	Sink *mOwner;
+	Sink *mOwner = nullptr;
 
 private:
 	static void idleFlushDone(void *userdata);
 
 	static void idleDrainDone(void *userdata);
 
-	SinkListener *mSinkListener;
-	SourceListener *mSourceListener;
-	struct mbuf_pool *mPool;
-	struct pomp_loop *mLoop;
-	bool mFlushPending;
-	bool mDrainPending;
+	SinkListener *mSinkListener = nullptr;
+	SourceListener *mSourceListener = nullptr;
+	mbuf::Queue *mQueue = nullptr;
+	struct mbuf_pool *mPool = nullptr;
+	struct pomp_loop *mLoop = nullptr;
+	bool mFlushPending = false;
+	bool mDrainPending = false;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_CHANNEL_HPP_ */

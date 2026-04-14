@@ -28,8 +28,9 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _QPDRAW_DEMUXER_HPP_
-#define _QPDRAW_DEMUXER_HPP_
+#pragma once
+
+#include <memory>
 
 #include <QObject>
 
@@ -55,7 +56,7 @@ class QPdrawDemuxer : public QObject {
 public:
 	explicit QPdrawDemuxer(QPdraw *parent);
 
-	~QPdrawDemuxer();
+	~QPdrawDemuxer() override;
 
 	/**
 	 * Open a demuxer on a URL (stream or local file).
@@ -152,7 +153,7 @@ public:
 	 * the demuxer must be destroyed.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int close(void);
+	int close();
 
 	/**
 	 * Get the available demuxer media list.
@@ -195,7 +196,7 @@ public:
 	 * sockets on any available port.
 	 * @return the stream port on success, 0 in case of error
 	 */
-	uint16_t getSingleStreamLocalStreamPort(void);
+	uint16_t getSingleStreamLocalStreamPort();
 
 	/**
 	 * Get the single stream local control port.
@@ -207,7 +208,7 @@ public:
 	 * sockets on any available port.
 	 * @return the stream port on success, 0 in case of error
 	 */
-	uint16_t getSingleStreamLocalControlPort(void);
+	uint16_t getSingleStreamLocalControlPort();
 
 	/**
 	 * Get the ready to play status.
@@ -220,7 +221,7 @@ public:
 	 * to the readyToPlay() listener function when it is called.
 	 * @return the ready to play status on success, false in case of error
 	 */
-	bool isReadyToPlay(void);
+	bool isReadyToPlay();
 
 	/**
 	 * Get the pause status.
@@ -228,7 +229,7 @@ public:
 	 * otherwise.
 	 * @return the pause status on success, false in case of error
 	 */
-	bool isPaused(void);
+	bool isPaused();
 
 	/**
 	 * Play at the given speed.
@@ -263,7 +264,7 @@ public:
 	 * pauseResponse() signal will not be emitted.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int pause(void);
+	int pause();
 
 	/**
 	 * Go to previous frame in frame-by-frame playback.
@@ -277,7 +278,7 @@ public:
 	 * seekResponse() signal will not be emitted.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int previousFrame(void);
+	int previousFrame();
 
 	/**
 	 * Go to next frame in frame-by-frame playback.
@@ -291,7 +292,7 @@ public:
 	 * seekResponse() signal will not be emitted.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int nextFrame(void);
+	int nextFrame();
 
 	/**
 	 * Seek forward or backward.
@@ -402,7 +403,7 @@ public:
 	 * @return the duration in microseconds on success,
 	 *         0 in case of error
 	 */
-	uint64_t getDuration(void);
+	uint64_t getDuration();
 
 	/**
 	 * Get the playback current time.
@@ -413,7 +414,7 @@ public:
 	 * @return the current time in microseconds on success,
 	 *         0 in case of error
 	 */
-	uint64_t getCurrentTime(void);
+	uint64_t getCurrentTime();
 
 signals:
 	/**
@@ -444,7 +445,7 @@ signals:
 	 * for the demuxerCloseResponse() listener function to be called prior
 	 * to destroying the demuxer.
 	 */
-	void onUnrecoverableError(void);
+	void onUnrecoverableError();
 
 	/**
 	 * Demuxer media selection signal, emitted with a list of video medias
@@ -552,9 +553,7 @@ signals:
 	void seekResponse(int status, quint64 timestamp, float speed);
 
 private:
-	Internal::QPdrawDemuxerPriv *mPriv;
+	std::unique_ptr<Internal::QPdrawDemuxerPriv> mPriv;
 };
 
 } /* namespace QPdraw */
-
-#endif /* !_QPDRAW_DEMUXER_HPP_ */

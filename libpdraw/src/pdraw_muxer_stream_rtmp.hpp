@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_MUXER_STREAM_RTMP_HPP_
-#define _PDRAW_MUXER_STREAM_RTMP_HPP_
+#pragma once
 
 #ifdef BUILD_LIBRTMP
 
@@ -42,6 +41,9 @@
 namespace Pdraw {
 
 
+constexpr size_t MUXER_STREAM_RTMP_RECONNECTION_MAX_COUNT = 10;
+
+
 class RtmpStreamMuxer : public Muxer {
 public:
 	RtmpStreamMuxer(Session *session,
@@ -51,7 +53,7 @@ public:
 			const std::string &url,
 			const struct pdraw_muxer_params *params);
 
-	~RtmpStreamMuxer(void);
+	~RtmpStreamMuxer() override;
 
 	int
 	addInputMedia(Media *media,
@@ -62,30 +64,35 @@ public:
 		return addInputMedia(media, nullptr);
 	};
 
+	int
+	setDynParams(const struct pdraw_muxer_dyn_params *dyn_params) override;
+
+	int getDynParams(struct pdraw_muxer_dyn_params *dyn_params) override;
+
 	int getStats(struct pdraw_muxer_stats *stats) override;
 
 private:
-	enum RtmpState {
+	enum class RtmpState {
 		DISCONNECTED = 0,
 		CONNECTING,
 		CONNECTED,
 	};
 
-	int internalStart(void) override;
+	int internalStart() override;
 
-	int internalStop(void) override;
+	int internalStop() override;
 
-	int configure(void);
+	int configure();
 
-	int scheduleReconnection(void);
+	int scheduleReconnection();
 
-	int reconnect(void);
+	int reconnect();
 
-	int process(void) override;
+	int process() override;
 
-	int processMedia(CodedVideoMedia *media);
+	int processMedia(const CodedVideoMedia *media);
 
-	int processFrame(CodedVideoMedia *media,
+	int processFrame(const CodedVideoMedia *media,
 			 struct mbuf_coded_video_frame *frame);
 
 	void onChannelFlush(Channel *channel) override;
@@ -124,34 +131,38 @@ private:
 	static void reconnectionTimerCb(struct pomp_timer *timer,
 					void *userdata);
 
-	std::string mUrl;
-	struct pomp_timer *mDummyAudioTimer;
-	bool mDummyAudioStarted;
-	struct rtmp_client *mRtmpClient;
-	RtmpState mRtmpState;
-	enum rtmp_client_conn_state mRtmpConnectionState;
-	enum rtmp_client_disconnection_reason mRtmpDisconnectionReason;
-	bool mConfigured;
-	bool mSynchronized;
-	CodedVideoMedia *mVideoMedia;
-	double mDuration;
-	int mWidth;
-	int mHeight;
-	double mFramerate;
-	int mAudioSampleRate;
-	int mAudioSampleSize;
-	uint32_t mDummyAudioTimestamp;
-	struct pdraw_muxer_stats mStats;
-	std::vector<uint8_t> mVideoAvcc;
-	struct pomp_timer *mConnectionWatchdog;
-	bool mHasBeenConnected;
-	int mReconnectionCount;
-	int mReconnectionMaxCount;
-	struct pomp_timer *mReconnectionTimer;
+	std::string mUrl{};
+	struct pomp_timer *mDummyAudioTimer = nullptr;
+	bool mDummyAudioStarted = false;
+	struct rtmp_client *mRtmpClient = nullptr;
+	size_t mSocketTxBufferSize = 0;
+	RtmpState mRtmpState = RtmpState::DISCONNECTED;
+	enum rtmp_client_conn_state mRtmpConnectionState =
+		RTMP_CLIENT_CONN_STATE_DISCONNECTED;
+	enum rtmp_client_disconnection_reason mRtmpDisconnectionReason =
+		RTMP_CLIENT_DISCONNECTION_REASON_UNKNOWN;
+	bool mConfigured = false;
+	bool mSynchronized = false;
+	CodedVideoMedia *mVideoMedia = nullptr;
+	double mDuration = 0.;
+	int mWidth = 0;
+	int mHeight = 0;
+	double mFramerate = 0.;
+	int mAudioSampleRate = 0;
+	int mAudioSampleSize = 0;
+	uint32_t mDummyAudioTimestamp = 0;
+	struct pdraw_muxer_stats mStats {
+	};
+	std::vector<uint8_t> mVideoAvcc{};
+	struct pomp_timer *mConnectionWatchdog = nullptr;
+	bool mHasBeenConnected = false;
+	int mReconnectionCount = 0;
+	int mReconnectionMaxCount = MUXER_STREAM_RTMP_RECONNECTION_MAX_COUNT;
+	struct pomp_timer *mReconnectionTimer = nullptr;
 
 	static const struct rtmp_callbacks mRtmpCbs;
-	static const uint8_t mDummyAudioSpecificConfig[5];
-	static const uint8_t mDummyAudioSample[6];
+	static const std::array<uint8_t, 5> mDummyAudioSpecificConfig;
+	static const std::array<uint8_t, 6> mDummyAudioSample;
 	static const int mDummyAudioSampleRate;
 	static const int mDummyAudioSampleSize;
 };
@@ -159,5 +170,3 @@ private:
 } /* namespace Pdraw */
 
 #endif /* BUILD_LIBRTMP */
-
-#endif /* !_PDRAW_MUXER_STREAM_RTMP_HPP_ */

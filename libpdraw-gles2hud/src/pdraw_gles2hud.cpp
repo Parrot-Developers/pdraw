@@ -79,7 +79,7 @@ enum drone_model {
 };
 
 
-static const char *heading_str[] = {
+static const char *const heading_str[] = {
 	".N.",
 	"NW",
 	"W",
@@ -90,7 +90,7 @@ static const char *heading_str[] = {
 	"NE",
 };
 
-static const char *flying_state_str[] = {
+static const char *const flying_state_str[] = {
 	"LANDED",
 	"TAKING OFF",
 	"HOVERING",
@@ -99,14 +99,14 @@ static const char *flying_state_str[] = {
 	"EMERGENCY",
 };
 
-static const char *piloting_mode_str[] = {
+static const char *const piloting_mode_str[] = {
 	"MANUAL",
 	"RETURN HOME",
 	"FLIGHT PLAN",
 	"FOLLOW ME",
 };
 
-static const char *link_type_str[] = {
+static const char *const link_type_str[] = {
 	"",
 	"LO",
 	"LAN",
@@ -169,7 +169,8 @@ get_drone_model(const struct vmeta_session *session_meta)
 
 static const char *get_active_link(struct vmeta_frame *meta)
 {
-	int res = 0, count = 0;
+	int res = 0;
+	int count = 0;
 	const char *ret = "";
 	const Vmeta__TimedMetadata *tm;
 	const Vmeta__LinkMetadata *link;
@@ -235,7 +236,8 @@ get_tracking_object(const enum _Vmeta__TrackingClass object_class)
 int pdraw_gles2hud_new(const struct pdraw_gles2hud_config *config,
 		       struct pdraw_gles2hud **hud)
 {
-	int res, err;
+	int res;
+	int err;
 	struct pdraw_gles2hud *self;
 
 	if (config == nullptr)
@@ -430,13 +432,13 @@ int pdraw_gles2hud_set_config(struct pdraw_gles2hud *self,
 
 static void pdraw_gles2hud_get_fov(struct pdraw_gles2hud *self,
 				   const struct vmeta_session *session_meta,
-				   struct vmeta_frame *frame_meta)
+				   const struct vmeta_frame *frame_meta)
 {
-	if ((frame_meta) && (frame_meta->type == VMETA_FRAME_TYPE_V3)) {
+	if (frame_meta && (frame_meta->type == VMETA_FRAME_TYPE_V3)) {
 		self->h_fov = frame_meta->v3.base.picture_hfov;
 		self->v_fov = frame_meta->v3.base.picture_vfov;
-	} else if ((session_meta) && (session_meta->picture_fov.has_horz) &&
-		   (session_meta->picture_fov.has_horz)) {
+	} else if (session_meta && (session_meta->picture_fov.has_horz) &&
+		   (session_meta->picture_fov.has_vert)) {
 		self->h_fov = session_meta->picture_fov.horz;
 		self->v_fov = session_meta->picture_fov.vert;
 	} else {
@@ -458,8 +460,14 @@ static int pdraw_gles2hud_render_piloting(
 	const struct pdraw_video_frame_extra *frame_extra,
 	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
 {
-	int i, j, steps, angle_deg;
-	float cy, delta_x, delta_y, angle;
+	int i;
+	int j;
+	int steps;
+	int angle_deg;
+	float cy;
+	float delta_x;
+	float delta_y;
+	float angle;
 	Eigen::Matrix4f xform_mat;
 	Eigen::Matrix4f model_mat;
 	Eigen::Matrix4f view_proj;
@@ -585,10 +593,10 @@ static int pdraw_gles2hud_render_piloting(
 			     &lfic_loc,
 			     &lfic_x,
 			     &lfic_y,
-			     NULL,
-			     NULL,
-			     NULL,
-			     NULL);
+			     nullptr,
+			     nullptr,
+			     nullptr,
+			     nullptr);
 
 	/* Controller orientation */
 	struct vmeta_euler ctrl_orientation;
@@ -651,21 +659,15 @@ static int pdraw_gles2hud_render_piloting(
 	    (ctrl_orientation_valid) && (ctrl_meta->radar_angle > 0.)) {
 		pdraw_gles2hud_draw_controller_radar(self,
 						     takeoff_distance,
-						     takeoff_bearing,
-						     ctrl_orientation.psi,
-						     drone_attitude.psi,
 						     ctrl_meta->radar_angle *
 							     M_PI / 180.,
 						     color_green);
 	}
 #else /* DEBUG_RADAR */
 	if ((location.valid) && (ctrl_meta->location.valid) &&
-	    (ctrl_orientation_valid) && (ctrl_meta->radar_angle > 0.)) {
+	    ctrl_orientation_valid && (ctrl_meta->radar_angle > 0.)) {
 		pdraw_gles2hud_draw_controller_radar(self,
 						     self_distance,
-						     self_bearing,
-						     ctrl_orientation.psi,
-						     drone_attitude.psi,
 						     ctrl_meta->radar_angle *
 							     M_PI / 180.,
 						     color_green);
@@ -816,11 +818,11 @@ static int pdraw_gles2hud_render_piloting(
 	}
 
 #ifdef DEBUG_RADAR /* used to test the radar on records */
-	if ((location.valid) && (session_meta->takeoff_loc.valid) &&
-	    (ctrl_orientation_valid)) {
+	if (location.valid && session_meta->takeoff_loc.valid &&
+	    ctrl_orientation_valid) {
 #else /* DEBUG_RADAR */
-	if ((location.valid) && (ctrl_meta->location.valid) &&
-	    (ctrl_orientation_valid)) {
+	if (location.valid && ctrl_meta->location.valid &&
+	    ctrl_orientation_valid) {
 #endif /* DEBUG_RADAR */
 		float x = self->config.radar_zone_h_offset * self->ratio_w;
 		float y = self->config.radar_zone_v_offset * self->ratio_h;
@@ -873,7 +875,7 @@ static int pdraw_gles2hud_render_piloting(
 		delta_x = 0.;
 		delta_y = self->config.heading_zone_v_offset * self->ratio_h;
 		angle = drone_attitude.psi - takeoff_bearing;
-		int angle_deg = ((int)(angle * 180. / M_PI + 70. + 360.)) % 360;
+		angle_deg = ((int)(angle * 180. / M_PI + 70. + 360.)) % 360;
 		if (angle_deg <= 140) {
 			model_mat << cosf(angle), -sinf(angle), 0., delta_x,
 				sinf(angle) * self->aspect_ratio,
@@ -1220,9 +1222,18 @@ static int pdraw_gles2hud_render_piloting(
 	    (media_info->duration != (uint64_t)-1)) {
 		uint64_t remaining_time =
 			media_info->duration - frame_extra->play_timestamp;
-		unsigned int c_hrs = 0, c_min = 0, c_sec = 0, c_msec = 0;
-		unsigned int r_hrs = 0, r_min = 0, r_sec = 0, r_msec = 0;
-		unsigned int d_hrs = 0, d_min = 0, d_sec = 0, d_msec = 0;
+		unsigned int c_hrs = 0;
+		unsigned int c_min = 0;
+		unsigned int c_sec = 0;
+		unsigned int c_msec = 0;
+		unsigned int r_hrs = 0;
+		unsigned int r_min = 0;
+		unsigned int r_sec = 0;
+		unsigned int r_msec = 0;
+		unsigned int d_hrs = 0;
+		unsigned int d_min = 0;
+		unsigned int d_sec = 0;
+		unsigned int d_msec = 0;
 		pdraw_gles2hud_friendly_time_from_us(
 			frame_extra->play_timestamp,
 			&c_hrs,
@@ -1426,11 +1437,11 @@ static int pdraw_gles2hud_render_piloting(
 
 	/* Radar text */
 #ifdef DEBUG_RADAR /* used to test the radar on records */
-	if ((location.valid) && (session_meta->takeoff_loc.valid) &&
-	    (ctrl_orientation_valid)) {
+	if (location.valid && session_meta->takeoff_loc.valid &&
+	    ctrl_orientation_valid) {
 #else /* DEBUG_RADAR */
-	if ((location.valid) && (ctrl_meta->location.valid) &&
-	    (ctrl_orientation_valid)) {
+	if (location.valid && ctrl_meta->location.valid &&
+	    ctrl_orientation_valid) {
 #endif /* DEBUG_RADAR */
 		cy = 0.09 * self->ratio_w;
 		delta_x = self->config.radar_zone_h_offset * self->ratio_w;
@@ -1471,15 +1482,14 @@ static int pdraw_gles2hud_render_piloting(
 }
 
 
-static int pdraw_gles2hud_render_imaging(
-	struct pdraw_gles2hud *self,
-	const struct pdraw_rect *render_pos,
-	const struct pdraw_rect *content_pos,
-	const float view_proj_mat[16],
-	const struct pdraw_media_info *media_info,
-	struct vmeta_frame *frame_meta,
-	const struct pdraw_video_frame_extra *frame_extra,
-	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
+static int
+pdraw_gles2hud_render_imaging(struct pdraw_gles2hud *self,
+			      const struct pdraw_rect *render_pos,
+			      const struct pdraw_rect *content_pos,
+			      const float view_proj_mat[16],
+			      const struct pdraw_media_info *media_info,
+			      struct vmeta_frame *frame_meta,
+			      const struct pdraw_video_frame_extra *frame_extra)
 {
 	int err;
 	struct vmeta_rectf mask = {};
@@ -1530,15 +1540,13 @@ static int pdraw_gles2hud_render_imaging(
 	return 0;
 }
 
-static int pdraw_gles2hud_render_tracking(
-	struct pdraw_gles2hud *self,
-	const struct pdraw_rect *render_pos,
-	const struct pdraw_rect *content_pos,
-	const float view_proj_mat[16],
-	const struct pdraw_media_info *media_info,
-	struct vmeta_frame *frame_meta,
-	const struct pdraw_video_frame_extra *frame_extra,
-	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
+static int
+pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
+			       const struct pdraw_rect *render_pos,
+			       const struct pdraw_rect *content_pos,
+			       const float view_proj_mat[16],
+			       const struct pdraw_media_info *media_info,
+			       struct vmeta_frame *frame_meta)
 {
 	int res = 0;
 	size_t i;
@@ -1732,17 +1740,14 @@ int pdraw_gles2hud_render(
 						     view_proj_mat,
 						     media_info,
 						     frame_meta,
-						     frame_extra,
-						     ctrl_meta);
+						     frame_extra);
 	case PDRAW_GLES2HUD_TYPE_TRACKING:
 		return pdraw_gles2hud_render_tracking(self,
 						      render_pos,
 						      content_pos,
 						      view_proj_mat,
 						      media_info,
-						      frame_meta,
-						      frame_extra,
-						      ctrl_meta);
+						      frame_meta);
 	default:
 		ULOGE("unsupported HUD type: %d", type);
 		return -ENOSYS;

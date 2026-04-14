@@ -55,6 +55,9 @@ ULOG_DECLARE_TAG(pdraw_codedsourcesink_test);
 #include <video-defs/vdefs.h>
 
 
+#define UNUSED(x) (void)(x)
+
+
 #define DEFAULT_TS_INC 33333
 #define DEFAULT_FRAME_LEN (3840 * 2160 * 3 / 4)
 
@@ -125,12 +128,15 @@ static void source_flushed_cb(struct pdraw_backend *pdraw,
 			      struct pdraw_coded_video_source *source,
 			      void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s", __func__);
 	pthread_mutex_lock(&self->mutex);
 	self->flushed_resp = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -138,12 +144,15 @@ static void source_drained_cb(struct pdraw_backend *pdraw,
 			      struct pdraw_coded_video_source *source,
 			      void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s", __func__);
 	pthread_mutex_lock(&self->mutex);
 	self->drained_resp = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -157,6 +166,9 @@ static void sink_flush_cb(struct pdraw_backend *pdraw,
 			  struct pdraw_coded_video_sink *sink,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -183,6 +195,9 @@ static void sink_drain_cb(struct pdraw_backend *pdraw,
 			  struct pdraw_coded_video_sink *sink,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -225,13 +240,15 @@ static const struct pdraw_backend_coded_video_sink_cbs sink_cbs = {
 static void
 stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 	pthread_mutex_lock(&self->mutex);
 	self->stop_resp = true;
 	self->stop_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -240,6 +257,8 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 			   void *element_userdata,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -273,8 +292,8 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	pthread_mutex_lock(&self->mutex);
 	self->media_added = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -283,6 +302,8 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 			     void *element_userdata,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -300,14 +321,17 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 
 	pthread_mutex_lock(&self->mutex);
 	self->media_removed = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
 static void
 socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(userdata);
+
 	ULOGI("%s fd=%d", __func__, fd);
 }
 
@@ -556,7 +580,6 @@ static int configure(struct pdraw_backend_app *self)
 		.playback_type = PDRAW_PLAYBACK_TYPE_REPLAY,
 		.duration = 0, /* this is not known */
 		.video.format = VDEF_FRAME_TYPE_CODED,
-		.video.type = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA,
 		.video.coded.format = self->in_info.format,
 		.video.coded.info = self->format_info,
 	};
@@ -650,7 +673,8 @@ static int configure(struct pdraw_backend_app *self)
 
 static int au_process(struct pdraw_backend_app *self)
 {
-	int res = 0, err;
+	int res = 0;
+	int err;
 
 	if ((self->in_frame == NULL) || (!self->configured))
 		return 0;
@@ -708,9 +732,11 @@ static int append_to_frame(struct pdraw_backend_app *self,
 			   union nalu_type type)
 {
 	int res;
-	size_t au_offset, capacity;
+	size_t au_offset;
+	size_t capacity;
 	size_t nalu_offset = 4;
-	uint8_t *au_data, *nalu_data;
+	uint8_t *au_data;
+	uint8_t *nalu_data;
 	uint32_t start;
 
 	ULOG_ERRNO_RETURN_ERR_IF(frame == NULL, EINVAL);
@@ -794,6 +820,8 @@ static int au_end(struct pdraw_backend_app *self)
 
 static void h264_au_end_cb(struct h264_ctx *ctx, void *userdata)
 {
+	UNUSED(ctx);
+
 	struct pdraw_backend_app *self = userdata;
 	int res = au_end(userdata);
 	if (res < 0) {
@@ -806,6 +834,8 @@ static void h264_au_end_cb(struct h264_ctx *ctx, void *userdata)
 
 static void h265_au_end_cb(struct h265_ctx *ctx, void *userdata)
 {
+	UNUSED(ctx);
+
 	struct pdraw_backend_app *self = userdata;
 	int res = au_end(userdata);
 	if (res < 0) {
@@ -949,6 +979,9 @@ static void h264_nalu_end_cb(struct h264_ctx *ctx,
 			     const struct h264_nalu_header *nh,
 			     void *userdata)
 {
+	UNUSED(ctx);
+	UNUSED(nh);
+
 	nalu_end(userdata, (union nalu_type){.h264 = type}, buf, len);
 }
 
@@ -960,6 +993,9 @@ static void h265_nalu_end_cb(struct h265_ctx *ctx,
 			     const struct h265_nalu_header *nh,
 			     void *userdata)
 {
+	UNUSED(ctx);
+	UNUSED(nh);
+
 	nalu_end(userdata, (union nalu_type){.h265 = type}, buf, len);
 }
 
@@ -978,7 +1014,8 @@ static const struct h265_ctx_cbs h265_cbs = {
 
 static void process_output(struct pdraw_backend_app *self)
 {
-	int res = 0, err;
+	int res = 0;
+	int err;
 
 	if (self->out_queue == NULL)
 		return;
@@ -988,7 +1025,8 @@ static void process_output(struct pdraw_backend_app *self)
 	while (res == 0) {
 		struct mbuf_coded_video_frame *frame = NULL;
 		struct vdef_coded_frame info;
-		size_t i, nalu_count;
+		size_t i;
+		size_t nalu_count;
 		const uint8_t *data;
 		const void *nalu_data;
 		struct vdef_nalu nalu;
@@ -1072,6 +1110,8 @@ static const struct option long_options[] = {
 
 static void welcome(int argc, char **argv)
 {
+	UNUSED(argc);
+
 	printf("%s - Parrot Drones Audio and Video Vector - "
 	       "Coded video source to sink test program\n\n",
 	       argv[0]);
@@ -1080,6 +1120,8 @@ static void welcome(int argc, char **argv)
 
 static void usage(int argc, char **argv)
 {
+	UNUSED(argc);
+
 	/* clang-format off */
 	printf("Usage: %s [options] <input_file> <output_file>\n\n"
 	       "Options:\n"
@@ -1097,8 +1139,10 @@ static void usage(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-	int res, status = EXIT_SUCCESS;
-	char *input = NULL, *output = NULL;
+	int res;
+	int status = EXIT_SUCCESS;
+	char *input = NULL;
+	char *output = NULL;
 	struct pdraw_backend_app *self = NULL;
 	struct vdef_coded_format format = {0};
 	unsigned int max_count = 0;
@@ -1106,7 +1150,8 @@ int main(int argc, char **argv)
 	welcome(argc, argv);
 
 	/* Command-line parameters */
-	int idx, c;
+	int idx;
+	int c;
 	while ((c = getopt_long(
 			argc, argv, short_options, long_options, &idx)) != -1) {
 		switch (c) {

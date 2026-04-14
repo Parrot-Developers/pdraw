@@ -37,8 +37,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <time.h>
 
-#define PDRAW_EXT_RAW_VIDEO_SOURCE_ANCILLARY_KEY_INPUT_TIME                    \
-	"pdraw.rawvideosource.input_time"
+constexpr const char *PDRAW_EXT_RAW_VIDEO_SOURCE_ANCILLARY_KEY_INPUT_TIME =
+	"pdraw.rawvideosource.input_time";
 
 namespace Pdraw {
 
@@ -56,8 +56,7 @@ ExternalRawVideoSource::ExternalRawVideoSource(
 			      1,
 			      sourceListener),
 		mVideoSource(wrapper), mVideoSourceListener(listener),
-		mParams(*params), mFrameQueue(nullptr), mOutputMedia(nullptr),
-		mLastTimestamp(UINT64_MAX)
+		mParams(*params)
 {
 	Element::setClassName(__func__);
 
@@ -65,7 +64,7 @@ ExternalRawVideoSource::ExternalRawVideoSource(
 }
 
 
-ExternalRawVideoSource::~ExternalRawVideoSource(void)
+ExternalRawVideoSource::~ExternalRawVideoSource()
 {
 	int err;
 
@@ -81,19 +80,12 @@ ExternalRawVideoSource::~ExternalRawVideoSource(void)
 		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 
 	if (mFrameQueue != nullptr) {
-		err = mbuf_raw_video_frame_queue_flush(mFrameQueue);
-		if (err < 0) {
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-err);
-		}
-		err = removeQueueEvtFromLoop(mFrameQueue, mSession->getLoop());
+		err = mFrameQueue->flush();
 		if (err < 0)
-			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -err);
-		err = mbuf_raw_video_frame_queue_destroy(mFrameQueue);
-		if (err < 0) {
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_destroy",
-					-err);
-		}
+			PDRAW_LOG_ERRNO("queue::flush", -err);
+		err = mFrameQueue->detachFromLoop(mSession->getLoop());
+		if (err < 0)
+			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
 	}
 
 	if (mOutputMedia != nullptr)
@@ -101,10 +93,10 @@ ExternalRawVideoSource::~ExternalRawVideoSource(void)
 }
 
 
-int ExternalRawVideoSource::start(void)
+int ExternalRawVideoSource::start()
 {
-	int ret, err;
-	struct pomp_evt *evt = nullptr;
+	int ret;
+	int err;
 	std::string path;
 
 	if ((mState == State::STARTED) || (mState == State::STARTING))
@@ -122,23 +114,18 @@ int ExternalRawVideoSource::start(void)
 		.filter_userdata = this,
 		.max_frames = mParams.queue_max_count,
 	};
-	ret = mbuf_raw_video_frame_queue_new_with_args(&args, &mFrameQueue);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_new_with_args",
-				-ret);
+	try {
+		mFrameQueue = mbuf::Queue::createWithArgs(&args);
+	} catch (const std::bad_alloc &) {
+		PDRAW_LOGE("queue allocation failed");
+		ret = -ENOMEM;
 		goto error;
 	}
 
-	ret = mbuf_raw_video_frame_queue_get_event(mFrameQueue, &evt);
+	ret = mFrameQueue->attachToLoop(
+		mSession->getLoop(), &queueEventCb, this);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_get_event", -ret);
-		goto error;
-	}
-
-	ret = pomp_evt_attach_to_loop(
-		evt, mSession->getLoop(), &queueEventCb, this);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_attach_to_loop", -ret);
+		PDRAW_LOG_ERRNO("queue::attachToLoop", -ret);
 		goto error;
 	}
 
@@ -146,8 +133,9 @@ int ExternalRawVideoSource::start(void)
 
 	Source::lock();
 
-	mOutputMedia = new RawVideoMedia(mSession);
-	if (mOutputMedia == nullptr) {
+	try {
+		mOutputMedia = make_unique<RawVideoMedia>(mSession);
+	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
 		ret = -ENOMEM;
@@ -156,7 +144,7 @@ int ExternalRawVideoSource::start(void)
 	path = Element::getName() + "$" + mOutputMedia->getName();
 	mOutputMedia->setPath(path);
 
-	ret = addOutputPort(mOutputMedia);
+	ret = addOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -190,7 +178,7 @@ error:
 }
 
 
-int ExternalRawVideoSource::stop(void)
+int ExternalRawVideoSource::stop()
 {
 	int ret;
 
@@ -227,28 +215,25 @@ int ExternalRawVideoSource::stop(void)
 
 void ExternalRawVideoSource::idleCompleteFlush(void *userdata)
 {
-	ExternalRawVideoSource *self = (ExternalRawVideoSource *)userdata;
+	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
 	self->completeFlush();
 }
 
 
-int ExternalRawVideoSource::tryStop(void)
+int ExternalRawVideoSource::tryStop()
 {
-	int ret, err;
+	int ret;
+	int err;
 	int completeStopPendingCount;
 
 	if (mState != State::STOPPING)
 		return 0;
 
 	if (mFrameQueue != nullptr) {
-		err = removeQueueEvtFromLoop(mFrameQueue, mSession->getLoop());
+		err = mFrameQueue->detachFromLoop(mSession->getLoop());
 		if (err < 0)
-			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -err);
-		err = mbuf_raw_video_frame_queue_destroy(mFrameQueue);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_destroy",
-					-err);
-		mFrameQueue = nullptr;
+			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
+		mFrameQueue.reset();
 	}
 
 	/* Teardown the output channels
@@ -257,10 +242,12 @@ int ExternalRawVideoSource::tryStop(void)
 	completeStopPendingCount = 0;
 	Source::lock();
 	if (mOutputMedia != nullptr) {
-		int outputChannelCount = getOutputChannelCount(mOutputMedia);
+		int outputChannelCount =
+			getOutputChannelCount(mOutputMedia.get());
 
 		for (int i = outputChannelCount - 1; i >= 0; i--) {
-			Channel *channel = getOutputChannel(mOutputMedia, i);
+			Channel *channel =
+				getOutputChannel(mOutputMedia.get(), i);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   i);
@@ -282,7 +269,7 @@ int ExternalRawVideoSource::tryStop(void)
 }
 
 
-void ExternalRawVideoSource::completeStop(void)
+void ExternalRawVideoSource::completeStop()
 {
 	int ret;
 	unsigned int outputChannelCount;
@@ -292,7 +279,7 @@ void ExternalRawVideoSource::completeStop(void)
 	if (mOutputMedia == nullptr)
 		goto exit;
 
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	if (outputChannelCount > 0) {
 		Source::unlock();
 		return;
@@ -301,14 +288,13 @@ void ExternalRawVideoSource::completeStop(void)
 	/* Remove the output port */
 	if (Source::mListener) {
 		Source::mListener->onOutputMediaRemoved(
-			this, mOutputMedia, getVideoSource());
+			this, mOutputMedia.get(), getVideoSource());
 	}
-	ret = removeOutputPort(mOutputMedia);
+	ret = removeOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("removeOutputPort", -ret);
 	} else {
-		delete mOutputMedia;
-		mOutputMedia = nullptr;
+		mOutputMedia.reset();
 	}
 
 exit:
@@ -332,38 +318,10 @@ void ExternalRawVideoSource::onChannelUnlink(Channel *channel)
 }
 
 
-int ExternalRawVideoSource::removeQueueEvtFromLoop(
-	struct mbuf_raw_video_frame_queue *queue,
-	struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_raw_video_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_get_event", -res);
-		return res;
-	}
-
-	if (!pomp_evt_is_attached(evt, loop))
-		return 0;
-
-	res = pomp_evt_detach_from_loop(evt, loop);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -res);
-		return res;
-	}
-
-	return 0;
-}
-
-
 int ExternalRawVideoSource::flush(bool discard)
 {
-	int ret, err;
+	int ret;
+	int err;
 	bool channelFound = false;
 	Channel *outputChannel;
 
@@ -374,6 +332,14 @@ int ExternalRawVideoSource::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
+		ret = mFrameQueue->getCount();
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("queue::getCount", -ret);
+			return ret;
+		} else if (ret > 0) {
+			setFlushingState(FlushingState::UNFLUSHED);
+			break;
+		}
 		PDRAW_LOGD("video source is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
@@ -400,9 +366,9 @@ int ExternalRawVideoSource::flush(bool discard)
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		unsigned int outputChannelCount =
-			getOutputChannelCount(mOutputMedia);
+			getOutputChannelCount(mOutputMedia.get());
 		for (unsigned int i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
+			outputChannel = getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -429,10 +395,9 @@ int ExternalRawVideoSource::flush(bool discard)
 
 	/* Flush the queue */
 	if ((mFrameQueue != nullptr) && mFlushDiscard) {
-		err = mbuf_raw_video_frame_queue_flush(mFrameQueue);
+		err = mFrameQueue->flush();
 		if (err < 0) {
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-err);
+			PDRAW_LOG_ERRNO("queue::flush", -err);
 		}
 	}
 
@@ -454,7 +419,7 @@ int ExternalRawVideoSource::setSessionMetadata(const struct vmeta_session *meta)
 	if (mOutputMedia != nullptr) {
 		mOutputMedia->sessionMeta = mParams.session_meta;
 		int err = sendDownstreamEvent(
-			mOutputMedia,
+			mOutputMedia.get(),
 			Channel::DownstreamEvent::SESSION_META_UPDATE);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
@@ -476,7 +441,7 @@ int ExternalRawVideoSource::getSessionMetadata(struct vmeta_session *meta) const
 }
 
 
-void ExternalRawVideoSource::completeFlush(void)
+void ExternalRawVideoSource::completeFlush()
 {
 	int err;
 	bool pending = false;
@@ -484,10 +449,10 @@ void ExternalRawVideoSource::completeFlush(void)
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		unsigned int outputChannelCount =
-			getOutputChannelCount(mOutputMedia);
+			getOutputChannelCount(mOutputMedia.get());
 		for (unsigned int i = 0; i < outputChannelCount; i++) {
-			Channel *outputChannel =
-				getOutputChannel(mOutputMedia, i);
+			const Channel *outputChannel =
+				getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -530,7 +495,7 @@ void ExternalRawVideoSource::onChannelFlushed(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -551,7 +516,7 @@ void ExternalRawVideoSource::onChannelDrained(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -565,9 +530,10 @@ void ExternalRawVideoSource::onChannelDrained(Channel *channel)
 }
 
 
-int ExternalRawVideoSource::process(void)
+int ExternalRawVideoSource::process()
 {
-	int ret, err;
+	int ret;
+	int err;
 	struct mbuf_raw_video_frame *frame = nullptr;
 
 	if (mFrameQueue == nullptr) {
@@ -577,11 +543,10 @@ int ExternalRawVideoSource::process(void)
 	}
 
 	do {
-		ret = mbuf_raw_video_frame_queue_pop(mFrameQueue, &frame);
+		ret = mFrameQueue->popFrame(&frame);
 		if (ret < 0) {
 			if (ret != -EAGAIN) {
-				PDRAW_LOG_ERRNO(
-					"mbuf_raw_video_frame_queue_pop", -ret);
+				PDRAW_LOG_ERRNO("queue::popFrame", -ret);
 			}
 			continue;
 		}
@@ -599,8 +564,9 @@ int ExternalRawVideoSource::process(void)
 
 void ExternalRawVideoSource::queueEventCb(struct pomp_evt *evt, void *userdata)
 {
-	ExternalRawVideoSource *self =
-		reinterpret_cast<ExternalRawVideoSource *>(userdata);
+	PDRAW_UNUSED(evt);
+
+	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
@@ -627,9 +593,9 @@ void ExternalRawVideoSource::queueEventCb(struct pomp_evt *evt, void *userdata)
 bool ExternalRawVideoSource::inputFilter(struct mbuf_raw_video_frame *frame,
 					 void *userdata)
 {
-	ExternalRawVideoSource *self =
-		reinterpret_cast<ExternalRawVideoSource *>(userdata);
-	int ret, err;
+	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
+	int ret;
+	int err;
 	bool accept = true;
 	uint64_t ts_us;
 	struct timespec cur_ts = {0, 0};
@@ -732,9 +698,10 @@ out:
 
 int ExternalRawVideoSource::processFrame(struct mbuf_raw_video_frame *frame)
 {
-	int ret, err;
+	int ret;
+	int err;
 	struct vdef_raw_frame info;
-	RawVideoMedia::Frame out_meta = {};
+	RawVideoMedia::Frame out_meta{};
 	struct timespec ts = {0, 0};
 	uint64_t curTime = 0;
 	unsigned int outputChannelCount;
@@ -779,10 +746,10 @@ int ExternalRawVideoSource::processFrame(struct mbuf_raw_video_frame *frame)
 	}
 
 	/* Queue the frame in the output channels */
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	for (unsigned int i = 0; i < outputChannelCount; i++) {
-		Channel *c = getOutputChannel(mOutputMedia, i);
-		RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(c);
+		Channel *c = getOutputChannel(mOutputMedia.get(), i);
+		auto *channel = dynamic_cast<RawVideoChannel *>(c);
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel at index %d", i);
 			continue;
@@ -804,8 +771,7 @@ out:
 /* Listener call from an idle function */
 void ExternalRawVideoSource::callOnMediaAdded(void *userdata)
 {
-	ExternalRawVideoSource *self =
-		reinterpret_cast<ExternalRawVideoSource *>(userdata);
+	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mOutputMedia == nullptr) {
@@ -815,7 +781,7 @@ void ExternalRawVideoSource::callOnMediaAdded(void *userdata)
 
 	if (self->Source::mListener) {
 		self->Source::mListener->onOutputMediaAdded(
-			self, self->mOutputMedia, self->getVideoSource());
+			self, self->mOutputMedia.get(), self->getVideoSource());
 	}
 }
 
@@ -823,8 +789,7 @@ void ExternalRawVideoSource::callOnMediaAdded(void *userdata)
 /* Listener call from an idle function */
 void ExternalRawVideoSource::callVideoSourceFlushed(void *userdata)
 {
-	ExternalRawVideoSource *self =
-		reinterpret_cast<ExternalRawVideoSource *>(userdata);
+	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	self->setFlushingState(FlushingState::FLUSHED);
@@ -844,14 +809,19 @@ void ExternalRawVideoSource::callVideoSourceFlushed(void *userdata)
 RawVideoSourceWrapper::RawVideoSourceWrapper(
 	Session *session,
 	const struct pdraw_video_source_params *params,
-	IPdraw::IRawVideoSource::Listener *listener)
+	IPdraw::IRawVideoSource::Listener *listener) :
+		ElementWrapper(new Pdraw::ExternalRawVideoSource(session,
+								 session,
+								 session,
+								 listener,
+								 this,
+								 params)),
+		mSource(static_cast<Pdraw::ExternalRawVideoSource *>(mElement))
 {
-	mElement = mSource = new Pdraw::ExternalRawVideoSource(
-		session, session, session, listener, this, params);
 }
 
 
-RawVideoSourceWrapper::~RawVideoSourceWrapper(void)
+RawVideoSourceWrapper::~RawVideoSourceWrapper()
 {
 	if (isElementStopped())
 		return;
@@ -861,15 +831,22 @@ RawVideoSourceWrapper::~RawVideoSourceWrapper(void)
 }
 
 
-struct mbuf_raw_video_frame_queue *RawVideoSourceWrapper::getQueue(void)
+struct mbuf_raw_video_frame_queue *RawVideoSourceWrapper::getQueue()
 {
+	struct mbuf_raw_video_frame_queue *ret = nullptr;
+
 	if (isElementStopped())
 		return nullptr;
-	return mSource->getQueue();
+
+	mbuf::Queue *queue = mSource->getQueue();
+	if (queue == nullptr)
+		return nullptr;
+	queue->getCQueue(&ret);
+	return ret;
 }
 
 
-int RawVideoSourceWrapper::flush(void)
+int RawVideoSourceWrapper::flush()
 {
 	if (isElementStopped())
 		return -EPROTO;
@@ -877,7 +854,7 @@ int RawVideoSourceWrapper::flush(void)
 }
 
 
-int RawVideoSourceWrapper::drain(void)
+int RawVideoSourceWrapper::drain()
 {
 	if (isElementStopped())
 		return -EPROTO;

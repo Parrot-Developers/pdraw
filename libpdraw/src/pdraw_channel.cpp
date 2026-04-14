@@ -45,14 +45,12 @@ Channel::Channel(Sink *owner,
 		 SinkListener *sinkListener,
 		 struct pomp_loop *loop) :
 		mOwner(owner),
-		mSinkListener(sinkListener), mSourceListener(nullptr),
-		mPool(nullptr), mLoop(loop), mFlushPending(false),
-		mDrainPending(false)
+		mSinkListener(sinkListener), mLoop(loop)
 {
 }
 
 
-Channel::~Channel(void)
+Channel::~Channel()
 {
 	/* Remove any leftover idle callbacks */
 	if (mLoop != nullptr) {
@@ -60,6 +58,26 @@ Channel::~Channel(void)
 		if (err < 0)
 			ULOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
 	}
+}
+
+
+mbuf::Queue *Channel::getQueue(const Sink *owner) const
+{
+	if (owner != mOwner) {
+		ULOGE("Channel::getQueue: wrong owner");
+		return nullptr;
+	}
+	return mQueue;
+}
+
+
+void Channel::setQueue(const Sink *owner, mbuf::Queue *queue)
+{
+	if (owner != mOwner) {
+		ULOGE("Channel::setQueue: wrong owner");
+		return;
+	}
+	mQueue = queue;
 }
 
 
@@ -83,7 +101,7 @@ void Channel::setPool(const Sink *owner, struct mbuf_pool *pool)
 }
 
 
-int Channel::flush(void)
+int Channel::flush()
 {
 	int res;
 
@@ -102,7 +120,7 @@ int Channel::flush(void)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, DownstreamEvent::FLUSH, nullptr);
+	res = pomp_msg_write(event, toMsgId(DownstreamEvent::FLUSH), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -119,7 +137,7 @@ int Channel::flush(void)
 }
 
 
-int Channel::flushDone(void)
+int Channel::flushDone()
 {
 	int res;
 
@@ -136,7 +154,7 @@ int Channel::flushDone(void)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, UpstreamEvent::FLUSHED, nullptr);
+	res = pomp_msg_write(event, toMsgId(UpstreamEvent::FLUSHED), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -152,7 +170,7 @@ int Channel::flushDone(void)
 }
 
 
-int Channel::asyncFlushDone(void)
+int Channel::asyncFlushDone()
 {
 	if (mLoop == nullptr) {
 		ULOGE("invalid loop");
@@ -170,12 +188,12 @@ int Channel::asyncFlushDone(void)
 
 void Channel::idleFlushDone(void *userdata)
 {
-	Channel *self = (Channel *)userdata;
+	auto *self = static_cast<Channel *>(userdata);
 	(void)self->flushDone();
 }
 
 
-int Channel::drain(void)
+int Channel::drain()
 {
 	int res;
 
@@ -194,7 +212,7 @@ int Channel::drain(void)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, DownstreamEvent::DRAIN, nullptr);
+	res = pomp_msg_write(event, toMsgId(DownstreamEvent::DRAIN), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -211,7 +229,7 @@ int Channel::drain(void)
 }
 
 
-int Channel::drainDone(void)
+int Channel::drainDone()
 {
 	int res;
 
@@ -228,7 +246,7 @@ int Channel::drainDone(void)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, UpstreamEvent::DRAINED, nullptr);
+	res = pomp_msg_write(event, toMsgId(UpstreamEvent::DRAINED), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -244,7 +262,7 @@ int Channel::drainDone(void)
 }
 
 
-int Channel::asyncDrainDone(void)
+int Channel::asyncDrainDone()
 {
 	if (mLoop == nullptr) {
 		ULOGE("invalid loop");
@@ -262,12 +280,12 @@ int Channel::asyncDrainDone(void)
 
 void Channel::idleDrainDone(void *userdata)
 {
-	Channel *self = (Channel *)userdata;
+	auto *self = static_cast<Channel *>(userdata);
 	(void)self->drainDone();
 }
 
 
-int Channel::resync(void)
+int Channel::resync()
 {
 	int res;
 
@@ -280,7 +298,7 @@ int Channel::resync(void)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, UpstreamEvent::RESYNC, nullptr);
+	res = pomp_msg_write(event, toMsgId(UpstreamEvent::RESYNC), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -296,7 +314,7 @@ int Channel::resync(void)
 }
 
 
-int Channel::teardown(void)
+int Channel::teardown()
 {
 	int res;
 
@@ -311,7 +329,8 @@ int Channel::teardown(void)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, DownstreamEvent::TEARDOWN, nullptr);
+	res = pomp_msg_write(
+		event, toMsgId(DownstreamEvent::TEARDOWN), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -327,7 +346,7 @@ int Channel::teardown(void)
 }
 
 
-int Channel::unlink(void)
+int Channel::unlink()
 {
 	int res;
 
@@ -340,7 +359,7 @@ int Channel::unlink(void)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, UpstreamEvent::UNLINK, nullptr);
+	res = pomp_msg_write(event, toMsgId(UpstreamEvent::UNLINK), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -356,7 +375,7 @@ int Channel::unlink(void)
 }
 
 
-int Channel::sendVideoPresStats(VideoPresStats *stats)
+int Channel::sendVideoPresStats(const VideoPresStats *stats)
 {
 	int res;
 
@@ -369,7 +388,7 @@ int Channel::sendVideoPresStats(VideoPresStats *stats)
 		return -ENOMEM;
 	}
 
-	res = stats->writeMsg(event, UpstreamEvent::VIDEO_PRES_STATS);
+	res = stats->writeMsg(event, toMsgId(UpstreamEvent::VIDEO_PRES_STATS));
 	if (res < 0) {
 		ULOG_ERRNO("stats->writeMsg", -res);
 		goto out;
@@ -407,7 +426,7 @@ int Channel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
 		return -ENOMEM;
 	}
 
-	res = pomp_msg_write(event, downstreamEvent, nullptr);
+	res = pomp_msg_write(event, toMsgId(downstreamEvent), nullptr);
 	if (res < 0) {
 		ULOG_ERRNO("pomp_msg_write", -res);
 		return res;
@@ -426,27 +445,27 @@ int Channel::sendDownstreamEvent(DownstreamEvent downstreamEvent)
 const char *Channel::getDownstreamEventStr(DownstreamEvent val)
 {
 	switch (val) {
-	case FLUSH:
+	case DownstreamEvent::FLUSH:
 		return "FLUSH";
-	case DRAIN:
+	case DownstreamEvent::DRAIN:
 		return "DRAIN";
-	case TEARDOWN:
+	case DownstreamEvent::TEARDOWN:
 		return "TEARDOWN";
-	case SOS:
+	case DownstreamEvent::SOS:
 		return "SOS";
-	case EOS:
+	case DownstreamEvent::EOS:
 		return "EOS";
-	case RECONFIGURE:
+	case DownstreamEvent::RECONFIGURE:
 		return "RECONFIGURE";
-	case RESOLUTION_CHANGE:
+	case DownstreamEvent::RESOLUTION_CHANGE:
 		return "RESOLUTION_CHANGE";
-	case FRAMERATE_CHANGE:
+	case DownstreamEvent::FRAMERATE_CHANGE:
 		return "FRAMERATE_CHANGE";
-	case TIMEOUT:
+	case DownstreamEvent::TIMEOUT:
 		return "TIMEOUT";
-	case PHOTO_TRIGGER:
+	case DownstreamEvent::PHOTO_TRIGGER:
 		return "PHOTO_TRIGGER";
-	case SESSION_META_UPDATE:
+	case DownstreamEvent::SESSION_META_UPDATE:
 		return "SESSION_META_UPDATE";
 	default:
 		return nullptr;
@@ -457,15 +476,15 @@ const char *Channel::getDownstreamEventStr(DownstreamEvent val)
 const char *Channel::getUpstreamEventStr(UpstreamEvent val)
 {
 	switch (val) {
-	case UNLINK:
+	case UpstreamEvent::UNLINK:
 		return "UNLINK";
-	case FLUSHED:
+	case UpstreamEvent::FLUSHED:
 		return "FLUSHED";
-	case DRAINED:
+	case UpstreamEvent::DRAINED:
 		return "DRAINED";
-	case RESYNC:
+	case UpstreamEvent::RESYNC:
 		return "RESYNC";
-	case VIDEO_PRES_STATS:
+	case UpstreamEvent::VIDEO_PRES_STATS:
 		return "VIDEO_PRES_STATS";
 	default:
 		return nullptr;

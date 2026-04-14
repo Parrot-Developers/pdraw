@@ -40,10 +40,10 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-#define NB_SUPPORTED_FORMATS 6
+constexpr size_t NB_SUPPORTED_FORMATS = 19;
 static struct vdef_raw_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
-static void initializeSupportedFormats(void)
+static void initializeSupportedFormats()
 {
 	supportedFormats[0] = vdef_i420;
 	supportedFormats[1] = vdef_nv12;
@@ -51,6 +51,19 @@ static void initializeSupportedFormats(void)
 	supportedFormats[3] = vdef_nv12_10_16le_high;
 	supportedFormats[4] = vdef_raw8;
 	supportedFormats[5] = vdef_raw16;
+	supportedFormats[6] = vdef_raw32;
+	supportedFormats[7] = vdef_bayer_rggb;
+	supportedFormats[8] = vdef_bayer_bggr;
+	supportedFormats[9] = vdef_bayer_grbg;
+	supportedFormats[10] = vdef_bayer_gbrg;
+	supportedFormats[11] = vdef_bayer_rggb_10_packed;
+	supportedFormats[12] = vdef_bayer_bggr_10_packed;
+	supportedFormats[13] = vdef_bayer_grbg_10_packed;
+	supportedFormats[14] = vdef_bayer_gbrg_10_packed;
+	supportedFormats[15] = vdef_bayer_rggb_10;
+	supportedFormats[16] = vdef_bayer_bggr_10;
+	supportedFormats[17] = vdef_bayer_grbg_10;
+	supportedFormats[18] = vdef_bayer_gbrg_10;
 }
 
 
@@ -70,19 +83,11 @@ ExternalRawVideoSink::ExternalRawVideoSink(
 			    nullptr,
 			    0,
 			    nullptr,
-			    0)
+			    0),
+		mVideoSink(wrapper), mVideoSinkListener(listener),
+		mParams(*params), mTargetMediaId(mediaId)
 {
 	Element::setClassName(__func__);
-	mVideoSinkListener = listener;
-	mVideoSink = wrapper;
-	mParams = *params;
-	mInputMedia = nullptr;
-	mMediaId = 0;
-	mTargetMediaId = mediaId;
-	mInputFrameQueue = nullptr;
-	mInputChannelFlushPending = false;
-	mTearingDown = false;
-	mPendingRestart = false;
 
 	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
 	setRawVideoMediaFormatCaps(supportedFormats, NB_SUPPORTED_FORMATS);
@@ -91,7 +96,7 @@ ExternalRawVideoSink::ExternalRawVideoSink(
 }
 
 
-ExternalRawVideoSink::~ExternalRawVideoSink(void)
+ExternalRawVideoSink::~ExternalRawVideoSink()
 {
 	int ret;
 
@@ -118,22 +123,17 @@ ExternalRawVideoSink::~ExternalRawVideoSink(void)
 
 	/* Flush and destroy the queue */
 	if (mInputFrameQueue != nullptr) {
-		ret = mbuf_raw_video_frame_queue_flush(mInputFrameQueue);
+		ret = mInputFrameQueue->flush();
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-ret);
-		ret = mbuf_raw_video_frame_queue_destroy(mInputFrameQueue);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_destroy",
-					-ret);
-		mInputFrameQueue = nullptr;
+			PDRAW_LOG_ERRNO("flush", -ret);
+		mInputFrameQueue.reset();
 	}
 
 	Media::cleanupMediaInfo(&mMediaInfo);
 }
 
 
-int ExternalRawVideoSink::start(void)
+int ExternalRawVideoSink::start()
 {
 	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
@@ -147,12 +147,12 @@ int ExternalRawVideoSink::start(void)
 	/* Create the queue */
 	struct mbuf_raw_video_frame_queue_args queueArgs = {};
 	queueArgs.max_frames = mParams.queue_max_count;
-	int res = mbuf_raw_video_frame_queue_new_with_args(&queueArgs,
-							   &mInputFrameQueue);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_new_with_args",
-				-res);
-		return res;
+
+	try {
+		mInputFrameQueue = mbuf::Queue::createWithArgs(&queueArgs);
+	} catch (const std::bad_alloc &) {
+		PDRAW_LOGE("input frame queue allocation failed");
+		return -ENOMEM;
 	}
 
 	setState(State::STARTED);
@@ -161,7 +161,7 @@ int ExternalRawVideoSink::start(void)
 }
 
 
-int ExternalRawVideoSink::stop(void)
+int ExternalRawVideoSink::stop()
 {
 	int ret;
 	RawVideoChannel *channel = nullptr;
@@ -223,7 +223,7 @@ int ExternalRawVideoSink::setMediaId(unsigned int mediaId)
 }
 
 
-unsigned int ExternalRawVideoSink::getMediaId(void) const
+unsigned int ExternalRawVideoSink::getMediaId() const
 {
 	return mMediaId;
 }
@@ -231,7 +231,8 @@ unsigned int ExternalRawVideoSink::getMediaId(void) const
 
 int ExternalRawVideoSink::flush(bool discard)
 {
-	int ret, err;
+	int ret;
+	int err;
 
 	switch (getFlushingState()) {
 	case FlushingState::UNFLUSHED:
@@ -240,6 +241,14 @@ int ExternalRawVideoSink::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
+		ret = mInputFrameQueue->getCount();
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("getCount", -ret);
+			return ret;
+		} else if (ret > 0) {
+			setFlushingState(FlushingState::UNFLUSHED);
+			break;
+		}
 		PDRAW_LOGD("video sink is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
@@ -276,13 +285,15 @@ int ExternalRawVideoSink::flushDone(bool discard)
 			   mFlushDiscard);
 	}
 
+	setFlushingState(FlushingState::FLUSHED);
+
 	Sink::lock();
 
 	if (mInputMedia == nullptr)
 		goto exit;
 
 	if (mInputChannelFlushPending) {
-		RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(
+		auto *channel = dynamic_cast<RawVideoChannel *>(
 			getInputChannel(mInputMedia));
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
@@ -303,8 +314,6 @@ int ExternalRawVideoSink::flushDone(bool discard)
 exit:
 	Sink::unlock();
 
-	setFlushingState(FlushingState::FLUSHED);
-
 	if (mState == State::STOPPING)
 		setState(State::STOPPED);
 
@@ -314,7 +323,7 @@ exit:
 
 void ExternalRawVideoSink::idleFlushDone(void *userdata)
 {
-	ExternalRawVideoSink *self = (ExternalRawVideoSink *)userdata;
+	auto *self = static_cast<ExternalRawVideoSink *>(userdata);
 	if (self->mFlushDiscard)
 		(void)self->flushDone();
 	else
@@ -325,8 +334,7 @@ void ExternalRawVideoSink::idleFlushDone(void *userdata)
 void ExternalRawVideoSink::idleRenewMedia(void *userdata)
 {
 
-	ExternalRawVideoSink *self =
-		reinterpret_cast<ExternalRawVideoSink *>(userdata);
+	auto *self = static_cast<ExternalRawVideoSink *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mInputMedia != nullptr)
@@ -343,7 +351,7 @@ int ExternalRawVideoSink::addInputMedia(Media *media)
 	struct vmeta_session sessionMetaCopy = {};
 
 	/* Only accept raw video media */
-	RawVideoMedia *m = dynamic_cast<RawVideoMedia *>(media);
+	auto *m = dynamic_cast<RawVideoMedia *>(media);
 	if (m == nullptr) {
 		PDRAW_LOGE("unsupported input media");
 		return -ENOSYS;
@@ -368,14 +376,13 @@ int ExternalRawVideoSink::addInputMedia(Media *media)
 		return ret;
 	}
 
-	RawVideoChannel *channel =
-		dynamic_cast<RawVideoChannel *>(getInputChannel(m));
+	auto *channel = dynamic_cast<RawVideoChannel *>(getInputChannel(m));
 	if (channel == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
-	channel->setQueue(this, mInputFrameQueue);
+	channel->setQueue(this, mInputFrameQueue.get());
 
 	mInputMedia = m;
 	mMediaId = mTargetMediaId = m->id;
@@ -426,7 +433,7 @@ int ExternalRawVideoSink::removeInputMedia(Media *media)
 		mPendingRestart = false;
 	}
 
-	RawVideoChannel *channel =
+	const auto *channel =
 		dynamic_cast<RawVideoChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
 		Sink::unlock();
@@ -434,12 +441,8 @@ int ExternalRawVideoSink::removeInputMedia(Media *media)
 		return -EPROTO;
 	}
 
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
-	if (queue != nullptr) {
-		ret = mbuf_raw_video_frame_queue_flush(queue);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-ret);
+	if (mInputFrameQueue != nullptr) {
+		mInputFrameQueue->flush();
 	}
 
 	ret = Sink::removeInputMedia(media);
@@ -456,25 +459,22 @@ int ExternalRawVideoSink::removeInputMedia(Media *media)
 
 
 int ExternalRawVideoSink::prepareRawVideoFrame(
-	RawVideoChannel *channel,
+	const RawVideoChannel *channel,
 	struct mbuf_raw_video_frame *frame)
 {
 	int ret;
-	RawVideoMedia::Frame *in_meta;
-	struct pdraw_video_frame out_meta = {};
+	const RawVideoMedia::Frame *in_meta;
+	struct pdraw_video_frame out_meta {
+	};
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
 
 	if (mInputMedia == nullptr) {
 		PDRAW_LOGE("invalid input media");
 		return -ENOENT;
 	}
-	struct mbuf_raw_video_frame_queue *queue = channel->getQueue(this);
-	if (queue == nullptr) {
+	if (mInputFrameQueue == nullptr ||
+	    !channel->hasQueue(mInputFrameQueue.get())) {
 		PDRAW_LOGE("invalid queue");
-		return -ENOENT;
-	}
-	if (queue != mInputFrameQueue) {
-		PDRAW_LOGE("invalid input buffer queue");
 		return -EPROTO;
 	}
 
@@ -493,8 +493,8 @@ int ExternalRawVideoSink::prepareRawVideoFrame(
 		return ret;
 	}
 
-	in_meta = (RawVideoMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, nullptr);
+	in_meta = static_cast<const RawVideoMedia::Frame *>(
+		mbuf_ancillary_data_get_buffer(ancillaryData, nullptr));
 
 	if (!vdef_raw_format_intersect(&out_meta.raw.format,
 				       mRawVideoMediaFormatCaps,
@@ -607,7 +607,7 @@ void ExternalRawVideoSink::onChannelDrain(Channel *channel)
 
 void ExternalRawVideoSink::onChannelTeardown(Channel *channel)
 {
-	RawVideoChannel *c = dynamic_cast<RawVideoChannel *>(channel);
+	auto *c = dynamic_cast<RawVideoChannel *>(channel);
 	if (c == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
@@ -743,8 +743,7 @@ int ExternalRawVideoSink::channelTeardown(RawVideoChannel *channel)
 /* Listener call from an idle function */
 void ExternalRawVideoSink::callVideoSinkFlush(void *userdata)
 {
-	ExternalRawVideoSink *self =
-		reinterpret_cast<ExternalRawVideoSink *>(userdata);
+	auto *self = static_cast<ExternalRawVideoSink *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mVideoSinkListener == nullptr) {
@@ -768,14 +767,19 @@ RawVideoSinkWrapper::RawVideoSinkWrapper(
 	Session *session,
 	unsigned int mediaId,
 	const struct pdraw_video_sink_params *params,
-	IPdraw::IRawVideoSink::Listener *listener)
+	IPdraw::IRawVideoSink::Listener *listener) :
+		ElementWrapper(new Pdraw::ExternalRawVideoSink(session,
+							       session,
+							       listener,
+							       this,
+							       mediaId,
+							       params)),
+		mSink(static_cast<Pdraw::ExternalRawVideoSink *>(mElement))
 {
-	mElement = mSink = new Pdraw::ExternalRawVideoSink(
-		session, session, listener, this, mediaId, params);
 }
 
 
-RawVideoSinkWrapper::~RawVideoSinkWrapper(void)
+RawVideoSinkWrapper::~RawVideoSinkWrapper()
 {
 	if (isElementStopped())
 		return;
@@ -793,7 +797,7 @@ int RawVideoSinkWrapper::setMediaId(unsigned int mediaId)
 }
 
 
-unsigned int RawVideoSinkWrapper::getMediaId(void)
+unsigned int RawVideoSinkWrapper::getMediaId()
 {
 	if (isElementStopped())
 		return -EPROTO;
@@ -801,15 +805,22 @@ unsigned int RawVideoSinkWrapper::getMediaId(void)
 }
 
 
-struct mbuf_raw_video_frame_queue *RawVideoSinkWrapper::getQueue(void)
+struct mbuf_raw_video_frame_queue *RawVideoSinkWrapper::getQueue()
 {
+	struct mbuf_raw_video_frame_queue *ret = nullptr;
+
 	if (isElementStopped())
 		return nullptr;
-	return mSink->getQueue();
+
+	mbuf::Queue *queue = mSink->getQueue();
+	if (queue == nullptr)
+		return nullptr;
+	queue->getCQueue(&ret);
+	return ret;
 }
 
 
-int RawVideoSinkWrapper::queueFlushed(void)
+int RawVideoSinkWrapper::queueFlushed()
 {
 	if (isElementStopped())
 		return -EPROTO;
@@ -817,7 +828,7 @@ int RawVideoSinkWrapper::queueFlushed(void)
 }
 
 
-int RawVideoSinkWrapper::queueDrained(void)
+int RawVideoSinkWrapper::queueDrained()
 {
 	if (isElementStopped())
 		return -EPROTO;

@@ -39,21 +39,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-VideoPresStats::VideoPresStats(void) :
-		timestamp(0), presentationFrameCount(0),
-		presentationTimestampDeltaIntegral(0),
-		presentationTimestampDeltaIntegralSq(0),
-		presentationTimingErrorIntegral(0),
-		presentationTimingErrorIntegralSq(0),
-		presentationEstimatedLatencyIntegral(0),
-		presentationEstimatedLatencyIntegralSq(0),
-		playerLatencyIntegral(0), playerLatencyIntegralSq(0),
-		estimatedLatencyPrecisionIntegral(0)
-{
-}
-
-
-int VideoPresStats::writeMsg(struct pomp_msg *msg, uint32_t msgid)
+int VideoPresStats::writeMsg(struct pomp_msg *msg, uint32_t msgid) const
 {
 	ULOG_ERRNO_RETURN_ERR_IF(msg == nullptr, EINVAL);
 

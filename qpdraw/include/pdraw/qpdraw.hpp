@@ -28,8 +28,9 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _QPDRAW_HPP_
-#define _QPDRAW_HPP_
+#pragma once
+
+#include <memory>
 
 #include <QObject>
 
@@ -53,7 +54,7 @@ class QPdraw : public QObject {
 public:
 	explicit QPdraw(QObject *parent = nullptr);
 
-	~QPdraw();
+	~QPdraw() override;
 
 	/**
 	 * Start a QPdraw instance.
@@ -61,14 +62,14 @@ public:
 	 * calling any other function.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int start(void);
+	int start();
 
 	/**
 	 * Stop a QPdraw instance.
 	 * This function must be called prior to destroying the instance.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	int stop(void);
+	int stop();
 
 	/**
 	 * Get the internal PDrAW instance pointer.
@@ -76,7 +77,7 @@ public:
 	 * @return a pointer on the internal PDrAW instance on success,
 	 *         null in case of error
 	 */
-	intptr_t getInternal(void);
+	intptr_t getInternal();
 
 	/**
 	 * Get the internal event loop.
@@ -84,7 +85,7 @@ public:
 	 * @return a pointer on the internal loop on success,
 	 *         null in case of error
 	 */
-	struct pomp_loop *getLoop(void);
+	struct pomp_loop *getLoop();
 
 signals:
 	/**
@@ -130,9 +131,7 @@ signals:
 	void onSocketCreated(int fd);
 
 private:
-	Internal::QPdrawPriv *mPriv;
+	std::unique_ptr<Internal::QPdrawPriv> mPriv;
 };
 
 } /* namespace QPdraw */
-
-#endif /* !_QPDRAW_HPP_ */

@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_CHANNEL_RAW_VIDEO_HPP_
-#define _PDRAW_CHANNEL_RAW_VIDEO_HPP_
+#pragma once
 
 #include "pdraw_channel.hpp"
 
@@ -45,7 +44,7 @@ class RawVideoChannel : public Channel {
 public:
 	class RawVideoSinkListener {
 	public:
-		virtual ~RawVideoSinkListener(void) {}
+		virtual ~RawVideoSinkListener() = default;
 
 		virtual void
 		onRawVideoChannelQueue(RawVideoChannel *channel,
@@ -57,7 +56,7 @@ public:
 			RawVideoSinkListener *rawVideoSinkListener,
 			struct pomp_loop *loop);
 
-	~RawVideoChannel(void) {}
+	~RawVideoChannel() override = default;
 
 	int queue(mbuf_raw_video_frame *frame);
 
@@ -68,18 +67,10 @@ public:
 					const struct vdef_raw_format *caps,
 					int count);
 
-	struct mbuf_raw_video_frame_queue *getQueue(const Sink *owner) const;
-
-	void setQueue(const Sink *owner,
-		      struct mbuf_raw_video_frame_queue *queue);
-
 private:
-	RawVideoSinkListener *mRawVideoSinkListener;
-	const struct vdef_raw_format *mRawVideoMediaFormatCaps;
-	int mRawVideoMediaFormatCapsCount;
-	struct mbuf_raw_video_frame_queue *mQueue;
+	RawVideoSinkListener *mRawVideoSinkListener = nullptr;
+	const struct vdef_raw_format *mRawVideoMediaFormatCaps = nullptr;
+	int mRawVideoMediaFormatCapsCount = 0;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_CHANNEL_RAW_VIDEO_HPP_ */

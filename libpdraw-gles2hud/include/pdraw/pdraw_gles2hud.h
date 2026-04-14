@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_GLES2HUD_H_
-#define _PDRAW_GLES2HUD_H_
+#pragma once
 
 #include <inttypes.h>
 
@@ -223,5 +222,3 @@ pdraw_gles2hud_render(struct pdraw_gles2hud *self,
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* !_PDRAW_GLES2HUD_H_ */

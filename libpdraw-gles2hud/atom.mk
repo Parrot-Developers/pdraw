@@ -48,9 +48,13 @@ else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-native")
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","linux-android")
   LOCAL_LDLIBS += -lGLESv2
 else ifeq ("$(TARGET_OS)-$(TARGET_OS_FLAVOUR)","darwin-native")
+  LOCAL_CFLAGS += \
+	-DGL_SILENCE_DEPRECATION
   LOCAL_LDLIBS += \
 	-framework OpenGL
 else ifeq ($(TARGET_OS_FLAVOUR),$(filter %$(TARGET_OS_FLAVOUR),iphoneos iphonesimulator))
+  LOCAL_CFLAGS += \
+	-DGLES_SILENCE_DEPRECATION
   LOCAL_LDLIBS += \
 	-framework OpenGLES
 else ifeq ("$(TARGET_OS)","windows")

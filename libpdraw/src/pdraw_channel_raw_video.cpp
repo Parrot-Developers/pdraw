@@ -45,9 +45,7 @@ RawVideoChannel::RawVideoChannel(Sink *owner,
 				 RawVideoSinkListener *rawVideoSinkListener,
 				 struct pomp_loop *loop) :
 		Channel(owner, sinkListener, loop),
-		mRawVideoSinkListener(rawVideoSinkListener),
-		mRawVideoMediaFormatCaps(nullptr),
-		mRawVideoMediaFormatCapsCount(0), mQueue(nullptr)
+		mRawVideoSinkListener(rawVideoSinkListener)
 {
 }
 
@@ -74,28 +72,6 @@ void RawVideoChannel::setRawVideoMediaFormatCaps(
 	}
 	mRawVideoMediaFormatCaps = caps;
 	mRawVideoMediaFormatCapsCount = count;
-}
-
-
-struct mbuf_raw_video_frame_queue *
-RawVideoChannel::getQueue(const Sink *owner) const
-{
-	if (owner != mOwner) {
-		ULOGE("RawVideoChannel::getQueue: wrong owner");
-		return nullptr;
-	}
-	return mQueue;
-}
-
-
-void RawVideoChannel::setQueue(const Sink *owner,
-			       struct mbuf_raw_video_frame_queue *queue)
-{
-	if (owner != mOwner) {
-		ULOGE("RawVideoChannel::setQueue: wrong owner");
-		return;
-	}
-	mQueue = queue;
 }
 
 

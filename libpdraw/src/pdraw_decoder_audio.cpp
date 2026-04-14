@@ -65,12 +65,7 @@ AudioDecoder::AudioDecoder(Session *session,
 			      nullptr,
 			      0,
 			      1,
-			      sourceListener),
-		mInputMedia(nullptr), mOutputMedia(nullptr),
-		mInputBufferPool(nullptr), mInputBufferQueue(nullptr),
-		mAdec(nullptr), mInputChannelFlushPending(false),
-		mOutputChannelDrainRequired(false), mAdecFlushPending(false),
-		mAdecStopPending(false)
+			      sourceListener)
 {
 	const struct adef_format *supportedInputFormats;
 	int supportedInputFormatsCount;
@@ -92,7 +87,7 @@ AudioDecoder::AudioDecoder(Session *session,
 }
 
 
-AudioDecoder::~AudioDecoder(void)
+AudioDecoder::~AudioDecoder()
 {
 	int ret;
 
@@ -115,9 +110,10 @@ AudioDecoder::~AudioDecoder(void)
 }
 
 
-int AudioDecoder::start(void)
+int AudioDecoder::start()
 {
-	int ret = 0, err;
+	int ret = 0;
+	int err;
 	InputPort *port = nullptr;
 	struct adec_config cfg = {};
 	Channel *c = nullptr;
@@ -169,8 +165,7 @@ int AudioDecoder::start(void)
 	}
 
 	/* Configure the decoder */
-	switch (mInputMedia->format.encoding) {
-	case ADEF_ENCODING_AAC_LC:
+	if (mInputMedia->format.encoding == ADEF_ENCODING_AAC_LC) {
 		/* Configure the decoder */
 		ret = mInputMedia->getAacAsc(&asc, &ascSize);
 		if (ret < 0) {
@@ -187,8 +182,7 @@ int AudioDecoder::start(void)
 			PDRAW_LOG_ERRNO("adec_set_aac_asc", -ret);
 			goto error;
 		}
-		break;
-	default:
+	} else {
 		Sink::unlock();
 		PDRAW_LOGE("unsupported input media encoding (%s)",
 			   adef_encoding_to_str(mInputMedia->format.encoding));
@@ -197,7 +191,7 @@ int AudioDecoder::start(void)
 	}
 
 	/* Setup the input port */
-	c = port->channel;
+	c = port->channel.get();
 	channel = dynamic_cast<AudioChannel *>(c);
 	if (channel == nullptr) {
 		Sink::unlock();
@@ -205,8 +199,9 @@ int AudioDecoder::start(void)
 		ret = -EPROTO;
 		goto error;
 	}
-	mInputBufferQueue = adec_get_input_buffer_queue(mAdec);
-	channel->setQueue(this, mInputBufferQueue);
+	mInputBufferQueue = mbuf::Queue::wrapExisting(
+		adec_get_input_buffer_queue(mAdec), false);
+	channel->setQueue(this, mInputBufferQueue.get());
 	mInputBufferPool = adec_get_input_buffer_pool(mAdec);
 	channel->setPool(this, mInputBufferPool);
 
@@ -234,7 +229,7 @@ error:
 }
 
 
-int AudioDecoder::stop(void)
+int AudioDecoder::stop()
 {
 	int ret;
 
@@ -268,7 +263,7 @@ int AudioDecoder::flush(bool discard)
 {
 	int ret = 0;
 	int err;
-	unsigned int outputChannelCount, i;
+	unsigned int outputChannelCount;
 	Channel *outputChannel;
 
 	switch (getFlushingState()) {
@@ -278,6 +273,14 @@ int AudioDecoder::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
+		ret = mInputBufferQueue->getCount();
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("queue::getCount", -ret);
+			return ret;
+		} else if (ret > 0) {
+			setFlushingState(FlushingState::UNFLUSHED);
+			break;
+		}
 		PDRAW_LOGD("decoder is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
@@ -298,10 +301,10 @@ int AudioDecoder::flush(bool discard)
 		if (mFlushDiscard) {
 			/* Flush the output channels (async) */
 			outputChannelCount =
-				getOutputChannelCount(mOutputMedia);
-			for (i = 0; i < outputChannelCount; i++) {
+				getOutputChannelCount(mOutputMedia.get());
+			for (unsigned int i = 0; i < outputChannelCount; i++) {
 				outputChannel =
-					getOutputChannel(mOutputMedia, i);
+					getOutputChannel(mOutputMedia.get(), i);
 				if (outputChannel == nullptr) {
 					PDRAW_LOGW(
 						"failed to get output channel "
@@ -343,10 +346,11 @@ int AudioDecoder::flush(bool discard)
 }
 
 
-void AudioDecoder::completeFlush(void)
+void AudioDecoder::completeFlush()
 {
-	int ret, err;
-	unsigned int outputChannelCount, i;
+	int ret;
+	int err;
+	unsigned int outputChannelCount;
 	Channel *outputChannel;
 	bool pending = false;
 
@@ -358,9 +362,9 @@ void AudioDecoder::completeFlush(void)
 	if (!mFlushDiscard && mOutputChannelDrainRequired &&
 	    mOutputMedia != nullptr) {
 		mOutputChannelDrainRequired = false;
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
-		for (i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
+		outputChannelCount = getOutputChannelCount(mOutputMedia.get());
+		for (unsigned int i = 0; i < outputChannelCount; i++) {
+			outputChannel = getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -378,9 +382,9 @@ void AudioDecoder::completeFlush(void)
 		}
 	}
 	if (mOutputMedia != nullptr) {
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
-		for (i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
+		outputChannelCount = getOutputChannelCount(mOutputMedia.get());
+		for (unsigned int i = 0; i < outputChannelCount; i++) {
+			outputChannel = getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -403,26 +407,21 @@ void AudioDecoder::completeFlush(void)
 	setFlushingState(FlushingState::FLUSHED);
 
 	Sink::lock();
-	if (mInputMedia != nullptr) {
-		if (mInputChannelFlushPending) {
-			mInputChannelFlushPending = false;
-
-			AudioChannel *inputChannel =
-				dynamic_cast<AudioChannel *>(
-					getInputChannel(mInputMedia));
-			if (inputChannel == nullptr) {
-				PDRAW_LOGE("failed to get input channel");
-			} else {
-				if (mFlushDiscard)
-					ret = inputChannel->flushDone();
-				else
-					ret = inputChannel->drainDone();
-				if (ret < 0)
-					PDRAW_LOG_ERRNO("channel->%s",
-							-ret,
-							mFlushDiscard
-								? "flushDone"
-								: "drainDone");
+	if ((mInputMedia != nullptr) && mInputChannelFlushPending) {
+		mInputChannelFlushPending = false;
+		Channel *inputChannel = getInputChannel(mInputMedia);
+		if (inputChannel == nullptr) {
+			PDRAW_LOGE("failed to get input channel");
+		} else {
+			if (mFlushDiscard)
+				ret = inputChannel->flushDone();
+			else
+				ret = inputChannel->drainDone();
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("channel->%s",
+						-ret,
+						mFlushDiscard ? "flushDone"
+							      : "drainDone");
 			}
 		}
 	}
@@ -434,15 +433,15 @@ void AudioDecoder::completeFlush(void)
 
 void AudioDecoder::idleCompleteFlush(void *userdata)
 {
-	AudioDecoder *self = (AudioDecoder *)userdata;
+	auto *self = static_cast<AudioDecoder *>(userdata);
 	self->completeFlush();
 }
 
 
-int AudioDecoder::tryStop(void)
+int AudioDecoder::tryStop()
 {
 	int ret;
-	int outputChannelCount = 0, i;
+	int outputChannelCount = 0;
 
 	if (mState != State::STOPPING)
 		return 0;
@@ -452,10 +451,11 @@ int AudioDecoder::tryStop(void)
 	 * may not synchronously remove the channel from the output port */
 	Source::lock();
 	if (mOutputMedia != nullptr) {
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
+		outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 
-		for (i = outputChannelCount - 1; i >= 0; i--) {
-			Channel *channel = getOutputChannel(mOutputMedia, i);
+		for (int i = outputChannelCount - 1; i >= 0; i--) {
+			Channel *channel =
+				getOutputChannel(mOutputMedia.get(), i);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   i);
@@ -481,7 +481,7 @@ int AudioDecoder::tryStop(void)
 	/* Remove the input port */
 	Sink::lock();
 	if (mInputMedia != nullptr) {
-		AudioChannel *channel = dynamic_cast<AudioChannel *>(
+		auto *channel = dynamic_cast<AudioChannel *>(
 			getInputChannel(mInputMedia));
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
@@ -507,7 +507,7 @@ int AudioDecoder::tryStop(void)
 }
 
 
-void AudioDecoder::completeStop(void)
+void AudioDecoder::completeStop()
 {
 	int ret;
 	unsigned int outputChannelCount;
@@ -517,7 +517,7 @@ void AudioDecoder::completeStop(void)
 		Source::unlock();
 		goto exit;
 	}
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	if (outputChannelCount > 0) {
 		Source::unlock();
 		return;
@@ -526,14 +526,13 @@ void AudioDecoder::completeStop(void)
 	/* Remove the output port */
 	if (Source::mListener) {
 		Source::mListener->onOutputMediaRemoved(
-			this, mOutputMedia, nullptr);
+			this, mOutputMedia.get(), nullptr);
 	}
-	ret = removeOutputPort(mOutputMedia);
+	ret = removeOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("removeOutputPort", -ret);
 	} else {
-		delete mOutputMedia;
-		mOutputMedia = nullptr;
+		mOutputMedia.reset();
 	}
 
 	Source::unlock();
@@ -547,12 +546,15 @@ exit:
 int AudioDecoder::createOutputMedia(const struct adef_frame *frameInfo,
 				    const AudioMedia::Frame &frame)
 {
+	PDRAW_UNUSED(frame);
+
 	int ret;
 
 	Source::lock();
 
-	mOutputMedia = new AudioMedia(mSession);
-	if (mOutputMedia == nullptr) {
+	try {
+		mOutputMedia = make_unique<AudioMedia>(mSession);
+	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
 		return -ENOMEM;
@@ -561,7 +563,7 @@ int AudioDecoder::createOutputMedia(const struct adef_frame *frameInfo,
 			   "$" + mOutputMedia->getName();
 	mOutputMedia->setPath(path);
 
-	ret = addOutputPort(mOutputMedia);
+	ret = addOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -576,7 +578,7 @@ int AudioDecoder::createOutputMedia(const struct adef_frame *frameInfo,
 
 	if (Source::mListener)
 		Source::mListener->onOutputMediaAdded(
-			this, mOutputMedia, nullptr);
+			this, mOutputMedia.get(), nullptr);
 
 	return 0;
 }
@@ -597,20 +599,16 @@ void AudioDecoder::onAudioChannelQueue(AudioChannel *channel,
 		PDRAW_LOGE("frame input: decoder is not started");
 		return;
 	}
-	if ((mAdecFlushPending) || (mInputChannelFlushPending)) {
+	if (mAdecFlushPending || mInputChannelFlushPending) {
 		PDRAW_LOGI("frame input: flush pending, discard frame");
 		return;
 	}
 	Sink::lock();
-	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
-	if (queue == nullptr) {
+
+	if (mInputBufferQueue == nullptr ||
+	    !channel->hasQueue(mInputBufferQueue.get())) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid queue");
-		return;
-	}
-	if (queue != mInputBufferQueue) {
-		Sink::unlock();
-		PDRAW_LOGE("invalid input buffer queue");
 		return;
 	}
 
@@ -659,7 +657,7 @@ void AudioDecoder::onChannelFlushed(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -680,7 +678,7 @@ void AudioDecoder::onChannelDrained(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -728,13 +726,15 @@ void AudioDecoder::frameOutputCb(struct adec_decoder *dec,
 				 struct mbuf_audio_frame *out_frame,
 				 void *userdata)
 {
+	PDRAW_UNUSED(dec);
+
 	int ret;
-	AudioDecoder *self = (AudioDecoder *)userdata;
+	auto *self = static_cast<AudioDecoder *>(userdata);
 	struct adef_frame info;
 	struct mbuf_ancillary_data *ancillaryData;
-	AudioMedia::Frame *in_meta;
-	AudioMedia::Frame out_meta;
-	unsigned int outputChannelCount, i;
+	const AudioMedia::Frame *in_meta;
+	AudioMedia::Frame out_meta{};
+	unsigned int outputChannelCount;
 
 	if (status != 0) {
 		PDRAW_LOGE("decoder error (%s)", strerror(-status));
@@ -782,9 +782,8 @@ void AudioDecoder::frameOutputCb(struct adec_decoder *dec,
 				-ret);
 		return;
 	}
-	in_meta = (AudioMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, nullptr);
-	memset(&out_meta, 0, sizeof(out_meta));
+	in_meta = static_cast<const AudioMedia::Frame *>(
+		mbuf_ancillary_data_get_buffer(ancillaryData, nullptr));
 	out_meta.ntpTimestamp = in_meta->ntpTimestamp;
 	out_meta.ntpUnskewedTimestamp = in_meta->ntpUnskewedTimestamp;
 	out_meta.ntpRawTimestamp = in_meta->ntpRawTimestamp;
@@ -835,11 +834,11 @@ void AudioDecoder::frameOutputCb(struct adec_decoder *dec,
 	/* Push the frame (unless it is silent) */
 	if (true) {
 		outputChannelCount =
-			self->getOutputChannelCount(self->mOutputMedia);
-		for (i = 0; i < outputChannelCount; i++) {
-			Channel *c =
-				self->getOutputChannel(self->mOutputMedia, i);
-			AudioChannel *channel = dynamic_cast<AudioChannel *>(c);
+			self->getOutputChannelCount(self->mOutputMedia.get());
+		for (unsigned int i = 0; i < outputChannelCount; i++) {
+			Channel *c = self->getOutputChannel(
+				self->mOutputMedia.get(), i);
+			auto *channel = dynamic_cast<AudioChannel *>(c);
 			if (channel == nullptr) {
 				PDRAW_LOGE("failed to get channel at index %d",
 					   i);
@@ -857,7 +856,9 @@ void AudioDecoder::frameOutputCb(struct adec_decoder *dec,
 
 void AudioDecoder::flushCb(struct adec_decoder *dec, void *userdata)
 {
-	AudioDecoder *self = (AudioDecoder *)userdata;
+	PDRAW_UNUSED(dec);
+
+	auto *self = static_cast<AudioDecoder *>(userdata);
 
 	if (userdata == nullptr) {
 		PDRAW_LOG_ERRNO("userdata", EINVAL);
@@ -873,7 +874,9 @@ void AudioDecoder::flushCb(struct adec_decoder *dec, void *userdata)
 
 void AudioDecoder::stopCb(struct adec_decoder *dec, void *userdata)
 {
-	AudioDecoder *self = (AudioDecoder *)userdata;
+	PDRAW_UNUSED(dec);
+
+	auto *self = static_cast<AudioDecoder *>(userdata);
 
 	if (userdata == nullptr) {
 		PDRAW_LOG_ERRNO("userdata", EINVAL);

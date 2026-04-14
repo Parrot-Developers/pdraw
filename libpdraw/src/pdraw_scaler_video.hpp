@@ -28,13 +28,13 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SCALER_VIDEO_HPP_
-#define _PDRAW_SCALER_VIDEO_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
+#include <media-buffers/mbuf_queue.hpp>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <pdraw/pdraw.hpp>
 #include <video-scale/vscale.h>
@@ -53,33 +53,33 @@ public:
 		    VideoScalerWrapper *wrapper,
 		    const struct vscale_config *params);
 
-	~VideoScaler(void);
+	~VideoScaler() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
-	void completeFlush(void);
+	void completeFlush();
 
-	void completeStop(void);
+	void completeStop();
 
-	IPdraw::IVideoScaler *getVideoScaler(void) const
+	IPdraw::IVideoScaler *getVideoScaler() const
 	{
 		return mScaler;
 	}
 
 private:
-	int createOutputMedia(struct vdef_raw_frame *frameInfo,
-			      RawVideoMedia::Frame &frame);
+	int createOutputMedia(const struct vdef_raw_frame *frameInfo,
+			      const RawVideoMedia::Frame &frame);
 
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
 
-	int tryStop(void);
+	int tryStop();
 
 	void
 	onRawVideoChannelQueue(RawVideoChannel *channel,
@@ -110,19 +110,19 @@ private:
 
 	static void idleCompleteFlush(void *userdata);
 
-	IPdraw::IVideoScaler *mScaler;
-	IPdraw::IVideoScaler::Listener *mScalerListener;
-	RawVideoMedia *mInputMedia;
-	RawVideoMedia *mOutputMedia;
-	struct mbuf_pool *mInputBufferPool;
-	struct mbuf_raw_video_frame_queue *mInputBufferQueue;
-	struct vscale_config *mScalerConfig;
-	std::string mScalerName;
-	struct vscale_scaler *mVscale;
-	bool mInputChannelFlushPending;
-	bool mOutputChannelDrainRequired;
-	bool mVscaleFlushPending;
-	bool mVscaleStopPending;
+	IPdraw::IVideoScaler *mScaler{};
+	IPdraw::IVideoScaler::Listener *mScalerListener{};
+	RawVideoMedia *mInputMedia{};
+	std::unique_ptr<RawVideoMedia> mOutputMedia{};
+	struct mbuf_pool *mInputBufferPool{};
+	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
+	struct vscale_config *mScalerConfig{};
+	std::string mScalerName{};
+	struct vscale_scaler *mVscale{};
+	bool mInputChannelFlushPending{};
+	bool mOutputChannelDrainRequired{};
+	bool mVscaleFlushPending{};
+	bool mVscaleStopPending{};
 	static const struct vscale_cbs mScalerCbs;
 };
 
@@ -133,9 +133,9 @@ public:
 			   const struct vscale_config *params,
 			   IPdraw::IVideoScaler::Listener *listener);
 
-	~VideoScalerWrapper(void);
+	~VideoScalerWrapper() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mScaler = nullptr;
@@ -152,15 +152,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mScaler == nullptr);
 	}
 
-	VideoScaler *mScaler;
+	VideoScaler *mScaler{};
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_SCALER_VIDEO_HPP_ */

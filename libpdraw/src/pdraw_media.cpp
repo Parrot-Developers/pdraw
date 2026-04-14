@@ -46,22 +46,20 @@ std::atomic<unsigned int> Media::mIdCounter(0);
 
 
 Media::Media(Session *session, Type t) :
-		type(t), playbackType(PDRAW_PLAYBACK_TYPE_UNKNOWN), duration(0),
-		mSession(session), mTearingDown(false)
+		type(t), id(++mIdCounter), mSession(session),
+		mName(std::string(__func__) + "#" + std::to_string(id))
 
 {
-	id = ++mIdCounter;
-	mName = std::string(__func__) + "#" + std::to_string(id);
 }
 
 
-std::string &Media::getName(void)
+const std::string &Media::getName() const
 {
 	return mName;
 }
 
 
-void Media::setClassName(std::string &name)
+void Media::setClassName(const std::string &name)
 {
 	mName = name + "#" + std::to_string(id);
 }
@@ -73,13 +71,13 @@ void Media::setClassName(const char *name)
 }
 
 
-std::string &Media::getPath(void)
+const std::string &Media::getPath() const
 {
 	return mPath;
 }
 
 
-void Media::setPath(std::string &path)
+void Media::setPath(const std::string &path)
 {
 	mPath = path;
 }
@@ -94,13 +92,13 @@ void Media::setPath(const char *path)
 const char *Media::getMediaTypeStr(Type val)
 {
 	switch (val) {
-	case UNKNOWN:
+	case Media::Type::UNKNOWN:
 		return "UNKNOWN";
-	case RAW_VIDEO:
+	case Media::Type::RAW_VIDEO:
 		return "RAW_VIDEO";
-	case CODED_VIDEO:
+	case Media::Type::CODED_VIDEO:
 		return "CODED_VIDEO";
-	case AUDIO:
+	case Media::Type::AUDIO:
 		return "AUDIO";
 	default:
 		return nullptr;
@@ -110,25 +108,16 @@ const char *Media::getMediaTypeStr(Type val)
 
 void Media::cleanupMediaInfo(struct pdraw_media_info *minfo)
 {
-	free((void *)minfo->name);
+	free(const_cast<char *>(minfo->name));
 	minfo->name = nullptr;
-	free((void *)minfo->path);
+	free(const_cast<char *>(minfo->path));
 	minfo->path = nullptr;
 }
 
 
-RawVideoMedia::RawVideoMedia(Session *session) :
-		Media(session, RAW_VIDEO), sessionMeta({})
+RawVideoMedia::RawVideoMedia(Session *session) : Media(session, Type::RAW_VIDEO)
 {
 	Media::setClassName(__func__);
-	format = {};
-	info = {};
-}
-
-
-RawVideoMedia::~RawVideoMedia(void)
-{
-	return;
 }
 
 
@@ -146,7 +135,6 @@ void RawVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	minfo->playback_type = playbackType;
 	minfo->duration = duration;
 	minfo->video.format = VDEF_FRAME_TYPE_RAW;
-	minfo->video.type = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
 	minfo->video.session_meta = &sessionMeta;
 	minfo->video.raw.format = format;
 	minfo->video.raw.info = info;
@@ -154,26 +142,9 @@ void RawVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 
 
 CodedVideoMedia::CodedVideoMedia(Session *session) :
-		Media(session, CODED_VIDEO), sessionMeta({})
+		Media(session, Type::CODED_VIDEO)
 {
 	Media::setClassName(__func__);
-	mVps = nullptr;
-	mVpsSize = 0;
-	mSps = nullptr;
-	mSpsSize = 0;
-	mPps = nullptr;
-	mPpsSize = 0;
-
-	format = {};
-	info = {};
-}
-
-
-CodedVideoMedia::~CodedVideoMedia(void)
-{
-	free(mVps);
-	free(mSps);
-	free(mPps);
 }
 
 
@@ -192,18 +163,18 @@ int CodedVideoMedia::getPs(const uint8_t **vps,
 	if (encoding == VDEF_ENCODING_H265) {
 		/* VPS is for H.265 only */
 		if (vps)
-			*vps = mVps;
+			*vps = mVps.data();
 		if (vpsSize)
-			*vpsSize = mVpsSize;
+			*vpsSize = mVps.size();
 	}
 	if (sps)
-		*sps = mSps;
+		*sps = mSps.data();
 	if (spsSize)
-		*spsSize = mSpsSize;
+		*spsSize = mSps.size();
 	if (pps)
-		*pps = mPps;
+		*pps = mPps.data();
 	if (ppsSize)
-		*ppsSize = mPpsSize;
+		*ppsSize = mPps.size();
 
 	return 0;
 }
@@ -232,100 +203,79 @@ int CodedVideoMedia::setPs(const uint8_t *vps,
 	if ((pps == nullptr) || (ppsSize == 0))
 		return -EINVAL;
 
-	free(mVps);
-	mVps = nullptr;
-	mVpsSize = 0;
-	if (encoding == VDEF_ENCODING_H265) {
-		mVps = (uint8_t *)malloc(vpsSize);
-		if (mVps == nullptr) {
-			ret = -ENOMEM;
-			ULOG_ERRNO("malloc", -ret);
-			goto error;
-		}
-		mVpsSize = vpsSize;
-		memcpy(mVps, vps, mVpsSize);
-	}
+	try {
+		mVps.clear();
+		if (encoding == VDEF_ENCODING_H265)
+			mVps = std::vector<uint8_t>(vps, vps + vpsSize);
 
-	free(mSps);
-	mSpsSize = 0;
-	mSps = (uint8_t *)malloc(spsSize);
-	if (mSps == nullptr) {
+		mSps.clear();
+		mSps = std::vector<uint8_t>(sps, sps + spsSize);
+
+		mPps.clear();
+		mPps = std::vector<uint8_t>(pps, pps + ppsSize);
+
+		if (encoding == VDEF_ENCODING_H264) {
+			ret = h264_get_info(
+				sps, spsSize, pps, ppsSize, &h264Info);
+			if (ret < 0) {
+				ULOG_ERRNO("h264_get_info", -ret);
+				return ret;
+			}
+
+			info.bit_depth = h264Info.bit_depth_luma;
+			info.full_range = h264Info.full_range;
+			info.color_primaries = vdef_color_primaries_from_h264(
+				h264Info.colour_primaries);
+			info.transfer_function =
+				vdef_transfer_function_from_h264(
+					h264Info.transfer_characteristics);
+			info.matrix_coefs = vdef_matrix_coefs_from_h264(
+				h264Info.matrix_coefficients);
+			info.resolution.width = h264Info.crop_width;
+			info.resolution.height = h264Info.crop_height;
+			info.sar.width = h264Info.sar_width;
+			info.sar.height = h264Info.sar_height;
+			info.framerate.num = h264Info.framerate_num;
+			info.framerate.den = h264Info.framerate_den;
+		} else if (encoding == VDEF_ENCODING_H265) {
+			ret = h265_get_info(vps,
+					    vpsSize,
+					    sps,
+					    spsSize,
+					    pps,
+					    ppsSize,
+					    &h265Info);
+			if (ret < 0) {
+				ULOG_ERRNO("h265_get_info", -ret);
+				return ret;
+			}
+
+			info.bit_depth = h265Info.bit_depth_luma;
+			info.full_range = h265Info.full_range;
+			info.color_primaries = vdef_color_primaries_from_h265(
+				h265Info.colour_primaries);
+			info.transfer_function =
+				vdef_transfer_function_from_h265(
+					h265Info.transfer_characteristics);
+			info.matrix_coefs = vdef_matrix_coefs_from_h265(
+				h265Info.matrix_coefficients);
+			info.resolution.width = h265Info.crop_width;
+			info.resolution.height = h265Info.crop_height;
+			info.sar.width = h265Info.sar_width;
+			info.sar.height = h265Info.sar_height;
+			info.framerate.num = h265Info.framerate_num;
+			info.framerate.den = h265Info.framerate_den;
+		}
+
+		return 0;
+	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
-		ULOG_ERRNO("malloc", -ret);
-		goto error;
+		ULOG_ERRNO("std::vector allocation failed", -ret);
+		mVps.clear();
+		mSps.clear();
+		mPps.clear();
+		return ret;
 	}
-	mSpsSize = spsSize;
-	memcpy(mSps, sps, mSpsSize);
-
-	free(mPps);
-	mPpsSize = 0;
-	mPps = (uint8_t *)malloc(ppsSize);
-	if (mPps == nullptr) {
-		ret = -ENOMEM;
-		ULOG_ERRNO("malloc", -ret);
-		goto error;
-	}
-	mPpsSize = ppsSize;
-	memcpy(mPps, pps, mPpsSize);
-
-	if (encoding == VDEF_ENCODING_H264) {
-		ret = h264_get_info(sps, spsSize, pps, ppsSize, &h264Info);
-		if (ret < 0) {
-			ULOG_ERRNO("h264_get_info", -ret);
-			goto error;
-		}
-
-		info.bit_depth = h264Info.bit_depth_luma;
-		info.full_range = h264Info.full_range;
-		info.color_primaries = vdef_color_primaries_from_h264(
-			h264Info.colour_primaries);
-		info.transfer_function = vdef_transfer_function_from_h264(
-			h264Info.transfer_characteristics);
-		info.matrix_coefs = vdef_matrix_coefs_from_h264(
-			h264Info.matrix_coefficients);
-		info.resolution.width = h264Info.crop_width;
-		info.resolution.height = h264Info.crop_height;
-		info.sar.width = h264Info.sar_width;
-		info.sar.height = h264Info.sar_height;
-		info.framerate.num = h264Info.framerate_num;
-		info.framerate.den = h264Info.framerate_den;
-	} else if (encoding == VDEF_ENCODING_H265) {
-		ret = h265_get_info(
-			vps, vpsSize, sps, spsSize, pps, ppsSize, &h265Info);
-		if (ret < 0) {
-			ULOG_ERRNO("h265_get_info", -ret);
-			goto error;
-		}
-
-		info.bit_depth = h265Info.bit_depth_luma;
-		info.full_range = h265Info.full_range;
-		info.color_primaries = vdef_color_primaries_from_h265(
-			h265Info.colour_primaries);
-		info.transfer_function = vdef_transfer_function_from_h265(
-			h265Info.transfer_characteristics);
-		info.matrix_coefs = vdef_matrix_coefs_from_h265(
-			h265Info.matrix_coefficients);
-		info.resolution.width = h265Info.crop_width;
-		info.resolution.height = h265Info.crop_height;
-		info.sar.width = h265Info.sar_width;
-		info.sar.height = h265Info.sar_height;
-		info.framerate.num = h265Info.framerate_num;
-		info.framerate.den = h265Info.framerate_den;
-	}
-
-	return 0;
-
-error:
-	free(mVps);
-	free(mSps);
-	free(mPps);
-	mVps = nullptr;
-	mSps = nullptr;
-	mPps = nullptr;
-	mVpsSize = 0;
-	mSpsSize = 0;
-	mPpsSize = 0;
-	return ret;
 }
 
 
@@ -345,38 +295,42 @@ void CodedVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	minfo->playback_type = playbackType;
 	minfo->duration = duration;
 	minfo->video.format = VDEF_FRAME_TYPE_CODED;
-	minfo->video.type = PDRAW_VIDEO_TYPE_DEFAULT_CAMERA;
 	minfo->video.session_meta = &sessionMeta;
 	minfo->video.coded.format = format;
 	minfo->video.coded.info = info;
 	switch (format.encoding) {
 	case VDEF_ENCODING_H264:
-		if (sizeof(minfo->video.coded.h264.sps) < mSpsSize)
+		if (sizeof(minfo->video.coded.h264.sps) < mSps.size())
 			ULOGW("%s: truncated SPS", __func__);
-		cplen = std::min(mSpsSize, sizeof(minfo->video.coded.h264.sps));
-		memcpy(minfo->video.coded.h264.sps, mSps, cplen);
+		cplen = std::min(mSps.size(),
+				 sizeof(minfo->video.coded.h264.sps));
+		memcpy(minfo->video.coded.h264.sps, mSps.data(), cplen);
 		minfo->video.coded.h264.spslen = cplen;
-		if (sizeof(minfo->video.coded.h264.pps) < mPpsSize)
+		if (sizeof(minfo->video.coded.h264.pps) < mPps.size())
 			ULOGW("%s: truncated PPS", __func__);
-		cplen = std::min(mPpsSize, sizeof(minfo->video.coded.h264.pps));
-		memcpy(minfo->video.coded.h264.pps, mPps, cplen);
+		cplen = std::min(mPps.size(),
+				 sizeof(minfo->video.coded.h264.pps));
+		memcpy(minfo->video.coded.h264.pps, mPps.data(), cplen);
 		minfo->video.coded.h264.ppslen = cplen;
 		break;
 	case VDEF_ENCODING_H265:
-		if (sizeof(minfo->video.coded.h265.vps) < mVpsSize)
+		if (sizeof(minfo->video.coded.h265.vps) < mVps.size())
 			ULOGW("%s: truncated VPS", __func__);
-		cplen = std::min(mVpsSize, sizeof(minfo->video.coded.h265.vps));
-		memcpy(minfo->video.coded.h265.vps, mVps, cplen);
+		cplen = std::min(mVps.size(),
+				 sizeof(minfo->video.coded.h265.vps));
+		memcpy(minfo->video.coded.h265.vps, mVps.data(), cplen);
 		minfo->video.coded.h265.vpslen = cplen;
-		if (sizeof(minfo->video.coded.h265.sps) < mSpsSize)
+		if (sizeof(minfo->video.coded.h265.sps) < mSps.size())
 			ULOGW("%s: truncated SPS", __func__);
-		cplen = std::min(mSpsSize, sizeof(minfo->video.coded.h265.sps));
-		memcpy(minfo->video.coded.h265.sps, mSps, cplen);
+		cplen = std::min(mSps.size(),
+				 sizeof(minfo->video.coded.h265.sps));
+		memcpy(minfo->video.coded.h265.sps, mSps.data(), cplen);
 		minfo->video.coded.h265.spslen = cplen;
-		if (sizeof(minfo->video.coded.h265.pps) < mPpsSize)
+		if (sizeof(minfo->video.coded.h265.pps) < mPps.size())
 			ULOGW("%s: truncated PPS", __func__);
-		cplen = std::min(mPpsSize, sizeof(minfo->video.coded.h265.pps));
-		memcpy(minfo->video.coded.h265.pps, mPps, cplen);
+		cplen = std::min(mPps.size(),
+				 sizeof(minfo->video.coded.h265.pps));
+		memcpy(minfo->video.coded.h265.pps, mPps.data(), cplen);
 		minfo->video.coded.h265.ppslen = cplen;
 		break;
 	default:
@@ -385,19 +339,9 @@ void CodedVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 }
 
 
-AudioMedia::AudioMedia(Session *session) : Media(session, AUDIO)
+AudioMedia::AudioMedia(Session *session) : Media(session, Type::AUDIO)
 {
 	Media::setClassName(__func__);
-	format = {};
-	mAacAsc = nullptr;
-	mAacAscSize = 0;
-}
-
-
-AudioMedia::~AudioMedia(void)
-{
-	free(mAacAsc);
-	return;
 }
 
 
@@ -408,9 +352,9 @@ int AudioMedia::getAacAsc(const uint8_t **asc, size_t *ascSize) const
 		return -EPROTO;
 
 	if (asc)
-		*asc = mAacAsc;
+		*asc = mAacAsc.data();
 	if (ascSize)
-		*ascSize = mAacAscSize;
+		*ascSize = mAacAsc.size();
 
 	return 0;
 }
@@ -427,24 +371,16 @@ int AudioMedia::setAacAsc(const uint8_t *asc, size_t ascSize)
 	    ((asc == nullptr) || (ascSize == 0)))
 		return -EINVAL;
 
-	free(mAacAsc);
-	mAacAscSize = 0;
-	mAacAsc = (uint8_t *)malloc(ascSize);
-	if (mAacAsc == nullptr) {
+	try {
+		mAacAsc.clear();
+		mAacAsc = std::vector<uint8_t>(asc, asc + ascSize);
+	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
-		ULOG_ERRNO("malloc", -ret);
-		goto error;
+		ULOG_ERRNO("std::vector allocation failed", -ret);
+		mAacAsc.clear();
+		return ret;
 	}
-	mAacAscSize = ascSize;
-	memcpy(mAacAsc, asc, mAacAscSize);
-
 	return 0;
-
-error:
-	free(mAacAsc);
-	mAacAsc = nullptr;
-	mAacAscSize = 0;
-	return ret;
 }
 
 
@@ -464,16 +400,13 @@ void AudioMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	minfo->playback_type = playbackType;
 	minfo->duration = duration;
 	minfo->audio.format = format;
-	switch (format.encoding) {
-	case ADEF_ENCODING_AAC_LC:
-		if (sizeof(minfo->audio.aac_lc.asc) < mAacAscSize)
+	if (format.encoding == ADEF_ENCODING_AAC_LC) {
+		if (sizeof(minfo->audio.aac_lc.asc) < mAacAsc.size())
 			ULOGW("%s: truncated ASC", __func__);
-		cplen = std::min(mAacAscSize, sizeof(minfo->audio.aac_lc.asc));
-		memcpy(minfo->audio.aac_lc.asc, mAacAsc, cplen);
+		cplen = std::min(mAacAsc.size(),
+				 sizeof(minfo->audio.aac_lc.asc));
+		memcpy(minfo->audio.aac_lc.asc, mAacAsc.data(), cplen);
 		minfo->audio.aac_lc.asclen = cplen;
-		break;
-	default:
-		break;
 	}
 }
 

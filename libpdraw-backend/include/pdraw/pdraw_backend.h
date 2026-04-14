@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_BACKEND_H_
-#define _PDRAW_BACKEND_H_
+#pragma once
 
 #include <inttypes.h>
 
@@ -289,7 +288,7 @@ struct pdraw_backend_muxer_cbs {
 	/* Connection state changed function, called when a muxer connection
 	 * state has changed. This function is called on a stream muxer only;
 	 * on any other type of muxer it is not relevant.
-	 * @param pdraw: PDrAW instance handle
+	 * @param pdraw: PDrAW back-end instance handle
 	 * @param muxer: muxer handle
 	 * @param connection_state: connection state
 	 * @param disconnection_reason: disconnection reason; only relevant when
@@ -301,6 +300,40 @@ struct pdraw_backend_muxer_cbs {
 		enum pdraw_muxer_connection_state connection_state,
 		enum pdraw_muxer_disconnection_reason disconnection_reason,
 		void *userdata);
+
+	/* Media data ready callback function, called when a media frame
+	 * has been serialized and is ready in memory.
+	 * This function is called on the muxer's internal writer thread.
+	 * It provides direct access to the serialized buffer (e.g. a full
+	 * JPEG/JFIF) before it is written to the storage. This is intended
+	 * for efficient in-place processing such as SHA-256 hash computation.
+	 * @note The iovec array is only valid for the duration of the callback.
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param muxer: muxer handle
+	 * @param media_path: future absolute path of the file being saved
+	 * @param iov: array of iovec structures pointing to memory blocks
+	 * @param iovcnt: number of elements in the iov array
+	 * @param userdata: user data pointer */
+	void (*media_ready)(struct pdraw_backend *pdraw,
+			    struct pdraw_muxer *muxer,
+			    const char *media_path,
+			    const struct iovec *iov,
+			    int iovcnt,
+			    void *userdata);
+
+	/* Media saved callback function, called when a media file has
+	 * been successfully written and finalized on the storage device.
+	 * This function is called on the PDrAW loop thread.
+	 * When this function is called, the file is guaranteed to be
+	 * closed and available for external use (display, transfer, etc.).
+	 * @param pdraw: PDrAW back-end instance handle
+	 * @param muxer: muxer handle
+	 * @param media_path: absolute path to the saved file
+	 * @param userdata: user data pointer */
+	void (*media_saved)(struct pdraw_backend *pdraw,
+			    struct pdraw_muxer *muxer,
+			    const char *media_path,
+			    void *userdata);
 
 	/* Unrecoverable error callback function, called when a previously
 	 * opened session is no longer running. When this function is called,
@@ -1615,6 +1648,31 @@ int pdraw_be_muxer_set_thumbnail(struct pdraw_backend *pdraw,
 				 enum pdraw_muxer_thumbnail_type type,
 				 const uint8_t *data,
 				 size_t size);
+
+
+/**
+ * Set the file metadata of the file written by the muxer.
+ * This function is available on a record muxer only; on any other type of muxer
+ * -ENOSYS is returned.
+ * The metadata type determines the format of the data buffer and the optional
+ * params structure.
+ * @param pdraw: PDrAW back-end instance handle
+ * @param muxer: muxer handle
+ * @param type: type of the metadata
+ * @param data: metadata data, must be of length size
+ * @param size: size of data
+ * @param params: extra parameters specific to the metadata type (optional)
+ * @param params_size: size of params
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_muxer_set_file_metadata(struct pdraw_backend *pdraw,
+				 struct pdraw_muxer *muxer,
+				 enum pdraw_muxer_metadata_type type,
+				 const uint8_t *data,
+				 size_t size,
+				 const void *params,
+				 size_t params_size);
 
 
 /**
@@ -3037,6 +3095,19 @@ pdraw_be_video_encoder_configure(struct pdraw_backend *self,
 
 
 /**
+ * Request a key frame from the video encoder.
+ * This function can be used to dynamically request a key frame from the video
+ * encoder.
+ * @param self: PDrAW back-end instance handle
+ * @param encoder: video encoder handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_video_encoder_request_key_frame(struct pdraw_backend *self,
+					 struct pdraw_video_encoder *encoder);
+
+
+/**
  * Get the video encoder dynamic configuration.
  * This function fills the config structure with the dynamic configuration.
  * The structure must have been previously allocated.
@@ -3268,5 +3339,3 @@ PDRAW_BACKEND_API int pdraw_be_dump_pipeline(struct pdraw_backend *self,
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* !_PDRAW_BACKEND_H_ */

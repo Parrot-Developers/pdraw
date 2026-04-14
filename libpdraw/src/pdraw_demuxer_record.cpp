@@ -42,6 +42,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <time.h>
 #include <unistd.h>
 
+#include <array>
 #include <string>
 
 #include <media-buffers/mbuf_ancillary_data.h>
@@ -63,18 +64,18 @@ RecordDemuxer::RecordDemuxer(Session *session,
 			wrapper,
 			demuxerListener,
 			params),
-		mFileName(fileName), mRunning(false), mWasRunningOnce(false),
-		mPendingSeek(false), mSeekResponse(0), mPlayResponse(0),
-		mPauseResponse(0), mFrameByFrame(false), mDemux(nullptr),
-		mDuration(0), mCurrentTime(0), mSpeed(1.0), mChannelsFlushing(0)
+		mFileName(fileName)
 {
 	Element::setClassName(__func__);
 
 	setState(State::CREATED);
+
+	if (params != nullptr)
+		mPlaybackMode = params->playback_mode;
 }
 
 
-RecordDemuxer::~RecordDemuxer(void)
+RecordDemuxer::~RecordDemuxer()
 {
 	int err;
 
@@ -101,9 +102,12 @@ int RecordDemuxer::fetchSessionMetadata(unsigned int trackId,
 					struct vmeta_session *meta)
 {
 	int ret;
-	unsigned int count = 0, i;
-	char **keys = nullptr, *key;
-	char **values = nullptr, *value;
+	unsigned int count = 0;
+	unsigned int i;
+	char **keys = nullptr;
+	const char *key;
+	char **values = nullptr;
+	const char *value;
 
 	memset(meta, 0, sizeof(*meta));
 
@@ -116,7 +120,7 @@ int RecordDemuxer::fetchSessionMetadata(unsigned int trackId,
 	for (i = 0; i < count; i++) {
 		key = keys[i];
 		value = values[i];
-		if ((key) && (value)) {
+		if (key && value) {
 			ret = vmeta_session_recording_read(key, value, meta);
 			if (ret < 0) {
 				PDRAW_LOG_ERRNO("vmeta_session_recording_read",
@@ -136,7 +140,7 @@ int RecordDemuxer::fetchSessionMetadata(unsigned int trackId,
 	for (i = 0; i < count; i++) {
 		key = keys[i];
 		value = values[i];
-		if ((key) && (value)) {
+		if (key && value) {
 			ret = vmeta_session_recording_read(key, value, meta);
 			if (ret < 0) {
 				PDRAW_LOG_ERRNO("vmeta_session_recording_read",
@@ -150,12 +154,14 @@ int RecordDemuxer::fetchSessionMetadata(unsigned int trackId,
 }
 
 
-bool RecordDemuxer::isMediaTrack(struct mp4_track_info *tkinfo,
+bool RecordDemuxer::isMediaTrack(const struct mp4_track_info *tkinfo,
 				 char **keys,
 				 char **values,
 				 int count)
 {
-	int i, c = 0;
+	PDRAW_UNUSED(values);
+
+	int c = 0;
 
 	if (tkinfo->type == MP4_TRACK_TYPE_VIDEO)
 		return true;
@@ -171,7 +177,7 @@ bool RecordDemuxer::isMediaTrack(struct mp4_track_info *tkinfo,
 		return true;
 
 	/* Old regis-specific raw video track */
-	for (i = 0; i < count; i++) {
+	for (int i = 0; i < count; i++) {
 		if (strcmp(keys[i], "com.parrot.regis.format") == 0)
 			c++;
 		else if (strcmp(keys[i], "com.parrot.regis.resolution") == 0)
@@ -184,7 +190,7 @@ bool RecordDemuxer::isMediaTrack(struct mp4_track_info *tkinfo,
 }
 
 
-int RecordDemuxer::start(void)
+int RecordDemuxer::start()
 {
 	int ret;
 
@@ -215,17 +221,21 @@ int RecordDemuxer::start(void)
 }
 
 
-int RecordDemuxer::completeStart(void)
+int RecordDemuxer::completeStart()
 {
 	int ret;
-	unsigned int i, tkCount = 0;
+	unsigned int i;
+	unsigned int tkCount = 0;
 	struct mp4_media_info info;
 	struct mp4_track_info tk;
-	size_t mediasCount = 0, mediaIndex = 0;
-	unsigned int hrs = 0, min = 0, sec = 0;
+	size_t mediasCount = 0;
+	size_t mediaIndex = 0;
+	unsigned int hrs = 0;
+	unsigned int min = 0;
+	unsigned int sec = 0;
 	bool ready = true;
 	uint32_t selectedMedias = 0;
-	struct pdraw_demuxer_media *newMediaList = NULL;
+	struct pdraw_demuxer_media *newMediaList = nullptr;
 	size_t newMediaListSize = 0;
 	std::vector<struct pdraw_demuxer_media *> newDefaultMedias;
 
@@ -244,7 +254,8 @@ int RecordDemuxer::completeStart(void)
 	/* Count the number of media tracks */
 	for (i = 0; i < tkCount; i++) {
 		unsigned int count = 0;
-		char **keys = nullptr, **values = nullptr;
+		char **keys = nullptr;
+		char **values = nullptr;
 		ret = mp4_demux_get_track_info(mDemux, i, &tk);
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("mp4_demux_get_track_info", -ret);
@@ -267,8 +278,8 @@ int RecordDemuxer::completeStart(void)
 		goto exit;
 	}
 
-	newMediaList = (struct pdraw_demuxer_media *)calloc(
-		mediasCount, sizeof(*newMediaList));
+	newMediaList = static_cast<struct pdraw_demuxer_media *>(
+		calloc(mediasCount, sizeof(*newMediaList)));
 	if (newMediaList == nullptr) {
 		PDRAW_LOGE("calloc");
 		goto exit;
@@ -277,7 +288,8 @@ int RecordDemuxer::completeStart(void)
 
 	/* List all tracks */
 	for (i = 0; i < tkCount; i++) {
-		char **keys = nullptr, **values = nullptr;
+		char **keys = nullptr;
+		char **values = nullptr;
 		unsigned int count = 0;
 		ret = mp4_demux_get_track_info(mDemux, i, &tk);
 		if (ret < 0) {
@@ -373,9 +385,9 @@ exit:
 		setState(State::CREATED);
 	}
 
-	for (size_t i = 0; i < newMediaListSize; i++) {
-		free((void *)newMediaList[i].name);
-		free((void *)newMediaList[i].uri);
+	for (i = 0; i < newMediaListSize; i++) {
+		free(const_cast<char *>(newMediaList[i].name));
+		free(const_cast<char *>(newMediaList[i].uri));
 	}
 	free(newMediaList);
 
@@ -385,13 +397,13 @@ exit:
 
 void RecordDemuxer::idleCompleteStart(void *userdata)
 {
-	RecordDemuxer *self = (RecordDemuxer *)userdata;
+	auto *self = static_cast<RecordDemuxer *>(userdata);
 
 	(void)self->completeStart();
 }
 
 
-int RecordDemuxer::stop(void)
+int RecordDemuxer::stop()
 {
 	int ret;
 
@@ -434,7 +446,7 @@ int RecordDemuxer::stop(void)
 
 void RecordDemuxer::setRunning(bool running)
 {
-	for (auto m : mMedias)
+	for (const auto &m : mMedias)
 		m->setRunning(running);
 	mRunning = running;
 	if (!mRunning)
@@ -449,7 +461,7 @@ void RecordDemuxer::onMediaSeekComplete(int seekResponse)
 	bool anySeeking = false;
 	if ((seekResponse != 0) && (mSeekResponse == 0))
 		mSeekResponse = seekResponse;
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		anySeeking |= m->isSeeking();
@@ -473,12 +485,12 @@ void RecordDemuxer::onMediaPlayComplete(int playResponse)
 	bool any = false;
 	if ((playResponse != 0) && (mPlayResponse == 0))
 		mPlayResponse = playResponse;
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		any |= m->isPendingPlay();
 	}
-	if (!any) {
+	if (!any && (getPendingCommand() == Command::PLAY)) {
 		mFrameByFrame = false;
 		this->playResponse(mPlayResponse, mCurrentTime, mSpeed);
 		mPlayResponse = 0;
@@ -486,10 +498,10 @@ void RecordDemuxer::onMediaPlayComplete(int playResponse)
 }
 
 
-void RecordDemuxer::onMediaRunningStateChanged(void)
+void RecordDemuxer::onMediaRunningStateChanged()
 {
 	bool any = false;
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		any |= m->isRunning();
@@ -527,7 +539,7 @@ int RecordDemuxer::flush(bool discard)
 
 	mChannelsFlushing = 0;
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		m->setDestroyAfterFlush(false);
 		if (mFlushDiscard)
 			m->flush();
@@ -537,7 +549,7 @@ int RecordDemuxer::flush(bool discard)
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr) {
 			PDRAW_LOGW("failed to get media at index %d", i);
 			continue;
@@ -555,10 +567,8 @@ int RecordDemuxer::flush(bool discard)
 }
 
 
-void RecordDemuxer::destroyAllMedias(void)
+void RecordDemuxer::destroyAllMedias()
 {
-	for (auto p = mMedias.begin(); p != mMedias.end(); p++)
-		delete *p;
 	mMedias.clear();
 }
 
@@ -572,7 +582,7 @@ void RecordDemuxer::onChannelFlushed(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -581,7 +591,7 @@ void RecordDemuxer::onChannelFlushed(Channel *channel)
 		   media->getName().c_str(),
 		   channel->getOwner());
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->hasMedia(media)) {
 			m->channelFlushed(channel);
 			destroyMedia = m->getDestroyAfterFlush();
@@ -611,7 +621,7 @@ void RecordDemuxer::onChannelDrained(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -620,10 +630,10 @@ void RecordDemuxer::onChannelDrained(Channel *channel)
 		   media->getName().c_str(),
 		   channel->getOwner());
 
-	for (auto p = mMedias.begin(); p != mMedias.end(); p++) {
-		if ((*p)->hasMedia(media)) {
-			(*p)->channelDrained(channel);
-			destroyMedia = (*p)->getDestroyAfterFlush();
+	for (const auto &m : mMedias) {
+		if (m->hasMedia(media)) {
+			m->channelDrained(channel);
+			destroyMedia = m->getDestroyAfterFlush();
 			break;
 		}
 	}
@@ -641,7 +651,7 @@ void RecordDemuxer::onChannelDrained(Channel *channel)
 }
 
 
-void RecordDemuxer::completeFlush(void)
+void RecordDemuxer::completeFlush()
 {
 	setFlushingState(FlushingState::FLUSHED);
 
@@ -661,7 +671,7 @@ void RecordDemuxer::completeFlush(void)
 
 	if (mRunning && !mFrameByFrame) {
 		/* restart playing */
-		for (auto m : mMedias) {
+		for (const auto &m : mMedias) {
 			if (m->isTearingDown())
 				continue;
 			m->play();
@@ -680,7 +690,7 @@ void RecordDemuxer::onChannelUnlink(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -698,8 +708,8 @@ void RecordDemuxer::onChannelUnlink(Channel *channel)
 				/* Delete media */
 				PDRAW_LOGI("removing media %s",
 					   (*p)->getCName());
-				delete *p;
-				mMedias.erase(p);
+				p = mMedias.erase(p);
+				break;
 			}
 			break;
 		}
@@ -709,20 +719,20 @@ void RecordDemuxer::onChannelUnlink(Channel *channel)
 }
 
 
-void RecordDemuxer::completeTeardown(void)
+void RecordDemuxer::completeTeardown()
 {
 	Source::lock();
 
 	unsigned int outputMediaCount = getOutputMediaCount();
 	for (unsigned int i = 0; i < outputMediaCount; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media && getOutputChannelCount(media) > 0) {
 			Source::unlock();
 			return;
 		}
 	}
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (!m->isTearingDown()) {
 			Source::unlock();
 			return;
@@ -751,7 +761,7 @@ int RecordDemuxer::internalPlay(float speed)
 }
 
 
-int RecordDemuxer::internalPause(void)
+int RecordDemuxer::internalPause()
 {
 	setRunning(false);
 	mFrameByFrame = true;
@@ -801,7 +811,7 @@ int RecordDemuxer::play(float speed)
 		internalPause();
 	} else {
 		setPendingCommand(Command::PLAY);
-		for (auto m : mMedias) {
+		for (const auto &m : mMedias) {
 			if (m->isTearingDown())
 				continue;
 			m->play();
@@ -813,7 +823,7 @@ int RecordDemuxer::play(float speed)
 }
 
 
-bool RecordDemuxer::isReadyToPlay(void)
+bool RecordDemuxer::isReadyToPlay() const
 {
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
@@ -824,7 +834,7 @@ bool RecordDemuxer::isReadyToPlay(void)
 }
 
 
-bool RecordDemuxer::isPaused(void)
+bool RecordDemuxer::isPaused() const
 {
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
@@ -837,7 +847,7 @@ bool RecordDemuxer::isPaused(void)
 }
 
 
-int RecordDemuxer::previous(void)
+int RecordDemuxer::previous()
 {
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
@@ -852,19 +862,14 @@ int RecordDemuxer::previous(void)
 		return -EPROTO;
 	}
 
-	switch (getPendingCommand()) {
-	case Command::NONE:
-		/* OK */
-		break;
-	case Command::SEEK:
-	default:
+	if (getPendingCommand() != Command::NONE) {
 		PDRAW_LOGE("%s: another operation (%s) is pending",
 			   __func__,
 			   getCommandStr(getPendingCommand()));
 		return -EBUSY;
 	}
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		m->previous();
@@ -879,7 +884,7 @@ int RecordDemuxer::previous(void)
 }
 
 
-int RecordDemuxer::next(void)
+int RecordDemuxer::next()
 {
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
@@ -910,7 +915,7 @@ int RecordDemuxer::next(void)
 		return -EBUSY;
 	}
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		m->next();
@@ -937,19 +942,14 @@ int RecordDemuxer::seek(int64_t delta, bool exact)
 		return -EPROTO;
 	}
 
-	switch (getPendingCommand()) {
-	case Command::NONE:
-		/* OK */
-		break;
-	case Command::SEEK:
-	default:
+	if (getPendingCommand() != Command::NONE) {
 		PDRAW_LOGE("%s: another operation (%s) is pending",
 			   __func__,
 			   getCommandStr(getPendingCommand()));
 		return -EBUSY;
 	}
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		m->seek(delta, exact);
@@ -975,12 +975,7 @@ int RecordDemuxer::seekTo(uint64_t timestamp, bool exact)
 		return -EPROTO;
 	}
 
-	switch (getPendingCommand()) {
-	case Command::NONE:
-		/* OK */
-		break;
-	case Command::SEEK:
-	default:
+	if (getPendingCommand() != Command::NONE) {
 		PDRAW_LOGE("%s: another operation (%s) is pending",
 			   __func__,
 			   getCommandStr(getPendingCommand()));
@@ -990,7 +985,7 @@ int RecordDemuxer::seekTo(uint64_t timestamp, bool exact)
 	if (timestamp > mDuration)
 		timestamp = mDuration;
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		m->seekTo(timestamp, exact);
@@ -1014,9 +1009,9 @@ int RecordDemuxer::getChapterList(struct pdraw_chapter **chapterList,
 {
 	int ret;
 	unsigned int count = 0;
-	uint64_t *times = NULL;
-	char **names = NULL;
-	struct pdraw_chapter *_chapterList = NULL;
+	uint64_t *times = nullptr;
+	char **names = nullptr;
+	struct pdraw_chapter *_chapterList = nullptr;
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(chapterList == nullptr, EINVAL);
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(chapterCount == nullptr, EINVAL);
@@ -1038,9 +1033,9 @@ int RecordDemuxer::getChapterList(struct pdraw_chapter **chapterList,
 		return -ENOENT;
 	}
 
-	_chapterList =
-		(struct pdraw_chapter *)calloc(count, sizeof(*_chapterList));
-	if (_chapterList == NULL) {
+	_chapterList = static_cast<struct pdraw_chapter *>(
+		calloc(count, sizeof(*_chapterList)));
+	if (_chapterList == nullptr) {
 		ret = -ENOMEM;
 		PDRAW_LOG_ERRNO("calloc", -ret);
 		return ret;
@@ -1059,15 +1054,15 @@ int RecordDemuxer::getChapterList(struct pdraw_chapter **chapterList,
 }
 
 
-int RecordDemuxer::selectReferenceTrack(void)
+int RecordDemuxer::selectReferenceTrack()
 {
-	DemuxerMedia *prevRefMedia = nullptr;
-	DemuxerMedia *refMedia = nullptr;
+	const DemuxerMedia *prevRefMedia = nullptr;
+	const DemuxerMedia *refMedia = nullptr;
 	size_t count = 0;
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isReference())
-			prevRefMedia = m;
+			prevRefMedia = m.get();
 		if (m->isTearingDown())
 			continue;
 		count++;
@@ -1082,7 +1077,7 @@ int RecordDemuxer::selectReferenceTrack(void)
 	 * #3: 1st track
 	 */
 	for (size_t i = 0; i < 3; i++) {
-		for (auto m : mMedias) {
+		for (const auto &m : mMedias) {
 			if (m->isTearingDown())
 				continue;
 			if ((i <= 1) &&
@@ -1091,7 +1086,7 @@ int RecordDemuxer::selectReferenceTrack(void)
 				continue;
 			if ((i == 0) && !m->isTrackEnabled())
 				continue;
-			refMedia = m;
+			refMedia = m.get();
 			break;
 		}
 		if (refMedia != nullptr)
@@ -1103,14 +1098,14 @@ int RecordDemuxer::selectReferenceTrack(void)
 	if (refMedia != prevRefMedia)
 		PDRAW_LOGI("select %s as ref media", refMedia->getCName());
 
-	for (auto m : mMedias)
-		m->setReference((m == refMedia));
+	for (const auto &m : mMedias)
+		m->setReference(m.get() == refMedia);
 
 	return 0;
 }
 
 
-int RecordDemuxer::processSelectedMedias(void)
+int RecordDemuxer::processSelectedMedias()
 {
 	int ret;
 	bool mediaListChanged = false;
@@ -1123,7 +1118,7 @@ int RecordDemuxer::processSelectedMedias(void)
 			goto exit;
 		}
 		bool found = false;
-		for (auto m : mMedias) {
+		for (const auto &m : mMedias) {
 			if (m->isTearingDown())
 				continue;
 			if (m->getTrackId() == tk.id) {
@@ -1134,43 +1129,55 @@ int RecordDemuxer::processSelectedMedias(void)
 			}
 		}
 		if (!found) {
-			RecordDemuxer::DemuxerMedia *media;
-			switch (tk.type) {
-			case MP4_TRACK_TYPE_VIDEO:
-				media = new RecordDemuxer::
-					DemuxerCodedVideoMedia(this);
-				break;
-			case MP4_TRACK_TYPE_METADATA:
-				media = new RecordDemuxer::DemuxerRawVideoMedia(
-					this);
-				break;
-			case MP4_TRACK_TYPE_AUDIO:
-				media = new RecordDemuxer::DemuxerAudioMedia(
-					this);
-				break;
-			default:
-				ret = -EPROTO;
-				PDRAW_LOGE("unsupported track type");
+			std::unique_ptr<RecordDemuxer::DemuxerMedia> media;
+			try {
+				switch (tk.type) {
+				case MP4_TRACK_TYPE_VIDEO:
+					media = make_unique<
+						RecordDemuxer::
+							DemuxerCodedVideoMedia>(
+						this);
+					break;
+				case MP4_TRACK_TYPE_METADATA:
+					media = make_unique<
+						RecordDemuxer::
+							DemuxerRawVideoMedia>(
+						this);
+					break;
+				case MP4_TRACK_TYPE_AUDIO:
+					media = make_unique<
+						RecordDemuxer::
+							DemuxerAudioMedia>(
+						this);
+					break;
+				default:
+					ret = -EPROTO;
+					PDRAW_LOGE("unsupported track type");
+					goto exit;
+				}
+			} catch (const std::bad_alloc &) {
+				ret = -ENOMEM;
+				PDRAW_LOGE("DemuxerMedia allocation failed");
 				goto exit;
 			}
 			ret = media->setup(&tk);
 			if (ret != 0) {
 				PDRAW_LOG_ERRNO("VideoMedia::setup", -ret);
-				delete media;
 				goto exit;
 			}
 			PDRAW_LOGI("media '%s' not set up, setting up",
 				   s->name);
-			mMedias.push_back(media);
+			mMedias.push_back(std::move(media));
+			auto &mediaPtr = mMedias.back();
 			mediaListChanged = true;
 			if (mRunning) {
 				/* Play newly setup medias */
-				media->play();
+				mediaPtr->play();
 				internalPlay(mSpeed);
 			}
 		}
 	}
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		if (m->isTearingDown())
 			continue;
 		bool found = false;
@@ -1184,7 +1191,7 @@ int RecordDemuxer::processSelectedMedias(void)
 			PDRAW_LOGI(
 				"media '%s' not selected anymore, "
 				"tear it down",
-				m->getTrackName());
+				m->getTrackName().c_str());
 			m->sendDownstreamEvent(Channel::DownstreamEvent::EOS);
 			m->setDestroyAfterFlush(true);
 			m->flush();
@@ -1228,26 +1235,14 @@ stop:
 
 
 RecordDemuxer::DemuxerMedia::DemuxerMedia(RecordDemuxer *demuxer) :
-		mDemuxer(demuxer), mTrackEnabled(false), mTrackId(0),
-		mTrackName(nullptr), mMediaType(Media::Type::UNKNOWN),
-		mIsReference(false), mFirstSample(true), mSampleIndex(0),
-		mMetadataMimeType(nullptr), mMetadataBufferSize(0),
-		mMetadataBuffer(nullptr), mTimescale(0), mAvgOutputInterval(0),
-		mLastSampleOutputTime(0), mLastSampleDuration(0),
-		mLastOutputError(0), mPendingSeek(false), mPendingSeekTs(-1),
-		mPendingSeekExact(false), mPendingSeekToPrevSample(false),
-		mPendingSeekInPlay(false), mPendingSeekToNextSample(false),
-		mSeekResponse(0), mPlayResponse(0), mPauseResponse(0),
-		mRunning(false), mFlushing(false), mTearingDown(false),
-		mFlushChannelCount(0), mDestroyAfterFlush(false),
-		mTimer(nullptr)
+		mDemuxer(demuxer)
 {
 	std::string name = demuxer->getName() + "#DemuxerMedia";
 	Loggable::setName(name);
 }
 
 
-RecordDemuxer::DemuxerMedia::~DemuxerMedia(void)
+RecordDemuxer::DemuxerMedia::~DemuxerMedia()
 {
 	int ret;
 
@@ -1259,32 +1254,32 @@ RecordDemuxer::DemuxerMedia::~DemuxerMedia(void)
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
 	}
-
-	free(mTrackName);
-	free(mMetadataBuffer);
-	free(mMetadataMimeType);
 }
 
 
-bool RecordDemuxer::DemuxerMedia::hasMedia(Media *media)
+bool RecordDemuxer::DemuxerMedia::hasMedia(const Media *media) const
 {
-	return (std::find(mMedias.begin(), mMedias.end(), media) !=
-		mMedias.end());
+	return std::find_if(mMedias.begin(),
+			    mMedias.end(),
+			    [media](const std::unique_ptr<Media> &m) {
+				    return m.get() == media;
+			    }) != mMedias.end();
 }
 
 
-Media *RecordDemuxer::DemuxerMedia::getMedia(unsigned int index)
+Media *RecordDemuxer::DemuxerMedia::getMedia(unsigned int index) const
 {
 	if (index >= mMedias.size())
 		return nullptr;
 
-	return mMedias[index];
+	return mMedias[index].get();
 }
 
 
 int RecordDemuxer::DemuxerMedia::setup(const struct mp4_track_info *tkinfo)
 {
-	int ret, err;
+	int ret;
+	int err;
 
 	std::string name =
 		mDemuxer->getName() + "#track#" + std::to_string(tkinfo->id);
@@ -1292,13 +1287,14 @@ int RecordDemuxer::DemuxerMedia::setup(const struct mp4_track_info *tkinfo)
 
 	mTrackEnabled = tkinfo->enabled;
 	mTrackId = tkinfo->id;
-	mTrackName = xstrdup(tkinfo->name);
+	if (tkinfo->name != nullptr)
+		mTrackName = std::string(tkinfo->name);
 	mTimescale = tkinfo->timescale;
-	mMetadataBufferSize = 1024;
-	mMetadataBuffer = (uint8_t *)malloc(mMetadataBufferSize);
-	if (mMetadataBuffer == nullptr) {
+	try {
+		mMetadataBuffer.resize(1024);
+	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
-		PDRAW_LOG_ERRNO("malloc", -ret);
+		PDRAW_LOG_ERRNO("std::vector allocation failed", -ret);
 		goto error;
 	}
 
@@ -1328,13 +1324,11 @@ error:
 			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
 		mTimer = nullptr;
 	}
-	free(mMetadataBuffer);
-	mMetadataBuffer = nullptr;
 	return ret;
 }
 
 
-void RecordDemuxer::DemuxerMedia::play(void)
+void RecordDemuxer::DemuxerMedia::play()
 {
 	if (!mPendingSeekExact) {
 		/* Avoid seeking back too much if a seek to a
@@ -1351,7 +1345,7 @@ void RecordDemuxer::DemuxerMedia::play(void)
 }
 
 
-void RecordDemuxer::DemuxerMedia::previous(void)
+void RecordDemuxer::DemuxerMedia::previous()
 {
 	if (!mPendingSeekExact) {
 		/* Avoid seeking back too much if a seek to a
@@ -1368,7 +1362,7 @@ void RecordDemuxer::DemuxerMedia::previous(void)
 }
 
 
-void RecordDemuxer::DemuxerMedia::next(void)
+void RecordDemuxer::DemuxerMedia::next()
 {
 	if (!mPendingSeekExact) {
 		/* Avoid seeking back too much if a seek to a
@@ -1424,6 +1418,14 @@ void RecordDemuxer::DemuxerMedia::completePlay()
 }
 
 
+void RecordDemuxer::DemuxerMedia::completeFlush()
+{
+	mFlushChannelCount--;
+	if (mFlushChannelCount <= 0)
+		mFlushing = false;
+}
+
+
 void RecordDemuxer::DemuxerMedia::flush(bool discard)
 {
 	int err;
@@ -1437,14 +1439,15 @@ void RecordDemuxer::DemuxerMedia::flush(bool discard)
 	mFlushDiscard = discard;
 	mFlushChannelCount = 0;
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		unsigned int outputChannelCount =
-			mDemuxer->getOutputChannelCount(m);
+			mDemuxer->getOutputChannelCount(m.get());
 		mFlushChannelCount += outputChannelCount;
 
 		/* Flush the output channels */
 		for (unsigned int i = 0; i < outputChannelCount; i++) {
-			Channel *channel = mDemuxer->getOutputChannel(m, i);
+			Channel *channel =
+				mDemuxer->getOutputChannel(m.get(), i);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   i);
@@ -1475,37 +1478,39 @@ void RecordDemuxer::DemuxerMedia::sendDownstreamEvent(
 {
 	int err;
 
-	for (auto m : mMedias) {
-		err = mDemuxer->Source::sendDownstreamEvent(m, event);
+	for (const auto &m : mMedias) {
+		err = mDemuxer->Source::sendDownstreamEvent(m.get(), event);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("Source::sendDownstreamEvent", -err);
 	}
 }
 
 
-void RecordDemuxer::DemuxerMedia::channelFlushed(Channel *channel)
+void RecordDemuxer::DemuxerMedia::channelFlushed(const Channel *channel)
 {
-	mFlushChannelCount--;
-	if (mFlushChannelCount <= 0)
-		mFlushing = false;
+	PDRAW_UNUSED(channel);
+
+	completeFlush();
 }
 
 
-void RecordDemuxer::DemuxerMedia::channelDrained(Channel *channel)
+void RecordDemuxer::DemuxerMedia::channelDrained(const Channel *channel)
 {
-	mFlushChannelCount--;
-	if (mFlushChannelCount <= 0)
-		mFlushing = false;
+	PDRAW_UNUSED(channel);
+
+	completeFlush();
 }
 
 
-void RecordDemuxer::DemuxerMedia::channelUnlink(Channel *channel)
+void RecordDemuxer::DemuxerMedia::channelUnlink(const Channel *channel)
 {
+	PDRAW_UNUSED(channel);
+
 	mDemuxer->Source::lock();
 
-	for (auto m : mMedias) {
+	for (const auto &m : mMedias) {
 		unsigned int outputChannelCount =
-			mDemuxer->getOutputChannelCount(m);
+			mDemuxer->getOutputChannelCount(m.get());
 		if (outputChannelCount > 0) {
 			mDemuxer->Source::unlock();
 			return;
@@ -1519,7 +1524,7 @@ void RecordDemuxer::DemuxerMedia::channelUnlink(Channel *channel)
 }
 
 
-void RecordDemuxer::DemuxerMedia::stop(void)
+void RecordDemuxer::DemuxerMedia::stop()
 {
 	(void)pomp_timer_clear(mTimer);
 
@@ -1529,14 +1534,14 @@ void RecordDemuxer::DemuxerMedia::stop(void)
 
 	mDemuxer->Source::lock();
 
-	for (auto m : mMedias)
+	for (const auto &m : mMedias)
 		m->setTearingDown();
 
 	mDemuxer->Source::unlock();
 }
 
 
-void RecordDemuxer::DemuxerMedia::teardownMedia(void)
+void RecordDemuxer::DemuxerMedia::teardownMedia()
 {
 	int err;
 	/* Remove the output ports */
@@ -1548,14 +1553,13 @@ void RecordDemuxer::DemuxerMedia::teardownMedia(void)
 		}
 		if (mDemuxer->Source::mListener) {
 			mDemuxer->Source::mListener->onOutputMediaRemoved(
-				mDemuxer, (*m), mDemuxer->getDemuxer());
+				mDemuxer, m->get(), mDemuxer->getDemuxer());
 		}
-		err = mDemuxer->removeOutputPort((*m));
+		err = mDemuxer->removeOutputPort(m->get());
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("removeOutputPort", -err);
 			m++;
 		} else {
-			delete (*m);
 			m = mMedias.erase(m);
 		}
 	}
@@ -1566,13 +1570,17 @@ void RecordDemuxer::DemuxerMedia::teardownMedia(void)
 void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 					  void *userdata)
 {
-	DemuxerMedia *self = (DemuxerMedia *)userdata;
+	auto *self = static_cast<DemuxerMedia *>(userdata);
 	int ret = 0;
-	bool retry = false, silent = false;
+	bool retry = false;
+	bool silent = false;
 	float speed = 1.0;
-	int64_t error, duration, wait = 0;
+	int64_t error;
+	int64_t duration;
+	int64_t wait = 0;
 	uint32_t waitMs = 0;
-	bool didSeek = false, waitFlush = false;
+	bool didSeek = false;
+	bool waitFlush = false;
 	struct timespec ts = {0, 0};
 	uint64_t curTime = 0;
 	struct mp4_track_sample sample = {};
@@ -1655,6 +1663,13 @@ void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 		if (ret == -ENOENT) {
 			didSeek = true;
 			self->mPendingSeekExact = false;
+		} else if ((demuxer->mPlaybackMode ==
+			    PDRAW_PLAYBACK_MODE_OFFLINE) &&
+			   (ret < 0) && waitFlush) {
+			waitFlush = false;
+			retry = true;
+			ret = 0;
+			goto out;
 		} else if (ret < 0)
 			goto out;
 	}
@@ -1662,7 +1677,7 @@ void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 	if (didSeek) {
 		if (!self->mPendingSeekInPlay) {
 			self->completeSeek();
-		} else {
+		} else if (self->mPendingPlay) {
 			self->mPlayResponse = self->mSeekResponse;
 			self->completePlay();
 		}
@@ -1709,7 +1724,7 @@ out:
 		/* If error > 0 we are late, if error < 0 we are early */
 		error = ((self->mLastSampleOutputTime == 0) ||
 			 (self->mLastSampleDuration == 0) || (speed == 0.) ||
-			 (speed >= PDRAW_PLAY_SPEED_MAX) || (silent))
+			 (speed >= PDRAW_PLAY_SPEED_MAX) || silent)
 				? 0
 				: curTime - self->mLastSampleOutputTime -
 					  self->mLastSampleDuration +
@@ -1726,7 +1741,7 @@ out:
 
 		/* Sample duration */
 		if ((speed >= PDRAW_PLAY_SPEED_MAX) || (nextSampleDts == 0) ||
-		    (silent)) {
+		    silent) {
 			duration = 0;
 		} else if (speed < 0.) {
 			/* Negative speed => play backward */
@@ -1765,9 +1780,12 @@ out:
 							      sample.dts,
 							      self->mTimescale);
 					if (speed != 0.) {
-						newDuration =
-							(float)newDuration /
-							speed;
+						newDuration = static_cast<
+							int64_t>(
+							static_cast<double>(
+								newDuration) /
+							static_cast<double>(
+								speed));
 					}
 				} else {
 					break;
@@ -1819,9 +1837,12 @@ out:
 							      sample.dts,
 							      self->mTimescale);
 					if (speed != 0.) {
-						newDuration =
-							(float)newDuration /
-							speed;
+						newDuration = static_cast<
+							int64_t>(
+							static_cast<double>(
+								newDuration) /
+							static_cast<double>(
+								speed));
 					}
 				} else {
 					break;
@@ -1868,7 +1889,8 @@ out:
 				}
 				wait = 0;
 			}
-			waitMs = (wait + 500) / 1000;
+			wait = MIN(wait, UINT32_MAX - 500);
+			waitMs = static_cast<uint32_t>(wait + 500) / 1000;
 			if (waitMs == 0)
 				waitMs = 1;
 		} else if (demuxer->mRunning && !demuxer->mFrameByFrame) {
@@ -1904,6 +1926,9 @@ out:
 	demuxer->Source::unlock();
 
 	if (waitMs > 0) {
+		if ((demuxer->mPlaybackMode == PDRAW_PLAYBACK_MODE_OFFLINE) &&
+		    !retry)
+			waitMs = 1;
 		ret = pomp_timer_set(timer, waitMs);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("pomp_timer_set", -ret);

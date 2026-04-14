@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SINK_HPP_
-#define _PDRAW_SINK_HPP_
+#pragma once
 
 #include "pdraw_channel.hpp"
 #include "pdraw_channel_audio.hpp"
@@ -37,6 +36,8 @@
 #include "pdraw_channel_raw_video.hpp"
 #include "pdraw_media.hpp"
 
+#include <memory>
+#include <mutex>
 #include <vector>
 
 namespace Pdraw {
@@ -49,13 +50,13 @@ class Sink : public Channel::SinkListener,
 	     public RawVideoChannel::RawVideoSinkListener,
 	     public AudioChannel::AudioSinkListener {
 public:
-	virtual ~Sink(void);
+	~Sink() override;
 
-	void lock(void);
+	void lock();
 
-	void unlock(void);
+	void unlock();
 
-	virtual std::string &getName(void) = 0;
+	virtual const std::string &getName() const = 0;
 
 	int getCodedVideoMediaFormatCaps(
 		const struct vdef_coded_format **caps) const
@@ -75,7 +76,7 @@ public:
 		return mRawVideoMediaFormatCapsCount;
 	}
 
-	int getAudioMediaFormatCaps(const struct adef_format **caps)
+	int getAudioMediaFormatCaps(const struct adef_format **caps) const
 	{
 		if (caps == nullptr)
 			return -EINVAL;
@@ -83,25 +84,25 @@ public:
 		return mAudioMediaFormatCapsCount;
 	}
 
-	unsigned int getInputMediaCount(void);
+	unsigned int getInputMediaCount();
 
 	Media *getInputMedia(unsigned int index);
 
-	Media *findInputMedia(Media *media);
+	Media *findInputMedia(const Media *media);
 
 	virtual int addInputMedia(Media *media);
 
 	virtual int removeInputMedia(Media *media);
 
-	Channel *getInputChannel(Media *media);
+	Channel *getInputChannel(const Media *media);
 
 protected:
 	struct InputPort {
-		Media *media;
-		Channel *channel;
+		Media *media = nullptr;
+		std::unique_ptr<Channel> channel{};
 	};
 
-	Sink(Session *session,
+	Sink(const Session *session,
 	     unsigned int maxInputMedias,
 	     const struct vdef_coded_format *codedVideoMediaFormatCaps,
 	     int codedVideoMediaFormatCapsCount,
@@ -130,22 +131,23 @@ protected:
 		mAudioMediaFormatCapsCount = count;
 	}
 
-	InputPort *getInputPort(Media *media);
+	InputPort *getInputPort(const Media *media);
 
-	virtual int removeInputMedias(void);
+	virtual int removeInputMedias();
 
-	virtual void
+	void
 	onCodedVideoChannelQueue(CodedVideoChannel *channel,
-				 struct mbuf_coded_video_frame *frame);
+				 struct mbuf_coded_video_frame *frame) override;
 
-	virtual void onRawVideoChannelQueue(RawVideoChannel *channel,
-					    struct mbuf_raw_video_frame *frame);
+	void
+	onRawVideoChannelQueue(RawVideoChannel *channel,
+			       struct mbuf_raw_video_frame *frame) override;
 
-	virtual void onAudioChannelQueue(AudioChannel *channel,
-					 struct mbuf_audio_frame *frame);
+	void onAudioChannelQueue(AudioChannel *channel,
+				 struct mbuf_audio_frame *frame) override;
 
-	virtual void onChannelDownstreamEvent(Channel *channel,
-					      const struct pomp_msg *event);
+	void onChannelDownstreamEvent(Channel *channel,
+				      const struct pomp_msg *event) override;
 
 	virtual void onChannelFlush(Channel *channel) = 0;
 
@@ -169,18 +171,16 @@ protected:
 
 	virtual void onChannelSessionMetaUpdate(Channel *channel);
 
-	struct pomp_loop *mLoop;
-	pthread_mutex_t mMutex;
-	unsigned int mMaxInputMedias;
-	std::vector<InputPort> mInputPorts;
-	const struct vdef_coded_format *mCodedVideoMediaFormatCaps;
-	int mCodedVideoMediaFormatCapsCount;
-	const struct vdef_raw_format *mRawVideoMediaFormatCaps;
-	int mRawVideoMediaFormatCapsCount;
-	const struct adef_format *mAudioMediaFormatCaps;
-	int mAudioMediaFormatCapsCount;
+	struct pomp_loop *mLoop = nullptr;
+	std::recursive_mutex mMutex{};
+	unsigned int mMaxInputMedias = 0;
+	std::vector<InputPort> mInputPorts{};
+	const struct vdef_coded_format *mCodedVideoMediaFormatCaps = nullptr;
+	int mCodedVideoMediaFormatCapsCount = 0;
+	const struct vdef_raw_format *mRawVideoMediaFormatCaps = nullptr;
+	int mRawVideoMediaFormatCapsCount = 0;
+	const struct adef_format *mAudioMediaFormatCaps = nullptr;
+	int mAudioMediaFormatCapsCount = 0;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_SINK_HPP_ */

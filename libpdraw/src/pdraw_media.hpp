@@ -28,25 +28,29 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_MEDIA_HPP_
-#define _PDRAW_MEDIA_HPP_
+#pragma once
 
 #include <inttypes.h>
 #include <pthread.h>
 
 #include <atomic>
+#include <climits>
 #include <string>
+#include <vector>
 
 #include <pdraw/pdraw_defs.h>
 
 /* mbuf ancillary data key for CodedVideoMedia::Frame objects */
-#define PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME "pdraw.coded_video_media.frame"
+constexpr const char *PDRAW_ANCILLARY_DATA_KEY_CODEDVIDEOFRAME =
+	"pdraw.coded_video_media.frame";
 
 /* mbuf ancillary data key for RawVideoMedia::Frame objects */
-#define PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME "pdraw.raw_video_media.frame"
+constexpr const char *PDRAW_ANCILLARY_DATA_KEY_RAWVIDEOFRAME =
+	"pdraw.raw_video_media.frame";
 
 /* mbuf ancillary data key for AudioMedia::Frame objects */
-#define PDRAW_ANCILLARY_DATA_KEY_AUDIOMEDIAFRAME "pdraw.audio_media.frame"
+constexpr const char *PDRAW_ANCILLARY_DATA_KEY_AUDIOMEDIAFRAME =
+	"pdraw.audio_media.frame";
 
 namespace Pdraw {
 
@@ -54,7 +58,7 @@ class Session;
 
 class Media {
 public:
-	enum Type {
+	enum class Type {
 		UNKNOWN = 0,
 		RAW_VIDEO = (1 << 0),
 		CODED_VIDEO = (1 << 1),
@@ -63,22 +67,22 @@ public:
 
 	Media(Session *session, Type t);
 
-	virtual ~Media(void) {}
+	virtual ~Media() = default;
 
-	std::string &getName(void);
+	const std::string &getName() const;
 
-	std::string &getPath(void);
+	const std::string &getPath() const;
 
-	void setPath(std::string &name);
+	void setPath(const std::string &name);
 
 	void setPath(const char *name);
 
-	void setTearingDown(void)
+	void setTearingDown()
 	{
 		mTearingDown = true;
 	}
 
-	bool isTearingDown(void)
+	bool isTearingDown() const
 	{
 		return mTearingDown;
 	}
@@ -89,21 +93,21 @@ public:
 
 	static void cleanupMediaInfo(struct pdraw_media_info *minfo);
 
-	Type type;
-	unsigned int id;
-	enum pdraw_playback_type playbackType;
-	uint64_t duration;
+	Type type = Type::UNKNOWN;
+	unsigned int id = UINT_MAX;
+	enum pdraw_playback_type playbackType = PDRAW_PLAYBACK_TYPE_UNKNOWN;
+	uint64_t duration = 0;
 
 protected:
-	void setClassName(std::string &name);
+	void setClassName(const std::string &name);
 
 	void setClassName(const char *name);
 
 private:
-	Session *mSession;
-	bool mTearingDown;
-	std::string mName;
-	std::string mPath;
+	Session *mSession = nullptr;
+	bool mTearingDown = false;
+	std::string mName{};
+	std::string mPath{};
 	static std::atomic<unsigned int> mIdCounter;
 };
 
@@ -111,56 +115,59 @@ private:
 class RawVideoMedia : public Media {
 public:
 	struct Frame {
-		uint64_t ntpTimestamp;
-		uint64_t ntpUnskewedTimestamp;
-		uint64_t ntpRawTimestamp;
-		uint64_t ntpRawUnskewedTimestamp;
-		uint64_t playTimestamp;
-		uint64_t captureTimestamp;
-		uint64_t localTimestamp;
-		uint32_t localTimestampPrecision;
-		uint64_t recvStartTimestamp;
-		uint64_t recvEndTimestamp;
-		uint64_t demuxOutputTimestamp;
-		uint64_t decoderOutputTimestamp;
-		uint64_t scalerOutputTimestamp;
-		uint64_t renderTimestamp;
+		uint64_t ntpTimestamp = 0;
+		uint64_t ntpUnskewedTimestamp = 0;
+		uint64_t ntpRawTimestamp = 0;
+		uint64_t ntpRawUnskewedTimestamp = 0;
+		uint64_t playTimestamp = 0;
+		uint64_t captureTimestamp = 0;
+		uint64_t localTimestamp = 0;
+		uint32_t localTimestampPrecision = 0;
+		uint64_t recvStartTimestamp = 0;
+		uint64_t recvEndTimestamp = 0;
+		uint64_t demuxOutputTimestamp = 0;
+		uint64_t decoderOutputTimestamp = 0;
+		uint64_t scalerOutputTimestamp = 0;
+		uint64_t renderTimestamp = 0;
 	};
 
-	RawVideoMedia(Session *session);
+	explicit RawVideoMedia(Session *session);
 
-	~RawVideoMedia(void);
+	~RawVideoMedia() override = default;
 
-	virtual void fillMediaInfo(struct pdraw_media_info *minfo) override;
+	void fillMediaInfo(struct pdraw_media_info *minfo) override;
 
-	struct vdef_raw_format format;
-	struct vdef_format_info info;
-	struct vmeta_session sessionMeta;
+	struct vdef_raw_format format {
+	};
+	struct vdef_format_info info {
+	};
+	struct vmeta_session sessionMeta {
+	};
 };
 
 
 class CodedVideoMedia : public Media {
 public:
 	struct Frame {
-		bool isSync;
-		bool isRef;
-		uint64_t ntpTimestamp;
-		uint64_t ntpUnskewedTimestamp;
-		uint64_t ntpRawTimestamp;
-		uint64_t ntpRawUnskewedTimestamp;
-		uint64_t playTimestamp;
-		uint64_t captureTimestamp;
-		uint64_t localTimestamp;
-		uint32_t localTimestampPrecision;
-		uint64_t recvStartTimestamp;
-		uint64_t recvEndTimestamp;
-		uint64_t demuxOutputTimestamp;
-		uint64_t encoderOutputTimestamp;
+		bool isSync = false;
+		bool isRef = false;
+		uint64_t ntpTimestamp = 0;
+		uint64_t ntpUnskewedTimestamp = 0;
+		uint64_t ntpRawTimestamp = 0;
+		uint64_t ntpRawUnskewedTimestamp = 0;
+		uint64_t playTimestamp = 0;
+		uint64_t captureTimestamp = 0;
+		uint64_t localTimestamp = 0;
+		uint32_t localTimestampPrecision = 0;
+		uint64_t recvStartTimestamp = 0;
+		uint64_t recvEndTimestamp = 0;
+		uint64_t demuxOutputTimestamp = 0;
+		uint64_t encoderOutputTimestamp = 0;
 	};
 
-	CodedVideoMedia(Session *session);
+	explicit CodedVideoMedia(Session *session);
 
-	~CodedVideoMedia(void);
+	~CodedVideoMedia() override = default;
 
 	int getPs(const uint8_t **vps,
 		  size_t *vpsSize,
@@ -176,57 +183,55 @@ public:
 		  const uint8_t *pps,
 		  size_t ppsSize);
 
-	virtual void fillMediaInfo(struct pdraw_media_info *minfo) override;
+	void fillMediaInfo(struct pdraw_media_info *minfo) override;
 
-	struct vdef_coded_format format;
-	struct vdef_format_info info;
-	struct vmeta_session sessionMeta;
+	struct vdef_coded_format format {
+	};
+	struct vdef_format_info info {
+	};
+	struct vmeta_session sessionMeta {
+	};
 
 private:
-	uint8_t *mVps;
-	size_t mVpsSize;
-	uint8_t *mSps;
-	size_t mSpsSize;
-	uint8_t *mPps;
-	size_t mPpsSize;
+	std::vector<uint8_t> mVps{};
+	std::vector<uint8_t> mSps{};
+	std::vector<uint8_t> mPps{};
 };
 
 
 class AudioMedia : public Media {
 public:
 	struct Frame {
-		uint64_t ntpTimestamp;
-		uint64_t ntpUnskewedTimestamp;
-		uint64_t ntpRawTimestamp;
-		uint64_t ntpRawUnskewedTimestamp;
-		uint64_t playTimestamp;
-		uint64_t captureTimestamp;
-		uint64_t localTimestamp;
-		uint32_t localTimestampPrecision;
-		uint64_t recvStartTimestamp;
-		uint64_t recvEndTimestamp;
-		uint64_t demuxOutputTimestamp;
-		uint64_t encoderOutputTimestamp;
-		uint64_t decoderOutputTimestamp;
+		uint64_t ntpTimestamp = 0;
+		uint64_t ntpUnskewedTimestamp = 0;
+		uint64_t ntpRawTimestamp = 0;
+		uint64_t ntpRawUnskewedTimestamp = 0;
+		uint64_t playTimestamp = 0;
+		uint64_t captureTimestamp = 0;
+		uint64_t localTimestamp = 0;
+		uint32_t localTimestampPrecision = 0;
+		uint64_t recvStartTimestamp = 0;
+		uint64_t recvEndTimestamp = 0;
+		uint64_t demuxOutputTimestamp = 0;
+		uint64_t encoderOutputTimestamp = 0;
+		uint64_t decoderOutputTimestamp = 0;
 	};
 
-	AudioMedia(Session *session);
+	explicit AudioMedia(Session *session);
 
-	~AudioMedia(void);
+	~AudioMedia() override = default;
 
 	int getAacAsc(const uint8_t **asc, size_t *ascSize) const;
 
 	int setAacAsc(const uint8_t *asc, size_t ascSize);
 
-	virtual void fillMediaInfo(struct pdraw_media_info *minfo) override;
+	void fillMediaInfo(struct pdraw_media_info *minfo) override;
 
-	struct adef_format format;
+	struct adef_format format {
+	};
 
 private:
-	uint8_t *mAacAsc;
-	size_t mAacAscSize;
+	std::vector<uint8_t> mAacAsc{};
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_MEDIA_HPP_ */

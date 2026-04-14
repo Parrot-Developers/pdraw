@@ -31,7 +31,7 @@
 #include "pdraw_gles2hud_priv.h"
 
 
-void pdraw_gles2hud_draw_line(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_line(const struct pdraw_gles2hud *self,
 			      float x1,
 			      float y1,
 			      float x2,
@@ -57,7 +57,7 @@ void pdraw_gles2hud_draw_line(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_rect(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_rect(const struct pdraw_gles2hud *self,
 			      float x1,
 			      float y1,
 			      float x2,
@@ -87,7 +87,7 @@ void pdraw_gles2hud_draw_rect(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_filled_rect(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_filled_rect(const struct pdraw_gles2hud *self,
 				     float x1,
 				     float y1,
 				     float x2,
@@ -114,7 +114,7 @@ void pdraw_gles2hud_draw_filled_rect(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_arc(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_arc(const struct pdraw_gles2hud *self,
 			     float cx,
 			     float cy,
 			     float rx,
@@ -125,7 +125,6 @@ void pdraw_gles2hud_draw_arc(struct pdraw_gles2hud *self,
 			     const float color[4],
 			     float line_width)
 {
-	int i;
 	float theta = span_angle / (float)num_segments;
 	float c = cosf(theta);
 	float s = sinf(theta);
@@ -136,7 +135,7 @@ void pdraw_gles2hud_draw_arc(struct pdraw_gles2hud *self,
 
 	float vertices[2 * (num_segments + 1)];
 
-	for (i = 0; i <= num_segments; i++) {
+	for (int i = 0; i <= num_segments; i++) {
 		vertices[2 * i] = x * rx + cx;
 		vertices[2 * i + 1] = y * ry + cy;
 
@@ -157,7 +156,7 @@ void pdraw_gles2hud_draw_arc(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_ellipse(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_ellipse(const struct pdraw_gles2hud *self,
 				 float cx,
 				 float cy,
 				 float rx,
@@ -166,7 +165,6 @@ void pdraw_gles2hud_draw_ellipse(struct pdraw_gles2hud *self,
 				 const float color[4],
 				 float line_width)
 {
-	int i;
 	float theta = 2. * M_PI / (float)num_segments;
 	float c = cosf(theta);
 	float s = sinf(theta);
@@ -178,7 +176,7 @@ void pdraw_gles2hud_draw_ellipse(struct pdraw_gles2hud *self,
 
 	float vertices[2 * num_segments];
 
-	for (i = 0; i < num_segments; i++) {
+	for (int i = 0; i < num_segments; i++) {
 		vertices[2 * i] = x * rx + cx;
 		vertices[2 * i + 1] = y * ry + cy;
 
@@ -199,7 +197,7 @@ void pdraw_gles2hud_draw_ellipse(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_filled_ellipse(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_filled_ellipse(const struct pdraw_gles2hud *self,
 					float cx,
 					float cy,
 					float rx,

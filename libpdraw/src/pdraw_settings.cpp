@@ -37,55 +37,15 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-Settings::Settings(void)
+void Settings::lock()
 {
-	int res;
-	pthread_mutexattr_t attr;
-	bool attr_created = false;
-
-	res = pthread_mutexattr_init(&attr);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_init", res);
-		goto error;
-	}
-	attr_created = true;
-
-	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_settype", res);
-		goto error;
-	}
-
-	res = pthread_mutex_init(&mMutex, &attr);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutex_init", res);
-		goto error;
-	}
-
-	pthread_mutexattr_destroy(&attr);
-	return;
-
-error:
-	if (attr_created)
-		pthread_mutexattr_destroy(&attr);
+	mMutex.lock();
 }
 
 
-Settings::~Settings(void)
+void Settings::unlock()
 {
-	pthread_mutex_destroy(&mMutex);
-}
-
-
-void Settings::lock(void)
-{
-	pthread_mutex_lock(&mMutex);
-}
-
-
-void Settings::unlock(void)
-{
-	pthread_mutex_unlock(&mMutex);
+	mMutex.unlock();
 }
 
 
@@ -94,17 +54,15 @@ void Settings::getFriendlyName(std::string *friendlyName)
 	if (friendlyName == nullptr)
 		return;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	*friendlyName = mFriendlyName;
-	pthread_mutex_unlock(&mMutex);
 }
 
 
 void Settings::setFriendlyName(const std::string &friendlyName)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	mFriendlyName = friendlyName;
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -113,17 +71,15 @@ void Settings::getSerialNumber(std::string *serialNumber)
 	if (serialNumber == nullptr)
 		return;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	*serialNumber = mSerialNumber;
-	pthread_mutex_unlock(&mMutex);
 }
 
 
 void Settings::setSerialNumber(const std::string &serialNumber)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	mSerialNumber = serialNumber;
-	pthread_mutex_unlock(&mMutex);
 }
 
 
@@ -132,17 +88,15 @@ void Settings::getSoftwareVersion(std::string *softwareVersion)
 	if (softwareVersion == nullptr)
 		return;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	*softwareVersion = mSoftwareVersion;
-	pthread_mutex_unlock(&mMutex);
 }
 
 
 void Settings::setSoftwareVersion(const std::string &softwareVersion)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	mSoftwareVersion = softwareVersion;
-	pthread_mutex_unlock(&mMutex);
 }
 
 } /* namespace Pdraw */

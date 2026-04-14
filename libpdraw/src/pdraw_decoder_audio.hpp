@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DECODER_AUDIO_HPP_
-#define _PDRAW_DECODER_AUDIO_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
@@ -37,6 +36,7 @@
 
 #include <audio-decode/adec.h>
 #include <media-buffers/mbuf_audio_frame.h>
+#include <media-buffers/mbuf_queue.hpp>
 
 namespace Pdraw {
 
@@ -46,15 +46,15 @@ public:
 		     Element::Listener *elementListener,
 		     Source::Listener *sourceListener);
 
-	~AudioDecoder(void);
+	~AudioDecoder() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
-	void completeFlush(void);
+	void completeFlush();
 
-	void completeStop(void);
+	void completeStop();
 
 private:
 	int createOutputMedia(const struct adef_frame *frameInfo,
@@ -62,12 +62,12 @@ private:
 
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
 
-	int tryStop(void);
+	int tryStop();
 
 	void onAudioChannelQueue(AudioChannel *channel,
 				 struct mbuf_audio_frame *buf) override;
@@ -95,18 +95,16 @@ private:
 
 	static void idleCompleteFlush(void *userdata);
 
-	AudioMedia *mInputMedia;
-	AudioMedia *mOutputMedia;
-	struct mbuf_pool *mInputBufferPool;
-	struct mbuf_audio_frame_queue *mInputBufferQueue;
-	struct adec_decoder *mAdec;
-	bool mInputChannelFlushPending;
-	bool mOutputChannelDrainRequired;
-	bool mAdecFlushPending;
-	bool mAdecStopPending;
+	AudioMedia *mInputMedia = nullptr;
+	std::unique_ptr<AudioMedia> mOutputMedia{};
+	struct mbuf_pool *mInputBufferPool = nullptr;
+	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
+	struct adec_decoder *mAdec = nullptr;
+	bool mInputChannelFlushPending = false;
+	bool mOutputChannelDrainRequired = false;
+	bool mAdecFlushPending = false;
+	bool mAdecStopPending = false;
 	static const struct adec_cbs mDecoderCbs;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_DECODER_AUDIO_HPP_ */

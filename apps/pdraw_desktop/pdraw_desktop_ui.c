@@ -410,17 +410,18 @@ get_rect(struct pdraw_desktop *self, struct pdraw_rect *rect, unsigned int idx)
 static void pdraw_desktop_ui_add_video_media(struct pdraw_desktop *self,
 					     unsigned int media_id)
 {
-	int res, inc;
+	int res;
+	int inc;
 	unsigned int i;
 	bool pending_media =
 		(self->video_renderer_pending_media_id == media_id);
 
 	ULOGI("%s: media_id = %d", __func__, media_id);
 
-	for (size_t i = 0; i < SIZEOF_ARRAY(self->removed_medias); i++) {
-		if (self->removed_medias[i] == media_id) {
+	for (size_t j = 0; j < SIZEOF_ARRAY(self->removed_medias); j++) {
+		if (self->removed_medias[j] == media_id) {
 			ULOGI("media %d has been removed", media_id);
-			self->removed_medias[i] = 0;
+			self->removed_medias[j] = 0;
 			if (pending_media)
 				self->video_renderer_pending_media_id = 0;
 			return;
@@ -465,11 +466,11 @@ static void pdraw_desktop_ui_add_video_media(struct pdraw_desktop *self,
 		      self->video_renderer_count,
 		      self->video_media_count);
 		self->video_renderer_pending_media_id = media_id;
-		for (size_t i = 0; i < self->video_renderer_count; i++) {
+		for (size_t j = 0; j < self->video_renderer_count; j++) {
 			ULOGI("#%zu: media: %d, pending: %u",
-			      i,
-			      self->video_renderers[i].media_id,
-			      self->video_renderers[i].pending_media_id);
+			      j,
+			      self->video_renderers[j].media_id,
+			      self->video_renderers[j].pending_media_id);
 		}
 		return;
 	}
@@ -620,7 +621,6 @@ int pdraw_desktop_ui_loop(struct pdraw_desktop *self)
 			if (self->video_renderers[i].renderer == NULL)
 				continue;
 			pdraw_desktop_view_create_matrices(
-				self,
 				self->video_renderers[i].render_pos.width,
 				self->video_renderers[i].render_pos.height,
 				view_mat,

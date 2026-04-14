@@ -46,9 +46,7 @@ CodedVideoChannel::CodedVideoChannel(
 	CodedVideoSinkListener *codedVideoSinkListener,
 	struct pomp_loop *loop) :
 		Channel(owner, sinkListener, loop),
-		mCodedVideoSinkListener(codedVideoSinkListener),
-		mCodedVideoMediaFormatCaps(nullptr),
-		mCodedVideoMediaFormatCapsCount(0), mQueue(nullptr)
+		mCodedVideoSinkListener(codedVideoSinkListener)
 {
 }
 
@@ -86,28 +84,6 @@ bool CodedVideoChannel::onlySupportsByteStream() const
 			return false;
 	}
 	return true;
-}
-
-
-struct mbuf_coded_video_frame_queue *
-CodedVideoChannel::getQueue(const Sink *owner) const
-{
-	if (owner != mOwner) {
-		ULOGE("CodedVideoChannel::getQueue: wrong owner");
-		return nullptr;
-	}
-	return mQueue;
-}
-
-
-void CodedVideoChannel::setQueue(const Sink *owner,
-				 struct mbuf_coded_video_frame_queue *queue)
-{
-	if (owner != mOwner) {
-		ULOGE("CodedVideoChannel::setQueue: wrong owner");
-		return;
-	}
-	mQueue = queue;
 }
 
 

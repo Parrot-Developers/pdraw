@@ -28,12 +28,12 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_SOURCE_HPP_
-#define _PDRAW_SOURCE_HPP_
+#pragma once
 
 #include "pdraw_channel.hpp"
 #include "pdraw_media.hpp"
 
+#include <mutex>
 #include <vector>
 
 namespace Pdraw {
@@ -42,7 +42,7 @@ class Source : public Channel::SourceListener {
 public:
 	class Listener {
 	public:
-		virtual ~Listener(void) {}
+		virtual ~Listener() = default;
 
 		virtual void onOutputMediaAdded(Source *source,
 						Media *media,
@@ -53,67 +53,64 @@ public:
 						  void *elementUserData) = 0;
 	};
 
-	virtual ~Source(void);
+	~Source() override;
 
-	void lock(void);
+	void lock();
 
-	void unlock(void);
+	void unlock();
 
-	virtual std::string &getName(void) = 0;
+	virtual const std::string &getName() const = 0;
 
-	unsigned int getOutputMediaCount(void);
+	unsigned int getOutputMediaCount();
 
 	Media *getOutputMedia(unsigned int index);
 
-	Media *findOutputMedia(Media *media);
+	Media *findOutputMedia(const Media *media);
 
-	unsigned int getOutputChannelCount(Media *media);
+	unsigned int getOutputChannelCount(const Media *media);
 
-	Channel *getOutputChannel(Media *media, unsigned int index);
+	Channel *getOutputChannel(const Media *media, unsigned int index);
 
-	Channel *findOutputChannel(Media *media, Channel *channel);
+	Channel *findOutputChannel(const Media *media, const Channel *channel);
 
-	int addOutputChannel(Media *media, Channel *channel);
+	int addOutputChannel(const Media *media, Channel *channel);
 
-	int removeOutputChannel(Media *media, Channel *channel);
+	int removeOutputChannel(const Media *media, const Channel *channel);
 
 protected:
 	struct OutputPort {
-		Media *media;
+		Media *media = nullptr;
 		std::vector<Channel *> channels;
-		struct mbuf_pool *pool;
-		bool sharedPool;
-		void *elementUserData;
+		struct mbuf_pool *pool = nullptr;
+		bool sharedPool = false;
+		void *elementUserData = nullptr;
 
-		inline OutputPort() :
-				media(nullptr), pool(nullptr),
-				sharedPool(false), elementUserData(nullptr)
-		{
-		}
+		inline OutputPort() = default;
 	};
 
 	Source(unsigned int maxOutputMedias, Listener *listener);
 
-	Media *getOutputMediaFromChannel(Channel *channel);
+	Media *getOutputMediaFromChannel(const Channel *channel);
 
-	OutputPort *getOutputPort(Media *media);
+	OutputPort *getOutputPort(const Media *media);
 
 	int addOutputPort(Media *media, void *elementUserData = nullptr);
 
-	int removeOutputPort(Media *media);
+	int removeOutputPort(const Media *media);
 
-	int removeOutputPorts(void);
+	int removeOutputPorts();
 
-	int createOutputPortMemoryPool(Media *media,
+	int createOutputPortMemoryPool(const Media *media,
 				       unsigned int count,
 				       size_t capacity);
 
-	int destroyOutputPortMemoryPool(Media *media);
+	int destroyOutputPortMemoryPool(const Media *media);
 
-	int sendDownstreamEvent(Media *media, Channel::DownstreamEvent event);
+	int sendDownstreamEvent(const Media *media,
+				Channel::DownstreamEvent event);
 
-	virtual void onChannelUpstreamEvent(Channel *channel,
-					    const struct pomp_msg *event);
+	void onChannelUpstreamEvent(Channel *channel,
+				    const struct pomp_msg *event) override;
 
 	virtual void onChannelUnlink(Channel *channel);
 
@@ -126,22 +123,22 @@ protected:
 	virtual void onChannelVideoPresStats(Channel *channel,
 					     VideoPresStats *stats);
 
-	int getOutputMemory(Media *media, struct mbuf_mem **mem);
+	int getOutputMemory(const Media *media, struct mbuf_mem **mem);
 
 	int
 	getCodedVideoOutputMemory(std::vector<CodedVideoMedia *> &videoMedia,
 				  struct mbuf_mem **mem,
 				  unsigned int *defaultMediaIndex);
 
-	int copyCodedVideoOutputFrame(CodedVideoMedia *srcMedia,
+	int copyCodedVideoOutputFrame(const CodedVideoMedia *srcMedia,
 				      struct mbuf_coded_video_frame *srcFrame,
 				      CodedVideoMedia *dstMedia,
 				      struct mbuf_coded_video_frame **dstFrame);
 
-	pthread_mutex_t mMutex;
-	unsigned int mMaxOutputMedias;
+	std::recursive_mutex mMutex{};
+	unsigned int mMaxOutputMedias = 0;
 	std::vector<OutputPort> mOutputPorts;
-	Listener *mListener;
+	Listener *mListener = nullptr;
 
 private:
 	int removeOutputPorts(bool calledFromDtor);
@@ -150,5 +147,3 @@ private:
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_SOURCE_HPP_ */

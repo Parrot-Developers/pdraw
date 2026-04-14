@@ -88,6 +88,22 @@ int pdraw_desktop_open(struct pdraw_desktop *self)
 }
 
 
+static void try_complete_stop(struct pdraw_desktop *self)
+{
+	int res = 0;
+
+	if (self->demuxer != NULL)
+		return;
+
+	if (self->recorder != NULL)
+		return;
+
+	res = pdraw_be_stop(self->pdraw);
+	if (res < 0)
+		ULOG_ERRNO("pdraw_be_stop", -res);
+}
+
+
 void pdraw_desktop_close(struct pdraw_desktop *self)
 {
 	int res;
@@ -120,6 +136,11 @@ void pdraw_desktop_close(struct pdraw_desktop *self)
 		if (res < 0)
 			ULOG_ERRNO("pdraw_be_demuxer_close", -res);
 	}
+	if (self->recorder != NULL) {
+		res = pdraw_be_muxer_close(self->pdraw, self->recorder);
+		if (res < 0)
+			ULOG_ERRNO("pdraw_be_muxer_close", -res);
+	}
 	if (self->source != NULL) {
 		res = pdraw_be_vipc_source_destroy(self->pdraw, self->source);
 		if (res < 0)
@@ -127,11 +148,7 @@ void pdraw_desktop_close(struct pdraw_desktop *self)
 		else
 			self->source = NULL;
 	}
-	if (self->demuxer == NULL) {
-		res = pdraw_be_stop(self->pdraw);
-		if (res < 0)
-			ULOG_ERRNO("pdraw_be_stop", -res);
-	}
+	try_complete_stop(self);
 }
 
 
@@ -600,11 +617,7 @@ next:
 
 out:
 	/* Release media_list */
-	for (unsigned int i = 0; i < media_count; i++) {
-		free((void *)media_list[i].name);
-		free((void *)media_list[i].uri);
-	}
-	free(media_list);
+	pdraw_demuxer_media_list_free(media_list, media_count);
 }
 
 
@@ -724,6 +737,8 @@ void pdraw_desktop_toggle_mb_status(struct pdraw_desktop *self)
 static void
 stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
@@ -740,6 +755,9 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 			   void *element_userdata,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(element_userdata);
+
 	int res;
 	struct pdraw_desktop *self = userdata;
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
@@ -780,6 +798,9 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 			     void *element_userdata,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(element_userdata);
+
 	int index = -1;
 	struct pdraw_desktop *self = userdata;
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
@@ -811,6 +832,9 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 static void
 socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(userdata);
+
 	ULOGI("%s fd=%d", __func__, fd);
 }
 
@@ -820,6 +844,8 @@ static void open_resp_cb(struct pdraw_backend *pdraw,
 			 int status,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+
 	int err;
 	struct pdraw_desktop *self = userdata;
 
@@ -830,8 +856,10 @@ static void open_resp_cb(struct pdraw_backend *pdraw,
 					 (void *)(intptr_t)status,
 					 NULL);
 
-	err = pdraw_be_demuxer_get_chapter_list(
-		pdraw, demuxer, &self->chapter_list, &self->chapter_count);
+	err = pdraw_be_demuxer_get_chapter_list(self->pdraw,
+						demuxer,
+						&self->chapter_list,
+						&self->chapter_count);
 	if (err < 0) {
 		if ((err != -ENOENT) && (err != -ENOSYS))
 			ULOG_ERRNO("pdraw_be_demuxer_get_chapter_list", -err);
@@ -855,6 +883,9 @@ static void muxer_unrecoverable_error_cb(struct pdraw_backend *pdraw,
 					 int status,
 					 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(muxer);
+
 	int err;
 
 	struct pdraw_desktop *self = userdata;
@@ -876,6 +907,9 @@ static void muxer_close_resp_cb(struct pdraw_backend *pdraw,
 				int status,
 				void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(muxer);
+
 	int res;
 	struct pdraw_desktop *self = userdata;
 
@@ -887,6 +921,7 @@ static void muxer_close_resp_cb(struct pdraw_backend *pdraw,
 			ULOG_ERRNO("pdraw_be_muxer_destroy", -res);
 		self->recorder = NULL;
 	}
+	try_complete_stop(self);
 }
 
 
@@ -895,6 +930,9 @@ static void close_resp_cb(struct pdraw_backend *pdraw,
 			  int status,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	int res;
 	struct pdraw_desktop *self = userdata;
 
@@ -913,9 +951,7 @@ static void close_resp_cb(struct pdraw_backend *pdraw,
 		}
 		free(self->chapter_list);
 	}
-	res = pdraw_be_stop(self->pdraw);
-	if (res < 0)
-		ULOG_ERRNO("pdraw_be_stop", -res);
+	try_complete_stop(self);
 }
 
 
@@ -923,6 +959,9 @@ static void unrecoverable_error_cb(struct pdraw_backend *pdraw,
 				   struct pdraw_demuxer *demuxer,
 				   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s", __func__);
@@ -939,10 +978,16 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 			   uint32_t selected_medias,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_desktop *self = userdata;
-	int id, ids = 0;
+	int id;
+	int ids = 0;
 	char s[100];
-	char *str = s, *id_str = NULL, *temp = NULL;
+	char *str = s;
+	char *id_str = NULL;
+	char *temp = NULL;
 	unsigned int default_media_count = 0;
 	unsigned int default_video_media_count = 0;
 	size_t slen;
@@ -1118,6 +1163,9 @@ static void ready_to_play_cb(struct pdraw_backend *pdraw,
 			     int ready,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s ready=%d", __func__, ready);
@@ -1134,6 +1182,10 @@ static void end_of_range_cb(struct pdraw_backend *pdraw,
 			    uint64_t timestamp,
 			    void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+	UNUSED(userdata);
+
 	ULOGI("%s timestamp=%" PRIu64, __func__, timestamp);
 }
 
@@ -1145,6 +1197,9 @@ static void play_resp_cb(struct pdraw_backend *pdraw,
 			 float speed,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64 " speed=%f",
@@ -1167,6 +1222,9 @@ static void pause_resp_cb(struct pdraw_backend *pdraw,
 			  uint64_t timestamp,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64,
@@ -1189,6 +1247,9 @@ static void seek_resp_cb(struct pdraw_backend *pdraw,
 			 float speed,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64 " speed=%f",
@@ -1212,6 +1273,10 @@ source_ready_to_play_cb(struct pdraw_backend *pdraw,
 			enum pdraw_vipc_source_eos_reason eos_reason,
 			void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+	UNUSED(eos_reason);
+
 	struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s ready=%d", __func__, ready);
@@ -1230,6 +1295,12 @@ static void source_configured_cb(struct pdraw_backend *pdraw,
 				 const struct vdef_rectf *crop,
 				 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+	UNUSED(info);
+	UNUSED(crop);
+	UNUSED(userdata);
+
 	ULOGI("%s: status=%d(%s)", __func__, status, strerror(status));
 }
 
@@ -1239,6 +1310,9 @@ static void video_renderer_media_added_cb(struct pdraw_backend *pdraw,
 					  const struct pdraw_media_info *info,
 					  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(renderer);
+
 	struct pdraw_desktop *self = userdata;
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
 	for (unsigned int i = 0; i < self->video_renderer_count; i++) {
@@ -1259,6 +1333,10 @@ video_renderer_media_removed_cb(struct pdraw_backend *pdraw,
 				int restart,
 				void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(renderer);
+	UNUSED(restart);
+
 	struct pdraw_desktop *self = userdata;
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
 	for (unsigned int i = 0; i < self->video_renderer_count; i++) {
@@ -1288,6 +1366,11 @@ audio_renderer_media_removed_cb(struct pdraw_backend *pdraw,
 				const struct pdraw_media_info *info,
 				void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(renderer);
+	UNUSED(info);
+	UNUSED(userdata);
+
 	/* Nothing to do here */
 	return;
 }
@@ -1303,6 +1386,9 @@ static int load_texture_cb(struct pdraw_backend *pdraw,
 			   size_t frame_userdata_len,
 			   void *userdata)
 {
+	UNUSED(texture_width);
+	UNUSED(texture_height);
+
 	struct pdraw_desktop *self = userdata;
 	return pdraw_desktop_ext_tex_load(self,
 					  pdraw,
@@ -1325,6 +1411,10 @@ static void render_overlay_cb(struct pdraw_backend *pdraw,
 			      const struct pdraw_video_frame_extra *frame_extra,
 			      void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(view_mat);
+	UNUSED(proj_mat);
+
 	int res;
 	struct pdraw_desktop *self = userdata;
 	struct pdraw_gles2hud *gles2hud = NULL;
@@ -1437,7 +1527,7 @@ static void sighandler(int signum)
 
 	pdraw_desktop_ui_send_quit_event();
 
-	signal(SIGINT, SIG_DFL);
+	signal(signum, SIG_DFL);
 }
 
 
@@ -1632,7 +1722,9 @@ static enum pdraw_video_renderer_fill_mode parse_fill_mode(const char *value)
 static int parse_time_code(const char *optarg, float *timecode)
 {
 	int ret;
-	int h = 0, m = 0, n = 0;
+	int h = 0;
+	int m = 0;
+	int n = 0;
 	float s = 0.;
 
 	if (optarg == NULL || timecode == NULL)
@@ -1672,8 +1764,10 @@ static int parse_time_code(const char *optarg, float *timecode)
 
 int main(int argc, char **argv)
 {
-	int res, status = EXIT_SUCCESS;
-	int idx, c;
+	int res;
+	int status = EXIT_SUCCESS;
+	int idx;
+	int c;
 	struct pdraw_desktop *self = NULL;
 	int parsedint;
 	float parsedfloat;
@@ -1725,7 +1819,9 @@ int main(int argc, char **argv)
 #endif
 			} else if ((self->url) &&
 				   ((strlen(self->url) <= 7) ||
-				    (strncmp(self->url, "rtsp://", 7) != 0))) {
+				    ((strncmp(self->url, "rtsp://", 7) != 0) &&
+				     (strncmp(self->url, "rtsps://", 8) !=
+				      0)))) {
 				self->is_file = 1;
 			}
 			break;

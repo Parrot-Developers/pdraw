@@ -27,8 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_HPP_
-#define _PDRAW_HPP_
+#pragma once
 
 #include <inttypes.h>
 
@@ -39,17 +38,31 @@
 namespace Pdraw {
 
 
+/* Disable copy constructor and assignment operator */
+#define PDRAW_DISABLE_COPY(_cls)                                               \
+private:                                                                       \
+	_cls(const _cls &);                                                    \
+	_cls &operator=(const _cls &);
+
+
 /* PDrAW object interface;
  * see the createPdraw() function for creating a PDrAW instance */
 class IPdraw {
 public:
 	/* PDrAW listener object */
 	class Listener {
+		PDRAW_DISABLE_COPY(Listener)
+
 	public:
+		/**
+		 * PDrAW listener object constructor.
+		 */
+		Listener() = default;
+
 		/**
 		 * PDrAW listener object destructor.
 		 */
-		virtual ~Listener(void) {}
+		virtual ~Listener() = default;
 
 		/**
 		 * Stop response function, called when a stop operation is
@@ -118,7 +131,7 @@ public:
 	 * wait for the stopResponse() listener function to be called prior to
 	 * destroying the PDrAW instance.
 	 */
-	virtual ~IPdraw(void) {}
+	virtual ~IPdraw() = default;
 
 	/**
 	 * Stop a session.
@@ -132,7 +145,7 @@ public:
 	 * must be destroyed.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	virtual int stop(void) = 0;
+	virtual int stop() = 0;
 
 
 	/**
@@ -143,11 +156,18 @@ public:
 	public:
 		/* Demuxer listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Demuxer listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Demuxer listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Open response function, called when an open operation
@@ -354,7 +374,7 @@ public:
 		 * This function stops a running demuxer and frees the
 		 * associated resources.
 		 */
-		virtual ~IDemuxer(void) {}
+		virtual ~IDemuxer() = default;
 
 		/**
 		 * Close a demuxer.
@@ -369,7 +389,7 @@ public:
 		 * destroyed.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int close(void) = 0;
+		virtual int close() = 0;
 
 		/**
 		 * Get the available demuxer media list.
@@ -414,7 +434,7 @@ public:
 		 * port.
 		 * @return the stream port on success, 0 in case of error
 		 */
-		virtual uint16_t getSingleStreamLocalStreamPort(void) = 0;
+		virtual uint16_t getSingleStreamLocalStreamPort() = 0;
 
 		/**
 		 * Get the single stream local control port.
@@ -427,7 +447,7 @@ public:
 		 * port.
 		 * @return the stream port on success, 0 in case of error
 		 */
-		virtual uint16_t getSingleStreamLocalControlPort(void) = 0;
+		virtual uint16_t getSingleStreamLocalControlPort() = 0;
 
 		/**
 		 * Get the ready to play status.
@@ -442,7 +462,7 @@ public:
 		 * @return the ready to play status on success, false in case of
 		 *         error
 		 */
-		virtual bool isReadyToPlay(void) = 0;
+		virtual bool isReadyToPlay() = 0;
 
 		/**
 		 * Get the pause status.
@@ -450,7 +470,7 @@ public:
 		 * paused, false otherwise.
 		 * @return the pause status on success, false in case of error
 		 */
-		virtual bool isPaused(void) = 0;
+		virtual bool isPaused() = 0;
 
 		/**
 		 * Play at the given speed.
@@ -489,7 +509,7 @@ public:
 		 * function will not be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int pause(void) = 0;
+		virtual int pause() = 0;
 
 		/**
 		 * Go to previous frame in frame-by-frame playback.
@@ -505,7 +525,7 @@ public:
 		 * function will not be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int previousFrame(void) = 0;
+		virtual int previousFrame() = 0;
 
 		/**
 		 * Go to next frame in frame-by-frame playback.
@@ -521,7 +541,7 @@ public:
 		 * function will not be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int nextFrame(void) = 0;
+		virtual int nextFrame() = 0;
 
 		/**
 		 * Seek forward or backward.
@@ -640,7 +660,7 @@ public:
 		 * @return the duration in microseconds on success,
 		 *         0 in case of error
 		 */
-		virtual uint64_t getDuration(void) = 0;
+		virtual uint64_t getDuration() = 0;
 
 		/**
 		 * Get the playback current time.
@@ -651,7 +671,7 @@ public:
 		 * @return the current time in microseconds on success,
 		 *         0 in case of error
 		 */
-		virtual uint64_t getCurrentTime(void) = 0;
+		virtual uint64_t getCurrentTime() = 0;
 	};
 
 	/**
@@ -762,11 +782,18 @@ public:
 	public:
 		/* Muxer listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Muxer listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Muxer listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Connection state changed function, called when a
@@ -788,6 +815,48 @@ public:
 					connectionState,
 				enum pdraw_muxer_disconnection_reason
 					disconnectionReason) = 0;
+
+			/**
+			 * Media data ready function, called when a media frame
+			 * has been serialized and is ready in memory.
+			 * This function is called on the muxer's internal
+			 * writer thread. It provides a direct access to the
+			 * serialized vectors (e.g. Header + JPEG payload + EOI)
+			 * before they are written to disk, allowing for
+			 * efficient in-place processing like zero-copy hash
+			 * computation (SHA-256).
+			 * @note The iovec array is only valid for the duration
+			 * of the callback.
+			 * @param pdraw: PDrAW instance handle
+			 * @param muxer: muxer handle
+			 * @param mediaPath: future absolute path of the file
+			 * being saved
+			 * @param iov: array of iovec structures pointing to
+			 * memory blocks
+			 * @param iovcnt: number of elements in the iov array
+			 */
+			virtual void onMuxerMediaReady(IPdraw *pdraw,
+						       IPdraw::IMuxer *muxer,
+						       const char *mediaPath,
+						       const struct iovec *iov,
+						       int iovcnt) = 0;
+
+			/**
+			 * Media saved function, called when a media file has
+			 * been successfully written and finalized on the
+			 * storage device.
+			 * This function is called on the PDrAW loop thread.
+			 * When this function is called, the file is guaranteed
+			 * to be closed and available for external use
+			 * (display, transfer, etc.).
+			 * @param pdraw: PDrAW instance handle
+			 * @param muxer: muxer handle
+			 * @param mediaPath: absolute path to the saved file
+			 */
+			virtual void
+			onMuxerMediaSaved(IPdraw *pdraw,
+					  IPdraw::IMuxer *muxer,
+					  const char *mediaPath) = 0;
 
 			/**
 			 * Unrecoverable error function, called when a
@@ -825,7 +894,7 @@ public:
 		 * This function stops a running muxer and frees the
 		 * associated resources.
 		 */
-		virtual ~IMuxer(void) {}
+		virtual ~IMuxer() = default;
 
 		/**
 		 * Close a muxer.
@@ -840,7 +909,7 @@ public:
 		 * destroyed.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int close(void) = 0;
+		virtual int close() = 0;
 
 		/**
 		 * Add a media to a muxer.
@@ -885,6 +954,23 @@ public:
 				       const char *name) = 0;
 
 		/**
+		 * Set binary file-level metadata for the muxer.
+		 * This function is available on record muxers (e.g. DNG) that
+		 * support specific binary metadata (e.g. LSC).
+		 * @param type: type of the metadata
+		 * @param data: pointer to the metadata buffer
+		 * @param size: size of the metadata buffer in bytes
+		 * @param params: optional parameters depending on the type
+		 * @param paramsSize: size of the parameters structure
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int setFileMetadata(enum pdraw_muxer_metadata_type type,
+					    const uint8_t *data,
+					    size_t size,
+					    const void *params = nullptr,
+					    size_t paramsSize = 0) = 0;
+
+		/**
 		 * Get statistics about the muxer.
 		 * This function fills the stats structure with the latest muxer
 		 * statistics. The structure must have been previously
@@ -895,21 +981,26 @@ public:
 		virtual int getStats(struct pdraw_muxer_stats *stats) = 0;
 
 		/**
-		 * Set the muxer dynamic parameters.
-		 * This function is available on a record muxer only; on any
-		 * other type of muxer -ENOSYS is returned.
-		 * @param dyn_params: dynamic parameters
-		 * @return 0 on success, negative errno value in case of error
+		 * Update muxer dynamic parameters.
+		 * Supported parameters vary by muxer type:
+		 * - Record: 'tables_sync_period_ms'.
+		 * - Stream: 'socket_tx_buffer_size' (e.g. for congestion
+		 * control).
+		 * @param dyn_params: new dynamic parameters.
+		 * @return 0 on success, -ENOSYS if unsupported, or a negative
+		 * errno.
 		 */
 		virtual int setDynParams(
 			const struct pdraw_muxer_dyn_params *dyn_params) = 0;
 
 		/**
-		 * Get the muxer dynamic parameters.
-		 * This function is available on a record muxer only; on any
-		 * other type of muxer -ENOSYS is returned.
-		 * @param dyn_params: dynamic parameters structure to fill
-		 * @return 0 on success, negative errno value in case of error
+		 * Get the current muxer dynamic parameters.
+		 * Fills 'dyn_params' with values currently in use:
+		 * - Record: 'tables_sync_period_ms'.
+		 * - Stream: 'socket_tx_buffer_size'.
+		 * @param dyn_params: structure to fill.
+		 * @return 0 on success, -ENOSYS if unsupported, or a negative
+		 * errno.
 		 */
 		virtual int
 		getDynParams(struct pdraw_muxer_dyn_params *dyn_params) = 0;
@@ -920,7 +1011,7 @@ public:
 		 * other type of muxer -ENOSYS is returned.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int forceSync(void) = 0;
+		virtual int forceSync() = 0;
 	};
 
 	/**
@@ -957,11 +1048,18 @@ public:
 	public:
 		/* Video renderer listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Video renderer listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Video renderer listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Media added function, called when a media has been
@@ -1088,7 +1186,7 @@ public:
 		 * @warning this function must be called from the application's
 		 * rendering thread.
 		 */
-		virtual ~IVideoRenderer(void) {}
+		virtual ~IVideoRenderer() = default;
 
 		/**
 		 * Resize a video renderer.
@@ -1127,7 +1225,7 @@ public:
 		 * @return the identifier of the media on success,
 		 *         0 if no media is being renderered or in case of error
 		 */
-		virtual unsigned int getMediaId(void) = 0;
+		virtual unsigned int getMediaId() = 0;
 
 		/**
 		 * Set the video renderer parameters.
@@ -1230,11 +1328,18 @@ public:
 	public:
 		/* Audio renderer listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Audio renderer listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Audio renderer listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Media added function, called when a media has been
@@ -1270,7 +1375,7 @@ public:
 		 * This function stops a running audio renderer and frees the
 		 * associated resources.
 		 */
-		virtual ~IAudioRenderer(void) {}
+		virtual ~IAudioRenderer() = default;
 
 		/**
 		 * Set the audio renderer media identifier.
@@ -1291,7 +1396,7 @@ public:
 		 * @return the identifier of the media on success,
 		 *         0 if no media is being renderered or in case of error
 		 */
-		virtual unsigned int getMediaId(void) = 0;
+		virtual unsigned int getMediaId() = 0;
 
 		/**
 		 * Set the audio renderer parameters.
@@ -1348,11 +1453,18 @@ public:
 	public:
 		/* Video IPC source listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Video IPC source listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Video IPC source listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Ready to play function, called when the video IPC is
@@ -1477,7 +1589,7 @@ public:
 		 * This function stops a running video IPC source and frees
 		 * the associated resources.
 		 */
-		virtual ~IVipcSource(void) {}
+		virtual ~IVipcSource() = default;
 
 		/**
 		 * Get the ready to play status.
@@ -1488,7 +1600,7 @@ public:
 		 * @return the ready to play status on success, false in case of
 		 *         error
 		 */
-		virtual bool isReadyToPlay(void) = 0;
+		virtual bool isReadyToPlay() = 0;
 
 		/**
 		 * Get the pause status.
@@ -1496,7 +1608,7 @@ public:
 		 * paused, false otherwise.
 		 * @return the pause status on success, false in case of error
 		 */
-		virtual bool isPaused(void) = 0;
+		virtual bool isPaused() = 0;
 
 		/**
 		 * Start receiving frames on the video IPC.
@@ -1511,7 +1623,7 @@ public:
 		 * not be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int play(void) = 0;
+		virtual int play() = 0;
 
 		/**
 		 * Stop receiving frames on the video IPC.
@@ -1527,7 +1639,7 @@ public:
 		 * Once paused, all frames are drained from the pipeline.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int pause(void) = 0;
+		virtual int pause() = 0;
 
 		/**
 		 * Configure the video IPC.
@@ -1614,11 +1726,18 @@ public:
 	public:
 		/* Video source listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Coded video source listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Coded video source listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Coded video source flushed function, called to signal
@@ -1648,7 +1767,7 @@ public:
 		 * This function stops a running coded video source and frees
 		 * the associated resources.
 		 */
-		virtual ~ICodedVideoSource(void) {}
+		virtual ~ICodedVideoSource() = default;
 
 		/**
 		 * Get the coded video source frame queue.
@@ -1659,7 +1778,7 @@ public:
 		 * @return a pointer on a mbuf_coded_video_frame_queue object on
 		 *          success, nullptr in case of error
 		 */
-		virtual struct mbuf_coded_video_frame_queue *getQueue(void) = 0;
+		virtual struct mbuf_coded_video_frame_queue *getQueue() = 0;
 
 		/**
 		 * Coded video source flush function, to be called when flushing
@@ -1669,7 +1788,7 @@ public:
 		 * function will be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int flush(void) = 0;
+		virtual int flush() = 0;
 
 		/**
 		 * Coded video source drain function, to be called when draining
@@ -1679,7 +1798,7 @@ public:
 		 * function will be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int drain(void) = 0;
+		virtual int drain() = 0;
 
 		/**
 		 * Set the session metadata of the coded video source.
@@ -1714,11 +1833,18 @@ public:
 	public:
 		/* Video source listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Raw video source listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Raw video source listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Raw video source flushed function, called to signal
@@ -1748,7 +1874,7 @@ public:
 		 * This function stops a running raw video source and frees
 		 * the associated resources.
 		 */
-		virtual ~IRawVideoSource(void) {}
+		virtual ~IRawVideoSource() = default;
 
 		/**
 		 * Get the raw video source frame queue.
@@ -1759,7 +1885,7 @@ public:
 		 * @return a pointer on a mbuf_raw_video_frame_queue object on
 		 *          success, nullptr in case of error
 		 */
-		virtual struct mbuf_raw_video_frame_queue *getQueue(void) = 0;
+		virtual struct mbuf_raw_video_frame_queue *getQueue() = 0;
 
 		/**
 		 * Raw video source flush function, to be called when flushing
@@ -1769,7 +1895,7 @@ public:
 		 * function will be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int flush(void) = 0;
+		virtual int flush() = 0;
 
 		/**
 		 * Raw video source drain function, to be called when draining
@@ -1779,7 +1905,7 @@ public:
 		 * function will be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int drain(void) = 0;
+		virtual int drain() = 0;
 
 		/**
 		 * Set the session metadata of the raw video source.
@@ -1857,11 +1983,18 @@ public:
 	public:
 		/* Video sink listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Coded video sink listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Coded video sink listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Media added function, called when a media has been
@@ -1942,7 +2075,7 @@ public:
 		 * This function stops a running coded video sink and frees the
 		 * associated resources.
 		 */
-		virtual ~ICodedVideoSink(void) {}
+		virtual ~ICodedVideoSink() = default;
 
 		/**
 		 * Set the coded video sink media identifier.
@@ -1963,7 +2096,7 @@ public:
 		 * @return the identifier of the media on success,
 		 *         0 if no media is being connected or in case of error
 		 */
-		virtual unsigned int getMediaId(void) = 0;
+		virtual unsigned int getMediaId() = 0;
 
 		/**
 		 * Resynchronize a coded video sink.
@@ -1976,7 +2109,7 @@ public:
 		 * this function immediately after a video sink creation.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int resync(void) = 0;
+		virtual int resync() = 0;
 
 		/**
 		 * Get the coded video sink frame queue.
@@ -1987,7 +2120,7 @@ public:
 		 * @return a pointer on a mbuf_coded_video_frame_queue object on
 		 *          success, nullptr in case of error
 		 */
-		virtual struct mbuf_coded_video_frame_queue *getQueue(void) = 0;
+		virtual struct mbuf_coded_video_frame_queue *getQueue() = 0;
 
 		/**
 		 * Signal that a coded video sink has been flushed.
@@ -2000,7 +2133,7 @@ public:
 		 * complete, this function must be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int queueFlushed(void) = 0;
+		virtual int queueFlushed() = 0;
 
 		/**
 		 * Signal that a coded video sink has been drained.
@@ -2012,7 +2145,7 @@ public:
 		 * complete, this function must be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int queueDrained(void) = 0;
+		virtual int queueDrained() = 0;
 	};
 
 
@@ -2025,11 +2158,18 @@ public:
 	public:
 		/* Video sink listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Raw video sink listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Raw video sink listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Media added function, called when a media has been
@@ -2110,7 +2250,7 @@ public:
 		 * This function stops a running raw video sink and frees the
 		 * associated resources.
 		 */
-		virtual ~IRawVideoSink(void) {}
+		virtual ~IRawVideoSink() = default;
 
 		/**
 		 * Set the raw video sink media identifier.
@@ -2131,7 +2271,7 @@ public:
 		 * @return the identifier of the media on success,
 		 *         0 if no media is being connected or in case of error
 		 */
-		virtual unsigned int getMediaId(void) = 0;
+		virtual unsigned int getMediaId() = 0;
 
 		/**
 		 * Get the raw video sink frame queue.
@@ -2142,7 +2282,7 @@ public:
 		 * @return a pointer on a mbuf_raw_video_frame_queue object on
 		 *          success, nullptr in case of error
 		 */
-		virtual struct mbuf_raw_video_frame_queue *getQueue(void) = 0;
+		virtual struct mbuf_raw_video_frame_queue *getQueue() = 0;
 
 		/**
 		 * Signal that a raw video sink has been flushed.
@@ -2155,7 +2295,7 @@ public:
 		 * complete, this function must be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int queueFlushed(void) = 0;
+		virtual int queueFlushed() = 0;
 
 		/**
 		 * Signal that a raw video sink has been drained.
@@ -2167,7 +2307,7 @@ public:
 		 * complete, this function must be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int queueDrained(void) = 0;
+		virtual int queueDrained() = 0;
 	};
 
 
@@ -2247,11 +2387,18 @@ public:
 	public:
 		/* Alsa source listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Alsa source listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Alsa source listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Ready to play function, called when the ALSA source
@@ -2317,7 +2464,7 @@ public:
 		 * This function stops a running ALSA source and frees
 		 * the associated resources.
 		 */
-		virtual ~IAlsaSource(void) {}
+		virtual ~IAlsaSource() = default;
 
 		/**
 		 * Get the ready to play status.
@@ -2328,7 +2475,7 @@ public:
 		 * @return the ready to play status on success, false in case of
 		 *         error
 		 */
-		virtual bool isReadyToPlay(void) = 0;
+		virtual bool isReadyToPlay() = 0;
 
 		/**
 		 * Get the pause status.
@@ -2336,7 +2483,7 @@ public:
 		 * paused, false otherwise.
 		 * @return the pause status on success, false in case of error
 		 */
-		virtual bool isPaused(void) = 0;
+		virtual bool isPaused() = 0;
 
 		/**
 		 * Start receiving frames on the ALSA source.
@@ -2351,7 +2498,7 @@ public:
 		 * not be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int play(void) = 0;
+		virtual int play() = 0;
 
 		/**
 		 * Stop receiving frames on the ALSA source.
@@ -2367,7 +2514,7 @@ public:
 		 * Once paused, all frames are drained from the pipeline.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int pause(void) = 0;
+		virtual int pause() = 0;
 	};
 
 
@@ -2398,11 +2545,18 @@ public:
 	public:
 		/* Audio source listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Audio source listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Audio source listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Audio source flushed function, called to signal
@@ -2432,7 +2586,7 @@ public:
 		 * This function stops a running audio source and frees
 		 * the associated resources.
 		 */
-		virtual ~IAudioSource(void) {}
+		virtual ~IAudioSource() = default;
 
 		/**
 		 * Get the audio source frame queue.
@@ -2443,7 +2597,7 @@ public:
 		 * @return a pointer on a mbuf_audio_frame_queue object on
 		 *         success, nullptr in case of error
 		 */
-		virtual struct mbuf_audio_frame_queue *getQueue(void) = 0;
+		virtual struct mbuf_audio_frame_queue *getQueue() = 0;
 
 		/**
 		 * Audio source flush function, to be called when flushing
@@ -2453,7 +2607,7 @@ public:
 		 * function will be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int flush(void) = 0;
+		virtual int flush() = 0;
 
 		/**
 		 * Audio source drain function, to be called when draining
@@ -2463,7 +2617,7 @@ public:
 		 * function will be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int drain(void) = 0;
+		virtual int drain() = 0;
 	};
 
 
@@ -2495,13 +2649,20 @@ public:
 	 */
 	class IAudioSink {
 	public:
-		/* Video sink listener object */
+		/* Audio sink listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Audio sink listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Audio sink listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Media added function, called when a media has been
@@ -2569,7 +2730,7 @@ public:
 		 * This function stops a running audio sink and frees the
 		 * associated resources.
 		 */
-		virtual ~IAudioSink(void) {}
+		virtual ~IAudioSink() = default;
 
 		/**
 		 * Set the audio sink media identifier.
@@ -2590,7 +2751,7 @@ public:
 		 * @return the identifier of the media on success,
 		 *         0 if no media is being connected or in case of error
 		 */
-		virtual unsigned int getMediaId(void) = 0;
+		virtual unsigned int getMediaId() = 0;
 
 		/**
 		 * Get the audio sink frame queue.
@@ -2601,7 +2762,7 @@ public:
 		 * @return a pointer on a mbuf_audio_frame_queue object on
 		 *         success, nullptr in case of error
 		 */
-		virtual struct mbuf_audio_frame_queue *getQueue(void) = 0;
+		virtual struct mbuf_audio_frame_queue *getQueue() = 0;
 
 		/**
 		 * Signal that an audio sink has been flushed.
@@ -2614,7 +2775,7 @@ public:
 		 * this function must be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int queueFlushed(void) = 0;
+		virtual int queueFlushed() = 0;
 
 		/**
 		 * Signal that an audio sink has been drained.
@@ -2626,7 +2787,7 @@ public:
 		 * this function must be called.
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int queueDrained(void) = 0;
+		virtual int queueDrained() = 0;
 	};
 
 
@@ -2666,11 +2827,18 @@ public:
 	public:
 		/* Video encoder listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Video encoder listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Video encoder listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Frame output function, called when a video frame is
@@ -2715,7 +2883,7 @@ public:
 		 * This function stops a running video encoder and frees the
 		 * associated resources.
 		 */
-		virtual ~IVideoEncoder(void) {}
+		virtual ~IVideoEncoder() = default;
 
 		/**
 		 * Configure the video encoder.
@@ -2735,6 +2903,14 @@ public:
 		 * @return 0 on success, negative errno value in case of error
 		 */
 		virtual int getConfig(struct venc_dyn_config *config) = 0;
+
+		/**
+		 * Request a key frame from the video encoder.
+		 * This function can be used to dynamically request a key frame
+		 * from the video encoder.
+		 * @return 0 on success, negative errno value in case of error
+		 */
+		virtual int requestKeyFrame(void) = 0;
 	};
 
 
@@ -2777,11 +2953,18 @@ public:
 	public:
 		/* Video scaler listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Video scaler listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Video scaler listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Frame output function, called when a video frame is
@@ -2805,7 +2988,7 @@ public:
 		 * This function stops a running video scaler and frees the
 		 * associated resources.
 		 */
-		virtual ~IVideoScaler(void) {}
+		virtual ~IVideoScaler() = default;
 	};
 
 	/**
@@ -2842,11 +3025,18 @@ public:
 	public:
 		/* Audio encoder listener object */
 		class Listener {
+			PDRAW_DISABLE_COPY(Listener)
+
 		public:
+			/**
+			 * Audio encoder listener object constructor.
+			 */
+			Listener() = default;
+
 			/**
 			 * Audio encoder listener object destructor.
 			 */
-			virtual ~Listener(void) {}
+			virtual ~Listener() = default;
 
 			/**
 			 * Frame output function, called when an audio frame is
@@ -2891,7 +3081,7 @@ public:
 		 * This function stops a running audio encoder and frees the
 		 * associated resources.
 		 */
-		virtual ~IAudioEncoder(void) {}
+		virtual ~IAudioEncoder() = default;
 	};
 
 
@@ -3088,22 +3278,6 @@ PDRAW_API enum pdraw_media_type pdrawMediaTypeFromStr(const char *val);
 
 
 /**
- * ToString function for enum pdraw_video_type.
- * @param val: video type value to convert
- * @return a string description of the video type
- */
-PDRAW_API const char *pdrawVideoTypeStr(enum pdraw_video_type val);
-
-
-/**
- * FromString function for enum pdraw_video_type.
- * @param val: string to convert
- * @return video type converted from the string description
- */
-PDRAW_API enum pdraw_video_type pdrawVideoTypeFromStr(const char *val);
-
-
-/**
  * ToString function for enum pdraw_histogram_channel.
  * @param val: histogram channel value to convert
  * @return a string description of the histogram channel
@@ -3244,6 +3418,67 @@ PDRAW_API void pdrawMediaInfoFree(struct pdraw_media_info *media_info);
 
 
 /**
+ * Duplicate a vipc_source_params structure.
+ * @param src: pointer to the vipc_source_params structure to duplicate
+ * @return a pointer to the newly allocated structure or nullptr on error.
+ */
+PDRAW_API struct pdraw_vipc_source_params *
+pdrawVipcSourceParamsDup(const struct pdraw_vipc_source_params *src);
+
+
+/**
+ * Free a vipc_source_params structure.
+ * @param params: pointer to the vipc_source_params structure to free
+ */
+PDRAW_API void
+pdrawVipcSourceParamsFree(struct pdraw_vipc_source_params *params);
+
+
+/**
+ * Duplicate a muxer_params structure.
+ * @param src: pointer to the muxer_params structure to duplicate
+ * @return a pointer to the newly allocated structure or nullptr on error.
+ */
+PDRAW_API struct pdraw_muxer_params *
+pdrawMuxerParamsDup(const struct pdraw_muxer_params *src);
+
+
+/**
+ * Free a muxer_params structure.
+ * @param params: pointer to the muxer_params structure to free
+ */
+PDRAW_API void pdrawMuxerParamsFree(struct pdraw_muxer_params *params);
+
+
+/**
+ * Duplicate a muxer_media_params structure.
+ * @param src: pointer to the muxer_media_params structure to duplicate
+ * @return a pointer to the newly allocated structure or nullptr on error.
+ */
+PDRAW_API struct pdraw_muxer_media_params *
+pdrawMuxerMediaParamsDup(const struct pdraw_muxer_media_params *src);
+
+
+/**
+ * Free a muxer_media_params structure.
+ * @param params: pointer to the muxer_media_params structure to free
+ */
+PDRAW_API void
+pdrawMuxerMediaParamsFree(struct pdraw_muxer_media_params *params);
+
+
+/**
+ * Free a demuxer_media list structure.
+ * @param media_list: pointer to the array of pdraw_demuxer_media structures to
+ * free
+ * @param media_count: number of elements in the media_list array
+ */
+PDRAW_API
+void pdrawDemuxerMediaListFree(struct pdraw_demuxer_media *mediaList,
+			       size_t mediaCount);
+
+
+/**
  * Get the capabilities of an ALSA source.
  * This function retrieves the capabilities of the audio capture device.
  * The provided caps structure is filled by the function.
@@ -3257,5 +3492,3 @@ pdrawAlsaSourceGetCapabilities(const std::string &address,
 
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_HPP_ */

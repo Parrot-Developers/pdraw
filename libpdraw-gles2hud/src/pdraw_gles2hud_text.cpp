@@ -31,24 +31,24 @@
 #include "pdraw_gles2hud_priv.h"
 
 
-void pdraw_gles2hud_get_text_dimensions(struct pdraw_gles2hud *self,
-					const char *str,
+void pdraw_gles2hud_get_text_dimensions(const char *str,
 					float size,
 					float scalew,
 					float scaleh,
 					float *width,
 					float *height)
 {
-	float w, h;
+	float w;
+	float h;
 
-	profont_36::file_header *glyph_info = &profont_36::font;
+	const profont_36::file_header *glyph_info = &profont_36::font;
 	float cx = 0.;
 	const char *c = str;
 	while (*c != '\0') {
 		if (*c == '\n') {
 			break;
 		} else {
-			profont_36::glyph_info &g =
+			const profont_36::glyph_info &g =
 				glyph_info->glyphs[(int)(*c)];
 			cx += g.norm.advance;
 		}
@@ -67,7 +67,7 @@ void pdraw_gles2hud_get_text_dimensions(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_text(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_text(const struct pdraw_gles2hud *self,
 			      const char *str,
 			      float x,
 			      float y,
@@ -78,13 +78,13 @@ void pdraw_gles2hud_draw_text(struct pdraw_gles2hud *self,
 			      enum pdraw_gles2hud_text_align valign,
 			      const float color[4])
 {
-	float w, h;
+	float w;
+	float h;
 	float vertices[8];
 	float texcoords[8];
-	profont_36::file_header *glyph_info = &profont_36::font;
+	const profont_36::file_header *glyph_info = &profont_36::font;
 
-	pdraw_gles2hud_get_text_dimensions(
-		self, str, size, scalew, scaleh, &w, &h);
+	pdraw_gles2hud_get_text_dimensions(str, size, scalew, scaleh, &w, &h);
 
 	switch (halign) {
 	default:
@@ -118,7 +118,7 @@ void pdraw_gles2hud_draw_text(struct pdraw_gles2hud *self,
 		if (*c == '\n')
 			break;
 
-		profont_36::glyph_info &g = glyph_info->glyphs[(int)(*c)];
+		const profont_36::glyph_info &g = glyph_info->glyphs[(int)(*c)];
 		vertices[0] = x + cx + g.norm.offx * size * scalew;
 		vertices[1] = y - g.norm.offy * size * scaleh;
 		vertices[2] =

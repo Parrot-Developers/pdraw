@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_EXTERNAL_CODED_VIDEO_SINK_HPP_
-#define _PDRAW_EXTERNAL_CODED_VIDEO_SINK_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
@@ -37,6 +36,7 @@
 
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <media-buffers/mbuf_mem_generic.h>
+#include <media-buffers/mbuf_queue.hpp>
 #include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
@@ -55,31 +55,31 @@ public:
 		unsigned int mediaId,
 		const struct pdraw_video_sink_params *params);
 
-	~ExternalCodedVideoSink(void);
+	~ExternalCodedVideoSink() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	int setMediaId(unsigned int mediaId);
 
-	unsigned int getMediaId(void) const;
+	unsigned int getMediaId() const;
 
-	int resync(void);
+	int resync();
 
 	int flushDone(bool discard = true);
 
-	inline int drainDone(void)
+	inline int drainDone()
 	{
 		return flushDone(false);
 	}
 
-	struct mbuf_coded_video_frame_queue *getQueue(void) const
+	mbuf::Queue *getQueue() const
 	{
-		return mInputFrameQueue;
+		return mInputFrameQueue.get();
 	}
 
-	IPdraw::ICodedVideoSink *getVideoSink(void) const
+	IPdraw::ICodedVideoSink *getVideoSink() const
 	{
 		return mVideoSink;
 	}
@@ -91,7 +91,7 @@ public:
 private:
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
@@ -116,12 +116,12 @@ private:
 
 	void onChannelFramerateChange(Channel *channel) override;
 
-	int prepareCodedVideoFrame(CodedVideoChannel *channel,
+	int prepareCodedVideoFrame(const CodedVideoChannel *channel,
 				   struct mbuf_coded_video_frame *frame);
 
 	int writeGreyIdr(CodedVideoChannel *channel,
-			 struct CodedVideoMedia::Frame *inFrame,
-			 struct vdef_coded_frame *inInfo,
+			 const struct CodedVideoMedia::Frame *inFrame,
+			 const struct vdef_coded_frame *inInfo,
 			 uint64_t *ntpDelta,
 			 uint64_t *ntpUnskewedDelta,
 			 uint64_t *ntpRawDelta,
@@ -161,20 +161,23 @@ private:
 
 	static void idleRenewMedia(void *userdata);
 
-	IPdraw::ICodedVideoSink *mVideoSink;
-	IPdraw::ICodedVideoSink::Listener *mVideoSinkListener;
-	struct pdraw_video_sink_params mParams;
-	CodedVideoMedia *mInputMedia;
-	struct pdraw_media_info mMediaInfo;
-	struct vmeta_session mMediaInfoSessionMeta;
-	unsigned int mMediaId;
-	unsigned int mTargetMediaId;
-	struct mbuf_coded_video_frame_queue *mInputFrameQueue;
-	bool mInputChannelFlushPending;
-	bool mTearingDown;
-	bool mPendingRestart;
-	bool mNeedSync;
-	struct h264_reader *mH264Reader;
+	IPdraw::ICodedVideoSink *mVideoSink = nullptr;
+	IPdraw::ICodedVideoSink::Listener *mVideoSinkListener = nullptr;
+	struct pdraw_video_sink_params mParams {
+	};
+	CodedVideoMedia *mInputMedia = nullptr;
+	struct pdraw_media_info mMediaInfo {
+	};
+	struct vmeta_session mMediaInfoSessionMeta {
+	};
+	unsigned int mMediaId = 0;
+	unsigned int mTargetMediaId = 0;
+	std::unique_ptr<mbuf::Queue> mInputFrameQueue;
+	bool mInputChannelFlushPending = false;
+	bool mTearingDown = false;
+	bool mPendingRestart = false;
+	bool mNeedSync = true;
+	struct h264_reader *mH264Reader = nullptr;
 	static const struct h264_ctx_cbs mH264ReaderCbs;
 };
 
@@ -187,21 +190,21 @@ public:
 			      const struct pdraw_video_sink_params *params,
 			      IPdraw::ICodedVideoSink::Listener *listener);
 
-	~CodedVideoSinkWrapper(void);
+	~CodedVideoSinkWrapper() override;
 
 	int setMediaId(unsigned int mediaId) override;
 
-	unsigned int getMediaId(void) override;
+	unsigned int getMediaId() override;
 
-	int resync(void) override;
+	int resync() override;
 
-	struct mbuf_coded_video_frame_queue *getQueue(void) override;
+	struct mbuf_coded_video_frame_queue *getQueue() override;
 
-	int queueFlushed(void) override;
+	int queueFlushed() override;
 
-	int queueDrained(void) override;
+	int queueDrained() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mSink = nullptr;
@@ -218,14 +221,12 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() || mSink == nullptr);
 	}
 
-	ExternalCodedVideoSink *mSink;
+	ExternalCodedVideoSink *mSink = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_EXTERNAL_CODED_VIDEO_SINK_HPP_ */

@@ -31,7 +31,7 @@
 #include "pdraw_gles2hud_priv.h"
 
 
-void pdraw_gles2hud_draw_icon(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_icon(const struct pdraw_gles2hud *self,
 			      int index,
 			      float x,
 			      float y,

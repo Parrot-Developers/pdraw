@@ -28,14 +28,14 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_EXTERNAL_AUDIO_SOURCE_HPP_
-#define _PDRAW_EXTERNAL_AUDIO_SOURCE_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
 #include <media-buffers/mbuf_audio_frame.h>
+#include <media-buffers/mbuf_queue.hpp>
 #include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
@@ -52,48 +52,45 @@ public:
 			    AudioSourceWrapper *wrapper,
 			    const struct pdraw_audio_source_params *params);
 
-	~ExternalAudioSource(void);
+	~ExternalAudioSource() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
 
-	struct mbuf_audio_frame_queue *getQueue(void) const
+	mbuf::Queue *getQueue() const
 	{
-		return mFrameQueue;
+		return mFrameQueue.get();
 	}
 
-	IPdraw::IAudioSource *getAudioSource(void) const
+	IPdraw::IAudioSource *getAudioSource() const
 	{
 		return mAudioSource;
 	}
 
 private:
-	int process(void);
+	int process();
 
 	int processFrame(struct mbuf_audio_frame *frame);
 
-	void completeFlush(void);
+	void completeFlush();
 
-	int tryStop(void);
+	int tryStop();
 
-	void completeStop(void);
+	void completeStop();
 
 	void onChannelFlushed(Channel *channel) override;
 
 	void onChannelDrained(Channel *channel) override;
 
 	void onChannelUnlink(Channel *channel) override;
-
-	int removeQueueEvtFromLoop(struct mbuf_audio_frame_queue *queue,
-				   struct pomp_loop *loop);
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
@@ -106,12 +103,13 @@ private:
 
 	static void callAudioSourceFlushed(void *userdata);
 
-	IPdraw::IAudioSource *mAudioSource;
-	IPdraw::IAudioSource::Listener *mAudioSourceListener;
-	struct pdraw_audio_source_params mParams;
-	struct mbuf_audio_frame_queue *mFrameQueue;
-	AudioMedia *mOutputMedia;
-	uint64_t mLastTimestamp;
+	IPdraw::IAudioSource *mAudioSource = nullptr;
+	IPdraw::IAudioSource::Listener *mAudioSourceListener = nullptr;
+	struct pdraw_audio_source_params mParams {
+	};
+	std::unique_ptr<mbuf::Queue> mFrameQueue;
+	std::unique_ptr<AudioMedia> mOutputMedia{};
+	uint64_t mLastTimestamp = UINT64_MAX;
 };
 
 
@@ -121,15 +119,15 @@ public:
 			   const struct pdraw_audio_source_params *params,
 			   IPdraw::IAudioSource::Listener *listener);
 
-	~AudioSourceWrapper(void);
+	~AudioSourceWrapper() override;
 
-	struct mbuf_audio_frame_queue *getQueue(void) override;
+	struct mbuf_audio_frame_queue *getQueue() override;
 
-	int flush(void) override;
+	int flush() override;
 
-	int drain(void) override;
+	int drain() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mSource = nullptr;
@@ -146,15 +144,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mSource == nullptr);
 	}
 
-	ExternalAudioSource *mSource;
+	ExternalAudioSource *mSource = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_EXTERNAL_AUDIO_SOURCE_HPP_ */

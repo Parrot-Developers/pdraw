@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_UTILS_HPP_
-#define _PDRAW_UTILS_HPP_
+#pragma once
 
 /* This file includes <ulog.h> to get ULOG_xxx definitions. In order for each
  * file to keep its own logging tag, we must ensure that ULOG_TAG is defined
@@ -48,6 +47,14 @@
 #include <Eigen/Eigen>
 
 #include <atomic>
+#include <memory>
+
+
+/* Disable copy constructor and assignment operator */
+#define PDRAW_DISABLE_COPY(_cls)                                               \
+private:                                                                       \
+	_cls(const _cls &);                                                    \
+	_cls &operator=(const _cls &);
 
 
 /* Logging macros */
@@ -66,6 +73,9 @@
 #define PDRAW_LOGE(_fmt, ...) _PDRAW_LOG_INT(ULOG_ERR, _fmt, ##__VA_ARGS__)
 #define PDRAW_LOG_ERRNO(_fmt, _err, ...)                                       \
 	ULOGE_ERRNO(                                                           \
+		(_err), "%s: " _fmt, Loggable::_getCName(self), ##__VA_ARGS__)
+#define PDRAW_LOGW_ERRNO(_fmt, _err, ...)                                      \
+	ULOGW_ERRNO(                                                           \
 		(_err), "%s: " _fmt, Loggable::_getCName(self), ##__VA_ARGS__)
 #define PDRAW_LOG_ERRNO_RETURN_IF(_cond, _err)                                 \
 	do {                                                                   \
@@ -93,6 +103,22 @@
 
 
 #define PDRAW_STATIC_ASSERT(x) typedef char __STATIC_ASSERT__[(x) ? 1 : -1]
+
+
+#ifndef PDRAW_UNUSED
+#	define PDRAW_UNUSED(x) (void)(x)
+#endif
+
+
+#if __cplusplus >= 201402L
+using std::make_unique;
+#else
+template <typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args &&...args)
+{
+	return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+#endif
 
 
 void pdraw_gaussianDistribution(float *samples,
@@ -135,10 +161,10 @@ const char *
 pdraw_muxerDisconnectionReasonStr(enum pdraw_muxer_disconnection_reason val);
 
 
-const char *pdraw_videoTypeStr(enum pdraw_video_type val);
+const char *pdraw_muxerRtpTransportStr(enum pdraw_muxer_rtsp_transport val);
 
 
-enum pdraw_video_type pdraw_videoTypeFromStr(const char *val);
+enum pdraw_muxer_rtsp_transport pdraw_muxerRtpTransportFromStr(const char *val);
 
 
 const char *pdraw_histogramChannelStr(enum pdraw_histogram_channel val);
@@ -188,18 +214,49 @@ int pdraw_frameMetadataToJsonStr(const struct pdraw_video_frame *frame,
 				 char *output,
 				 unsigned int len);
 
+
 uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_coded_video_frame *frame,
 					 const char *key);
+
 
 uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_raw_video_frame *frame,
 					 const char *key);
 
+
 uint64_t pdraw_getTimestampFromMbufFrame(struct mbuf_audio_frame *frame,
 					 const char *key);
 
+
 struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src);
 
+
 void pdraw_mediaInfoFree(struct pdraw_media_info *media_info);
+
+
+struct pdraw_vipc_source_params *
+pdraw_vipcSourceParamsDup(const struct pdraw_vipc_source_params *src);
+
+
+void pdraw_vipcSourceParamsFree(struct pdraw_vipc_source_params *params);
+
+
+struct pdraw_muxer_params *
+pdraw_muxerParamsDup(const struct pdraw_muxer_params *src);
+
+
+void pdraw_muxerParamsFree(struct pdraw_muxer_params *params);
+
+
+struct pdraw_muxer_media_params *
+pdraw_muxerMediaParamsDup(const struct pdraw_muxer_media_params *src);
+
+
+void pdraw_muxerMediaParamsFree(struct pdraw_muxer_media_params *params);
+
+
+void pdraw_demuxerMediaListFree(struct pdraw_demuxer_media *media_list,
+				size_t media_count);
+
 
 /* */
 
@@ -238,18 +295,20 @@ static inline unsigned int pdraw_gcd(unsigned int a, unsigned int b)
 namespace Pdraw {
 class Loggable {
 public:
-	std::string &getName()
+	virtual ~Loggable() = default;
+
+	virtual const std::string &getName() const
 	{
 		return mName;
 	}
 
-	const char *getCName()
+	const char *getCName() const
 	{
 		return mName.c_str();
 	}
 
 	/* Helper function for log macros, do not call directly */
-	static const char *_getCName(Loggable *l)
+	static const char *_getCName(const Loggable *l)
 	{
 		if (l == nullptr)
 			return "(NULL)";
@@ -259,15 +318,13 @@ public:
 protected:
 	Loggable();
 
-	void setName(std::string &name);
+	void setName(const std::string &name);
 
 	void setName(const char *name);
 
-	std::string mName;
+	std::string mName{};
 	static std::atomic<unsigned int> mIdCounter;
-	Loggable *self;
+	Loggable *self = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_UTILS_HPP_ */

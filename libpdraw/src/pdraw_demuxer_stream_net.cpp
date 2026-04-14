@@ -45,7 +45,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <futils/futils.h>
 
-#define DEFAULT_RX_BUFFER_SIZE 1500
+constexpr size_t DEFAULT_RX_BUFFER_SIZE = 1500;
 
 
 namespace Pdraw {
@@ -63,13 +63,11 @@ StreamDemuxerNet::StreamDemuxerNet(Session *session,
 			      sourceListener,
 			      wrapper,
 			      demuxerListener,
-			      params),
-		mSingleLocalStreamPort(0), mSingleLocalControlPort(0),
-		mSingleRemoteStreamPort(0), mSingleRemoteControlPort(0)
+			      params)
 {
 	Element::setClassName(__func__);
 
-	mUrl = url;
+	mUrl = RtspUrl::create(url);
 
 	setState(State::CREATED);
 }
@@ -107,13 +105,13 @@ StreamDemuxerNet::StreamDemuxerNet(Session *session,
 }
 
 
-StreamDemuxerNet::~StreamDemuxerNet(void)
+StreamDemuxerNet::~StreamDemuxerNet()
 {
 	return;
 }
 
 
-uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(void)
+uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort()
 {
 	if (mState != State::STARTED) {
 		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
@@ -124,8 +122,8 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(void)
 		return 0;
 	}
 
-	VideoMediaNet *media =
-		dynamic_cast<VideoMediaNet *>(mVideoMedias.front());
+	auto *media =
+		dynamic_cast<const VideoMediaNet *>(mVideoMedias.front().get());
 	if (media == nullptr) {
 		PDRAW_LOG_ERRNO("invalid media", EPROTO);
 		return 0;
@@ -135,7 +133,7 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalStreamPort(void)
 }
 
 
-uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(void)
+uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort()
 {
 	if (mState != State::STARTED) {
 		PDRAW_LOG_ERRNO("demuxer is not started", EPROTO);
@@ -146,8 +144,8 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(void)
 		return 0;
 	}
 
-	VideoMediaNet *media =
-		dynamic_cast<VideoMediaNet *>(mVideoMedias.front());
+	auto *media =
+		dynamic_cast<const VideoMediaNet *>(mVideoMedias.front().get());
 	if (media == nullptr) {
 		PDRAW_LOG_ERRNO("invalid media", EPROTO);
 		return 0;
@@ -157,32 +155,40 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort(void)
 }
 
 
-StreamDemuxer::VideoMedia *StreamDemuxerNet::createVideoMedia(void)
+std::unique_ptr<StreamDemuxer::VideoMedia>
+StreamDemuxerNet::createVideoMedia(enum rtsp_lower_transport transport)
 {
-	return (StreamDemuxer::VideoMedia *)new VideoMediaNet(this);
+	return make_unique<VideoMediaNet>(this, transport);
 }
 
 
-StreamDemuxerNet::VideoMediaNet::VideoMediaNet(StreamDemuxerNet *demuxer) :
-		VideoMedia(demuxer), mDemuxerNet(demuxer), mStreamSock(nullptr),
-		mControlSock(nullptr), mRxPkt(nullptr), mRxBufLen(0)
+StreamDemuxerNet::VideoMediaNet::VideoMediaNet(
+	StreamDemuxerNet *demuxer,
+	enum rtsp_lower_transport transport) :
+		VideoMedia(demuxer),
+		mDemuxerNet(demuxer)
 {
+	mLowerTransport = transport;
 }
 
 
-StreamDemuxerNet::VideoMediaNet::~VideoMediaNet(void)
+StreamDemuxerNet::VideoMediaNet::~VideoMediaNet()
 {
 	stopRtpAvp();
 	tpkt_unref(mRxPkt);
 }
 
 
-int StreamDemuxerNet::VideoMediaNet::startRtpAvp(void)
+int StreamDemuxerNet::VideoMediaNet::startRtpAvp()
 {
 	int res;
+	const char *label = getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP
+				    ? "Channel"
+				    : "Port";
 
 	/* Create sockets only if not created during prepareSetup */
-	if (mStreamSock == nullptr && mControlSock == nullptr) {
+	if (mStreamSock == nullptr && mControlSock == nullptr &&
+	    getLowerTransport() != RTSP_LOWER_TRANSPORT_TCP) {
 		res = createSockets();
 		if (res != 0) {
 			PDRAW_LOG_ERRNO("createSockets", -res);
@@ -195,8 +201,10 @@ int StreamDemuxerNet::VideoMediaNet::startRtpAvp(void)
 		goto error;
 	}
 
-	PDRAW_LOGD("startRtpAvp localStreamPort=%d localControlPort=%d",
+	PDRAW_LOGI("startRtpAvp localStream%s=%d localControl%s=%d",
+		   label,
 		   mLocalStreamPort,
+		   label,
 		   mLocalControlPort);
 
 	/* Create the stream receiver */
@@ -214,7 +222,7 @@ error:
 }
 
 
-int StreamDemuxerNet::VideoMediaNet::stopRtpAvp(void)
+int StreamDemuxerNet::VideoMediaNet::stopRtpAvp()
 {
 	int err;
 	PDRAW_LOGD("stopRtpAvp");
@@ -240,6 +248,22 @@ int StreamDemuxerNet::VideoMediaNet::sendCtrl(struct vstrm_receiver *stream,
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(pkt == nullptr, EINVAL);
 
+	if (getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP) {
+		const void *data = nullptr;
+		size_t len = 0;
+		tpkt_get_cdata(pkt, &data, &len, nullptr);
+		int ret = rtsp_client_send_interleaved(
+			mDemuxerNet->mRtspClient,
+			(uint8_t)getRemoteStreamPort(),
+			(uint8_t *)data,
+			len);
+		if (ret < 0)
+			PDRAW_LOG_ERRNO("rtsp_client_send_interleaved", -ret);
+		return 0;
+	}
+
+	ULOG_ERRNO_RETURN_ERR_IF(mControlSock == nullptr, EINVAL);
+
 	/* Write data */
 	res = tskt_socket_write_pkt(mControlSock, pkt);
 	if (res < 0)
@@ -249,7 +273,7 @@ int StreamDemuxerNet::VideoMediaNet::sendCtrl(struct vstrm_receiver *stream,
 }
 
 
-int StreamDemuxerNet::VideoMediaNet::prepareSetup(void)
+int StreamDemuxerNet::VideoMediaNet::prepareSetup()
 {
 	int res = createSockets();
 	if (res != 0) {
@@ -262,14 +286,17 @@ int StreamDemuxerNet::VideoMediaNet::prepareSetup(void)
 
 
 enum rtsp_lower_transport
-StreamDemuxerNet::VideoMediaNet::getLowerTransport(void) const
+StreamDemuxerNet::VideoMediaNet::getLowerTransport() const
 {
-	return RTSP_LOWER_TRANSPORT_UDP;
+	return mLowerTransport;
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getLocalStreamPort(void) const
+uint16_t StreamDemuxerNet::VideoMediaNet::getLocalStreamPort() const
 {
+	if (mLowerTransport == RTSP_LOWER_TRANSPORT_TCP)
+		return mLocalStreamPort;
+
 	if (mStreamSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid stream socket", EPROTO);
 		return 0;
@@ -279,8 +306,11 @@ uint16_t StreamDemuxerNet::VideoMediaNet::getLocalStreamPort(void) const
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getLocalControlPort(void) const
+uint16_t StreamDemuxerNet::VideoMediaNet::getLocalControlPort() const
 {
+	if (mLowerTransport == RTSP_LOWER_TRANSPORT_TCP)
+		return mLocalControlPort;
+
 	if (mControlSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid control socket", EPROTO);
 		return 0;
@@ -290,8 +320,11 @@ uint16_t StreamDemuxerNet::VideoMediaNet::getLocalControlPort(void) const
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteStreamPort(void) const
+uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteStreamPort() const
 {
+	if (mLowerTransport == RTSP_LOWER_TRANSPORT_TCP)
+		return mRemoteStreamPort;
+
 	if (mStreamSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid stream socket", EPROTO);
 		return 0;
@@ -301,8 +334,11 @@ uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteStreamPort(void) const
 }
 
 
-uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteControlPort(void) const
+uint16_t StreamDemuxerNet::VideoMediaNet::getRemoteControlPort() const
 {
+	if (mLowerTransport == RTSP_LOWER_TRANSPORT_TCP)
+		return mRemoteControlPort;
+
 	if (mControlSock == nullptr) {
 		PDRAW_LOG_ERRNO("invalid control socket", EPROTO);
 		return 0;
@@ -352,14 +388,22 @@ void StreamDemuxerNet::VideoMediaNet::setRemoteControlPort(uint16_t port)
 }
 
 
-int StreamDemuxerNet::VideoMediaNet::createSockets(void)
+int StreamDemuxerNet::VideoMediaNet::createSockets()
 {
-	int res, err;
+	int res;
+	int err;
 	int rxBufSize;
-	if (mLocalStreamPort == 0)
-		mLocalStreamPort = DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
-	if (mLocalControlPort == 0)
-		mLocalControlPort = DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
+	if (getLowerTransport() != RTSP_LOWER_TRANSPORT_TCP) {
+		if (mLocalStreamPort == 0)
+			mLocalStreamPort =
+				DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
+		if (mLocalControlPort == 0)
+			mLocalControlPort =
+				DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
+	} else {
+		mLocalStreamPort = 0;
+		mLocalControlPort = 0;
+	}
 
 	/* Create the rx buffer */
 	mRxBufLen = DEFAULT_RX_BUFFER_SIZE;
@@ -370,10 +414,18 @@ int StreamDemuxerNet::VideoMediaNet::createSockets(void)
 		goto error;
 	}
 
+	/* Socket are not needed in TCP mode */
+	if (getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP)
+		return 0;
+
+	/* Sockets will be created once address resolution is done */
+	if (!mDemuxerNet->mUrl->hasResolvedHost())
+		return 0;
+
 	/* Create the sockets */
 	res = tskt_socket_new(mDemuxerNet->mLocalAddr.c_str(),
 			      &mLocalStreamPort,
-			      mDemuxerNet->mRemoteAddr.c_str(),
+			      mDemuxerNet->mUrl->getResolvedHost().c_str(),
 			      mRemoteStreamPort,
 			      nullptr,
 			      mDemuxerNet->mSession->getLoop(),
@@ -405,7 +457,7 @@ int StreamDemuxerNet::VideoMediaNet::createSockets(void)
 
 	res = tskt_socket_new(mDemuxerNet->mLocalAddr.c_str(),
 			      &mLocalControlPort,
-			      mDemuxerNet->mRemoteAddr.c_str(),
+			      mDemuxerNet->mUrl->getResolvedHost().c_str(),
 			      mRemoteControlPort,
 			      nullptr,
 			      mDemuxerNet->mSession->getLoop(),
@@ -438,7 +490,7 @@ error:
 }
 
 
-struct tpkt_packet *StreamDemuxerNet::VideoMediaNet::newRxPkt(void)
+struct tpkt_packet *StreamDemuxerNet::VideoMediaNet::newRxPkt()
 {
 	struct pomp_buffer *buf = pomp_buffer_new(mRxBufLen);
 	if (!buf)
@@ -454,54 +506,88 @@ struct tpkt_packet *StreamDemuxerNet::VideoMediaNet::newRxPkt(void)
 }
 
 
+int StreamDemuxerNet::VideoMediaNet::processDataPkt(struct tpkt_packet *pkt)
+{
+	int ret;
+
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(pkt == nullptr, EINVAL);
+
+	if (isRtpPaused())
+		return 0;
+
+	/* Process received packet */
+	ret = vstrm_receiver_recv_data(mReceiver, pkt);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("vstrm_receiver_recv_data", -ret);
+
+	return ret;
+}
+
+
+int StreamDemuxerNet::VideoMediaNet::processCtrlPkt(struct tpkt_packet *pkt)
+{
+	int ret;
+
+	PDRAW_LOG_ERRNO_RETURN_ERR_IF(pkt == nullptr, EINVAL);
+
+	if (isRtpPaused())
+		return 0;
+
+	/* Process received packet */
+	ret = vstrm_receiver_recv_ctrl(mReceiver, pkt);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl", -ret);
+
+	return 0;
+}
+
+
 void StreamDemuxerNet::VideoMediaNet::dataCb(int fd,
 					     uint32_t events,
 					     void *userdata)
 {
-	VideoMediaNet *self = (VideoMediaNet *)userdata;
+	PDRAW_UNUSED(fd);
+	PDRAW_UNUSED(events);
+
+	auto *self = static_cast<VideoMediaNet *>(userdata);
 	int res;
 	size_t readlen = 0;
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	while (1) {
+	while (true) {
 		/* Read data */
 		res = tskt_socket_read_pkt(self->mStreamSock, self->mRxPkt);
 		if (res < 0)
-			break;
+			return;
 
-		/* Discard any data received before starting a vstrm_receiver */
+		/* Discard any data received before starting a vstrm_sender */
 		if (!self->mReceiver)
 			continue;
 
 		/* Something read? */
 		res = tpkt_get_cdata(self->mRxPkt, nullptr, &readlen, nullptr);
 		if (res < 0)
-			break;
-		if (readlen != 0) {
-			/* Allocate new packet for replacement */
-			struct tpkt_packet *newPkt = self->newRxPkt();
-			if (!newPkt) {
-				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
-				break;
-			}
-			if (!self->isRtpPaused()) {
-				/* Process received packet */
-				res = vstrm_receiver_recv_data(self->mReceiver,
-							       self->mRxPkt);
-			} else {
-				res = 0;
-			}
-			/* Replace processed packet with new one */
-			tpkt_unref(self->mRxPkt);
-			self->mRxPkt = newPkt;
-			if (res < 0)
-				PDRAW_LOG_ERRNO("vstrm_receiver_recv_data",
-						-res);
-		} else {
+			return;
+
+		if (readlen == 0) {
 			/* TODO: EOF */
-			break;
+			return;
 		}
+
+		res = self->processDataPkt(self->mRxPkt);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("processCtrlPkt", -res);
+
+		/* Allocate new packet for replacement */
+		struct tpkt_packet *newPkt = self->newRxPkt();
+		if (!newPkt) {
+			PDRAW_LOG_ERRNO("newTxPkt", ENOMEM);
+			return;
+		}
+		/* Replace processed packet with new one */
+		tpkt_unref(self->mRxPkt);
+		self->mRxPkt = newPkt;
 	}
 }
 
@@ -510,50 +596,48 @@ void StreamDemuxerNet::VideoMediaNet::ctrlCb(int fd,
 					     uint32_t events,
 					     void *userdata)
 {
-	VideoMediaNet *self = (VideoMediaNet *)userdata;
+	PDRAW_UNUSED(fd);
+	PDRAW_UNUSED(events);
+
+	auto *self = static_cast<VideoMediaNet *>(userdata);
 	int res;
 	size_t readlen = 0;
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
-	while (1) {
+	while (true) {
 		/* Read data */
 		res = tskt_socket_read_pkt(self->mControlSock, self->mRxPkt);
 		if (res < 0)
-			break;
+			return;
 
-		/* Discard any data received before starting a vstrm_receiver */
+		/* Discard any data received before starting a vstrm_sender */
 		if (!self->mReceiver)
 			continue;
 
 		/* Something read? */
 		res = tpkt_get_cdata(self->mRxPkt, nullptr, &readlen, nullptr);
 		if (res < 0)
-			break;
-		if (readlen != 0) {
-			/* Allocate new packet for replacement */
-			struct tpkt_packet *newPkt = self->newRxPkt();
-			if (!newPkt) {
-				PDRAW_LOG_ERRNO("newRxPkt", ENOMEM);
-				break;
-			}
-			if (!self->isRtpPaused()) {
-				/* Process received packet */
-				res = vstrm_receiver_recv_ctrl(self->mReceiver,
-							       self->mRxPkt);
-			} else {
-				res = 0;
-			}
-			/* Replace processed packet with new one */
-			tpkt_unref(self->mRxPkt);
-			self->mRxPkt = newPkt;
-			if (res < 0)
-				PDRAW_LOG_ERRNO("vstrm_receiver_recv_ctrl",
-						-res);
-		} else {
+			return;
+
+		if (readlen == 0) {
 			/* TODO: EOF */
-			break;
+			return;
 		}
+
+		res = self->processCtrlPkt(self->mRxPkt);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("processCtrlPkt", -res);
+
+		/* Allocate new packet for replacement */
+		struct tpkt_packet *newPkt = self->newRxPkt();
+		if (!newPkt) {
+			PDRAW_LOG_ERRNO("newTxPkt", ENOMEM);
+			return;
+		}
+		/* Replace processed packet with new one */
+		tpkt_unref(self->mRxPkt);
+		self->mRxPkt = newPkt;
 	}
 }
 

@@ -31,7 +31,7 @@
 #include "pdraw_gles2hud_priv.h"
 
 
-void pdraw_gles2hud_draw_vumeter(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_vumeter(const struct pdraw_gles2hud *self,
 				 float x,
 				 float y,
 				 float r,
@@ -94,29 +94,30 @@ void pdraw_gles2hud_draw_vumeter(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_artificial_horizon(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_artificial_horizon(const struct pdraw_gles2hud *self,
 					    const struct vmeta_euler *drone,
 					    const struct vmeta_euler *frame,
 					    const float color[4])
 {
 	int i;
-	float x1, y1, x2, y2;
+	float x1;
+	float y1;
+	float x2;
+	float y2;
 	float height = self->config.central_zone_size * self->ratio_w *
 		       self->aspect_ratio;
 	int steps = 6;
 
 	/* Scale */
 	for (i = -steps; i <= steps; i++) {
-		if (i != 0) {
-			if (i & 1) {
-				pdraw_gles2hud_draw_line(self,
-							 -0.01 * self->ratio_w,
-							 i * height / 2 / steps,
-							 0.01 * self->ratio_w,
-							 i * height / 2 / steps,
-							 color,
-							 2.);
-			}
+		if ((i != 0) && (i & 1)) {
+			pdraw_gles2hud_draw_line(self,
+						 -0.01 * self->ratio_w,
+						 i * height / 2 / steps,
+						 0.01 * self->ratio_w,
+						 i * height / 2 / steps,
+						 color,
+						 2.);
 		}
 	}
 
@@ -162,12 +163,16 @@ void pdraw_gles2hud_draw_artificial_horizon(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_roll(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_roll(const struct pdraw_gles2hud *self,
 			      float drone_roll,
 			      const float color[4])
 {
 	int i;
-	float rotation, x1, y1, x2, y2;
+	float rotation;
+	float x1;
+	float y1;
+	float x2;
+	float y2;
 	float width = 0.12 * self->ratio_w;
 	float y_offset = self->config.roll_zone_v_offset * self->ratio_h;
 	int steps = 6;
@@ -218,7 +223,7 @@ void pdraw_gles2hud_draw_roll(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_heading(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_heading(const struct pdraw_gles2hud *self,
 				 float drone_yaw,
 				 float horizontal_speed,
 				 float speed_psi,
@@ -226,7 +231,11 @@ void pdraw_gles2hud_draw_heading(struct pdraw_gles2hud *self,
 {
 	int i;
 	int heading = ((int)(drone_yaw * RAD_TO_DEG) + 360) % 360;
-	float rotation, x1, y1, x2, y2;
+	float rotation;
+	float x1;
+	float y1;
+	float x2;
+	float y2;
 	char heading_str[20];
 	snprintf(heading_str, sizeof(heading_str), "%d", heading);
 
@@ -300,7 +309,7 @@ void pdraw_gles2hud_draw_heading(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_altitude(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_altitude(const struct pdraw_gles2hud *self,
 				  double altitude,
 				  float ground_distance,
 				  float down_speed,
@@ -358,7 +367,7 @@ void pdraw_gles2hud_draw_altitude(struct pdraw_gles2hud *self,
 				 2.);
 
 	float y = (ceil(altitude) - altitude) * altitude_interval;
-	int alt_int = ((int)ceil(altitude));
+	auto alt_int = ((int)ceil(altitude));
 	int alt_mod5 = alt_int % 5;
 	while (y < height / 2.) {
 		pdraw_gles2hud_draw_line(
@@ -491,7 +500,10 @@ void pdraw_gles2hud_draw_altitude(struct pdraw_gles2hud *self,
 
 	/* Speed indication */
 	if (fabs(down_speed) >= 0.2) {
-		float x1, y1, x2, y2;
+		float x1;
+		float y1;
+		float x2;
+		float y2;
 		x1 = x_offset + 0.15 * self->ratio_w;
 		y1 = -0.017 * self->ratio_w * self->aspect_ratio;
 		x2 = x_offset + 0.15 * self->ratio_w;
@@ -536,7 +548,7 @@ void pdraw_gles2hud_draw_altitude(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_speed(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_speed(const struct pdraw_gles2hud *self,
 			       float horizontal_speed,
 			       const float color[4])
 {
@@ -588,7 +600,7 @@ void pdraw_gles2hud_draw_speed(struct pdraw_gles2hud *self,
 				 2.);
 
 	float y = (ceil(horizontal_speed) - horizontal_speed) * speed_interval;
-	int spd_int = ((int)ceil(horizontal_speed));
+	auto spd_int = ((int)ceil(horizontal_speed));
 	int spd_mod5 = spd_int % 5;
 	while (y < height / 2.) {
 		pdraw_gles2hud_draw_line(
@@ -644,18 +656,18 @@ void pdraw_gles2hud_draw_speed(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_controller_radar(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_controller_radar(const struct pdraw_gles2hud *self,
 					  double distance,
-					  double bearing,
-					  float controller_yaw,
-					  float drone_yaw,
 					  float controller_radar_angle,
 					  const float color[4])
 {
 	float width = 0.08 * self->ratio_w;
 	float x_offset = self->config.radar_zone_h_offset * self->ratio_w;
 	float y_offset = self->config.radar_zone_v_offset * self->ratio_h;
-	float x1, y1, x2, y2;
+	float x1;
+	float y1;
+	float x2;
+	float y2;
 
 	pdraw_gles2hud_draw_ellipse(self,
 				    x_offset,
@@ -690,7 +702,7 @@ void pdraw_gles2hud_draw_controller_radar(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_record_timeline(const struct pdraw_gles2hud *self,
 					 uint64_t current_time,
 					 uint64_t duration,
 					 const float color[4])
@@ -700,13 +712,26 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 			 0.12 * self->ratio_w * self->aspect_ratio;
 	float width = 0.4 * self->ratio_w;
 	float height = 0.015 * self->ratio_w * self->aspect_ratio;
-	float x1, y1, x2, y2;
-	float cw = 0., rw = 0.;
+	float x1;
+	float y1;
+	float x2;
+	float y2;
+	float cw = 0.;
+	float rw = 0.;
 
 	uint64_t remaining_time = duration - current_time;
-	unsigned int c_hrs = 0, c_min = 0, c_sec = 0, c_msec = 0;
-	unsigned int r_hrs = 0, r_min = 0, r_sec = 0, r_msec = 0;
-	unsigned int d_hrs = 0, d_min = 0, d_sec = 0, d_msec = 0;
+	unsigned int c_hrs = 0;
+	unsigned int c_min = 0;
+	unsigned int c_sec = 0;
+	unsigned int c_msec = 0;
+	unsigned int r_hrs = 0;
+	unsigned int r_min = 0;
+	unsigned int r_sec = 0;
+	unsigned int r_msec = 0;
+	unsigned int d_hrs = 0;
+	unsigned int d_min = 0;
+	unsigned int d_sec = 0;
+	unsigned int d_msec = 0;
 	pdraw_gles2hud_friendly_time_from_us(
 		current_time, &c_hrs, &c_min, &c_sec, &c_msec);
 	pdraw_gles2hud_friendly_time_from_us(
@@ -730,8 +755,7 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 			 c_sec,
 			 c_msec);
 	}
-	pdraw_gles2hud_get_text_dimensions(self,
-					   str,
+	pdraw_gles2hud_get_text_dimensions(str,
 					   0.15 * self->ratio_w,
 					   1.,
 					   self->aspect_ratio,
@@ -754,8 +778,7 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 			 r_sec,
 			 r_msec);
 	}
-	pdraw_gles2hud_get_text_dimensions(self,
-					   str,
+	pdraw_gles2hud_get_text_dimensions(str,
 					   0.15 * self->ratio_w,
 					   1.,
 					   self->aspect_ratio,
@@ -784,7 +807,7 @@ void pdraw_gles2hud_draw_record_timeline(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_cot(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_cot(const struct pdraw_gles2hud *self,
 			     float x,
 			     float y,
 			     const float color[4])
@@ -847,7 +870,7 @@ void pdraw_gles2hud_draw_cot(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_flight_path_vector(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_flight_path_vector(const struct pdraw_gles2hud *self,
 					    const struct vmeta_euler *frame,
 					    float speed_theta,
 					    float speed_psi,
@@ -856,7 +879,12 @@ void pdraw_gles2hud_draw_flight_path_vector(struct pdraw_gles2hud *self,
 	float x = (speed_psi - frame->psi) / self->h_fov * 2. * self->ratio_w;
 	float y =
 		(speed_theta - frame->theta) / self->v_fov * 2. * self->ratio_h;
-	float x1, y1, x2, y2, tx, ty;
+	float x1;
+	float y1;
+	float x2;
+	float y2;
+	float tx;
+	float ty;
 	float rotation = frame->phi;
 
 	if ((x > -self->ratio_w) && (x < self->ratio_w) &&
@@ -913,12 +941,17 @@ void pdraw_gles2hud_draw_flight_path_vector(struct pdraw_gles2hud *self,
 }
 
 
-void pdraw_gles2hud_draw_framing_grid(struct pdraw_gles2hud *self,
+void pdraw_gles2hud_draw_framing_grid(const struct pdraw_gles2hud *self,
 				      const struct pdraw_rect *render_pos,
 				      const struct pdraw_rect *content_pos,
 				      const float color[4])
 {
-	float x_left, x_right, x_third, y_top, y_bottom, y_third;
+	float x_left;
+	float x_right;
+	float x_third;
+	float y_top;
+	float y_bottom;
+	float y_third;
 
 	x_left = (float)content_pos->x / (float)render_pos->width * 2. - 1.;
 	x_right = ((float)(content_pos->x + content_pos->width) + 0.5) /
@@ -978,10 +1011,12 @@ void pdraw_gles2hud_draw_framing_grid(struct pdraw_gles2hud *self,
 
 
 void pdraw_gles2hud_draw_histograms(
-	struct pdraw_gles2hud *self,
+	const struct pdraw_gles2hud *self,
 	const struct pdraw_video_frame_extra *frame_extra)
 {
-	unsigned int i, j, k;
+	unsigned int i;
+	unsigned int j;
+	unsigned int k;
 	float color_background[4] = {0.0f, 0.0f, 0.0f, 0.2f};
 	float color_white[4] = {1.0f, 1.0f, 1.0f, 0.4f};
 	float color[3][4] = {
@@ -995,8 +1030,12 @@ void pdraw_gles2hud_draw_histograms(
 	float offset_x = (1.0f - 0.166f) * self->ratio_w - width;
 	float offset_y1 = (1.0f - 0.166f) * self->ratio_h - height;
 	float offset_y2 = (1.0f - 0.166f) * self->ratio_h - height * 2. - 0.04f;
-	float x, y1, y2, bin_width;
-	float val[3], prev_val;
+	float x;
+	float y1;
+	float y2;
+	float bin_width;
+	float val[3];
+	float prev_val;
 	int idx[3];
 
 	if (frame_extra->histogram[PDRAW_HISTOGRAM_CHANNEL_LUMA]) {

@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_MUXER_HPP_
-#define _PDRAW_MUXER_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
@@ -53,11 +52,11 @@ public:
 	      MuxerWrapper *wrapper,
 	      const struct pdraw_muxer_params *params);
 
-	virtual ~Muxer(void) = 0;
+	~Muxer() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	/* Must be called on the loop thread */
 	virtual int
@@ -70,17 +69,17 @@ public:
 	}
 
 	/* Must be called on the loop thread */
-	virtual int removeInputMedia(Media *media) override;
+	int removeInputMedia(Media *media) override;
 
 	/* Must be called on the loop thread */
-	virtual int removeInputMedias(void) override;
+	int removeInputMedias() override;
 
-	IPdraw::IMuxer *getMuxer(void) const
+	IPdraw::IMuxer *getMuxer() const
 	{
 		return mMuxer;
 	}
 
-	void clearMuxerListener(void)
+	void clearMuxerListener()
 	{
 		mMuxerListener = nullptr;
 	}
@@ -98,6 +97,13 @@ public:
 	virtual int addChapter(uint64_t timestamp, const char *name);
 
 	/* Must be called on the loop thread */
+	virtual int setFileMetadata(enum pdraw_muxer_metadata_type type,
+				    const uint8_t *data,
+				    size_t size,
+				    const void *params,
+				    size_t paramsSize);
+
+	/* Must be called on the loop thread */
 	virtual int getStats(struct pdraw_muxer_stats *stats);
 
 	virtual int
@@ -105,55 +111,35 @@ public:
 
 	virtual int getDynParams(struct pdraw_muxer_dyn_params *dyn_params);
 
-	virtual int forceSync(void);
+	virtual int forceSync();
 
 protected:
-	virtual int internalStart(void) = 0;
+	virtual int internalStart() = 0;
 
-	virtual int internalStop(void) = 0;
+	virtual int internalStop() = 0;
 
-	virtual int process(void) = 0;
-
-	/* Must be called on the loop thread */
-	int addQueueEvtToLoop(struct mbuf_coded_video_frame_queue *queue,
-			      struct pomp_loop *loop);
-
-	/* Must be called on the loop thread */
-	int addQueueEvtToLoop(struct mbuf_raw_video_frame_queue *queue,
-			      struct pomp_loop *loop);
-
-	/* Must be called on the loop thread */
-	int addQueueEvtToLoop(struct mbuf_audio_frame_queue *queue,
-			      struct pomp_loop *loop);
-
-	/* Must be called on the loop thread */
-	int removeQueueEvtFromLoop(struct mbuf_coded_video_frame_queue *queue,
-				   struct pomp_loop *loop);
-
-	/* Must be called on the loop thread */
-	int removeQueueEvtFromLoop(struct mbuf_raw_video_frame_queue *queue,
-				   struct pomp_loop *loop);
-
-	/* Must be called on the loop thread */
-	int removeQueueEvtFromLoop(struct mbuf_audio_frame_queue *queue,
-				   struct pomp_loop *loop);
+	virtual int process() = 0;
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
+	static int createInputQueue(Media::Type type, mbuf::Queue **queue);
+
 	/* Can be called from any thread */
-	virtual void onChannelFlush(Channel *channel) override;
+	void onChannelFlush(Channel *channel) override;
 
-	virtual void onChannelDrain(Channel *channel) override;
+	void onChannelDrain(Channel *channel) override;
 
-	virtual void onChannelTeardown(Channel *channel) override;
+	void onChannelTeardown(Channel *channel) override;
 
 	int asyncCompleteFlush(Channel *channel, bool discard);
 
-	int asyncCompleteStop(void);
+	int asyncCompleteStop();
 
 	static void idleCompleteFlush(void *userdata);
 
 	static void idleCompleteStop(void *userdata);
+
+	int completeStop();
 
 	void
 	onConnectionStateChanged(enum pdraw_muxer_connection_state state,
@@ -163,21 +149,20 @@ protected:
 
 	void onUnrecoverableError(int error);
 
-	IPdraw::IMuxer *mMuxer;
-	IPdraw::IMuxer::Listener *mMuxerListener;
-	struct pdraw_muxer_params mParams;
-	std::atomic_bool mReadyToStart;
-	std::atomic_bool mReadyToStop;
-	std::atomic_bool mAsyncFlush;
-	std::atomic_bool mUnrecoverableError;
+	IPdraw::IMuxer *mMuxer = nullptr;
+	IPdraw::IMuxer::Listener *mMuxerListener = nullptr;
+	struct pdraw_muxer_params mParams {
+	};
+	std::atomic_bool mReadyToStart{false};
+	std::atomic_bool mReadyToStop{false};
+	std::atomic_bool mAsyncFlush{false};
+	std::atomic_bool mUnrecoverableError{false};
 
 private:
-	int completeStop(void);
+	void completeFlush(const Channel *channel, bool discard);
 
-	void completeFlush(Channel *channel, bool discard);
-
-	std::atomic_bool mFlushing;
-	bool mClosing;
+	std::atomic_bool mFlushing{false};
+	bool mClosing = false;
 
 	/* Muxer listener calls from idle functions */
 	static void callOnConnectionStateChanged(void *userdata);
@@ -185,6 +170,8 @@ private:
 		mConnectionStateChangedStateArgs;
 	std::queue<enum pdraw_muxer_disconnection_reason>
 		mConnectionStateChangedReasonArgs;
+	static void callOnMediaSaved(void *userdata);
+	std::queue<std::string> mMediaSavedPathArgs;
 	static void callCloseResponse(void *userdata);
 	std::queue<int> mCloseRespStatusArgs;
 	static void callOnUnrecoverableError(void *userdata);
@@ -199,7 +186,7 @@ public:
 		     const struct pdraw_muxer_params *params,
 		     IPdraw::IMuxer::Listener *listener);
 
-	~MuxerWrapper(void);
+	~MuxerWrapper() override;
 
 	int addMedia(unsigned int mediaId,
 		     const struct pdraw_muxer_media_params *params) override;
@@ -210,6 +197,12 @@ public:
 
 	int addChapter(uint64_t timestamp, const char *name) override;
 
+	int setFileMetadata(enum pdraw_muxer_metadata_type type,
+			    const uint8_t *data,
+			    size_t size,
+			    const void *params = nullptr,
+			    size_t paramsSize = 0) override;
+
 	int getStats(struct pdraw_muxer_stats *stats) override;
 
 	int
@@ -217,11 +210,11 @@ public:
 
 	int getDynParams(struct pdraw_muxer_dyn_params *dyn_params) override;
 
-	int forceSync(void) override;
+	int forceSync() override;
 
-	int close(void) override;
+	int close() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mMuxer = nullptr;
@@ -233,15 +226,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mMuxer == nullptr);
 	}
 
-	Muxer *mMuxer;
+	Muxer *mMuxer = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_MUXER_HPP_ */

@@ -47,18 +47,14 @@ Element::Element(Session *session,
 		 Listener *listener,
 		 ElementWrapper *wrapper) :
 		mSession(session),
-		mListener(listener), mWrapper(wrapper),
-		mState(Element::State::INVALID),
-		mFlushingState(Element::FlushingState::FLUSHED),
-		mFlushDiscard(false)
+		mListener(listener), mWrapper(wrapper), mId(++mIdCounter)
 {
-	mId = ++mIdCounter;
 	std::string name = std::string(__func__) + "#" + std::to_string(mId);
 	Loggable::setName(name);
 }
 
 
-Element::~Element(void)
+Element::~Element()
 {
 	mState = State::INVALID;
 
@@ -70,25 +66,25 @@ Element::~Element(void)
 }
 
 
-unsigned int Element::getId(void) const
+unsigned int Element::getId() const
 {
 	return mId;
 }
 
 
-ElementWrapper *Element::getWrapper(void)
+ElementWrapper *Element::getWrapper() const
 {
 	return mWrapper;
 }
 
 
-void Element::clearWrapper(void)
+void Element::clearWrapper()
 {
 	mWrapper = nullptr;
 }
 
 
-void Element::setClassName(std::string &name)
+void Element::setClassName(const std::string &name)
 {
 	std::string new_name = name + "#" + std::to_string(mId);
 	Loggable::setName(new_name);
@@ -102,13 +98,13 @@ void Element::setClassName(const char *name)
 }
 
 
-Element::State Element::getState(void) const
+Element::State Element::getState() const
 {
 	return mState;
 }
 
 
-Element::FlushingState Element::getFlushingState(void) const
+Element::FlushingState Element::getFlushingState() const
 {
 	return mFlushingState;
 }
@@ -198,13 +194,7 @@ const char *Element::getElementFlushingStateStr(Element::FlushingState val)
 }
 
 
-ElementWrapper::ElementWrapper(void) : mElement(nullptr), mElementStopped(false)
-{
-	return;
-}
-
-
-ElementWrapper::~ElementWrapper(void)
+ElementWrapper::~ElementWrapper()
 {
 	/* Clear the element wrapper in the element */
 	if (mElement != nullptr)
@@ -212,20 +202,20 @@ ElementWrapper::~ElementWrapper(void)
 }
 
 
-Element *ElementWrapper::getElement(void) const
+Element *ElementWrapper::getElement() const
 {
 	return mElement;
 }
 
 
-void ElementWrapper::clearElement(void)
+void ElementWrapper::clearElement()
 {
 	mElement = nullptr;
 	mElementStopped = true;
 }
 
 
-bool ElementWrapper::isElementStopped(void) const
+bool ElementWrapper::isElementStopped() const
 {
 	return (mElement == nullptr || mElementStopped);
 }
@@ -243,7 +233,7 @@ void FilterElement::onChannelSos(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -267,7 +257,7 @@ void FilterElement::onChannelEos(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -291,7 +281,7 @@ void FilterElement::onChannelReconfigure(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -315,7 +305,7 @@ void FilterElement::onChannelResolutionChange(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -339,7 +329,7 @@ void FilterElement::onChannelFramerateChange(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -363,7 +353,7 @@ void FilterElement::onChannelTimeout(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -387,7 +377,7 @@ void FilterElement::onChannelPhotoTrigger(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -411,7 +401,7 @@ void FilterElement::onChannelSessionMetaUpdate(Channel *channel)
 	Source::lock();
 	unsigned int count = Source::getOutputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getOutputMedia(i);
+		const Media *media = getOutputMedia(i);
 		if (media == nullptr)
 			continue;
 		int ret = Source::sendDownstreamEvent(
@@ -438,7 +428,7 @@ void FilterElement::onChannelVideoPresStats(Channel *channel,
 	Sink::lock();
 	unsigned int count = Sink::getInputMediaCount();
 	for (unsigned int i = 0; i < count; i++) {
-		Media *media = getInputMedia(i);
+		const Media *media = getInputMedia(i);
 		if (media == nullptr)
 			continue;
 		Channel *inChannel = getInputChannel(media);

@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_CHANNEL_AUDIO_HPP_
-#define _PDRAW_CHANNEL_AUDIO_HPP_
+#pragma once
 
 #include "pdraw_channel.hpp"
 
@@ -45,7 +44,7 @@ class AudioChannel : public Channel {
 public:
 	class AudioSinkListener {
 	public:
-		virtual ~AudioSinkListener(void) {}
+		virtual ~AudioSinkListener() = default;
 
 		virtual void
 		onAudioChannelQueue(AudioChannel *channel,
@@ -57,27 +56,20 @@ public:
 		     AudioSinkListener *audioSinkListener,
 		     struct pomp_loop *loop);
 
-	~AudioChannel(void) {}
+	~AudioChannel() override = default;
 
 	int queue(mbuf_audio_frame *frame);
 
-	int getAudioMediaFormatCaps(const struct adef_format **caps);
+	int getAudioMediaFormatCaps(const struct adef_format **caps) const;
 
-	void setAudioMediaFormatCaps(Sink *owner,
+	void setAudioMediaFormatCaps(const Sink *owner,
 				     const struct adef_format *caps,
 				     int count);
 
-	struct mbuf_audio_frame_queue *getQueue(Sink *owner);
-
-	void setQueue(Sink *owner, struct mbuf_audio_frame_queue *queue);
-
 private:
-	AudioSinkListener *mAudioSinkListener;
-	const struct adef_format *mAudioMediaFormatCaps;
-	int mAudioMediaFormatCapsCount;
-	struct mbuf_audio_frame_queue *mQueue;
+	AudioSinkListener *mAudioSinkListener = nullptr;
+	const struct adef_format *mAudioMediaFormatCaps = nullptr;
+	int mAudioMediaFormatCapsCount = 0;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_CHANNEL_AUDIO_HPP_ */

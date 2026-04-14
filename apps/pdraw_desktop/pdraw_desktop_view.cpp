@@ -33,8 +33,7 @@
 #include "pdraw_desktop.h"
 
 
-void pdraw_desktop_view_create_matrices(struct pdraw_desktop *self,
-					unsigned int width,
+void pdraw_desktop_view_create_matrices(unsigned int width,
 					unsigned int height,
 					float *view_mat,
 					float *proj_mat,
@@ -51,13 +50,12 @@ void pdraw_desktop_view_create_matrices(struct pdraw_desktop *self,
 
 	Eigen::Matrix4f v_mat = Eigen::Matrix4f::Identity();
 
-	unsigned int i, j;
-	for (i = 0; i < 4; i++) {
-		for (j = 0; j < 4; j++)
+	for (unsigned int i = 0; i < 4; i++) {
+		for (unsigned int j = 0; j < 4; j++)
 			view_mat[j * 4 + i] = v_mat(i, j);
 	}
-	for (i = 0; i < 4; i++) {
-		for (j = 0; j < 4; j++)
+	for (unsigned int i = 0; i < 4; i++) {
+		for (unsigned int j = 0; j < 4; j++)
 			proj_mat[j * 4 + i] = p_mat(i, j);
 	}
 }

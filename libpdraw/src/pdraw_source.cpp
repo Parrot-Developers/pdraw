@@ -44,39 +44,10 @@ namespace Pdraw {
 Source::Source(unsigned int maxOutputMedias, Listener *listener) :
 		mMaxOutputMedias(maxOutputMedias), mListener(listener)
 {
-	int res;
-	pthread_mutexattr_t attr;
-	bool attr_created = false;
-
-	res = pthread_mutexattr_init(&attr);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_init", res);
-		goto error;
-	}
-	attr_created = true;
-
-	res = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutexattr_settype", res);
-		goto error;
-	}
-
-	res = pthread_mutex_init(&mMutex, &attr);
-	if (res != 0) {
-		ULOG_ERRNO("pthread_mutex_init", res);
-		goto error;
-	}
-
-	pthread_mutexattr_destroy(&attr);
-	return;
-
-error:
-	if (attr_created)
-		pthread_mutexattr_destroy(&attr);
 }
 
 
-Source::~Source(void)
+Source::~Source()
 {
 	int ret = removeOutputPorts(true);
 	if (ret < 0)
@@ -87,48 +58,44 @@ Source::~Source(void)
 		ULOGW("not all output ports have been removed! (count=%d)",
 		      count);
 	}
-
-	pthread_mutex_destroy(&mMutex);
 }
 
 
-void Source::lock(void)
+void Source::lock()
 {
-	pthread_mutex_lock(&mMutex);
+	mMutex.lock();
 }
 
 
-void Source::unlock(void)
+void Source::unlock()
 {
-	pthread_mutex_unlock(&mMutex);
+	mMutex.unlock();
 }
 
 
-unsigned int Source::getOutputMediaCount(void)
+unsigned int Source::getOutputMediaCount()
 {
-	pthread_mutex_lock(&mMutex);
-	unsigned int ret = mOutputPorts.size();
-	pthread_mutex_unlock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	auto ret = static_cast<unsigned int>(mOutputPorts.size());
 	return ret;
 }
 
 
 Media *Source::getOutputMedia(unsigned int index)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	Media *ret = (index < mOutputPorts.size())
 			     ? mOutputPorts.at(index).media
 			     : nullptr;
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-Media *Source::findOutputMedia(Media *media)
+Media *Source::findOutputMedia(const Media *media)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	Media *ret = nullptr;
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	auto p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
 		if (p->media != media) {
@@ -138,19 +105,18 @@ Media *Source::findOutputMedia(Media *media)
 		ret = p->media;
 		break;
 	}
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-Media *Source::getOutputMediaFromChannel(Channel *channel)
+Media *Source::getOutputMediaFromChannel(const Channel *channel)
 {
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	Media *ret = nullptr;
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	auto p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
-		std::vector<Channel *>::iterator c = p->channels.begin();
+		auto c = p->channels.begin();
 
 		while (c != p->channels.end()) {
 			if ((*c) != channel) {
@@ -168,21 +134,20 @@ Media *Source::getOutputMediaFromChannel(Channel *channel)
 		break;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-Source::OutputPort *Source::getOutputPort(Media *media)
+Source::OutputPort *Source::getOutputPort(const Media *media)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
 		return nullptr;
 	}
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	OutputPort *ret = nullptr;
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	auto p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
 		if (p->media != media) {
@@ -193,7 +158,6 @@ Source::OutputPort *Source::getOutputPort(Media *media)
 		break;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
@@ -203,10 +167,9 @@ int Source::addOutputPort(Media *media, void *elementUserData)
 	if (media == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 
 	if (mOutputPorts.size() >= mMaxOutputMedias) {
-		pthread_mutex_unlock(&mMutex);
 		return -ENOBUFS;
 	}
 
@@ -214,8 +177,6 @@ int Source::addOutputPort(Media *media, void *elementUserData)
 	port.media = media;
 	port.elementUserData = elementUserData;
 	mOutputPorts.push_back(port);
-
-	pthread_mutex_unlock(&mMutex);
 
 	ULOGI("%s: add port for media name=%s",
 	      getName().c_str(),
@@ -225,14 +186,14 @@ int Source::addOutputPort(Media *media, void *elementUserData)
 }
 
 
-int Source::removeOutputPort(Media *media)
+int Source::removeOutputPort(const Media *media)
 {
 	if (media == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	bool found = false;
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	auto p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
 		if (p->media != media) {
@@ -241,11 +202,10 @@ int Source::removeOutputPort(Media *media)
 		}
 		found = true;
 
-		unsigned int count = p->channels.size();
+		size_t count = p->channels.size();
 		if (count > 0) {
-			pthread_mutex_unlock(&mMutex);
 			ULOGW("not all output channels have been removed! "
-			      "(count=%d)",
+			      "(count=%zd)",
 			      count);
 			return -EBUSY;
 		}
@@ -255,7 +215,6 @@ int Source::removeOutputPort(Media *media)
 		break;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	if (!found)
 		return -ENOENT;
 
@@ -267,7 +226,7 @@ int Source::removeOutputPort(Media *media)
 }
 
 
-int Source::removeOutputPorts(void)
+int Source::removeOutputPorts()
 {
 	return removeOutputPorts(false);
 }
@@ -275,8 +234,8 @@ int Source::removeOutputPorts(void)
 
 int Source::removeOutputPorts(bool calledFromDtor)
 {
-	pthread_mutex_lock(&mMutex);
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	auto p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
 		if (mListener) {
@@ -284,11 +243,10 @@ int Source::removeOutputPorts(bool calledFromDtor)
 				this, p->media, p->elementUserData);
 		}
 
-		unsigned int count = p->channels.size();
+		size_t count = p->channels.size();
 		if (count > 0) {
-			pthread_mutex_unlock(&mMutex);
 			ULOGW("not all output channels have been removed! "
-			      "(count=%d)",
+			      "(count=%zd)",
 			      count);
 			return -EBUSY;
 		}
@@ -296,8 +254,6 @@ int Source::removeOutputPorts(bool calledFromDtor)
 			 "%s: delete port for media name=%s",
 			 calledFromDtor ? "Source" : getName().c_str(),
 			 p->media->getName().c_str());
-		/* Note: unlike removeOutputPort(), here the media is deleted */
-		delete p->media;
 		p->media = nullptr;
 		destroyOutputPortMemoryPool(&(*p));
 		p++;
@@ -305,12 +261,11 @@ int Source::removeOutputPorts(bool calledFromDtor)
 
 	mOutputPorts.clear();
 
-	pthread_mutex_unlock(&mMutex);
 	return 0;
 }
 
 
-int Source::createOutputPortMemoryPool(Media *media,
+int Source::createOutputPortMemoryPool(const Media *media,
 				       unsigned int count,
 				       size_t capacity)
 {
@@ -323,9 +278,9 @@ int Source::createOutputPortMemoryPool(Media *media,
 	if (capacity == 0)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	OutputPort *port = nullptr;
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	auto p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
 		if (p->media != media) {
@@ -336,10 +291,8 @@ int Source::createOutputPortMemoryPool(Media *media,
 		break;
 	}
 
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
+	if (port == nullptr)
 		return -ENOENT;
-	}
 
 	ret = mbuf_pool_new(mbuf_mem_generic_impl,
 			    capacity,
@@ -349,12 +302,10 @@ int Source::createOutputPortMemoryPool(Media *media,
 			    getName().c_str(),
 			    &port->pool);
 	if (ret < 0) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("mbuf_pool_new", -ret);
 		return ret;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	return 0;
 }
 
@@ -366,10 +317,9 @@ int Source::destroyOutputPortMemoryPool(OutputPort *port)
 	if (port == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 
 	if (port->pool == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		return 0;
 	}
 
@@ -380,19 +330,18 @@ int Source::destroyOutputPortMemoryPool(OutputPort *port)
 	}
 
 	port->pool = nullptr;
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-int Source::destroyOutputPortMemoryPool(Media *media)
+int Source::destroyOutputPortMemoryPool(const Media *media)
 {
 	if (media == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	OutputPort *port = nullptr;
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	auto p = mOutputPorts.begin();
 
 	while (p != mOutputPorts.end()) {
 		if (p->media != media) {
@@ -403,66 +352,58 @@ int Source::destroyOutputPortMemoryPool(Media *media)
 		break;
 	}
 
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
+	if (port == nullptr)
 		return -ENOENT;
-	}
 
 	int ret = destroyOutputPortMemoryPool(port);
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-unsigned int Source::getOutputChannelCount(Media *media)
+unsigned int Source::getOutputChannelCount(const Media *media)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
 		return 0;
 	}
 
-	pthread_mutex_lock(&mMutex);
-	OutputPort *port = getOutputPort(media);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const OutputPort *port = getOutputPort(media);
 	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
 		return 0;
 	}
 
-	unsigned int ret = port->channels.size();
-	pthread_mutex_unlock(&mMutex);
+	auto ret = static_cast<unsigned int>(port->channels.size());
 	return ret;
 }
 
 
-Channel *Source::getOutputChannel(Media *media, unsigned int index)
+Channel *Source::getOutputChannel(const Media *media, unsigned int index)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
 		return nullptr;
 	}
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	OutputPort *port = getOutputPort(media);
 	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
 		return nullptr;
 	}
 	if (index >= port->channels.size()) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("index", ENOENT);
 		return nullptr;
 	}
 
 	Channel *ret = port->channels.at(index);
-	pthread_mutex_unlock(&mMutex);
 
 	return ret;
 }
 
 
-Channel *Source::findOutputChannel(Media *media, Channel *channel)
+Channel *Source::findOutputChannel(const Media *media, const Channel *channel)
 {
 	if (media == nullptr) {
 		ULOG_ERRNO("media", EINVAL);
@@ -473,16 +414,15 @@ Channel *Source::findOutputChannel(Media *media, Channel *channel)
 		return nullptr;
 	}
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	OutputPort *port = getOutputPort(media);
 	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
 		ULOG_ERRNO("port", ENOENT);
 		return nullptr;
 	}
 
 	Channel *ret = nullptr;
-	std::vector<Channel *>::iterator c = port->channels.begin();
+	auto c = port->channels.begin();
 
 	while (c != port->channels.end()) {
 		if ((*c) != channel) {
@@ -493,33 +433,28 @@ Channel *Source::findOutputChannel(Media *media, Channel *channel)
 		break;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-int Source::addOutputChannel(Media *media, Channel *channel)
+int Source::addOutputChannel(const Media *media, Channel *channel)
 {
 	if (media == nullptr)
 		return -EINVAL;
 	if (channel == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
-	Channel *c = findOutputChannel(media, channel);
-	if (c != nullptr) {
-		pthread_mutex_unlock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	const Channel *c = findOutputChannel(media, channel);
+	if (c != nullptr)
 		return -EEXIST;
-	}
+
 	OutputPort *port = getOutputPort(media);
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
+	if (port == nullptr)
 		return -ENOENT;
-	}
 
 	channel->setSourceListener(this);
 	port->channels.push_back(channel);
-	pthread_mutex_unlock(&mMutex);
 
 	ULOGI("%s: link media name=%s (channel owner=%p)",
 	      getName().c_str(),
@@ -529,23 +464,21 @@ int Source::addOutputChannel(Media *media, Channel *channel)
 }
 
 
-int Source::removeOutputChannel(Media *media, Channel *channel)
+int Source::removeOutputChannel(const Media *media, const Channel *channel)
 {
 	if (media == nullptr)
 		return -EINVAL;
 	if (channel == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 	OutputPort *port = getOutputPort(media);
-	if (port == nullptr) {
-		pthread_mutex_unlock(&mMutex);
+	if (port == nullptr)
 		return -ENOENT;
-	}
 
 	Sink *owner = channel->getOwner();
 	bool found = false;
-	std::vector<Channel *>::iterator c = port->channels.begin();
+	auto c = port->channels.begin();
 
 	while (c != port->channels.end()) {
 		if ((*c) != channel) {
@@ -558,7 +491,6 @@ int Source::removeOutputChannel(Media *media, Channel *channel)
 		break;
 	}
 
-	pthread_mutex_unlock(&mMutex);
 	if (!found)
 		return -ENOENT;
 
@@ -570,20 +502,21 @@ int Source::removeOutputChannel(Media *media, Channel *channel)
 }
 
 
-int Source::sendDownstreamEvent(Media *media, Channel::DownstreamEvent event)
+int Source::sendDownstreamEvent(const Media *media,
+				Channel::DownstreamEvent event)
 {
 	int ret;
-	unsigned int outputChannelCount, i;
+	unsigned int outputChannelCount;
 	Channel *channel;
 
 	if (media == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 
 	/* Send the event downstream */
 	outputChannelCount = getOutputChannelCount(media);
-	for (i = 0; i < outputChannelCount; i++) {
+	for (unsigned int i = 0; i < outputChannelCount; i++) {
 		channel = getOutputChannel(media, i);
 		if (channel == nullptr) {
 			ULOGW("invalid channel");
@@ -593,8 +526,6 @@ int Source::sendDownstreamEvent(Media *media, Channel::DownstreamEvent event)
 		if (ret < 0)
 			ULOG_ERRNO("channel->sendDownstreamEvent", -ret);
 	}
-
-	pthread_mutex_unlock(&mMutex);
 
 	return 0;
 }
@@ -607,7 +538,7 @@ void Source::onChannelUnlink(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		ULOGE("%s: output media not found", __func__);
 		return;
@@ -626,7 +557,7 @@ void Source::onChannelFlushed(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		ULOGE("%s: output media not found", __func__);
 		return;
@@ -648,7 +579,7 @@ void Source::onChannelDrained(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		ULOGE("%s: output media not found", __func__);
 		return;
@@ -670,7 +601,7 @@ void Source::onChannelResync(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		ULOGE("%s: output media not found", __func__);
 		return;
@@ -692,7 +623,7 @@ void Source::onChannelVideoPresStats(Channel *channel, VideoPresStats *stats)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		ULOGE("%s: output media not found", __func__);
 		return;
@@ -715,10 +646,10 @@ void Source::onChannelUpstreamEvent(Channel *channel,
 
 	ULOGD("%s: channel upstream event %s",
 	      getName().c_str(),
-	      Channel::getUpstreamEventStr(
-		      (Channel::UpstreamEvent)pomp_msg_get_id(event)));
+	      Channel::getUpstreamEventStr(static_cast<Channel::UpstreamEvent>(
+		      pomp_msg_get_id(event))));
 
-	switch (pomp_msg_get_id(event)) {
+	switch (static_cast<Channel::UpstreamEvent>(pomp_msg_get_id(event))) {
 	case Channel::UpstreamEvent::UNLINK:
 		onChannelUnlink(channel);
 		break;
@@ -745,7 +676,7 @@ void Source::onChannelUpstreamEvent(Channel *channel,
 }
 
 
-int Source::getOutputMemory(Media *media, struct mbuf_mem **mem)
+int Source::getOutputMemory(const Media *media, struct mbuf_mem **mem)
 {
 	int ret = 0;
 	OutputPort *port = nullptr;
@@ -756,9 +687,9 @@ int Source::getOutputMemory(Media *media, struct mbuf_mem **mem)
 	if (mem == nullptr)
 		return -EINVAL;
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 
-	std::vector<OutputPort>::iterator p = mOutputPorts.begin();
+	auto p = mOutputPorts.begin();
 	while (p != mOutputPorts.end()) {
 		if (p->media != media) {
 			p++;
@@ -772,19 +703,17 @@ int Source::getOutputMemory(Media *media, struct mbuf_mem **mem)
 	if (pool == nullptr) {
 		ret = -EPROTO;
 		ULOGE("no pool available");
-		goto exit;
+		return ret;
 	}
 
 	ret = mbuf_pool_get(pool, mem);
 	if ((ret < 0) || (*mem == nullptr)) {
 		if (ret != -EAGAIN)
 			ULOG_ERRNO("mbuf_pool_get:source", -ret);
-		goto exit;
+		return ret;
 	}
 
-exit:
-	pthread_mutex_unlock(&mMutex);
-	return ret;
+	return 0;
 }
 
 
@@ -795,10 +724,12 @@ int Source::getCodedVideoOutputMemory(
 {
 	int ret = 0;
 	unsigned int outputChannelCount = 0;
-	unsigned int firstUsedMediaIndex = UINT_MAX, firstUsedMediaCount = 0;
+	unsigned int firstUsedMediaIndex = UINT_MAX;
+	unsigned int firstUsedMediaCount = 0;
 	Channel *channel;
 	OutputPort *port;
-	struct mbuf_pool *pool = nullptr, *extPool = nullptr;
+	struct mbuf_pool *pool = nullptr;
+	struct mbuf_pool *extPool = nullptr;
 	bool externalPool = false;
 
 	if (videoMedias.empty())
@@ -814,14 +745,14 @@ int Source::getCodedVideoOutputMemory(
 			return -EINVAL;
 	}
 
-	pthread_mutex_lock(&mMutex);
+	std::unique_lock<std::recursive_mutex> lock(mMutex);
 
 	for (auto m = videoMedias.begin(); m != videoMedias.end(); m++) {
-		outputChannelCount = getOutputChannelCount((*m));
+		outputChannelCount = getOutputChannelCount(*m);
 		if (outputChannelCount > 0 && firstUsedMediaIndex == UINT_MAX) {
 			firstUsedMediaCount = outputChannelCount;
-			firstUsedMediaIndex =
-				std::distance(videoMedias.begin(), m);
+			firstUsedMediaIndex = static_cast<unsigned int>(
+				std::distance(videoMedias.begin(), m));
 			channel = getOutputChannel((*m), (unsigned int)0);
 			if (channel == nullptr) {
 				ULOGW("invalid channel");
@@ -840,59 +771,65 @@ int Source::getCodedVideoOutputMemory(
 		externalPool = true;
 	}
 
-retry_internal_pool:
-	/* Otherwise, use the pool of the prefered media */
-	if (pool == nullptr && firstUsedMediaIndex != UINT_MAX &&
-	    firstUsedMediaIndex < videoMedias.size()) {
-		port = getOutputPort(videoMedias[firstUsedMediaIndex]);
-		if (port != nullptr)
-			pool = port->pool;
-	}
+	/* Try external pool first, then fallback to internal one */
+	for (unsigned int pass = 0; pass < 2; pass++) {
 
-	/* If still no pool, pick one from any media */
-	if (pool == nullptr) {
-		for (auto m = videoMedias.begin(); m != videoMedias.end();
-		     m++) {
-			port = getOutputPort((*m));
-			if (port != nullptr && port->pool != nullptr) {
+		/* Otherwise, use the pool of the prefered media */
+		if (pool == nullptr && firstUsedMediaIndex != UINT_MAX &&
+		    firstUsedMediaIndex < videoMedias.size()) {
+			port = getOutputPort(videoMedias[firstUsedMediaIndex]);
+			if (port != nullptr)
 				pool = port->pool;
-				firstUsedMediaIndex =
-					std::distance(videoMedias.begin(), m);
-				break;
+		}
+
+		/* If still no pool, pick one from any media */
+		if (pool == nullptr) {
+			for (auto m = videoMedias.begin();
+			     m != videoMedias.end();
+			     m++) {
+				port = getOutputPort(*m);
+				if (port != nullptr && port->pool != nullptr) {
+					pool = port->pool;
+					firstUsedMediaIndex = static_cast<
+						unsigned int>(std::distance(
+						videoMedias.begin(), m));
+					break;
+				}
 			}
 		}
-	}
 
-	/* If still no pool, return an error */
-	if (pool == nullptr) {
-		ret = -EPROTO;
-		ULOGE("no pool available");
-		goto exit;
-	}
-
-	ret = mbuf_pool_get(pool, mem);
-	if ((ret < 0) || (*mem == nullptr)) {
-		if (ret != -EAGAIN)
-			ULOG_ERRNO("mbuf_pool_get:source", -ret);
-		else if (externalPool) {
-			ULOGD("no memory available in the external "
-			      "pool, fall back to the source "
-			      "output port pool");
-			externalPool = false;
-			pool = nullptr;
-			goto retry_internal_pool;
+		/* If still no pool, return an error */
+		if (pool == nullptr) {
+			ret = -EPROTO;
+			ULOGE("no pool available");
+			goto exit;
 		}
-	}
 
+		ret = mbuf_pool_get(pool, mem);
+		if ((ret < 0) || (*mem == nullptr)) {
+			if (ret != -EAGAIN)
+				ULOG_ERRNO("mbuf_pool_get:source", -ret);
+			else if (externalPool) {
+				ULOGD("no memory available in the external "
+				      "pool, fall back to the source "
+				      "output port pool");
+				externalPool = false;
+				pool = nullptr;
+				continue; /* Second attempt */
+			}
+		}
+
+		/* Otherwise, stop retrying */
+		break;
+	}
 
 exit:
 	*defaultMediaIndex = firstUsedMediaIndex;
-	pthread_mutex_unlock(&mMutex);
 	return ret;
 }
 
 
-int Source::copyCodedVideoOutputFrame(CodedVideoMedia *srcMedia,
+int Source::copyCodedVideoOutputFrame(const CodedVideoMedia *srcMedia,
 				      struct mbuf_coded_video_frame *srcFrame,
 				      CodedVideoMedia *dstMedia,
 				      struct mbuf_coded_video_frame **dstFrame)
@@ -959,7 +896,7 @@ int Source::copyCodedVideoOutputFrame(CodedVideoMedia *srcMedia,
 
 	/* Get the actual length of the frame */
 	ret = mbuf_coded_video_frame_get_rw_packed_buffer(
-		*dstFrame, (void **)&dstData, &dstLen);
+		*dstFrame, reinterpret_cast<void **>(&dstData), &dstLen);
 	if (ret != 0) {
 		ULOG_ERRNO("mbuf_coded_video_frame_get_rw_packed_buffer", -ret);
 		goto exit;

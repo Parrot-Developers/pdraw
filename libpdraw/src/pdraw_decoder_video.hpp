@@ -28,14 +28,16 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DECODER_VIDEO_HPP_
-#define _PDRAW_DECODER_VIDEO_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
+#include <vector>
+
 #include <media-buffers/mbuf_coded_video_frame.h>
+#include <media-buffers/mbuf_queue.hpp>
 #include <video-decode/vdec.h>
 
 namespace Pdraw {
@@ -46,17 +48,17 @@ public:
 		     Element::Listener *elementListener,
 		     Source::Listener *sourceListener);
 
-	~VideoDecoder(void);
+	~VideoDecoder() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
-	void completeFlush(void);
+	void completeFlush();
 
-	void completeStop(void);
+	void completeStop();
 
-	void resync(void);
+	void resync();
 
 private:
 	int createOutputMedia(const struct vdef_raw_frame *frameInfo,
@@ -64,14 +66,14 @@ private:
 
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
 
-	void completeResync(void);
+	void completeResync();
 
-	int tryStop(void);
+	int tryStop();
 
 	void
 	onCodedVideoChannelQueue(CodedVideoChannel *channel,
@@ -102,24 +104,22 @@ private:
 
 	static void idleCompleteFlush(void *userdata);
 
-	static ssize_t preparePsBuffer(const uint8_t *ps,
-				       size_t psSize,
-				       enum vdef_coded_data_format fmt,
-				       uint8_t **ret);
+	static std::vector<uint8_t>
+	preparePsVector(const uint8_t *ps,
+			size_t psSize,
+			enum vdef_coded_data_format fmt);
 
-	CodedVideoMedia *mInputMedia;
-	RawVideoMedia *mOutputMedia;
-	struct mbuf_pool *mInputBufferPool;
-	struct mbuf_coded_video_frame_queue *mInputBufferQueue;
-	struct vdec_decoder *mVdec;
-	bool mInputChannelFlushPending;
-	bool mOutputChannelDrainRequired;
-	bool mResyncPending;
-	bool mVdecFlushPending;
-	bool mVdecStopPending;
+	CodedVideoMedia *mInputMedia = nullptr;
+	std::unique_ptr<RawVideoMedia> mOutputMedia{};
+	struct mbuf_pool *mInputBufferPool = nullptr;
+	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
+	struct vdec_decoder *mVdec = nullptr;
+	bool mInputChannelFlushPending = false;
+	bool mOutputChannelDrainRequired = false;
+	bool mResyncPending = false;
+	bool mVdecFlushPending = false;
+	bool mVdecStopPending = false;
 	static const struct vdec_cbs mDecoderCbs;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_DECODER_VIDEO_HPP_ */

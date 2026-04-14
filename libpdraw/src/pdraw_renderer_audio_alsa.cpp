@@ -39,19 +39,18 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
-#	define ALSA_RENDERER_DEFAULT_DELAY_MS 33
-#	define ALSA_RENDERER_WATCHDOG_TIME_S 2
-#	define ALSA_RENDERER_ANCILLARY_DATA_KEY_INPUT_TIME                    \
-		"pdraw.alsa_renderer.input_time"
-#	define ALSA_RENDERER_QUEUE_MAX_FRAMES 5
-#	define ALSA_RENDERER_WATCHDOG_TIME_S 2
-#	define ALSA_RENDERER_MIN_FRAMES_START 5
+constexpr size_t ALSA_RENDERER_DEFAULT_DELAY_MS = 33;
+constexpr size_t ALSA_RENDERER_WATCHDOG_TIME_S = 2;
+constexpr const char *ALSA_RENDERER_ANCILLARY_DATA_KEY_INPUT_TIME =
+	"pdraw.alsa_renderer.input_time";
+constexpr size_t ALSA_RENDERER_QUEUE_MAX_FRAMES = 5;
+constexpr size_t ALSA_RENDERER_MIN_FRAMES_START = 5;
 
-#	define NB_SUPPORTED_FORMATS 24
+constexpr size_t NB_SUPPORTED_FORMATS = 24;
 static struct adef_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
 
-static void initializeSupportedFormats(void)
+static void initializeSupportedFormats()
 {
 	size_t i = 0;
 
@@ -99,12 +98,7 @@ AlsaAudioRenderer::AlsaAudioRenderer(
 			      0,
 			      mediaId,
 			      params),
-		mMediaId(mediaId), mCurrentMediaId(0), mRunning(false),
-		mLastAddedMedia(nullptr), mMediaInfo({}), mAlsaReady(false),
-		mAddress(""), mHandle(nullptr), mHwParams(nullptr),
-		mSwParams(nullptr), mFrameSize(0),
-		mSampleCount(ALSA_AUDIO_DEFAULT_SAMPLE_COUNT),
-		mWatchdogTimer(nullptr), mWatchdogTriggered(false), mEos(false)
+		mMediaId(mediaId)
 {
 	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
 	setAudioMediaFormatCaps(supportedFormats, NB_SUPPORTED_FORMATS);
@@ -123,7 +117,7 @@ AlsaAudioRenderer::AlsaAudioRenderer(
 }
 
 
-AlsaAudioRenderer::~AlsaAudioRenderer(void)
+AlsaAudioRenderer::~AlsaAudioRenderer()
 {
 	int err;
 
@@ -163,20 +157,22 @@ AlsaAudioRenderer::~AlsaAudioRenderer(void)
 void AlsaAudioRenderer::watchdogTimerCb(struct pomp_timer *timer,
 					void *userdata)
 {
-	AlsaAudioRenderer *self = (AlsaAudioRenderer *)userdata;
+	PDRAW_UNUSED(timer);
+
+	auto *self = static_cast<AlsaAudioRenderer *>(userdata);
 
 	if ((!self->mRunning) || (self->mState != State::STARTED))
 		return;
 
 	bool expected = false;
 	if (self->mWatchdogTriggered.compare_exchange_strong(expected, true)) {
-		PDRAW_LOGW("no new frame for %ds",
+		PDRAW_LOGW("no new frame for %zus",
 			   ALSA_RENDERER_WATCHDOG_TIME_S);
 	}
 }
 
 
-int AlsaAudioRenderer::startAlsa(void)
+int AlsaAudioRenderer::startAlsa()
 {
 	int ret;
 	snd_pcm_format_t format;
@@ -342,7 +338,7 @@ error:
 }
 
 
-int AlsaAudioRenderer::stopAlsa(void)
+int AlsaAudioRenderer::stopAlsa()
 {
 	int ret;
 
@@ -379,7 +375,7 @@ void AlsaAudioRenderer::onChannelFlush(Channel *channel)
 {
 	int err;
 
-	AudioChannel *c = dynamic_cast<AudioChannel *>(channel);
+	auto *c = dynamic_cast<AudioChannel *>(channel);
 	if (c == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
@@ -391,11 +387,11 @@ void AlsaAudioRenderer::onChannelFlush(Channel *channel)
 
 	setFlushingState(FlushingState::FLUSHING);
 
-	struct mbuf_audio_frame_queue *queue = c->getQueue(this);
+	mbuf::Queue *queue = c->getQueue(this);
 	if (queue != nullptr) {
-		err = mbuf_audio_frame_queue_flush(queue);
+		err = queue->flush();
 		if (err < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -err);
+			PDRAW_LOG_ERRNO("queue::flush", -err);
 	}
 
 	setFlushingState(FlushingState::FLUSHED);
@@ -411,8 +407,8 @@ void AlsaAudioRenderer::onChannelFlush(Channel *channel)
 void AlsaAudioRenderer::onChannelDrain(Channel *channel)
 {
 	int err;
-	struct mbuf_audio_frame_queue *queue = nullptr;
-	AudioChannel *c = dynamic_cast<AudioChannel *>(channel);
+	mbuf::Queue *queue = nullptr;
+	auto *c = dynamic_cast<AudioChannel *>(channel);
 	if (c == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
@@ -428,7 +424,7 @@ void AlsaAudioRenderer::onChannelDrain(Channel *channel)
 	Sink::unlock();
 
 	queue = c->getQueue(this);
-	if ((queue != nullptr) && (mbuf_audio_frame_queue_get_count(queue) > 0))
+	if ((queue != nullptr) && (queue->getCount() > 0))
 		return;
 
 	setFlushingState(FlushingState::FLUSHED);
@@ -470,8 +466,7 @@ void AlsaAudioRenderer::onChannelEos(Channel *channel)
 
 void AlsaAudioRenderer::idleStart(void *renderer)
 {
-	AlsaAudioRenderer *self =
-		reinterpret_cast<AlsaAudioRenderer *>(renderer);
+	auto *self = static_cast<AlsaAudioRenderer *>(renderer);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	int err;
 
@@ -510,8 +505,7 @@ void AlsaAudioRenderer::idleDrain(void *renderer)
 {
 	int err = 0;
 	AudioChannel *channel = nullptr;
-	AlsaAudioRenderer *self =
-		reinterpret_cast<AlsaAudioRenderer *>(renderer);
+	auto *self = static_cast<AlsaAudioRenderer *>(renderer);
 
 	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
@@ -538,7 +532,7 @@ void AlsaAudioRenderer::idleDrain(void *renderer)
 }
 
 
-int AlsaAudioRenderer::start(void)
+int AlsaAudioRenderer::start()
 {
 
 	if ((mState == State::STARTED) || (mState == State::STARTING)) {
@@ -562,11 +556,11 @@ int AlsaAudioRenderer::start(void)
 }
 
 
-struct mbuf_audio_frame_queue *AlsaAudioRenderer::getLastAddedMediaQueue(void)
+mbuf::Queue *AlsaAudioRenderer::getLastAddedMediaQueue()
 {
 	Sink::lock();
-	struct mbuf_audio_frame_queue *queue = nullptr;
-	AudioChannel *channel =
+	mbuf::Queue *queue = nullptr;
+	const auto *channel =
 		dynamic_cast<AudioChannel *>(getInputChannel(mLastAddedMedia));
 	if (channel == nullptr) {
 		PDRAW_LOGE("failed to get input channel");
@@ -584,7 +578,7 @@ struct mbuf_audio_frame_queue *AlsaAudioRenderer::getLastAddedMediaQueue(void)
 }
 
 
-int AlsaAudioRenderer::stop(void)
+int AlsaAudioRenderer::stop()
 {
 	int err = 0;
 
@@ -598,11 +592,11 @@ int AlsaAudioRenderer::stop(void)
 	/* Flush the remaining frames */
 	Sink::lock();
 
-	struct mbuf_audio_frame_queue *queue = getLastAddedMediaQueue();
+	mbuf::Queue *queue = getLastAddedMediaQueue();
 	if (queue != nullptr) {
-		err = mbuf_audio_frame_queue_flush(queue);
+		err = queue->flush();
 		if (err < 0) {
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -err);
+			PDRAW_LOG_ERRNO("queue::flush", -err);
 		}
 	}
 	Sink::unlock();
@@ -636,7 +630,7 @@ int AlsaAudioRenderer::setMediaId(unsigned int mediaId)
 }
 
 
-unsigned int AlsaAudioRenderer::getMediaId(void) const
+unsigned int AlsaAudioRenderer::getMediaId() const
 {
 	return mMediaId;
 }
@@ -693,43 +687,12 @@ bool AlsaAudioRenderer::queueFilter(struct mbuf_audio_frame *frame,
 }
 
 
-int AlsaAudioRenderer::removeQueueFdFromPomp(
-	struct mbuf_audio_frame_queue *queue)
-{
-	int ret;
-	struct pomp_loop *loop = nullptr;
-	struct pomp_evt *evt = nullptr;
-
-	loop = mSession->getLoop();
-	if (loop == nullptr) {
-		PDRAW_LOGE("loop not found");
-		return -ENODEV;
-	}
-
-	ret = mbuf_audio_frame_queue_get_event(queue, &evt);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_event", -ret);
-		return ret;
-	}
-
-	ret = pomp_evt_detach_from_loop(evt, loop);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -ret);
-		return ret;
-	}
-
-	return 0;
-}
-
-
 int AlsaAudioRenderer::addInputMedia(Media *media)
 {
-	struct pomp_loop *loop = nullptr;
-	struct pomp_evt *evt = nullptr;
-	int res = 0, err = 0;
+	int res = 0;
 
 	/* Only accept raw audio media */
-	AudioMedia *m = dynamic_cast<AudioMedia *>(media);
+	auto *m = dynamic_cast<AudioMedia *>(media);
 	if (m == nullptr) {
 		PDRAW_LOGE("unsupported input media");
 		return -ENOSYS;
@@ -754,8 +717,7 @@ int AlsaAudioRenderer::addInputMedia(Media *media)
 		return res;
 	}
 
-	AudioChannel *channel =
-		dynamic_cast<AudioChannel *>(getInputChannel(m));
+	auto *channel = dynamic_cast<AudioChannel *>(getInputChannel(m));
 	if (channel == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
@@ -766,34 +728,19 @@ int AlsaAudioRenderer::addInputMedia(Media *media)
 	args.filter = &queueFilter;
 	args.filter_userdata = this;
 	args.max_frames = ALSA_RENDERER_QUEUE_MAX_FRAMES;
-	struct mbuf_audio_frame_queue *queue;
-	res = mbuf_audio_frame_queue_new_with_args(&args, &queue);
-	if (res < 0) {
+	mbuf::Queue *queue = nullptr;
+	try {
+		queue = mbuf::Queue::createWithArgs(&args).release();
+	} catch (const std::bad_alloc &) {
 		Sink::unlock();
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_new_with_args", -res);
-		return res;
+		PDRAW_LOGE("queue allocation failed");
+		return -ENOMEM;
 	}
 	channel->setQueue(this, queue);
 
-	err = mbuf_audio_frame_queue_get_event(queue, &evt);
-	if (err != 0) {
-		Sink::unlock();
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_event", -err);
-		goto error;
-	}
-
-	loop = mSession->getLoop();
-	if (loop == nullptr) {
-		Sink::unlock();
-		PDRAW_LOGE("loop not found");
-		res = -ENODEV;
-		goto error;
-	}
-
-	err = pomp_evt_attach_to_loop(evt, loop, renderCb, this);
-	if (err != 0) {
-		Sink::unlock();
-		PDRAW_LOG_ERRNO("pomp_evt_attach_to_loop", -err);
+	res = queue->attachToLoop(mSession->getLoop(), renderCb, this);
+	if (res < 0) {
+		PDRAW_LOG_ERRNO("queue::attachToLoop", -res);
 		goto error;
 	}
 
@@ -810,41 +757,44 @@ int AlsaAudioRenderer::addInputMedia(Media *media)
 		goto error;
 	}
 
-	pthread_mutex_lock(&mListenerMutex);
-	if (mRendererListener) {
-		mRendererListener->onAudioRendererMediaAdded(
-			mSession, mRenderer, &mMediaInfo);
+	{
+		std::unique_lock<std::mutex> lock(mListenerMutex);
+		if (mRendererListener) {
+			mRendererListener->onAudioRendererMediaAdded(
+				mSession, mRenderer, &mMediaInfo);
+		}
 	}
-	pthread_mutex_unlock(&mListenerMutex);
 
 	return 0;
 
 error:
-	removeQueueFdFromPomp(queue);
+	removeInputMedia(media);
 	return res;
 }
 
 
 int AlsaAudioRenderer::removeInputMedia(Media *media)
 {
-	int ret, err;
+	int ret;
+	int err;
 
 	Sink::lock();
 
 	if (mLastAddedMedia == media) {
 		mLastAddedMedia = nullptr;
 		mCurrentMediaId = 0;
-		pthread_mutex_lock(&mListenerMutex);
-		if (mRendererListener) {
-			mRendererListener->onAudioRendererMediaRemoved(
-				mSession, mRenderer, &mMediaInfo);
+		{
+			std::unique_lock<std::mutex> lock(mListenerMutex);
+			if (mRendererListener) {
+				mRendererListener->onAudioRendererMediaRemoved(
+					mSession, mRenderer, &mMediaInfo);
+			}
 		}
-		pthread_mutex_unlock(&mListenerMutex);
 
 		Media::cleanupMediaInfo(&mMediaInfo);
 	}
 
-	AudioChannel *channel =
+	const auto *channel =
 		dynamic_cast<AudioChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
 		Sink::unlock();
@@ -854,7 +804,7 @@ int AlsaAudioRenderer::removeInputMedia(Media *media)
 	/* Keep a reference on the queue to destroy it after removing the
 	 * input media (avoids deadlocks when trying to push new frames out
 	 * of the AudioDecoder whereas the queue is already destroyed) */
-	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
+	mbuf::Queue *queue = channel->getQueue(this);
 
 	ret = Sink::removeInputMedia(media);
 	if (ret < 0) {
@@ -866,15 +816,13 @@ int AlsaAudioRenderer::removeInputMedia(Media *media)
 	Sink::unlock();
 
 	if (queue != nullptr) {
-		err = removeQueueFdFromPomp(queue);
+		err = queue->detachFromLoop(mSession->getLoop());
 		if (err < 0)
-			PDRAW_LOG_ERRNO("removeQueueFdFromPomp", -err);
-		err = mbuf_audio_frame_queue_flush(queue);
+			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
+		err = queue->flush();
 		if (err < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -err);
-		err = mbuf_audio_frame_queue_destroy(queue);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_destroy", -err);
+			PDRAW_LOG_ERRNO("queue::flush", -err);
+		delete queue;
 	}
 
 	err = stopAlsa();
@@ -885,9 +833,10 @@ int AlsaAudioRenderer::removeInputMedia(Media *media)
 }
 
 
-int AlsaAudioRenderer::removeInputMedias(void)
+int AlsaAudioRenderer::removeInputMedias()
 {
-	int ret, inputMediaCount, i;
+	int ret;
+	int inputMediaCount;
 
 	Sink::lock();
 
@@ -895,9 +844,8 @@ int AlsaAudioRenderer::removeInputMedias(void)
 
 	/* Note: loop downwards because calling removeInputMedia removes
 	 * input ports and decreases the media count */
-	for (i = inputMediaCount - 1; i >= 0; i--) {
-		AudioMedia *media =
-			dynamic_cast<AudioMedia *>(getInputMedia(i));
+	for (int i = inputMediaCount - 1; i >= 0; i--) {
+		auto *media = dynamic_cast<AudioMedia *>(getInputMedia(i));
 		if (media == nullptr) {
 			PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
 			continue;
@@ -919,8 +867,7 @@ int AlsaAudioRenderer::removeInputMedias(void)
 
 void AlsaAudioRenderer::idleRenewMedia(void *userdata)
 {
-	AlsaAudioRenderer *self =
-		reinterpret_cast<AlsaAudioRenderer *>(userdata);
+	auto *self = static_cast<AlsaAudioRenderer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	if (self->mLastAddedMedia != nullptr)
 		self->removeInputMedia(self->mLastAddedMedia);
@@ -928,7 +875,7 @@ void AlsaAudioRenderer::idleRenewMedia(void *userdata)
 }
 
 
-void AlsaAudioRenderer::completeStop(void)
+void AlsaAudioRenderer::completeStop()
 {
 	int ret;
 
@@ -949,9 +896,11 @@ void AlsaAudioRenderer::completeStop(void)
 }
 
 
-void AlsaAudioRenderer::renderCb(pomp_evt *event, void *userdata)
+void AlsaAudioRenderer::renderCb(struct pomp_evt *event, void *userdata)
 {
-	AlsaAudioRenderer *self = static_cast<AlsaAudioRenderer *>(userdata);
+	PDRAW_UNUSED(event);
+
+	auto *self = static_cast<AlsaAudioRenderer *>(userdata);
 	/* We have a new frame */
 
 	if (!self->mEos) {
@@ -973,8 +922,9 @@ void AlsaAudioRenderer::renderCb(pomp_evt *event, void *userdata)
 int AlsaAudioRenderer::render()
 {
 	struct mbuf_audio_frame *frame = nullptr;
-	struct mbuf_audio_frame_queue *queue = nullptr;
-	int ret = 0, err;
+	mbuf::Queue *queue = nullptr;
+	int ret = 0;
+	int err;
 	int count = 0;
 	const void *data = nullptr;
 	size_t len;
@@ -993,20 +943,20 @@ int AlsaAudioRenderer::render()
 		goto out;
 	}
 
-	count = mbuf_audio_frame_queue_get_count(queue);
+	count = queue->getCount();
 	if (count < 1) {
-		int ret = pomp_loop_idle_add_with_cookie(
+		err = pomp_loop_idle_add_with_cookie(
 			mSession->getLoop(), idleDrain, this, this);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
 		ret = -EAGAIN;
 		PDRAW_LOGW("no frame in queue");
 		goto out;
 	}
 
-	ret = mbuf_audio_frame_queue_pop(queue, &frame);
+	ret = queue->popFrame(&frame);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_pop", -ret);
+		PDRAW_LOG_ERRNO("queue::popFrame", -ret);
 		goto out;
 	}
 

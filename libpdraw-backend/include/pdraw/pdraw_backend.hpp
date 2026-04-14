@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_BACKEND_HPP_
-#define _PDRAW_BACKEND_HPP_
+#pragma once
 
 #include <inttypes.h>
 
@@ -49,7 +48,7 @@
 #	define PDRAW_BACKEND_API
 #endif /* !PDRAW_BACKEND_API_EXPORTS */
 
-using namespace Pdraw;
+using Pdraw::IPdraw;
 
 namespace PdrawBackend {
 
@@ -66,7 +65,7 @@ public:
 	 * the stopResponse() listener function to be called prior to destroying
 	 * the PDrAW back-end instance.
 	 */
-	virtual ~IPdrawBackend(void) {}
+	~IPdrawBackend() override = default;
 
 	/**
 	 * Start a PDrAW back-end instance.
@@ -74,7 +73,7 @@ public:
 	 * prior to calling any other function.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	virtual int start(void) = 0;
+	virtual int start() = 0;
 
 	/**
 	 * Stop a PDrAW back-end instance.
@@ -82,7 +81,7 @@ public:
 	 * instance.
 	 * @return 0 on success, negative errno value in case of error
 	 */
-	virtual int stop(void) = 0;
+	int stop() override = 0;
 
 	/**
 	 * Get the PDrAW back-end internal event loop.
@@ -90,7 +89,7 @@ public:
 	 * @return a pointer on the internal loop on success,
 	 *         nullptr in case of error
 	 */
-	virtual struct pomp_loop *getLoop(void) = 0;
+	virtual struct pomp_loop *getLoop() = 0;
 };
 
 
@@ -114,5 +113,3 @@ PDRAW_BACKEND_API int createPdrawBackend(IPdraw::Listener *listener,
 
 
 } /* namespace PdrawBackend */
-
-#endif /* !_PDRAW_BACKEND_HPP_ */

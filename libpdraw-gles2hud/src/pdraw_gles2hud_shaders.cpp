@@ -31,14 +31,14 @@
 #include "pdraw_gles2hud_priv.h"
 
 
-static const GLchar *hud_vertex_shader =
+static const GLchar *const hud_vertex_shader =
 	"uniform mat4 transform_matrix;\n"
 	"attribute vec4 vPosition;\n"
 	"void main() {\n"
 	"    gl_Position = transform_matrix * vPosition;\n"
 	"}\n";
 
-static const GLchar *hud_fragment_shader =
+static const GLchar *const hud_fragment_shader =
 #if defined(GL_ES_VERSION_2_0)
 	"precision mediump float;\n"
 #endif
@@ -47,7 +47,7 @@ static const GLchar *hud_fragment_shader =
 	"    gl_FragColor = vColor;\n"
 	"}\n";
 
-static const GLchar *hud_tex_vertex_shader =
+static const GLchar *const hud_tex_vertex_shader =
 	"uniform mat4 transform_matrix;\n"
 	"attribute vec4 position;\n"
 	"attribute vec2 texcoord;\n"
@@ -59,7 +59,7 @@ static const GLchar *hud_tex_vertex_shader =
 	"    v_texcoord = texcoord;\n"
 	"}\n";
 
-static const GLchar *hud_tex_fragment_shader =
+static const GLchar *const hud_tex_fragment_shader =
 #if defined(GL_ES_VERSION_2_0)
 	"precision mediump float;\n"
 #endif
@@ -74,8 +74,7 @@ static const GLchar *hud_tex_fragment_shader =
 	"}\n";
 
 
-static int pdraw_gles2hud_load_texture_from_buffer(struct pdraw_gles2hud *self,
-						   const uint8_t *buffer,
+static int pdraw_gles2hud_load_texture_from_buffer(const uint8_t *buffer,
 						   int width,
 						   int height,
 						   int texunit)
@@ -116,7 +115,8 @@ static int pdraw_gles2hud_load_texture_from_buffer(struct pdraw_gles2hud *self,
 int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 {
 	int res;
-	GLint vertex_shader = 0, fragment_shader = 0;
+	GLint vertex_shader = 0;
+	GLint fragment_shader = 0;
 	GLint success = 0;
 
 	GLCHK();
@@ -242,8 +242,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	GLCHK();
 
 	self->icons_texunit = self->first_texunit;
-	res = pdraw_gles2hud_load_texture_from_buffer(self,
-						      hud_icons,
+	res = pdraw_gles2hud_load_texture_from_buffer(hud_icons,
 						      hud_icons_width,
 						      hud_icons_height,
 						      self->icons_texunit);
@@ -254,8 +253,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	self->icons_texture = (GLuint)res;
 
 	self->text_texunit = self->first_texunit + 1;
-	res = pdraw_gles2hud_load_texture_from_buffer(self,
-						      profont_36::image,
+	res = pdraw_gles2hud_load_texture_from_buffer(profont_36::image,
 						      profont_36::image_width,
 						      profont_36::image_height,
 						      self->text_texunit);

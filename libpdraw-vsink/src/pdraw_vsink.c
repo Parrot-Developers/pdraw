@@ -48,6 +48,9 @@ ULOG_DECLARE_TAG(pdraw_vsink);
 #include <pdraw/pdraw.h>
 
 
+#define UNUSED(x) (void)(x)
+
+
 struct pdraw_vsink {
 	pthread_mutex_t mutex;
 	pthread_cond_t cond;
@@ -64,6 +67,7 @@ struct pdraw_vsink {
 	struct mbuf_raw_video_frame_queue *queue;
 	struct pdraw_media_info *media_info;
 	char *url;
+	enum pdraw_playback_mode playback_mode;
 	enum vmeta_camera_type camera_type;
 	int result;
 	struct pdraw_vsink_cbs cbs;
@@ -140,6 +144,8 @@ static void delete_pdraw_idle(void *userdata)
 
 static void queue_event_cb(struct pomp_evt *evt, void *userdata)
 {
+	UNUSED(evt);
+
 	struct pdraw_vsink *self = userdata;
 	struct mbuf_raw_video_frame *frame = NULL;
 	struct mbuf_ancillary_data *ancillary_data = NULL;
@@ -184,6 +190,10 @@ static void vsink_media_added_cb(struct pdraw *pdraw,
 				 const struct pdraw_media_info *info,
 				 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+	UNUSED(userdata);
+
 	ULOGI("%s: id=%d", __func__, info->id);
 }
 
@@ -194,6 +204,10 @@ static void vsink_media_removed_cb(struct pdraw *pdraw,
 				   int restart,
 				   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+	UNUSED(userdata);
+
 	ULOGI("%s: id=%d (restart: %d)", __func__, info->id, restart);
 }
 
@@ -201,6 +215,8 @@ static void vsink_media_removed_cb(struct pdraw *pdraw,
 static void
 flush_cb(struct pdraw *pdraw, struct pdraw_raw_video_sink *sink, void *userdata)
 {
+	UNUSED(userdata);
+
 	int res;
 	struct mbuf_raw_video_frame_queue *queue;
 
@@ -227,6 +243,8 @@ flush_cb(struct pdraw *pdraw, struct pdraw_raw_video_sink *sink, void *userdata)
 static void
 drain_cb(struct pdraw *pdraw, struct pdraw_raw_video_sink *sink, void *userdata)
 {
+	UNUSED(userdata);
+
 	int res;
 	struct mbuf_raw_video_frame_queue *queue;
 
@@ -263,6 +281,9 @@ static void open_resp_cb(struct pdraw *pdraw,
 			 int status,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	struct pdraw_vsink *self = userdata;
 
 	ULOGI("%s: status=%d", __func__, status);
@@ -277,60 +298,6 @@ static void open_resp_cb(struct pdraw *pdraw,
 }
 
 
-static bool match_camera(const struct vmeta_session *meta,
-			 enum vmeta_camera_type camera_type)
-{
-	switch (camera_type) {
-	case VMETA_CAMERA_TYPE_FRONT_STEREO_LEFT:
-		if ((meta->camera_type ==
-		     VMETA_CAMERA_TYPE_FRONT_STEREO_LEFT) ||
-		    (meta->camera_type == VMETA_CAMERA_TYPE_FRONT_STEREO &&
-		     meta->camera_subtype == VMETA_CAMERA_SUBTYPE_LEFT))
-			return true;
-		break;
-	case VMETA_CAMERA_TYPE_FRONT_STEREO_RIGHT:
-		if ((meta->camera_type ==
-		     VMETA_CAMERA_TYPE_FRONT_STEREO_RIGHT) ||
-		    (meta->camera_type == VMETA_CAMERA_TYPE_FRONT_STEREO &&
-		     meta->camera_subtype == VMETA_CAMERA_SUBTYPE_RIGHT))
-			return true;
-		break;
-	case VMETA_CAMERA_TYPE_HORIZONTAL_STEREO_LEFT:
-		if ((meta->camera_type ==
-		     VMETA_CAMERA_TYPE_HORIZONTAL_STEREO_LEFT) ||
-		    (meta->camera_type == VMETA_CAMERA_TYPE_HORIZONTAL_STEREO &&
-		     meta->camera_subtype == VMETA_CAMERA_SUBTYPE_LEFT))
-			return true;
-		break;
-	case VMETA_CAMERA_TYPE_HORIZONTAL_STEREO_RIGHT:
-		if ((meta->camera_type ==
-		     VMETA_CAMERA_TYPE_HORIZONTAL_STEREO_RIGHT) ||
-		    (meta->camera_type == VMETA_CAMERA_TYPE_HORIZONTAL_STEREO &&
-		     meta->camera_subtype == VMETA_CAMERA_SUBTYPE_RIGHT))
-			return true;
-		break;
-	case VMETA_CAMERA_TYPE_DOWN_STEREO_LEFT:
-		if ((meta->camera_type == VMETA_CAMERA_TYPE_DOWN_STEREO_LEFT) ||
-		    (meta->camera_type == VMETA_CAMERA_TYPE_DOWN_STEREO &&
-		     meta->camera_subtype == VMETA_CAMERA_SUBTYPE_LEFT))
-			return true;
-		break;
-	case VMETA_CAMERA_TYPE_DOWN_STEREO_RIGHT:
-		if ((meta->camera_type ==
-		     VMETA_CAMERA_TYPE_DOWN_STEREO_RIGHT) ||
-		    (meta->camera_type == VMETA_CAMERA_TYPE_DOWN_STEREO &&
-		     meta->camera_subtype == VMETA_CAMERA_SUBTYPE_RIGHT))
-			return true;
-		break;
-	default:
-		if (meta->camera_type == camera_type)
-			return true;
-		break;
-	}
-	return false;
-}
-
-
 static int select_media_cb(struct pdraw *pdraw,
 			   struct pdraw_demuxer *demuxer,
 			   const struct pdraw_demuxer_media *medias,
@@ -338,6 +305,10 @@ static int select_media_cb(struct pdraw *pdraw,
 			   uint32_t selected_medias,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+	UNUSED(selected_medias);
+
 	struct pdraw_vsink *self = userdata;
 
 	for (size_t i = 0; i < count; i++) {
@@ -350,8 +321,11 @@ static int select_media_cb(struct pdraw *pdraw,
 			      medias[i].name);
 			return 1 << medias[i].media_id;
 		}
-		if (match_camera(&medias[i].video.session_meta,
-				 self->camera_type)) {
+		if (vmeta_camera_type_subtype_pair_cmp(
+			    medias[i].video.session_meta.camera_type,
+			    medias[i].video.session_meta.camera_subtype,
+			    self->camera_type,
+			    VMETA_CAMERA_SUBTYPE_UNKNOWN) == 1) {
 			ULOGI("%s: selecting media '%s'",
 			      __func__,
 			      medias[i].name);
@@ -369,13 +343,16 @@ static void ready_to_play_cb(struct pdraw *pdraw,
 			     int ready,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+
 	int res;
 	struct pdraw_vsink *self = userdata;
 
 	ULOGI("%s: ready=%d", __func__, ready);
 
 	if (ready) {
-		res = pdraw_demuxer_play(pdraw, self->demuxer);
+		res = pdraw_demuxer_play(self->pdraw, self->demuxer);
 		if (res < 0) {
 			ULOG_ERRNO("pdraw_demuxer_play", -res);
 			pthread_mutex_lock(&self->mutex);
@@ -395,6 +372,11 @@ static void play_resp_cb(struct pdraw *pdraw,
 			 float speed,
 			 void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(demuxer);
+	UNUSED(timestamp);
+	UNUSED(userdata);
+
 	ULOGI("%s: status=%d speed=%f", __func__, status, speed);
 
 	if (status != 0)
@@ -412,6 +394,8 @@ static const struct pdraw_demuxer_cbs demuxer_cbs = {
 
 static void stop_resp_cb(struct pdraw *pdraw, int status, void *userdata)
 {
+	UNUSED(pdraw);
+
 	int res;
 	struct pdraw_vsink *self = userdata;
 
@@ -433,6 +417,9 @@ static void media_added_cb(struct pdraw *pdraw,
 			   void *element_userdata,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(element_userdata);
+
 	int res = 0;
 	struct pdraw_vsink *self = userdata;
 	struct pomp_evt *evt = NULL;
@@ -512,6 +499,10 @@ static void media_removed_cb(struct pdraw *pdraw,
 			     void *element_userdata,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(element_userdata);
+	UNUSED(userdata);
+
 	ULOGI("%s: id=%d", __func__, info->id);
 }
 
@@ -527,7 +518,10 @@ static void start_pdraw_idle(void *userdata)
 {
 	int res;
 	struct pdraw_vsink *self = userdata;
-	struct pdraw_demuxer_params params = {0};
+	struct pdraw_demuxer_params params = {
+		.autodecoding_mode = 0,
+		.playback_mode = self->playback_mode,
+	};
 
 	res = pdraw_new(self->loop, &pdraw_cbs, self, &self->pdraw);
 	if (res < 0) {
@@ -566,7 +560,6 @@ static void stop_pdraw_idle(void *userdata)
 	pthread_mutex_lock(&self->mutex);
 
 	if (self->queue != NULL) {
-		int res;
 		struct pomp_evt *evt = NULL;
 		res = mbuf_raw_video_frame_queue_get_event(self->queue, &evt);
 		if (res < 0) {
@@ -615,7 +608,8 @@ int pdraw_vsink_start(const struct pdraw_vsink_params *params,
 		      struct pdraw_media_info **media_info,
 		      struct pdraw_vsink **ret_obj)
 {
-	int res, err;
+	int res;
+	int err;
 
 	ULOG_ERRNO_RETURN_ERR_IF(params == NULL, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(params->url == NULL, EINVAL);
@@ -633,6 +627,7 @@ int pdraw_vsink_start(const struct pdraw_vsink_params *params,
 		ULOG_ERRNO("strdup", -res);
 		goto error;
 	}
+	self->playback_mode = params->playback_mode;
 	self->camera_type = params->camera_type;
 	self->cbs = params->cbs;
 	self->cbs_userdata = params->cbs_userdata;
@@ -820,7 +815,7 @@ int pdraw_vsink_get_frame(struct pdraw_vsink *self,
 		/* Need to allocate our own memory */
 		len = mbuf_raw_video_frame_get_packed_size(in_frame, false);
 		if (len <= 0) {
-			ULOG_ERRNO("mbuf_raw_video_frame_get_packed_buffer",
+			ULOG_ERRNO("mbuf_raw_video_frame_get_packed_size",
 				   -len);
 			goto out;
 		}

@@ -47,7 +47,7 @@ static atomic_int frame_count;
 
 
 /* Can be called from any thread */
-static void print_frame_info(struct pdraw_video_frame *frame_info,
+static void print_frame_info(const struct pdraw_video_frame *frame_info,
 			     struct mbuf_raw_video_frame *frame,
 			     int frame_index)
 {
@@ -111,14 +111,17 @@ static void frame_ready_cb(struct mbuf_raw_video_frame *frame,
 
 
 /* Called from the main thread */
-static int
-async_test(const char *url, enum vmeta_camera_type camera_type, int count)
+static int async_test(const char *url,
+		      enum pdraw_playback_mode playback_mode,
+		      enum vmeta_camera_type camera_type,
+		      int count)
 {
 	int res;
 	struct pdraw_vsink *vsink = NULL;
 	struct pdraw_media_info *media_info = NULL;
 	struct pdraw_vsink_params params = {
 		.url = url,
+		.playback_mode = playback_mode,
 		.camera_type = camera_type,
 		.cbs.frame_ready = &frame_ready_cb,
 		.cbs_userdata = NULL,
@@ -157,15 +160,18 @@ async_test(const char *url, enum vmeta_camera_type camera_type, int count)
 
 /* Called from the main thread */
 static int sync_test(const char *url,
+		     enum pdraw_playback_mode playback_mode,
 		     enum vmeta_camera_type camera_type,
 		     int timeout_ms,
 		     int count)
 {
-	int res, i = 0;
+	int res;
+	int i = 0;
 	struct pdraw_vsink *vsink = NULL;
 	struct pdraw_media_info *media_info = NULL;
 	struct pdraw_vsink_params params = {
 		.url = url,
+		.playback_mode = playback_mode,
 		.camera_type = camera_type,
 		.cbs.frame_ready = NULL,
 		.cbs_userdata = NULL,
@@ -214,11 +220,12 @@ static int sync_test(const char *url,
 }
 
 
-static const char short_options[] = "ht:c:n:";
+static const char short_options[] = "ht:oc:n:";
 
 
 static const struct option long_options[] = {
 	{"help", no_argument, NULL, 'h'},
+	{"offline", no_argument, NULL, 'o'},
 	{"camera-type", required_argument, NULL, 'c'},
 	{"count", required_argument, NULL, 'n'},
 	{"timeout", required_argument, NULL, 't'},
@@ -232,6 +239,9 @@ static void usage(char *prog_name)
 	       "Options:\n"
 	       "  -h | --help                          "
 		       "Print this message\n"
+	       "  -o | --offline                       "
+		       "Offline demuxing mode (ignore framerate and output "
+		       "frames as fast as possible)\n"
 	       "  -c | --camera-type <cam>             "
 		       "Camera type (e.g. 'front', 'horizontal-stereo-left', "
 		       "'down-stereo-right'; default camera if not specified)\n"
@@ -249,12 +259,15 @@ static void usage(char *prog_name)
 
 int main(int argc, char **argv)
 {
-	int status = EXIT_SUCCESS, res;
-	int idx, c;
+	int status = EXIT_SUCCESS;
+	int res;
+	int idx;
+	int c;
 	char *url = NULL;
 	enum vmeta_camera_type camera_type = VMETA_CAMERA_TYPE_UNKNOWN;
 	int timeout_ms = -1;
 	int count = 20;
+	enum pdraw_playback_mode playback_mode = PDRAW_PLAYBACK_MODE_REALTIME;
 
 	atomic_init(&frame_count, 0);
 
@@ -265,6 +278,10 @@ int main(int argc, char **argv)
 		case 'h':
 			usage(argv[0]);
 			goto out;
+
+		case 'o':
+			playback_mode = PDRAW_PLAYBACK_MODE_OFFLINE;
+			break;
 
 		case 'c':
 			camera_type = vmeta_camera_type_from_str(optarg);
@@ -302,12 +319,12 @@ int main(int argc, char **argv)
 	}
 
 	/* Sync mode: polling using pdraw_vsink_get_frame() */
-	res = sync_test(url, camera_type, timeout_ms, count);
+	res = sync_test(url, playback_mode, camera_type, timeout_ms, count);
 	if (res < 0)
 		ULOG_ERRNO("sync_test", -res);
 
 	/* Async mode: notify using the frame_ready callback */
-	res = async_test(url, camera_type, count);
+	res = async_test(url, playback_mode, camera_type, count);
 	if (res < 0)
 		ULOG_ERRNO("async_test", -res);
 

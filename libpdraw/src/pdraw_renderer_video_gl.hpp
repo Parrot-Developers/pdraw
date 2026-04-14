@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_VIDEO_GL_HPP_
-#define _PDRAW_RENDERER_VIDEO_GL_HPP_
+#pragma once
 
 #ifdef PDRAW_USE_GL
 
@@ -49,11 +48,11 @@ public:
 			const struct pdraw_rect *renderPos,
 			const struct pdraw_video_renderer_params *params);
 
-	~GlVideoRenderer(void);
+	~GlVideoRenderer() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
 	int render(struct pdraw_rect *contentPos,
 		   const float *viewMat = nullptr,
@@ -63,7 +62,7 @@ public:
 
 	int setMediaId(unsigned int mediaId) override;
 
-	unsigned int getMediaId(void) override;
+	unsigned int getMediaId() override;
 
 	int setParams(const struct pdraw_video_renderer_params *params,
 		      bool force) override;
@@ -75,12 +74,12 @@ public:
 
 	int removeInputMedia(Media *media) override;
 
-	int removeInputMedias(void) override;
+	int removeInputMedias() override;
 
-	void completeStop(void) override;
+	void completeStop() override;
 
 protected:
-	enum Transition {
+	enum class Transition {
 		NONE = 0,
 		FADE_FROM_BLACK,
 		FADE_TO_BLACK,
@@ -92,9 +91,9 @@ protected:
 	virtual int setup(const struct pdraw_rect *renderPos,
 			  const struct pdraw_video_renderer_params *params);
 
-	int startExtLoad(void);
+	int startExtLoad();
 
-	int stopExtLoad(void);
+	int stopExtLoad();
 
 	void onChannelFlush(Channel *channel) override;
 
@@ -116,14 +115,14 @@ protected:
 
 	int doTransition(uint64_t timestamp, bool frameReady, bool *loadFrame);
 
-	void abortTransition(void);
+	void abortTransition();
 
 	virtual int loadVideoFrame(struct mbuf_raw_video_frame *frame);
 
 	void createProjMatrix(Eigen::Matrix4f &projMat,
 			      float aspectRatio,
 			      float near,
-			      float far);
+			      float far) const;
 
 	void updateViewProjMatrix(Eigen::Matrix4f &viewProjMat,
 				  vmeta_frame *meta);
@@ -149,79 +148,84 @@ protected:
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
-	int removeQueueFdFromPomp(struct mbuf_raw_video_frame_queue *queue);
-
-	unsigned int mTargetPrimaryMediaId;
-	unsigned int mPrimaryMediaId;
-	std::atomic_bool mRunning;
+	unsigned int mTargetPrimaryMediaId = 0;
+	unsigned int mPrimaryMediaId = 0;
+	std::atomic_bool mRunning{false};
 	/* Currently loaded frame */
 	struct {
-		struct mbuf_raw_video_frame *frame;
-		struct vdef_raw_frame info;
-		RawVideoMedia::Frame data;
-		struct vmeta_frame *metadata;
+		struct mbuf_raw_video_frame *frame = nullptr;
+		struct vdef_raw_frame info {
+		};
+		RawVideoMedia::Frame data{};
+		struct vmeta_frame *metadata = nullptr;
 	} mLoadedFrame;
 	/* Next frame to be processed */
 	struct {
-		struct mbuf_raw_video_frame *frame;
-		struct vdef_raw_frame info;
-		RawVideoMedia::Frame data;
-		struct vmeta_frame *metadata;
+		struct mbuf_raw_video_frame *frame = nullptr;
+		struct vdef_raw_frame info {
+		};
+		RawVideoMedia::Frame data{};
+		struct vmeta_frame *metadata = nullptr;
 	} mNextFrame;
-	RawVideoMedia *mPrimaryMedia;
-	struct pdraw_media_info mMediaInfo;
-	struct vmeta_session mMediaInfoSessionMeta;
-	struct pomp_timer *mTimer;
-	GlVideo *mGlVideo;
-	unsigned int mGlVideoFirstTexUnit;
-	GLint mDefaultFbo;
-	GLuint mExtLoadFbo;
-	GLuint mExtLoadFboTexture;
-	int mX;
-	int mY;
-	unsigned int mWidth;
-	unsigned int mHeight;
-	enum Transition mPendingTransition;
-	enum Transition mCurrentTransition;
-	uint64_t mTransitionStartTime;
-	uint64_t mTransitionHoldTime;
-	struct pdraw_video_renderer_params mParams;
-	bool mExtLoadVideoTexture;
-	unsigned int mExtVideoTextureWidth;
-	unsigned int mExtVideoTextureHeight;
-	bool mRenderVideoOverlay;
-	bool mFirstFrame;
-	bool mFrameLoaded;
-	uint64_t mLastLoadTimestamp;
-	uint64_t mLastRenderTimestamp;
-	float mAvgRenderRate;
-	uint64_t mLastFrameTimestamp;
-	VideoPresStats mVideoPresStats;
-	struct pomp_timer *mVideoPresStatsTimer;
-	uint64_t mSchedLastInputTimestamp;
-	uint64_t mSchedLastOutputTimestamp;
-	bool mSchedInitialBuffering;
-	bool mRenderReadyScheduled;
-	bool mPendingRestart;
-	std::string mAncillaryKey;
+	RawVideoMedia *mPrimaryMedia = nullptr;
+	struct pdraw_media_info mMediaInfo {
+	};
+	struct vmeta_session mMediaInfoSessionMeta {
+	};
+	struct pomp_timer *mTimer = nullptr;
+	std::unique_ptr<GlVideo> mGlVideo{};
+	unsigned int mGlVideoFirstTexUnit = 0;
+	GLint mDefaultFbo = 0;
+	GLuint mExtLoadFbo = 0;
+	GLuint mExtLoadFboTexture = 0;
+	int mX = 0;
+	int mY = 0;
+	unsigned int mWidth = 0;
+	unsigned int mHeight = 0;
+	Transition mPendingTransition = Transition::NONE;
+	Transition mCurrentTransition = Transition::NONE;
+	uint64_t mTransitionStartTime = 0;
+	uint64_t mTransitionHoldTime = 0;
+	struct pdraw_video_renderer_params mParams {
+	};
+	bool mExtLoadVideoTexture = false;
+	unsigned int mExtVideoTextureWidth = 0;
+	unsigned int mExtVideoTextureHeight = 0;
+	bool mRenderVideoOverlay = false;
+	bool mFirstFrame = false;
+	bool mFrameLoaded = false;
+	uint64_t mLastLoadTimestamp = UINT64_MAX;
+	uint64_t mLastRenderTimestamp = UINT64_MAX;
+	float mAvgRenderRate = 0.;
+	uint64_t mLastFrameTimestamp = UINT64_MAX;
+	VideoPresStats mVideoPresStats{};
+	struct pomp_timer *mVideoPresStatsTimer = nullptr;
+	uint64_t mSchedLastInputTimestamp = UINT64_MAX;
+	uint64_t mSchedLastOutputTimestamp = UINT64_MAX;
+	bool mSchedInitialBuffering = false;
+	bool mRenderReadyScheduled = false;
+	bool mPendingRestart = false;
+	std::string mAncillaryKey{};
 
 	/* Logging-related variables */
 	/* previous mFrameLoaded value logged */
-	bool mFrameLoadedLogged;
+	bool mFrameLoadedLogged = false;
 	/* Watchdog timer: triggered if no new frame is received for a given
 	 * amount of time */
-	struct pomp_timer *mWatchdogTimer;
-	std::atomic_bool mWatchdogTriggered;
-	std::atomic_bool mEos;
-	bool mPendingResize;
-	bool mMbStatusOverlay;
+	struct pomp_timer *mWatchdogTimer = nullptr;
+	std::atomic_bool mWatchdogTriggered{false};
+	std::atomic_bool mEos{false};
+	bool mPendingResize = false;
+	bool mMbStatusOverlay = false;
 
 private:
 	int setupExtTexture(const struct vdef_raw_frame *frameInfo);
 
-	void onNextFrameLoaded(void);
+	void onNextFrameLoaded();
 
-	void setNormalization(void);
+	void setNormalization();
+
+	void renewMedia();
 
 	static bool queueFilter(struct mbuf_raw_video_frame *frame,
 				void *userdata);
@@ -229,11 +233,11 @@ private:
 	static uint64_t getFrameU64(struct mbuf_raw_video_frame *frame,
 				    const char *key);
 
-	unsigned int getPrimaryMediaFrameIntervalMs(void);
+	unsigned int getPrimaryMediaFrameIntervalMs() const;
 
-	struct mbuf_raw_video_frame_queue *getPrimaryMediaQueue(void);
+	mbuf::Queue *getPrimaryMediaQueue();
 
-	int getNextFrameDelay(mbuf_raw_video_frame_queue *queue,
+	int getNextFrameDelay(mbuf::Queue *queue,
 			      uint64_t curTime,
 			      bool allowDrop,
 			      bool *shouldBreak,
@@ -251,7 +255,9 @@ private:
 
 	static void idleStart(void *renderer);
 
-	static void idleDrain(void *renderer);
+	void completeDrain();
+
+	static void idleCompleteDrain(void *renderer);
 
 	void onChannelSessionMetaUpdate(Channel *channel) override;
 };
@@ -259,5 +265,3 @@ private:
 } /* namespace Pdraw */
 
 #endif /* PDRAW_USE_GL */
-
-#endif /* !_PDRAW_RENDERER_VIDEO_GL_HPP_ */

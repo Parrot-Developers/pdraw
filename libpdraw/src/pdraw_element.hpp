@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_ELEMENT_HPP_
-#define _PDRAW_ELEMENT_HPP_
+#pragma once
 
 #include "pdraw_sink.hpp"
 #include "pdraw_source.hpp"
@@ -38,6 +37,7 @@
 #include <errno.h>
 
 #include <atomic>
+#include <climits>
 #include <string>
 #include <vector>
 
@@ -48,6 +48,8 @@ class ElementWrapper;
 
 
 class Element : public Loggable {
+	PDRAW_DISABLE_COPY(Element)
+
 public:
 	enum class State {
 		INVALID,
@@ -66,7 +68,7 @@ public:
 
 	class Listener {
 	public:
-		virtual ~Listener(void) {}
+		virtual ~Listener() = default;
 
 		virtual void onElementStateChanged(Element *element,
 						   Element::State state) = 0;
@@ -75,21 +77,33 @@ public:
 						     Element::State state) = 0;
 	};
 
-	virtual ~Element(void);
+	~Element() override;
 
-	virtual int start(void) = 0;
+	virtual int start() = 0;
 
-	virtual int stop(void) = 0;
+	virtual int stop() = 0;
 
-	unsigned int getId(void) const;
+	unsigned int getId() const;
 
-	ElementWrapper *getWrapper(void);
+	ElementWrapper *getWrapper() const;
 
-	void clearWrapper(void);
+	void clearWrapper();
 
-	Element::State getState(void) const;
+	Element::State getState() const;
 
-	Element::FlushingState getFlushingState(void) const;
+	Element::FlushingState getFlushingState() const;
+
+	bool isFlushing() const
+	{
+		return (mFlushingState == Element::FlushingState::FLUSHING) &&
+		       isFlushDiscard();
+	}
+
+	bool isDraining() const
+	{
+		return (mFlushingState == Element::FlushingState::FLUSHING) &&
+		       !isFlushDiscard();
+	}
 
 	static const char *getElementStateStr(Element::State val);
 
@@ -99,7 +113,7 @@ public:
 protected:
 	Element(Session *session, Listener *listener, ElementWrapper *wrapper);
 
-	void setClassName(std::string &name);
+	void setClassName(const std::string &name);
 
 	void setClassName(const char *name);
 
@@ -110,32 +124,42 @@ protected:
 
 	void setStateAsyncNotify(Element::State state);
 
-	Session *mSession;
-	Listener *mListener;
-	ElementWrapper *mWrapper;
-	std::atomic<Element::State> mState;
-	std::atomic<Element::FlushingState> mFlushingState;
-	bool mFlushDiscard;
-	unsigned int mId;
+	bool isFlushDiscard() const
+	{
+		return mFlushDiscard;
+	}
+
+	Session *mSession = nullptr;
+	Listener *mListener = nullptr;
+	ElementWrapper *mWrapper = nullptr;
+	std::atomic<Element::State> mState{Element::State::INVALID};
+	std::atomic<Element::FlushingState> mFlushingState{
+		Element::FlushingState::FLUSHED};
+	bool mFlushDiscard = false;
+	unsigned int mId = UINT_MAX;
 	static std::atomic<unsigned int> mIdCounter;
 };
 
 
 class ElementWrapper {
+	PDRAW_DISABLE_COPY(ElementWrapper)
+
 public:
-	ElementWrapper(void);
+	ElementWrapper() = default;
 
-	virtual ~ElementWrapper(void);
+	explicit ElementWrapper(Element *element) : mElement(element) {}
 
-	Element *getElement(void) const;
+	virtual ~ElementWrapper();
 
-	virtual void clearElement(void);
+	Element *getElement() const;
+
+	virtual void clearElement();
 
 protected:
-	virtual bool isElementStopped(void) const;
+	virtual bool isElementStopped() const;
 
-	Element *mElement;
-	bool mElementStopped;
+	Element *mElement = nullptr;
+	bool mElementStopped = false;
 };
 
 
@@ -151,10 +175,10 @@ public:
 	{
 	}
 
-	virtual ~SourceElement(void) {}
+	~SourceElement() override = default;
 
 protected:
-	std::string &getName(void)
+	const std::string &getName() const override
 	{
 		return Element::getName();
 	}
@@ -185,10 +209,10 @@ public:
 	{
 	}
 
-	virtual ~SinkElement(void) {}
+	~SinkElement() override = default;
 
 protected:
-	std::string &getName(void)
+	const std::string &getName() const override
 	{
 		return Element::getName();
 	}
@@ -222,34 +246,32 @@ public:
 	{
 	}
 
-	virtual ~FilterElement(void) {}
+	~FilterElement() override = default;
 
 protected:
-	std::string &getName(void)
+	const std::string &getName() const override
 	{
 		return Element::getName();
 	}
 
-	virtual void onChannelSos(Channel *channel);
+	void onChannelSos(Channel *channel) override;
 
-	virtual void onChannelEos(Channel *channel);
+	void onChannelEos(Channel *channel) override;
 
-	virtual void onChannelReconfigure(Channel *channel);
+	void onChannelReconfigure(Channel *channel) override;
 
-	virtual void onChannelResolutionChange(Channel *channel);
+	void onChannelResolutionChange(Channel *channel) override;
 
-	virtual void onChannelFramerateChange(Channel *channel);
+	void onChannelFramerateChange(Channel *channel) override;
 
-	virtual void onChannelTimeout(Channel *channel);
+	void onChannelTimeout(Channel *channel) override;
 
-	virtual void onChannelPhotoTrigger(Channel *channel);
+	void onChannelPhotoTrigger(Channel *channel) override;
 
-	virtual void onChannelSessionMetaUpdate(Channel *channel);
+	void onChannelSessionMetaUpdate(Channel *channel) override;
 
-	virtual void onChannelVideoPresStats(Channel *channel,
-					     VideoPresStats *stats);
+	void onChannelVideoPresStats(Channel *channel,
+				     VideoPresStats *stats) override;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_ELEMENT_HPP_ */

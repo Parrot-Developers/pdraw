@@ -28,14 +28,33 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _QPDRAW_PRIV_HPP_
-#define _QPDRAW_PRIV_HPP_
+#pragma once
 
 #include <pdraw/pdraw_backend.hpp>
 #include <pdraw/qpdraw.hpp>
 
+#include <memory>
+
+
 using namespace Pdraw;
 using namespace PdrawBackend;
+
+
+#if __cplusplus >= 201402L
+using std::make_unique;
+#else
+template <typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args &&...args)
+{
+	return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+#endif
+
+
+#ifndef PDRAW_UNUSED
+#	define PDRAW_UNUSED(x) (void)(x)
+#endif
+
 
 namespace QPdraw {
 namespace Internal {
@@ -45,15 +64,15 @@ class QPdrawPriv : public IPdraw::Listener {
 
 public:
 	explicit QPdrawPriv(QPdraw *parent);
-	~QPdrawPriv();
+	~QPdrawPriv() override = default;
 
-	int start(void);
+	int start();
 
-	int stop(void);
+	int stop();
 
-	intptr_t getInternal(void);
+	intptr_t getInternal();
 
-	struct pomp_loop *getLoop(void);
+	struct pomp_loop *getLoop();
 
 private:
 	void stopResponse(IPdraw *pdraw, int status) override;
@@ -68,11 +87,9 @@ private:
 
 	void onSocketCreated(IPdraw *pdraw, int fd) override;
 
-	QPdraw *mParent;
-	IPdrawBackend *mPdraw;
+	QPdraw *mParent = nullptr;
+	std::unique_ptr<IPdrawBackend> mPdraw{};
 };
 
 } /* namespace Internal */
 } /* namespace QPdraw */
-
-#endif /* !_QPDRAW_PRIV_HPP_ */

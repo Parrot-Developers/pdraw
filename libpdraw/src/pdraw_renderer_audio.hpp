@@ -28,10 +28,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_RENDERER_AUDIO_HPP_
-#define _PDRAW_RENDERER_AUDIO_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
+
+#include <mutex>
 
 #include <pdraw/pdraw.hpp>
 
@@ -42,11 +43,11 @@ class AudioRendererWrapper;
 
 class AudioRenderer : public SinkElement {
 public:
-	virtual ~AudioRenderer(void);
+	~AudioRenderer() override;
 
 	virtual int setMediaId(unsigned int mediaId) = 0;
 
-	virtual unsigned int getMediaId(void) const = 0;
+	virtual unsigned int getMediaId() const = 0;
 
 	virtual int
 	setParams(const struct pdraw_audio_renderer_params *params) = 0;
@@ -72,15 +73,15 @@ protected:
 		      unsigned int mediaId,
 		      const struct pdraw_audio_renderer_params *params);
 
-	void removeRendererListener(void);
+	void removeRendererListener();
 
-	void asyncCompleteStop(void);
+	void asyncCompleteStop();
 
-	virtual void completeStop(void) = 0;
+	virtual void completeStop() = 0;
 
-	IPdraw::IAudioRenderer *mRenderer;
-	IPdraw::IAudioRenderer::Listener *mRendererListener;
-	pthread_mutex_t mListenerMutex;
+	IPdraw::IAudioRenderer *mRenderer = nullptr;
+	IPdraw::IAudioRenderer::Listener *mRendererListener = nullptr;
+	std::mutex mListenerMutex{};
 
 private:
 	static void idleCompleteStop(void *userdata);
@@ -95,18 +96,18 @@ public:
 			     const struct pdraw_audio_renderer_params *params,
 			     IPdraw::IAudioRenderer::Listener *listener);
 
-	~AudioRendererWrapper(void);
+	~AudioRendererWrapper() override;
 
 	int setMediaId(unsigned int mediaId) override;
 
-	unsigned int getMediaId(void) override;
+	unsigned int getMediaId() override;
 
 	int
 	setParams(const struct pdraw_audio_renderer_params *params) override;
 
 	int getParams(struct pdraw_audio_renderer_params *params) override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mRenderer = nullptr;
@@ -123,15 +124,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mRenderer == nullptr);
 	}
 
-	AudioRenderer *mRenderer;
+	AudioRenderer *mRenderer = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_RENDERER_AUDIO_HPP_ */

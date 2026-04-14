@@ -41,6 +41,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <array>
 #include <string>
 
 #include <media-buffers/mbuf_ancillary_data.h>
@@ -51,10 +52,7 @@ namespace Pdraw {
 
 RecordDemuxer::DemuxerRawVideoMedia::DemuxerRawVideoMedia(
 	RecordDemuxer *demuxer) :
-		DemuxerMedia(demuxer),
-		mRawVideoMedia(nullptr), mCurrentFrame(nullptr),
-		mCurrentMem(nullptr), mCurrentFrameCaptureTs(0), mDecodingTs(0),
-		mDecodingTsInc(0), mFirstTs(UINT64_MAX)
+		DemuxerMedia(demuxer)
 
 {
 	mMediaType = Media::Type::RAW_VIDEO;
@@ -63,7 +61,7 @@ RecordDemuxer::DemuxerRawVideoMedia::DemuxerRawVideoMedia(
 }
 
 
-RecordDemuxer::DemuxerRawVideoMedia::~DemuxerRawVideoMedia(void)
+RecordDemuxer::DemuxerRawVideoMedia::~DemuxerRawVideoMedia()
 {
 	teardownMedia();
 }
@@ -89,7 +87,7 @@ void RecordDemuxer::DemuxerRawVideoMedia::flush(bool discard)
 }
 
 
-void RecordDemuxer::DemuxerRawVideoMedia::stop(void)
+void RecordDemuxer::DemuxerRawVideoMedia::stop()
 {
 	int ret;
 
@@ -110,7 +108,7 @@ void RecordDemuxer::DemuxerRawVideoMedia::stop(void)
 }
 
 
-void RecordDemuxer::DemuxerRawVideoMedia::teardownMedia(void)
+void RecordDemuxer::DemuxerRawVideoMedia::teardownMedia()
 {
 	int ret;
 
@@ -137,9 +135,11 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	const struct mp4_track_info *tkinfo)
 {
 	int ret;
-	unsigned int count = 0, i;
-	char **keys = nullptr, **values = nullptr;
-	const char *formatStr = nullptr, *resolutionStr = nullptr;
+	unsigned int count = 0;
+	char **keys = nullptr;
+	char **values = nullptr;
+	const char *formatStr = nullptr;
+	const char *resolutionStr = nullptr;
 	const char *dataInterpretationStr = nullptr;
 	struct vdef_raw_format format = {};
 	struct vdef_format_info info = {};
@@ -156,7 +156,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	}
 
 	/* Get regis-specific session metadata strings */
-	for (i = 0; i < count; i++) {
+	for (unsigned int i = 0; i < count; i++) {
 		if (strcmp(keys[i], "com.parrot.regis.format") == 0) {
 			formatStr = values[i];
 		} else if (strcmp(keys[i], "com.parrot.regis.resolution") ==
@@ -178,6 +178,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 				  "com.parrot.regis.data_interpretation") ==
 			   0) {
 			dataInterpretationStr = values[i];
+			PDRAW_UNUSED(dataInterpretationStr);
 			/* TODO: this value should be added as a metadata of
 			 * the media */
 		}
@@ -246,7 +247,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 						   nullptr,
 						   nullptr);
 	if (ret2 < 0) {
-		ret = ret2;
+		ret = static_cast<int>(ret2);
 		PDRAW_LOG_ERRNO("vdef_calc_raw_contiguous_frame_size", -ret);
 		return ret;
 	}
@@ -254,14 +255,25 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 
 	mDemuxer->Source::lock();
 
-	mRawVideoMedia = new RawVideoMedia(mDemuxer->mSession);
-	if (mRawVideoMedia == nullptr) {
+	std::unique_ptr<RawVideoMedia> rawVideoMedia = nullptr;
+
+	try {
+		rawVideoMedia = make_unique<RawVideoMedia>(mDemuxer->mSession);
+	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
 		mDemuxer->Source::unlock();
 		PDRAW_LOGE("media allocation failed");
-		return -ENOMEM;
+		return ret;
 	}
-	mMedias.push_back(mRawVideoMedia);
+	mMedias.push_back(std::move(rawVideoMedia));
+	const auto &mediaPtr = mMedias.back();
+	mRawVideoMedia = dynamic_cast<RawVideoMedia *>(mediaPtr.get());
+	if (!mRawVideoMedia) {
+		mDemuxer->Source::unlock();
+		ULOGE("media is not an RawVideoMedia");
+		return -EPROTO;
+	}
+
 	ret = mDemuxer->addOutputPort(mRawVideoMedia, mDemuxer->getDemuxer());
 	if (ret < 0) {
 		mDemuxer->Source::unlock();
@@ -289,8 +301,8 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 		mFirstTs = mRawVideoMedia->sessionMeta.first_frame_capture_ts;
 	mRawVideoMedia->playbackType = PDRAW_PLAYBACK_TYPE_REPLAY;
 	mRawVideoMedia->duration = mDemuxer->mDuration;
-	if (tkinfo->has_metadata)
-		mMetadataMimeType = strdup(tkinfo->metadata_mime_format);
+	if (tkinfo->has_metadata && tkinfo->metadata_mime_format != nullptr)
+		mMetadataMimeType = std::string(tkinfo->metadata_mime_format);
 
 	ret = mDemuxer->createOutputPortMemoryPool(
 		mRawVideoMedia,
@@ -319,12 +331,15 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 	bool *didSeek,
 	bool *waitFlush)
 {
-	int ret = 0, err;
+	int ret = 0;
+	int err;
 	uint8_t *buf = nullptr;
-	size_t bufSize = 0, frameSize, offset = 0;
+	size_t bufSize = 0;
+	size_t frameSize;
+	size_t offset = 0;
 	ssize_t ret2;
 	unsigned int planeCount;
-	size_t planeSize[VDEF_RAW_MAX_PLANE_COUNT] = {};
+	std::array<size_t, VDEF_RAW_MAX_PLANE_COUNT> planeSize;
 	struct timespec ts = {0, 0};
 	uint64_t curTime = 0;
 	struct vdef_raw_frame frameInfo = {};
@@ -346,11 +361,13 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 	}
 	ret = mDemuxer->getOutputMemory(mRawVideoMedia, &mCurrentMem);
 	if ((ret < 0) || (mCurrentMem == nullptr)) {
-		PDRAW_LOGW("failed to get an input buffer (%d)", ret);
+		if (mDemuxer->mPlaybackMode != PDRAW_PLAYBACK_MODE_OFFLINE)
+			PDRAW_LOGW("failed to get an input buffer (%d)", ret);
 		*waitFlush = true;
 		goto exit;
 	}
-	ret = mbuf_mem_get_data(mCurrentMem, (void **)&buf, &bufSize);
+	ret = mbuf_mem_get_data(
+		mCurrentMem, reinterpret_cast<void **>(&buf), &bufSize);
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
 		goto exit;
@@ -364,26 +381,25 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		goto exit;
 	}
 	/* Reallocate if needed */
-	if (mMetadataBufferSize < sample->metadata_size) {
-		uint8_t *tmp = (uint8_t *)realloc(mMetadataBuffer,
-						  sample->metadata_size);
-		if (tmp == nullptr) {
+	if (mMetadataBuffer.size() < sample->metadata_size) {
+		try {
+			mMetadataBuffer.resize(sample->metadata_size);
+		} catch (const std::bad_alloc &) {
 			ret = -ENOMEM;
-			PDRAW_LOG_ERRNO("realloc", -ret);
+			PDRAW_LOG_ERRNO("std::vector resize failed", -ret);
 			goto exit;
 		}
-		mMetadataBuffer = tmp;
-		mMetadataBufferSize = sample->metadata_size;
 	}
 	/* Get a sample */
-	ret = mp4_demux_get_track_sample(mDemuxer->mDemux,
-					 mTrackId,
-					 1,
-					 buf,
-					 bufSize,
-					 mMetadataBuffer,
-					 mMetadataBufferSize,
-					 sample);
+	ret = mp4_demux_get_track_sample(
+		mDemuxer->mDemux,
+		mTrackId,
+		1,
+		buf,
+		static_cast<unsigned int>(bufSize),
+		mMetadataBuffer.data(),
+		static_cast<unsigned int>(mMetadataBuffer.size()),
+		sample);
 	if (ret != 0) {
 		PDRAW_LOG_ERRNO("mp4_demux_get_track_sample", -ret);
 		/* Go to the next sample */
@@ -435,10 +451,10 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 					nullptr,
 					nullptr,
 					nullptr,
-					planeSize,
+					planeSize.data(),
 					nullptr);
 	if (ret2 < 0) {
-		ret = ret2;
+		ret = static_cast<int>(ret2);
 		PDRAW_LOG_ERRNO("vdef_calc_raw_frame_size", -ret);
 		goto exit;
 	}
@@ -466,8 +482,12 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 	if (sample->next_dts > 0) {
 		mDecodingTsInc = mp4_sample_time_to_usec(
 			sample->next_dts - sample->dts, mTimescale);
-		if (mDemuxer->mSpeed != 0.)
-			mDecodingTsInc /= fabs(mDemuxer->mSpeed);
+		if (mDemuxer->mSpeed != 0.) {
+			mDecodingTsInc = static_cast<uint64_t>(
+				static_cast<double>(mDecodingTsInc) /
+				std::fabs(
+					static_cast<double>(mDemuxer->mSpeed)));
+		}
 	}
 	mCurrentFrameCaptureTs =
 		(mFirstTs != UINT64_MAX) ? mFirstTs + mDecodingTs : mDecodingTs;
@@ -478,9 +498,12 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		/* Set the metadata */
 		struct vmeta_frame *meta = nullptr;
 		struct vmeta_buffer meta_buf;
-		vmeta_buffer_set_cdata(
-			&meta_buf, mMetadataBuffer, sample->metadata_size, 0);
-		ret = vmeta_frame_read(&meta_buf, mMetadataMimeType, &meta);
+		vmeta_buffer_set_cdata(&meta_buf,
+				       mMetadataBuffer.data(),
+				       sample->metadata_size,
+				       0);
+		ret = vmeta_frame_read(
+			&meta_buf, mMetadataMimeType.c_str(), &meta);
 		if (ret < 0) {
 			if (ret != -ENODATA) {
 				PDRAW_LOG_ERRNO("vmeta_frame_read", -ret);
@@ -545,7 +568,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		int capsCount;
 
 		Channel *c = mDemuxer->getOutputChannel(mRawVideoMedia, i);
-		RawVideoChannel *channel = dynamic_cast<RawVideoChannel *>(c);
+		auto *channel = dynamic_cast<RawVideoChannel *>(c);
 		if (channel == nullptr) {
 			PDRAW_LOGW("invalid channel");
 			continue;
@@ -569,7 +592,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		else
 			mDemuxer->setFlushingState(FlushingState::UNFLUSHED);
 	}
-	if ((mFirstSample) &&
+	if (mFirstSample &&
 	    (!(frameInfo.info.flags & VDEF_FRAME_FLAG_SILENT))) {
 		sendDownstreamEvent(Channel::DownstreamEvent::SOS);
 		mFirstSample = false;

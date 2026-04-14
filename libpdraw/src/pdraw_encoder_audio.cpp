@@ -70,44 +70,13 @@ AudioEncoder::AudioEncoder(Session *session,
 			      0,
 			      1,
 			      sourceListener),
-		mEncoder(wrapper), mEncoderListener(listener),
-		mInputMedia(nullptr), mOutputMedia(nullptr),
-		mInputBufferPool(nullptr), mInputBufferQueue(nullptr),
-		mEncoderConfig(nullptr), mAenc(nullptr),
-		mInputChannelFlushPending(false),
-		mOutputChannelDrainRequired(false), mAencFlushPending(false),
-		mAencStopPending(false)
+		mEncoder(wrapper), mEncoderListener(listener)
 {
 	int err;
-	pthread_mutexattr_t attr;
-	bool attrCreated = false;
 	const struct adef_format *supportedInputFormats;
 	int supportedInputFormatsCount;
 
 	Element::setClassName(__func__);
-
-	err = pthread_mutexattr_init(&attr);
-	if (err != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_init", err);
-		goto skip_mutex;
-	}
-	attrCreated = true;
-
-	err = pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-	if (err != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutexattr_settype", err);
-		goto skip_mutex;
-	}
-
-	err = pthread_mutex_init(&mListenerMutex, &attr);
-	if (err != 0) {
-		PDRAW_LOG_ERRNO("pthread_mutex_init", err);
-		goto skip_mutex;
-	}
-
-skip_mutex:
-	if (attrCreated)
-		pthread_mutexattr_destroy(&attr);
 
 	/* Supported input formats */
 	supportedInputFormatsCount = aenc_get_supported_input_formats(
@@ -121,7 +90,7 @@ skip_mutex:
 
 	if (params != nullptr) {
 		/* Encoder params deep copy */
-		int err = aenc_config_copy(params, &mEncoderConfig);
+		err = aenc_config_copy(params, &mEncoderConfig);
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("aenc_config_copy", -err);
 		} else {
@@ -138,7 +107,7 @@ skip_mutex:
 }
 
 
-AudioEncoder::~AudioEncoder(void)
+AudioEncoder::~AudioEncoder()
 {
 	int err;
 
@@ -165,14 +134,13 @@ AudioEncoder::~AudioEncoder(void)
 	err = aenc_config_free(mEncoderConfig);
 	if (err < 0)
 		PDRAW_LOG_ERRNO("aenc_config_free", -err);
-
-	pthread_mutex_destroy(&mListenerMutex);
 }
 
 
-int AudioEncoder::start(void)
+int AudioEncoder::start()
 {
-	int ret = 0, err;
+	int ret = 0;
+	int err;
 	Media *media = nullptr;
 	InputPort *port = nullptr;
 	Channel *c = nullptr;
@@ -241,8 +209,8 @@ int AudioEncoder::start(void)
 			}
 		}
 	} else {
-		mEncoderConfig = (struct aenc_config *)calloc(
-			1, sizeof(*mEncoderConfig));
+		mEncoderConfig = static_cast<struct aenc_config *>(
+			calloc(1, sizeof(*mEncoderConfig)));
 		if (mEncoderConfig == nullptr) {
 			Sink::unlock();
 			ret = -ENOMEM;
@@ -265,7 +233,7 @@ int AudioEncoder::start(void)
 	}
 
 	/* Setup the input port */
-	c = port->channel;
+	c = port->channel.get();
 	channel = dynamic_cast<AudioChannel *>(c);
 	if (channel == nullptr) {
 		Sink::unlock();
@@ -273,8 +241,9 @@ int AudioEncoder::start(void)
 		ret = -EPROTO;
 		goto error;
 	}
-	mInputBufferQueue = aenc_get_input_buffer_queue(mAenc);
-	channel->setQueue(this, mInputBufferQueue);
+	mInputBufferQueue = mbuf::Queue::wrapExisting(
+		aenc_get_input_buffer_queue(mAenc), false);
+	channel->setQueue(this, mInputBufferQueue.get());
 	mInputBufferPool = aenc_get_input_buffer_pool(mAenc);
 	channel->setPool(this, mInputBufferPool);
 
@@ -303,7 +272,7 @@ error:
 }
 
 
-int AudioEncoder::stop(void)
+int AudioEncoder::stop()
 {
 	int ret;
 
@@ -340,7 +309,7 @@ int AudioEncoder::flush(bool discard)
 {
 	int ret = 0;
 	int err;
-	unsigned int outputChannelCount, i;
+	unsigned int outputChannelCount;
 	Channel *outputChannel;
 
 	switch (getFlushingState()) {
@@ -350,6 +319,14 @@ int AudioEncoder::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
+		ret = mInputBufferQueue->getCount();
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("queue::getCount", -ret);
+			return ret;
+		} else if (ret > 0) {
+			setFlushingState(FlushingState::UNFLUSHED);
+			break;
+		}
 		PDRAW_LOGD("encoder is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
@@ -370,10 +347,10 @@ int AudioEncoder::flush(bool discard)
 		if (mFlushDiscard) {
 			/* Flush the output channels (async) */
 			outputChannelCount =
-				getOutputChannelCount(mOutputMedia);
-			for (i = 0; i < outputChannelCount; i++) {
+				getOutputChannelCount(mOutputMedia.get());
+			for (unsigned int i = 0; i < outputChannelCount; i++) {
 				outputChannel =
-					getOutputChannel(mOutputMedia, i);
+					getOutputChannel(mOutputMedia.get(), i);
 				if (outputChannel == nullptr) {
 					PDRAW_LOGW(
 						"failed to get output channel "
@@ -415,10 +392,11 @@ int AudioEncoder::flush(bool discard)
 }
 
 
-void AudioEncoder::completeFlush(void)
+void AudioEncoder::completeFlush()
 {
-	int ret, err;
-	unsigned int outputChannelCount, i;
+	int ret;
+	int err;
+	unsigned int outputChannelCount;
 	Channel *outputChannel;
 	bool pending = false;
 
@@ -430,9 +408,9 @@ void AudioEncoder::completeFlush(void)
 	if (!mFlushDiscard && mOutputChannelDrainRequired &&
 	    mOutputMedia != nullptr) {
 		mOutputChannelDrainRequired = false;
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
-		for (i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
+		outputChannelCount = getOutputChannelCount(mOutputMedia.get());
+		for (unsigned int i = 0; i < outputChannelCount; i++) {
+			outputChannel = getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -450,9 +428,9 @@ void AudioEncoder::completeFlush(void)
 		}
 	}
 	if (mOutputMedia != nullptr) {
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
-		for (i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
+		outputChannelCount = getOutputChannelCount(mOutputMedia.get());
+		for (unsigned int i = 0; i < outputChannelCount; i++) {
+			outputChannel = getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -475,25 +453,21 @@ void AudioEncoder::completeFlush(void)
 	setFlushingState(FlushingState::FLUSHED);
 
 	Sink::lock();
-	if (mInputMedia != nullptr) {
-		if (mInputChannelFlushPending) {
-			mInputChannelFlushPending = false;
-			AudioChannel *inputChannel =
-				dynamic_cast<AudioChannel *>(
-					getInputChannel(mInputMedia));
-			if (inputChannel == nullptr) {
-				PDRAW_LOGE("failed to get input channel");
-			} else {
-				if (mFlushDiscard)
-					ret = inputChannel->flushDone();
-				else
-					ret = inputChannel->drainDone();
-				if (ret < 0)
-					PDRAW_LOG_ERRNO("channel->%s",
-							-ret,
-							mFlushDiscard
-								? "flushDone"
-								: "drainDone");
+	if ((mInputMedia != nullptr) && mInputChannelFlushPending) {
+		mInputChannelFlushPending = false;
+		Channel *inputChannel = getInputChannel(mInputMedia);
+		if (inputChannel == nullptr) {
+			PDRAW_LOGE("failed to get input channel");
+		} else {
+			if (mFlushDiscard)
+				ret = inputChannel->flushDone();
+			else
+				ret = inputChannel->drainDone();
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("channel->%s",
+						-ret,
+						mFlushDiscard ? "flushDone"
+							      : "drainDone");
 			}
 		}
 	}
@@ -505,15 +479,15 @@ void AudioEncoder::completeFlush(void)
 
 void AudioEncoder::idleCompleteFlush(void *userdata)
 {
-	AudioEncoder *self = (AudioEncoder *)userdata;
+	auto *self = static_cast<AudioEncoder *>(userdata);
 	self->completeFlush();
 }
 
 
-int AudioEncoder::tryStop(void)
+int AudioEncoder::tryStop()
 {
 	int ret;
-	int outputChannelCount = 0, i;
+	int outputChannelCount = 0;
 
 	if (mState != State::STOPPING)
 		return 0;
@@ -521,7 +495,7 @@ int AudioEncoder::tryStop(void)
 	/* Remove the input port */
 	Sink::lock();
 	if (mInputMedia != nullptr) {
-		AudioChannel *channel = dynamic_cast<AudioChannel *>(
+		auto *channel = dynamic_cast<AudioChannel *>(
 			getInputChannel(mInputMedia));
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
@@ -529,7 +503,6 @@ int AudioEncoder::tryStop(void)
 			channel->setQueue(this, nullptr);
 			channel->setPool(this, nullptr);
 		}
-
 		ret = removeInputMedia(mInputMedia);
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("removeInputMedia", -ret);
@@ -543,10 +516,11 @@ int AudioEncoder::tryStop(void)
 	 * may not synchronously remove the channel from the output port */
 	Source::lock();
 	if (mOutputMedia != nullptr) {
-		outputChannelCount = getOutputChannelCount(mOutputMedia);
+		outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 
-		for (i = outputChannelCount - 1; i >= 0; i--) {
-			Channel *channel = getOutputChannel(mOutputMedia, i);
+		for (int i = outputChannelCount - 1; i >= 0; i--) {
+			Channel *channel =
+				getOutputChannel(mOutputMedia.get(), i);
 			if (channel == nullptr) {
 				PDRAW_LOGW("failed to get channel at index %d",
 					   i);
@@ -575,7 +549,7 @@ int AudioEncoder::tryStop(void)
 }
 
 
-void AudioEncoder::completeStop(void)
+void AudioEncoder::completeStop()
 {
 	int ret;
 	unsigned int outputChannelCount;
@@ -585,7 +559,7 @@ void AudioEncoder::completeStop(void)
 		Source::unlock();
 		goto exit;
 	}
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	if (outputChannelCount > 0) {
 		Source::unlock();
 		return;
@@ -594,14 +568,13 @@ void AudioEncoder::completeStop(void)
 	/* Remove the output port */
 	if (Source::mListener) {
 		Source::mListener->onOutputMediaRemoved(
-			this, mOutputMedia, getAudioEncoder());
+			this, mOutputMedia.get(), getAudioEncoder());
 	}
-	ret = removeOutputPort(mOutputMedia);
+	ret = removeOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("removeOutputPort", -ret);
 	} else {
-		delete mOutputMedia;
-		mOutputMedia = nullptr;
+		mOutputMedia.reset();
 	}
 
 	Source::unlock();
@@ -612,15 +585,18 @@ exit:
 }
 
 
-int AudioEncoder::createOutputMedia(struct adef_frame *frame_info,
-				    AudioMedia::Frame &frame)
+int AudioEncoder::createOutputMedia(const struct adef_frame *frame_info,
+				    const AudioMedia::Frame &frame)
 {
+	PDRAW_UNUSED(frame);
+
 	int ret;
 
 	Source::lock();
 
-	mOutputMedia = new AudioMedia(mSession);
-	if (mOutputMedia == nullptr) {
+	try {
+		mOutputMedia = make_unique<AudioMedia>(mSession);
+	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
 		return -ENOMEM;
@@ -629,7 +605,7 @@ int AudioEncoder::createOutputMedia(struct adef_frame *frame_info,
 			   "$" + mOutputMedia->getName();
 	mOutputMedia->setPath(path);
 
-	ret = addOutputPort(mOutputMedia);
+	ret = addOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -640,9 +616,7 @@ int AudioEncoder::createOutputMedia(struct adef_frame *frame_info,
 	mOutputMedia->playbackType = mInputMedia->playbackType;
 	mOutputMedia->duration = mInputMedia->duration;
 
-	switch (mOutputMedia->format.encoding) {
-	case ADEF_ENCODING_AAC_LC: {
-		uint8_t *asc;
+	if (mOutputMedia->format.encoding == ADEF_ENCODING_AAC_LC) {
 		size_t ascSize = 0;
 		ret = aenc_get_aac_asc(mAenc, nullptr, &ascSize);
 		if (ret < 0) {
@@ -650,31 +624,30 @@ int AudioEncoder::createOutputMedia(struct adef_frame *frame_info,
 			PDRAW_LOG_ERRNO("aenc_get_aac_asc", -ret);
 			return ret;
 		}
-		asc = (uint8_t *)malloc(ascSize);
-		if (asc == nullptr) {
+
+		try {
+			std::vector<uint8_t> ascBuf(ascSize);
+
+			ret = aenc_get_aac_asc(mAenc, ascBuf.data(), &ascSize);
+			if (ret < 0) {
+				Source::unlock();
+				PDRAW_LOG_ERRNO("aenc_get_aac_asc", -ret);
+				return ret;
+			}
+			ret = mOutputMedia->setAacAsc(ascBuf.data(),
+						      ascBuf.size());
+			if (ret < 0) {
+				Source::unlock();
+				PDRAW_LOG_ERRNO("media->setAacAsc", -ret);
+				return ret;
+			}
+		} catch (const std::bad_alloc &) {
 			Source::unlock();
 			ret = -ENOMEM;
-			PDRAW_LOG_ERRNO("malloc:asc", -ret);
+			PDRAW_LOG_ERRNO("std::vector allocation failed", -ret);
 			return ret;
 		}
-		ret = aenc_get_aac_asc(mAenc, asc, &ascSize);
-		if (ret < 0) {
-			Source::unlock();
-			PDRAW_LOG_ERRNO("aenc_get_aac_asc", -ret);
-			free(asc);
-			return ret;
-		}
-		ret = mOutputMedia->setAacAsc(asc, ascSize);
-		if (ret < 0) {
-			Source::unlock();
-			PDRAW_LOG_ERRNO("media->setAacAsc", -ret);
-			free(asc);
-			return ret;
-		}
-		free(asc);
-		break;
-	}
-	default:
+	} else {
 		Source::unlock();
 		PDRAW_LOGE("unsupported encoding");
 		return -EINVAL;
@@ -684,17 +657,16 @@ int AudioEncoder::createOutputMedia(struct adef_frame *frame_info,
 
 	if (Source::mListener)
 		Source::mListener->onOutputMediaAdded(
-			this, mOutputMedia, getAudioEncoder());
+			this, mOutputMedia.get(), getAudioEncoder());
 
 	return 0;
 }
 
 
-void AudioEncoder::removeEncoderListener(void)
+void AudioEncoder::removeEncoderListener()
 {
-	pthread_mutex_lock(&mListenerMutex);
+	std::unique_lock<std::recursive_mutex> lock(mListenerMutex);
 	mEncoderListener = nullptr;
-	pthread_mutex_unlock(&mListenerMutex);
 }
 
 
@@ -713,20 +685,15 @@ void AudioEncoder::onAudioChannelQueue(AudioChannel *channel,
 		PDRAW_LOGE("frame input: encoder is not started");
 		return;
 	}
-	if ((mAencFlushPending) || (mInputChannelFlushPending)) {
+	if (mAencFlushPending || mInputChannelFlushPending) {
 		PDRAW_LOGI("frame input: flush pending, discard frame");
 		return;
 	}
 	Sink::lock();
-	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
-	if (queue == nullptr) {
+	if (mInputBufferQueue == nullptr ||
+	    !channel->hasQueue(mInputBufferQueue.get())) {
 		Sink::unlock();
 		PDRAW_LOGE("invalid queue");
-		return;
-	}
-	if (queue != mInputBufferQueue) {
-		Sink::unlock();
-		PDRAW_LOGE("invalid input buffer queue");
 		return;
 	}
 
@@ -775,7 +742,7 @@ void AudioEncoder::onChannelFlushed(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -796,7 +763,7 @@ void AudioEncoder::onChannelDrained(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -844,13 +811,15 @@ void AudioEncoder::frameOutputCb(struct aenc_encoder *enc,
 				 struct mbuf_audio_frame *out_frame,
 				 void *userdata)
 {
+	PDRAW_UNUSED(enc);
+
 	int ret;
-	AudioEncoder *self = (AudioEncoder *)userdata;
+	auto *self = static_cast<AudioEncoder *>(userdata);
 	struct adef_frame info;
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
-	AudioMedia::Frame *in_meta;
-	AudioMedia::Frame out_meta;
-	unsigned int outputChannelCount, i;
+	const AudioMedia::Frame *in_meta;
+	AudioMedia::Frame out_meta{};
+	unsigned int outputChannelCount;
 
 	if (status != 0) {
 		PDRAW_LOGE("encoder error: %d(%s)", -status, strerror(-status));
@@ -898,9 +867,8 @@ void AudioEncoder::frameOutputCb(struct aenc_encoder *enc,
 		return;
 	}
 
-	in_meta = (AudioMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, nullptr);
-	memset(&out_meta, 0, sizeof(out_meta));
+	in_meta = static_cast<const AudioMedia::Frame *>(
+		mbuf_ancillary_data_get_buffer(ancillaryData, nullptr));
 	out_meta.ntpTimestamp = in_meta->ntpTimestamp;
 	out_meta.ntpUnskewedTimestamp = in_meta->ntpUnskewedTimestamp;
 	out_meta.ntpRawTimestamp = in_meta->ntpRawTimestamp;
@@ -934,12 +902,16 @@ void AudioEncoder::frameOutputCb(struct aenc_encoder *enc,
 		return;
 	}
 
-	pthread_mutex_lock(&self->mListenerMutex);
-	if (self->mEncoderListener != nullptr) {
-		self->mEncoderListener->audioEncoderFrameOutput(
-			self->mSession, self->getAudioEncoder(), out_frame);
+	{
+		std::unique_lock<std::recursive_mutex> lock(
+			self->mListenerMutex);
+		if (self->mEncoderListener != nullptr) {
+			self->mEncoderListener->audioEncoderFrameOutput(
+				self->mSession,
+				self->getAudioEncoder(),
+				out_frame);
+		}
 	}
-	pthread_mutex_unlock(&self->mListenerMutex);
 
 	self->Source::lock();
 
@@ -952,10 +924,12 @@ void AudioEncoder::frameOutputCb(struct aenc_encoder *enc,
 		}
 	}
 
-	outputChannelCount = self->getOutputChannelCount(self->mOutputMedia);
-	for (i = 0; i < outputChannelCount; i++) {
-		Channel *c = self->getOutputChannel(self->mOutputMedia, i);
-		AudioChannel *channel = dynamic_cast<AudioChannel *>(c);
+	outputChannelCount =
+		self->getOutputChannelCount(self->mOutputMedia.get());
+	for (unsigned int i = 0; i < outputChannelCount; i++) {
+		Channel *c =
+			self->getOutputChannel(self->mOutputMedia.get(), i);
+		auto *channel = dynamic_cast<AudioChannel *>(c);
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel at index %d", i);
 			continue;
@@ -971,7 +945,9 @@ void AudioEncoder::frameOutputCb(struct aenc_encoder *enc,
 
 void AudioEncoder::flushCb(struct aenc_encoder *enc, void *userdata)
 {
-	AudioEncoder *self = (AudioEncoder *)userdata;
+	PDRAW_UNUSED(enc);
+
+	auto *self = static_cast<AudioEncoder *>(userdata);
 
 	if (userdata == nullptr) {
 		PDRAW_LOG_ERRNO("userdata", EINVAL);
@@ -987,7 +963,9 @@ void AudioEncoder::flushCb(struct aenc_encoder *enc, void *userdata)
 
 void AudioEncoder::stopCb(struct aenc_encoder *enc, void *userdata)
 {
-	AudioEncoder *self = (AudioEncoder *)userdata;
+	PDRAW_UNUSED(enc);
+
+	auto *self = static_cast<AudioEncoder *>(userdata);
 
 	if (userdata == nullptr) {
 		PDRAW_LOG_ERRNO("userdata", EINVAL);
@@ -1003,33 +981,37 @@ void AudioEncoder::stopCb(struct aenc_encoder *enc, void *userdata)
 void AudioEncoder::framePreReleaseCb(struct mbuf_audio_frame *frame,
 				     void *userdata)
 {
-	AudioEncoder *self = (AudioEncoder *)userdata;
+	auto *self = static_cast<AudioEncoder *>(userdata);
 
 	if (userdata == nullptr) {
 		PDRAW_LOG_ERRNO("userdata", EINVAL);
 		return;
 	}
 
-	pthread_mutex_lock(&self->mListenerMutex);
+	std::unique_lock<std::recursive_mutex> lock(self->mListenerMutex);
 	if (self->mEncoderListener != nullptr) {
 		self->mEncoderListener->audioEncoderFramePreRelease(
 			self->mSession, self->getAudioEncoder(), frame);
 	}
-	pthread_mutex_unlock(&self->mListenerMutex);
 }
 
 
 AudioEncoderWrapper::AudioEncoderWrapper(
 	Session *session,
 	const struct aenc_config *params,
-	IPdraw::IAudioEncoder::Listener *listener)
+	IPdraw::IAudioEncoder::Listener *listener) :
+		ElementWrapper(new Pdraw::AudioEncoder(session,
+						       session,
+						       session,
+						       listener,
+						       this,
+						       params)),
+		mEncoder(static_cast<Pdraw::AudioEncoder *>(mElement))
 {
-	mElement = mEncoder = new Pdraw::AudioEncoder(
-		session, session, session, listener, this, params);
 }
 
 
-AudioEncoderWrapper::~AudioEncoderWrapper(void)
+AudioEncoderWrapper::~AudioEncoderWrapper()
 {
 	if (isElementStopped())
 		return;

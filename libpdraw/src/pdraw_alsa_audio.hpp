@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_ALSA_AUDIO_HPP_
-#define _PDRAW_ALSA_AUDIO_HPP_
+#pragma once
 
 #ifdef PDRAW_USE_ALSA
 
@@ -37,7 +36,7 @@
 
 #	include "pdraw_utils.hpp"
 
-#	define ALSA_AUDIO_DEFAULT_SAMPLE_COUNT 1024
+constexpr size_t ALSA_AUDIO_DEFAULT_SAMPLE_COUNT = 1024;
 
 namespace Pdraw {
 
@@ -54,5 +53,3 @@ public:
 } /* namespace Pdraw */
 
 #endif /* PDRAW_USE_ALSA */
-
-#endif /* !_PDRAW_ALSA_AUDIO_HPP_ */

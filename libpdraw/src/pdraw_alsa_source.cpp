@@ -38,11 +38,10 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include "pdraw_session.hpp"
 
 #ifdef PDRAW_USE_ALSA
-#	define PDRAW_ALSA_SOURCE_ANCILLARY_KEY_INPUT_TIME                     \
-		"pdraw.alsasource.input_time"
+constexpr const char *PDRAW_ALSA_SOURCE_ANCILLARY_KEY_INPUT_TIME =
+	"pdraw.alsasource.input_time";
 
-#	define DEFAULT_IN_POOL_SIZE 100
-#	define DEFAULT_TIMESCALE 1000000
+constexpr size_t DEFAULT_IN_POOL_SIZE = 100;
 #endif
 
 namespace Pdraw {
@@ -63,15 +62,7 @@ AlsaSource::AlsaSource(Session *session,
 			      wrapper,
 			      1,
 			      sourceListener),
-		mAlsaSource(wrapper), mAlsaSourceListener(listener),
-		mLastEosReason(PDRAW_ALSA_SOURCE_EOS_REASON_NONE),
-		mOutputMedia(nullptr), mOutputMediaChanging(false),
-		mReady(false), mRunning(false), mFirstFrame(true),
-		mPausePending(false), mFrameIndex(0),
-		mTimescale(DEFAULT_TIMESCALE), mLastTimestamp(UINT64_MAX),
-		mHandle(nullptr), mHwParams(nullptr), mTimer(nullptr),
-		mPool(nullptr), mFrameSize(0), mFirstTimestamp(0),
-		mCurTimestamp(0)
+		mAlsaSource(wrapper), mAlsaSourceListener(listener)
 {
 	Element::setClassName(__func__);
 
@@ -89,7 +80,7 @@ AlsaSource::AlsaSource(Session *session,
 }
 
 
-AlsaSource::~AlsaSource(void)
+AlsaSource::~AlsaSource()
 {
 	int err;
 
@@ -118,7 +109,7 @@ AlsaSource::~AlsaSource(void)
 }
 
 
-int AlsaSource::start(void)
+int AlsaSource::start()
 {
 	int ret;
 	snd_pcm_format_t format;
@@ -258,7 +249,7 @@ error:
 }
 
 
-int AlsaSource::stop(void)
+int AlsaSource::stop()
 {
 	int ret;
 
@@ -313,7 +304,7 @@ int AlsaSource::stop(void)
 }
 
 
-int AlsaSource::tryStop(void)
+int AlsaSource::tryStop()
 {
 	int pendingCount;
 
@@ -329,7 +320,7 @@ int AlsaSource::tryStop(void)
 }
 
 
-void AlsaSource::completeStop(void)
+void AlsaSource::completeStop()
 {
 	int err;
 	unsigned int outputChannelCount;
@@ -339,14 +330,14 @@ void AlsaSource::completeStop(void)
 	if (mOutputMedia == nullptr)
 		goto exit;
 
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	if (outputChannelCount > 0) {
 		Source::unlock();
 		return;
 	}
 
 	if (mPool != nullptr) {
-		int err = mbuf_pool_destroy(mPool);
+		err = mbuf_pool_destroy(mPool);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("mbuf_pool_destroy", -err);
 	}
@@ -370,7 +361,7 @@ exit:
 }
 
 
-void AlsaSource::playResponse(void)
+void AlsaSource::playResponse()
 {
 	int err = pomp_loop_idle_add_with_cookie(
 		mSession->getLoop(), callPlayResponse, this, this);
@@ -379,7 +370,7 @@ void AlsaSource::playResponse(void)
 }
 
 
-void AlsaSource::pauseResponse(void)
+void AlsaSource::pauseResponse()
 {
 	int err = pomp_loop_idle_add_with_cookie(
 		mSession->getLoop(), callPauseResponse, this, this);
@@ -406,7 +397,7 @@ void AlsaSource::onChannelUnlink(Channel *channel)
 		Source::lock();
 
 		unsigned int outputChannelCount =
-			getOutputChannelCount(mOutputMedia);
+			getOutputChannelCount(mOutputMedia.get());
 		if (outputChannelCount > 0) {
 			Source::unlock();
 			return;
@@ -423,14 +414,15 @@ void AlsaSource::onChannelUnlink(Channel *channel)
 
 void AlsaSource::idleCompleteFlush(void *userdata)
 {
-	AlsaSource *self = (AlsaSource *)userdata;
+	auto *self = static_cast<AlsaSource *>(userdata);
 	self->completeFlush();
 }
 
 
 int AlsaSource::flush(bool discard)
 {
-	int err, ret;
+	int ret;
+	int err;
 	bool channelFound = false;
 	Channel *outputChannel;
 
@@ -459,9 +451,9 @@ int AlsaSource::flush(bool discard)
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		unsigned int outputChannelCount =
-			getOutputChannelCount(mOutputMedia);
+			getOutputChannelCount(mOutputMedia.get());
 		for (unsigned int i = 0; i < outputChannelCount; i++) {
-			outputChannel = getOutputChannel(mOutputMedia, i);
+			outputChannel = getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -493,17 +485,17 @@ int AlsaSource::flush(bool discard)
 }
 
 
-void AlsaSource::completeFlush(void)
+void AlsaSource::completeFlush()
 {
 	bool pending = false;
 
 	Source::lock();
 	if (mOutputMedia != nullptr) {
 		unsigned int outputChannelCount =
-			getOutputChannelCount(mOutputMedia);
+			getOutputChannelCount(mOutputMedia.get());
 		for (unsigned int i = 0; i < outputChannelCount; i++) {
-			Channel *outputChannel =
-				getOutputChannel(mOutputMedia, i);
+			const Channel *outputChannel =
+				getOutputChannel(mOutputMedia.get(), i);
 			if (outputChannel == nullptr) {
 				PDRAW_LOGW(
 					"failed to get output channel "
@@ -548,7 +540,7 @@ void AlsaSource::onChannelFlushed(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -569,7 +561,7 @@ void AlsaSource::onChannelDrained(Channel *channel)
 		return;
 	}
 
-	Media *media = getOutputMediaFromChannel(channel);
+	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
 		PDRAW_LOGE("%s: output media not found", __func__);
 		return;
@@ -588,19 +580,19 @@ void AlsaSource::onChannelDrained(Channel *channel)
 }
 
 
-bool AlsaSource::isReadyToPlay(void)
+bool AlsaSource::isReadyToPlay() const
 {
 	return mReady;
 }
 
 
-bool AlsaSource::isPaused(void)
+bool AlsaSource::isPaused() const
 {
 	return !mRunning;
 }
 
 
-int AlsaSource::play(void)
+int AlsaSource::play()
 {
 	int ret;
 
@@ -641,7 +633,7 @@ int AlsaSource::play(void)
 }
 
 
-int AlsaSource::pause(void)
+int AlsaSource::pause()
 {
 	int ret;
 
@@ -726,7 +718,8 @@ int AlsaSource::getCapabilities(const std::string &address,
 		      snd_strerror(ret));
 		goto out;
 	}
-	tmpCaps.channel_count.min = val;
+	tmpCaps.channel_count.min =
+		static_cast<uint8_t>(MIN(val, (unsigned int)UINT8_MAX));
 
 	ret = snd_pcm_hw_params_get_channels_max(hwParams, &val);
 	if (ret < 0) {
@@ -734,21 +727,24 @@ int AlsaSource::getCapabilities(const std::string &address,
 		      snd_strerror(ret));
 		goto out;
 	}
-	tmpCaps.channel_count.max = val;
+	tmpCaps.channel_count.max =
+		static_cast<uint8_t>(MIN(val, (unsigned int)UINT8_MAX));
 
-	ret = snd_pcm_hw_params_get_rate_min(hwParams, &val, 0);
+	ret = snd_pcm_hw_params_get_rate_min(hwParams, &val, nullptr);
 	if (ret < 0) {
 		ULOGE("snd_pcm_hw_params_get_rate_min(%s)", snd_strerror(ret));
 		goto out;
 	}
-	tmpCaps.sample_rate.min = val;
+	tmpCaps.sample_rate.min =
+		static_cast<uint16_t>(MIN(val, (unsigned int)UINT16_MAX));
 
-	ret = snd_pcm_hw_params_get_rate_max(hwParams, &val, 0);
+	ret = snd_pcm_hw_params_get_rate_max(hwParams, &val, nullptr);
 	if (ret < 0) {
 		ULOGE("snd_pcm_hw_params_get_rate_max(%s)", snd_strerror(ret));
 		goto out;
 	}
-	tmpCaps.sample_rate.max = val;
+	tmpCaps.sample_rate.max =
+		static_cast<uint16_t>(MIN(val, (unsigned int)UINT16_MAX));
 
 	*caps = tmpCaps;
 	ret = 0;
@@ -771,10 +767,11 @@ out:
 
 int AlsaSource::processFrame(struct mbuf_mem *mem, size_t len)
 {
-	int ret, err;
+	int ret;
+	int err;
 	struct mbuf_audio_frame *mbufFrame = nullptr;
 	struct adef_frame frameInfo = {};
-	AudioMedia::Frame out_meta = {};
+	AudioMedia::Frame out_meta{};
 	struct timespec ts = {0, 0};
 	uint64_t curTime = 0;
 	unsigned int outputChannelCount;
@@ -796,7 +793,7 @@ int AlsaSource::processFrame(struct mbuf_mem *mem, size_t len)
 
 	if (mFirstFrame) {
 		mFirstFrame = false;
-		err = sendDownstreamEvent(mOutputMedia,
+		err = sendDownstreamEvent(mOutputMedia.get(),
 					  Channel::DownstreamEvent::SOS);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("sendDownstreamEvent", -err);
@@ -891,10 +888,10 @@ int AlsaSource::processFrame(struct mbuf_mem *mem, size_t len)
 	}
 
 	/* Queue the frame in the output channels */
-	outputChannelCount = getOutputChannelCount(mOutputMedia);
+	outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 	for (unsigned int i = 0; i < outputChannelCount; i++) {
-		Channel *c = getOutputChannel(mOutputMedia, i);
-		AudioChannel *channel = dynamic_cast<AudioChannel *>(c);
+		Channel *c = getOutputChannel(mOutputMedia.get(), i);
+		auto *channel = dynamic_cast<AudioChannel *>(c);
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel at index %d", i);
 			continue;
@@ -919,7 +916,7 @@ out:
 }
 
 
-int AlsaSource::setupMedia(void)
+int AlsaSource::setupMedia()
 {
 	if (mState == State::STOPPED)
 		return 0;
@@ -962,7 +959,7 @@ int AlsaSource::setupMedia(void)
  */
 void AlsaSource::callOnMediaAdded(void *userdata)
 {
-	AlsaSource *self = reinterpret_cast<AlsaSource *>(userdata);
+	auto *self = static_cast<AlsaSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mOutputMedia == nullptr) {
@@ -972,7 +969,7 @@ void AlsaSource::callOnMediaAdded(void *userdata)
 
 	if (self->Source::mListener) {
 		self->Source::mListener->onOutputMediaAdded(
-			self, self->mOutputMedia, self->getAlsaSource());
+			self, self->mOutputMedia.get(), self->getAlsaSource());
 	}
 }
 
@@ -980,7 +977,7 @@ void AlsaSource::callOnMediaAdded(void *userdata)
 /* Listener call from an idle function */
 void AlsaSource::callPlayResponse(void *userdata)
 {
-	AlsaSource *self = reinterpret_cast<AlsaSource *>(userdata);
+	auto *self = static_cast<AlsaSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mAlsaSourceListener != nullptr) {
@@ -993,7 +990,7 @@ void AlsaSource::callPlayResponse(void *userdata)
 /* Listener call from an idle function */
 void AlsaSource::callPauseResponse(void *userdata)
 {
-	AlsaSource *self = reinterpret_cast<AlsaSource *>(userdata);
+	auto *self = static_cast<AlsaSource *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	self->mPausePending = false;
@@ -1005,9 +1002,10 @@ void AlsaSource::callPauseResponse(void *userdata)
 }
 
 
-int AlsaSource::createMedia(void)
+int AlsaSource::createMedia()
 {
-	int ret, err;
+	int ret;
+	int err;
 	std::string path;
 
 	if (mState != State::STARTED) {
@@ -1025,8 +1023,9 @@ int AlsaSource::createMedia(void)
 		return -EALREADY;
 	}
 
-	mOutputMedia = new AudioMedia(mSession);
-	if (mOutputMedia == nullptr) {
+	try {
+		mOutputMedia = make_unique<AudioMedia>(mSession);
+	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
 		return -ENOMEM;
@@ -1034,7 +1033,7 @@ int AlsaSource::createMedia(void)
 	path = Element::getName() + "$" + mOutputMedia->getName();
 	mOutputMedia->setPath(path);
 
-	ret = addOutputPort(mOutputMedia);
+	ret = addOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
@@ -1073,7 +1072,7 @@ int AlsaSource::createMedia(void)
 }
 
 
-int AlsaSource::destroyMedia(void)
+int AlsaSource::destroyMedia()
 {
 	int ret;
 
@@ -1095,17 +1094,16 @@ int AlsaSource::destroyMedia(void)
 
 	if (Source::mListener) {
 		Source::mListener->onOutputMediaRemoved(
-			this, mOutputMedia, getAlsaSource());
+			this, mOutputMedia.get(), getAlsaSource());
 	}
-	ret = removeOutputPort(mOutputMedia);
+	ret = removeOutputPort(mOutputMedia.get());
 	if (ret < 0) {
 		Source::unlock();
 		PDRAW_LOG_ERRNO("removeOutputPort", -ret);
 		return ret;
 	}
 
-	delete mOutputMedia;
-	mOutputMedia = nullptr;
+	mOutputMedia.reset();
 
 	Source::unlock();
 
@@ -1115,7 +1113,7 @@ int AlsaSource::destroyMedia(void)
 }
 
 
-int AlsaSource::teardownChannels(void)
+int AlsaSource::teardownChannels()
 {
 	unsigned int pendingCount = 0;
 
@@ -1130,10 +1128,10 @@ int AlsaSource::teardownChannels(void)
 	 * Note: loop downwards because calling teardown on a channel may or
 	 * may not synchronously remove the channel from the output port */
 
-	int outputChannelCount = getOutputChannelCount(mOutputMedia);
+	int outputChannelCount = getOutputChannelCount(mOutputMedia.get());
 
 	for (int i = outputChannelCount - 1; i >= 0; i--) {
-		Channel *channel = getOutputChannel(mOutputMedia, i);
+		Channel *channel = getOutputChannel(mOutputMedia.get(), i);
 		if (channel == nullptr) {
 			PDRAW_LOGW("failed to get channel at index %d", i);
 			continue;
@@ -1151,7 +1149,7 @@ int AlsaSource::teardownChannels(void)
 }
 
 
-const char *AlsaSource::getSourceName(void) const
+const char *AlsaSource::getSourceName() const
 {
 	if (!mAddress.empty())
 		return mAddress.c_str();
@@ -1160,12 +1158,14 @@ const char *AlsaSource::getSourceName(void) const
 }
 
 
-int AlsaSource::readFrame(void)
+int AlsaSource::readFrame()
 {
-	int ret, err;
+	int ret;
+	int err;
 	struct mbuf_mem *mem = nullptr;
 	void *data;
 	size_t cap;
+	ssize_t ret1;
 
 	/* Create mPool if needed */
 	if (mPool == nullptr) {
@@ -1182,8 +1182,9 @@ int AlsaSource::readFrame(void)
 		}
 	}
 
-	ret = snd_pcm_avail(mHandle);
-	if (ret < 0) {
+	ret1 = snd_pcm_avail(mHandle);
+	if (ret1 < 0) {
+		ret = static_cast<int>(ret1);
 		if (ret == -EPIPE)
 			goto recover_xrun;
 		PDRAW_LOG_ERRNO(
@@ -1192,7 +1193,7 @@ int AlsaSource::readFrame(void)
 	}
 
 	/* Not enough samples available, retry later. */
-	if (ret < (int)mParams.sample_count) {
+	if (ret1 < (int)mParams.sample_count) {
 		ret = -EAGAIN;
 		goto unref;
 	}
@@ -1215,15 +1216,18 @@ int AlsaSource::readFrame(void)
 	}
 
 	if (mParams.audio.format.pcm.interleaved) {
-		ret = snd_pcm_readi(mHandle, data, mParams.sample_count);
-		if (ret != (int)mParams.sample_count) {
-			if (ret == -EPIPE)
-				goto recover_xrun;
-			if (ret < 0) {
+		ret1 = snd_pcm_readi(mHandle, data, mParams.sample_count);
+		if (ret1 != mParams.sample_count) {
+			if (ret1 < 0) {
+				ret = static_cast<int>(ret1);
+				if (ret == -EPIPE)
+					goto recover_xrun;
 				PDRAW_LOG_ERRNO("snd_pcm_readi failed (%s)",
 						-ret,
 						snd_strerror(ret));
 				goto unref;
+			} else {
+				/* TODO: handle ret1 > 0 but != sample_count */
 			}
 		}
 	} else {
@@ -1276,8 +1280,10 @@ unref:
 /* Called on the loop thread */
 void AlsaSource::timerCb(struct pomp_timer *timer, void *userdata)
 {
+	PDRAW_UNUSED(timer);
+
 	int err;
-	AlsaSource *self = reinterpret_cast<AlsaSource *>(userdata);
+	auto *self = static_cast<AlsaSource *>(userdata);
 
 	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
@@ -1294,12 +1300,7 @@ void AlsaSource::timerCb(struct pomp_timer *timer, void *userdata)
 		return;
 	}
 
-	while (true) {
-		err = self->readFrame();
-		if (err == -EAGAIN) {
-			/* No more sample available */
-			break;
-		}
+	while ((err = self->readFrame()) != -EAGAIN) {
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("readFrame", -err);
 			goto unrecoverable_error;
@@ -1333,17 +1334,31 @@ AlsaSourceWrapper::AlsaSourceWrapper(
 	Session *session,
 	const struct pdraw_alsa_source_params *params,
 	IPdraw::IAlsaSource::Listener *listener)
-{
 #ifdef PDRAW_USE_ALSA
-	mElement = mSource = new Pdraw::AlsaSource(
-		session, session, session, listener, this, params);
+		:
+		ElementWrapper(new Pdraw::AlsaSource(session,
+						     session,
+						     session,
+						     listener,
+						     this,
+						     params)),
+		mSource(static_cast<Pdraw::AlsaSource *>(mElement))
 #else
+		:
+		ElementWrapper(nullptr)
+#endif
+{
+#ifndef PDRAW_USE_ALSA
+	PDRAW_UNUSED(session);
+	PDRAW_UNUSED(params);
+	PDRAW_UNUSED(listener);
+
 	ULOGE("no ALSA source implementation found");
 #endif
 }
 
 
-AlsaSourceWrapper::~AlsaSourceWrapper(void)
+AlsaSourceWrapper::~AlsaSourceWrapper()
 {
 #ifdef PDRAW_USE_ALSA
 	if (isElementStopped())
@@ -1355,7 +1370,7 @@ AlsaSourceWrapper::~AlsaSourceWrapper(void)
 }
 
 
-bool AlsaSourceWrapper::isReadyToPlay(void)
+bool AlsaSourceWrapper::isReadyToPlay()
 {
 #ifdef PDRAW_USE_ALSA
 	if (isElementStopped())
@@ -1367,7 +1382,7 @@ bool AlsaSourceWrapper::isReadyToPlay(void)
 }
 
 
-bool AlsaSourceWrapper::isPaused(void)
+bool AlsaSourceWrapper::isPaused()
 {
 #ifdef PDRAW_USE_ALSA
 	if (isElementStopped())
@@ -1379,7 +1394,7 @@ bool AlsaSourceWrapper::isPaused(void)
 }
 
 
-int AlsaSourceWrapper::play(void)
+int AlsaSourceWrapper::play()
 {
 #ifdef PDRAW_USE_ALSA
 	if (isElementStopped())
@@ -1391,7 +1406,7 @@ int AlsaSourceWrapper::play(void)
 }
 
 
-int AlsaSourceWrapper::pause(void)
+int AlsaSourceWrapper::pause()
 {
 #ifdef PDRAW_USE_ALSA
 	if (isElementStopped())

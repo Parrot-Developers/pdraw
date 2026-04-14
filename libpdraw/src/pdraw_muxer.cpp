@@ -33,8 +33,12 @@
 ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer.hpp"
-#include "pdraw_muxer_record.hpp"
+#include "pdraw_muxer_record_dng.hpp"
+#include "pdraw_muxer_record_isobmff.hpp"
+#include "pdraw_muxer_record_jfif.hpp"
+#include "pdraw_muxer_record_png.hpp"
 #include "pdraw_muxer_stream_rtmp.hpp"
+#include "pdraw_muxer_stream_rtsp.hpp"
 #include "pdraw_session.hpp"
 
 #include <time.h>
@@ -60,19 +64,15 @@ Muxer::Muxer(Session *session,
 			    0,
 			    nullptr,
 			    0),
-		mMuxer(wrapper), mMuxerListener(listener), mReadyToStart(false),
-		mReadyToStop(false), mAsyncFlush(false),
-		mUnrecoverableError(false), mFlushing(false), mClosing(false)
+		mMuxer(wrapper), mMuxerListener(listener), mParams(*params)
 {
 	Element::setClassName(__func__);
-
-	mParams = *params;
 
 	setState(State::CREATED);
 }
 
 
-Muxer::~Muxer(void)
+Muxer::~Muxer()
 {
 	int err;
 
@@ -97,7 +97,7 @@ Muxer::~Muxer(void)
 }
 
 
-int Muxer::start(void)
+int Muxer::start()
 {
 	int res;
 
@@ -133,7 +133,7 @@ error:
 }
 
 
-int Muxer::stop(void)
+int Muxer::stop()
 {
 	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
@@ -161,11 +161,11 @@ int Muxer::stop(void)
 }
 
 
-int Muxer::completeStop(void)
+int Muxer::completeStop()
 {
 	int res;
 
-	if ((mState == State::STOPPED))
+	if (mState == State::STOPPED)
 		return 0;
 	if (mState != State::STOPPING) {
 		PDRAW_LOGE("%s: invalid state (%s)",
@@ -198,9 +198,11 @@ int Muxer::completeStop(void)
 }
 
 
-void Muxer::completeFlush(Channel *channel, bool discard)
+void Muxer::completeFlush(const Channel *channel, bool discard)
 {
-	int err, inputMediaCount, i;
+	int err;
+	int inputMediaCount;
+	int i;
 	bool flushPending = false;
 
 	PDRAW_LOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
@@ -209,7 +211,7 @@ void Muxer::completeFlush(Channel *channel, bool discard)
 
 	inputMediaCount = getInputMediaCount();
 	for (i = 0; i < inputMediaCount; i++) {
-		Media *media = getInputMedia(i);
+		const Media *media = getInputMedia(i);
 		if (media == nullptr)
 			continue;
 		Channel *_channel = getInputChannel(media);
@@ -229,10 +231,10 @@ void Muxer::completeFlush(Channel *channel, bool discard)
 
 	inputMediaCount = getInputMediaCount();
 	for (i = 0; i < inputMediaCount; i++) {
-		Media *media = getInputMedia(i);
+		const Media *media = getInputMedia(i);
 		if (media == nullptr)
 			continue;
-		Channel *_channel = getInputChannel(media);
+		const Channel *_channel = getInputChannel(media);
 		if (_channel == nullptr)
 			continue;
 		flushPending |= (_channel->isFlushPending() ||
@@ -262,8 +264,8 @@ int Muxer::asyncCompleteFlush(Channel *channel, bool discard)
 
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(channel == nullptr, EINVAL);
 
-	params =
-		(struct asyncCompleteFlushParams *)(calloc(1, sizeof(*params)));
+	params = static_cast<struct asyncCompleteFlushParams *>(
+		calloc(1, sizeof(*params)));
 	if (params == nullptr) {
 		ret = -ENOMEM;
 		PDRAW_LOG_ERRNO("calloc", -ret);
@@ -283,7 +285,7 @@ int Muxer::asyncCompleteFlush(Channel *channel, bool discard)
 }
 
 
-int Muxer::asyncCompleteStop(void)
+int Muxer::asyncCompleteStop()
 {
 	int ret;
 
@@ -302,7 +304,7 @@ void Muxer::idleCompleteFlush(void *userdata)
 	Muxer *self = nullptr;
 	struct asyncCompleteFlushParams *params = nullptr;
 
-	params = reinterpret_cast<struct asyncCompleteFlushParams *>(userdata);
+	params = static_cast<struct asyncCompleteFlushParams *>(userdata);
 	ULOG_ERRNO_RETURN_IF(params == nullptr, EPROTO);
 
 	self = params->muxer;
@@ -317,10 +319,39 @@ void Muxer::idleCompleteFlush(void *userdata)
 
 void Muxer::idleCompleteStop(void *userdata)
 {
-	Muxer *self = reinterpret_cast<Muxer *>(userdata);
+	auto *self = static_cast<Muxer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EPROTO);
 
 	self->completeStop();
+}
+
+
+int Muxer::createInputQueue(Media::Type type, mbuf::Queue **queue)
+{
+	mbuf::Queue::Type qtype;
+	switch (type) {
+	case Media::Type::CODED_VIDEO:
+		qtype = mbuf::Queue::Type::CODED_VIDEO;
+		break;
+	case Media::Type::RAW_VIDEO:
+		qtype = mbuf::Queue::Type::RAW_VIDEO;
+		break;
+	case Media::Type::AUDIO:
+		qtype = mbuf::Queue::Type::AUDIO;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	try {
+		auto q = mbuf::Queue::create(qtype);
+		*queue = q.release();
+	} catch (const std::bad_alloc &) {
+		ULOGE("queue allocation failed");
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 
@@ -328,86 +359,47 @@ int Muxer::addInputMedia(Media *media,
 			 const struct pdraw_muxer_media_params *params)
 {
 	int res;
-	CodedVideoChannel *codedChannel = nullptr;
-	RawVideoChannel *rawChannel = nullptr;
-	AudioChannel *audioChannel = nullptr;
-	struct mbuf_coded_video_frame_queue *codedQueue = nullptr;
-	struct mbuf_raw_video_frame_queue *rawQueue = nullptr;
-	struct mbuf_audio_frame_queue *audioQueue = nullptr;
+	mbuf::Queue *queue = nullptr;
 
 	Sink::lock();
 
 	res = Sink::addInputMedia(media);
-	if (res == -EEXIST) {
-		Sink::unlock();
-		return res;
-	} else if (res < 0) {
-		Sink::unlock();
-		PDRAW_LOG_ERRNO("Sink::addInputMedia", -res);
-		return res;
+	if (res < 0) {
+		if (res != -EEXIST)
+			PDRAW_LOG_ERRNO("Sink::addInputMedia", -res);
+		goto out_unlock;
 	}
 
-	codedChannel =
-		dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
-	rawChannel = dynamic_cast<RawVideoChannel *>(getInputChannel(media));
-	audioChannel = dynamic_cast<AudioChannel *>(getInputChannel(media));
-	if (codedChannel != nullptr) {
-		res = mbuf_coded_video_frame_queue_new(&codedQueue);
-		if (res < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_new",
-					-res);
-			goto error;
+	{
+		Channel *channel = getInputChannel(media);
+		if (!channel) {
+			PDRAW_LOGE("No channel found for media %p", media);
+			res = -ENODEV;
+			goto error_remove;
 		}
-		codedChannel->setQueue(this, codedQueue);
 
-		res = addQueueEvtToLoop(codedQueue, mSession->getLoop());
-		if (res < 0)
-			goto error;
-
-		Sink::unlock();
-
-		return 0;
-	} else if (rawChannel != nullptr) {
-		res = mbuf_raw_video_frame_queue_new(&rawQueue);
+		res = createInputQueue(media->type, &queue);
 		if (res < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_new", -res);
-			goto error;
+			PDRAW_LOG_ERRNO("createInputQueue", -res);
+			goto error_remove;
 		}
-		rawChannel->setQueue(this, rawQueue);
 
-		res = addQueueEvtToLoop(rawQueue, mSession->getLoop());
-		if (res < 0)
-			goto error;
-
-		Sink::unlock();
-
-		return 0;
-	} else if (audioChannel != nullptr) {
-		res = mbuf_audio_frame_queue_new(&audioQueue);
-		if (res < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_new", -res);
-			goto error;
-		}
-		audioChannel->setQueue(this, audioQueue);
-
-		res = addQueueEvtToLoop(audioQueue, mSession->getLoop());
-		if (res < 0)
-			goto error;
-
-		Sink::unlock();
-
-		return 0;
-	} else {
-		res = -ENODEV;
-		PDRAW_LOG_ERRNO("Sink::getInputChannel", -res);
-		goto error;
+		channel->setQueue(this, queue);
 	}
 
-error:
+	res = queue->attachToLoop(mSession->getLoop(), &queueEventCb, this);
+	if (res < 0) {
+		PDRAW_LOG_ERRNO("queue::attachToLoop", -res);
+		goto error_remove;
+	}
+
+	Sink::unlock();
+	return 0;
+
+error_remove:
 	removeInputMedia(media);
+
+out_unlock:
 	Sink::unlock();
 	return res;
 }
@@ -419,29 +411,15 @@ int Muxer::removeInputMedia(Media *media)
 
 	Sink::lock();
 
-	CodedVideoChannel *codedChannel =
-		dynamic_cast<CodedVideoChannel *>(getInputChannel(media));
-	RawVideoChannel *rawChannel =
-		dynamic_cast<RawVideoChannel *>(getInputChannel(media));
-	AudioChannel *audioChannel =
-		dynamic_cast<AudioChannel *>(getInputChannel(media));
-
-	if (!codedChannel && !rawChannel && !audioChannel) {
+	Channel *channel = getInputChannel(media);
+	if (!channel) {
 		Sink::unlock();
 		res = -ENODEV;
 		PDRAW_LOG_ERRNO("Sink::getInputChannel", -res);
 		return res;
 	}
-	/* Keep a reference on the queue to destroy it after removing
-	 * the input media (avoids deadlocks when trying to push new
-	 * frames out
-	 * of upstream elements whereas the queue is already destroyed) */
-	struct mbuf_coded_video_frame_queue *codedQueue =
-		codedChannel ? codedChannel->getQueue(this) : nullptr;
-	struct mbuf_raw_video_frame_queue *rawQueue =
-		rawChannel ? rawChannel->getQueue(this) : nullptr;
-	struct mbuf_audio_frame_queue *audioQueue =
-		audioChannel ? audioChannel->getQueue(this) : nullptr;
+
+	mbuf::Queue *queue = channel->getQueue(this);
 
 	res = Sink::removeInputMedia(media);
 	if (res < 0) {
@@ -449,54 +427,22 @@ int Muxer::removeInputMedia(Media *media)
 		PDRAW_LOG_ERRNO("Sink::removeInputMedia", -res);
 		return res;
 	}
+	media = nullptr;
 
-	if (codedQueue != nullptr) {
-		res = removeQueueEvtFromLoop(codedQueue, mSession->getLoop());
-		if (res < 0)
-			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -res);
-		res = mbuf_coded_video_frame_queue_flush(codedQueue);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_flush",
-					-res);
-		res = mbuf_coded_video_frame_queue_destroy(codedQueue);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_destroy",
-					-res);
-	}
-	if (rawQueue != nullptr) {
-		res = removeQueueEvtFromLoop(rawQueue, mSession->getLoop());
-		if (res < 0)
-			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -res);
-		res = mbuf_raw_video_frame_queue_flush(rawQueue);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-res);
-		res = mbuf_raw_video_frame_queue_destroy(rawQueue);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_destroy",
-					-res);
-	}
-	if (audioQueue != nullptr) {
-		res = removeQueueEvtFromLoop(audioQueue, mSession->getLoop());
-		if (res < 0)
-			PDRAW_LOG_ERRNO("removeQueueEvtFromLoop", -res);
-		res = mbuf_audio_frame_queue_flush(audioQueue);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -res);
-		res = mbuf_audio_frame_queue_destroy(audioQueue);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_destroy", -res);
+	if (queue != nullptr) {
+		queue->detachFromLoop(mSession->getLoop());
+		queue->flush();
+		delete queue;
 	}
 
 	Sink::unlock();
-
 	return 0;
 }
 
 
-int Muxer::removeInputMedias(void)
+int Muxer::removeInputMedias()
 {
-	int res, inputMediaCount, i;
+	int inputMediaCount;
 
 	Sink::lock();
 
@@ -504,175 +450,18 @@ int Muxer::removeInputMedias(void)
 
 	/* Note: loop downwards because calling removeInputMedia removes
 	 * input ports and decreases the media count */
-	for (i = inputMediaCount - 1; i >= 0; i--) {
+	for (int i = inputMediaCount - 1; i >= 0; i--) {
 		Media *media = getInputMedia(i);
 		if (media == nullptr) {
 			PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
 			continue;
 		}
-		res = removeInputMedia(media);
+		int err = removeInputMedia(media);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("removeInputMedia", -err);
 	}
 
 	Sink::unlock();
-
-	return 0;
-}
-
-
-int Muxer::addQueueEvtToLoop(struct mbuf_coded_video_frame_queue *queue,
-			     struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_coded_video_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_get_event", -res);
-		return res;
-	}
-
-	res = pomp_evt_attach_to_loop(evt, loop, &queueEventCb, this);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_attach_to_loop", -res);
-		return res;
-	}
-
-	return 0;
-}
-
-
-int Muxer::addQueueEvtToLoop(struct mbuf_raw_video_frame_queue *queue,
-			     struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_raw_video_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_get_event", -res);
-		return res;
-	}
-
-	res = pomp_evt_attach_to_loop(evt, loop, &queueEventCb, this);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_attach_to_loop", -res);
-		return res;
-	}
-
-	return 0;
-}
-
-
-int Muxer::addQueueEvtToLoop(struct mbuf_audio_frame_queue *queue,
-			     struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_audio_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_event", -res);
-		return res;
-	}
-
-	res = pomp_evt_attach_to_loop(evt, loop, &queueEventCb, this);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_attach_to_loop", -res);
-		return res;
-	}
-
-	return 0;
-}
-
-
-int Muxer::removeQueueEvtFromLoop(struct mbuf_coded_video_frame_queue *queue,
-				  struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_coded_video_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_get_event", -res);
-		return res;
-	}
-
-	if (!pomp_evt_is_attached(evt, loop))
-		return 0;
-
-	res = pomp_evt_detach_from_loop(evt, loop);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -res);
-		return res;
-	}
-
-	return 0;
-}
-
-
-int Muxer::removeQueueEvtFromLoop(struct mbuf_raw_video_frame_queue *queue,
-				  struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_raw_video_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_get_event", -res);
-		return res;
-	}
-
-	if (!pomp_evt_is_attached(evt, loop))
-		return 0;
-
-	res = pomp_evt_detach_from_loop(evt, loop);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -res);
-		return res;
-	}
-
-	return 0;
-}
-
-
-int Muxer::removeQueueEvtFromLoop(struct mbuf_audio_frame_queue *queue,
-				  struct pomp_loop *loop)
-{
-	int res;
-	struct pomp_evt *evt = nullptr;
-
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(queue == nullptr, EINVAL);
-	PDRAW_LOG_ERRNO_RETURN_ERR_IF(loop == nullptr, EINVAL);
-
-	res = mbuf_audio_frame_queue_get_event(queue, &evt);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_event", -res);
-		return res;
-	}
-
-	if (!pomp_evt_is_attached(evt, loop))
-		return 0;
-
-	res = pomp_evt_detach_from_loop(evt, loop);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("pomp_evt_detach_from_loop", -res);
-		return res;
-	}
 
 	return 0;
 }
@@ -681,7 +470,9 @@ int Muxer::removeQueueEvtFromLoop(struct mbuf_audio_frame_queue *queue,
 /* Called on the loop thread */
 void Muxer::queueEventCb(struct pomp_evt *evt, void *userdata)
 {
-	Muxer *self = (Muxer *)userdata;
+	PDRAW_UNUSED(evt);
+
+	auto *self = static_cast<Muxer *>(userdata);
 
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
@@ -692,84 +483,37 @@ void Muxer::queueEventCb(struct pomp_evt *evt, void *userdata)
 /* Can be called from any thread */
 void Muxer::onChannelFlush(Channel *channel)
 {
-	int ret, inputMediaCount, i;
-	bool found = false;
+	int ret;
+	int inputMediaCount;
+	const Media *foundMedia = nullptr;
 
 	PDRAW_LOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 
-	/* Find back input channel */
 	inputMediaCount = getInputMediaCount();
-	for (i = 0; i < inputMediaCount; i++) {
-		Media *media = getInputMedia(i);
-		if (media == nullptr)
-			continue;
-		Channel *_channel = getInputChannel(media);
-		if (_channel != channel)
-			continue;
-		found = true;
-		break;
+	for (int i = 0; i < inputMediaCount; i++) {
+		const Media *media = getInputMedia(i);
+		if (media != nullptr && getInputChannel(media) == channel) {
+			foundMedia = media;
+			break;
+		}
 	}
-	if (!found) {
+
+	if (!foundMedia) {
 		Sink::unlock();
-		ret = -EINVAL;
-		PDRAW_LOG_ERRNO("channel not found (%p)", -ret, channel);
+		PDRAW_LOGE("channel not found (%p)", channel);
 		return;
 	}
 
-	CodedVideoChannel *cvchannel =
-		dynamic_cast<CodedVideoChannel *>(channel);
-	RawVideoChannel *rvchannel = dynamic_cast<RawVideoChannel *>(channel);
-	AudioChannel *achannel = dynamic_cast<AudioChannel *>(channel);
-
-	if (cvchannel != nullptr) {
-		struct mbuf_coded_video_frame_queue *queue =
-			cvchannel->getQueue(this);
-		if (queue == nullptr) {
-			Sink::unlock();
-			PDRAW_LOGE("invalid queue");
-			return;
-		}
-
-		ret = mbuf_coded_video_frame_queue_flush(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_flush",
-					-ret);
-			return;
-		}
-	} else if (rvchannel != nullptr) {
-		struct mbuf_raw_video_frame_queue *queue =
-			rvchannel->getQueue(this);
-		if (queue == nullptr) {
-			Sink::unlock();
-			PDRAW_LOGE("invalid queue");
-			return;
-		}
-
-		ret = mbuf_raw_video_frame_queue_flush(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-ret);
-			return;
-		}
-	} else if (achannel != nullptr) {
-		struct mbuf_audio_frame_queue *queue = achannel->getQueue(this);
-		if (queue == nullptr) {
-			Sink::unlock();
-			PDRAW_LOGE("invalid queue");
-			return;
-		}
-
-		ret = mbuf_audio_frame_queue_flush(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -ret);
-			return;
-		}
+	mbuf::Queue *queue = channel->getQueue(this);
+	if (queue == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("invalid queue");
+		return;
 	}
+
+	queue->flush();
 
 	Sink::unlock();
 
@@ -787,111 +531,43 @@ void Muxer::onChannelFlush(Channel *channel)
 /* Can be called from any thread */
 void Muxer::onChannelDrain(Channel *channel)
 {
-	int ret, inputMediaCount, i;
-	bool found = false;
+	int ret;
+	const Media *foundMedia = nullptr;
 
 	PDRAW_LOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 
-	/* Find back input channel */
-	inputMediaCount = getInputMediaCount();
-	for (i = 0; i < inputMediaCount; i++) {
-		Media *media = getInputMedia(i);
-		if (media == nullptr)
-			continue;
-		Channel *_channel = getInputChannel(media);
-		if (_channel != channel)
-			continue;
-		found = true;
-		break;
+	unsigned int inputMediaCount = getInputMediaCount();
+	for (unsigned int i = 0; i < inputMediaCount; i++) {
+		const Media *media = getInputMedia(i);
+		if (media != nullptr && getInputChannel(media) == channel) {
+			foundMedia = media;
+			break;
+		}
 	}
-	if (!found) {
+
+	if (!foundMedia) {
 		Sink::unlock();
-		ret = -EINVAL;
-		PDRAW_LOG_ERRNO("channel not found (%p)", -ret, channel);
+		PDRAW_LOGE("channel not found (%p)", channel);
 		return;
 	}
 
-	CodedVideoChannel *cvchannel =
-		dynamic_cast<CodedVideoChannel *>(channel);
-	RawVideoChannel *rvchannel = dynamic_cast<RawVideoChannel *>(channel);
-	AudioChannel *achannel = dynamic_cast<AudioChannel *>(channel);
-
-	if (cvchannel != nullptr) {
-		struct mbuf_coded_video_frame_queue *queue =
-			cvchannel->getQueue(this);
-		if (queue == nullptr) {
-			Sink::unlock();
-			PDRAW_LOGE("invalid queue");
-			return;
-		}
-		ret = mbuf_coded_video_frame_queue_get_count(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO(
-				"mbuf_coded_video_frame_queue_get_count", -ret);
-			return;
-		} else if (ret > 0) {
-			PDRAW_LOGW(
-				"%s: %d frames still in queue", __func__, ret);
-		}
-		ret = mbuf_coded_video_frame_queue_flush(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_queue_flush",
-					-ret);
-			return;
-		}
-	} else if (rvchannel != nullptr) {
-		struct mbuf_raw_video_frame_queue *queue =
-			rvchannel->getQueue(this);
-		if (queue == nullptr) {
-			Sink::unlock();
-			PDRAW_LOGE("invalid queue");
-			return;
-		}
-		ret = mbuf_raw_video_frame_queue_get_count(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_get_count",
-					-ret);
-			return;
-		} else if (ret > 0) {
-			PDRAW_LOGW(
-				"%s: %d frames still in queue", __func__, ret);
-		}
-		ret = mbuf_raw_video_frame_queue_flush(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-ret);
-			return;
-		}
-	} else if (achannel != nullptr) {
-		struct mbuf_audio_frame_queue *queue = achannel->getQueue(this);
-		if (queue == nullptr) {
-			Sink::unlock();
-			PDRAW_LOGE("invalid queue");
-			return;
-		}
-		ret = mbuf_audio_frame_queue_get_count(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_get_count",
-					-ret);
-			return;
-		} else if (ret > 0) {
-			PDRAW_LOGW(
-				"%s: %d frames still in queue", __func__, ret);
-		}
-		ret = mbuf_audio_frame_queue_flush(queue);
-		if (ret < 0) {
-			Sink::unlock();
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -ret);
-			return;
-		}
+	mbuf::Queue *queue = channel->getQueue(this);
+	if (queue == nullptr) {
+		Sink::unlock();
+		PDRAW_LOGE("invalid queue");
+		return;
 	}
+
+	int count = queue->getCount();
+	if (count < 0) {
+		PDRAW_LOG_ERRNO("getQueueCount", -count);
+	} else if (count > 0) {
+		PDRAW_LOGW("%s: %d frames still in queue", __func__, count);
+	}
+
+	queue->flush();
 
 	Sink::unlock();
 
@@ -940,6 +616,16 @@ int Muxer::addChapter(uint64_t timestamp, const char *name)
 }
 
 
+int Muxer::setFileMetadata(enum pdraw_muxer_metadata_type type,
+			   const uint8_t *data,
+			   size_t size,
+			   const void *params,
+			   size_t paramsSize)
+{
+	return -ENOSYS;
+}
+
+
 int Muxer::getStats(struct pdraw_muxer_stats *stats)
 {
 	return -ENOSYS;
@@ -958,7 +644,7 @@ int Muxer::getDynParams(struct pdraw_muxer_dyn_params *dyn_params)
 }
 
 
-int Muxer::forceSync(void)
+int Muxer::forceSync()
 {
 	return -ENOSYS;
 }
@@ -1009,7 +695,7 @@ void Muxer::onUnrecoverableError(int error)
 /* Listener call from an idle function */
 void Muxer::callCloseResponse(void *userdata)
 {
-	Muxer *self = reinterpret_cast<Muxer *>(userdata);
+	auto *self = static_cast<Muxer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	int status = self->mCloseRespStatusArgs.front();
@@ -1026,7 +712,7 @@ void Muxer::callCloseResponse(void *userdata)
 /* Listener call from an idle function */
 void Muxer::callOnConnectionStateChanged(void *userdata)
 {
-	Muxer *self = reinterpret_cast<Muxer *>(userdata);
+	auto *self = static_cast<Muxer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	enum pdraw_muxer_connection_state state =
@@ -1047,7 +733,7 @@ void Muxer::callOnConnectionStateChanged(void *userdata)
 /* Listener call from an idle function */
 void Muxer::callOnUnrecoverableError(void *userdata)
 {
-	Muxer *self = reinterpret_cast<Muxer *>(userdata);
+	auto *self = static_cast<Muxer *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	int status = self->mUnrecoverableErrorStatusArgs.front();
@@ -1064,8 +750,7 @@ void Muxer::callOnUnrecoverableError(void *userdata)
 MuxerWrapper::MuxerWrapper(Session *session,
 			   const std::string &url,
 			   const struct pdraw_muxer_params *params,
-			   IPdraw::IMuxer::Listener *listener) :
-		mMuxer(nullptr)
+			   IPdraw::IMuxer::Listener *listener)
 {
 	std::string ext;
 
@@ -1084,8 +769,29 @@ MuxerWrapper::MuxerWrapper(Session *session,
 #else
 		ULOGE("%s: librtmp is not supported", __func__);
 #endif
+	} else if ((url.substr(0, 7) == "rtsp://") ||
+		   (url.substr(0, 8) == "rtsps://")) {
+		mElement = mMuxer = new Pdraw::RtspStreamMuxer(
+			session, session, listener, this, url, params);
 	} else if (ext == ".mp4" || ext == ".tmp") {
-		mElement = mMuxer = new Pdraw::RecordMuxer(
+		mElement = mMuxer = new Pdraw::IsobmffRecordMuxer(
+			session, session, listener, this, url, params);
+	} else if (ext == ".jpg" || ext == ".tpg") {
+#ifdef BUILD_LIBJFIF
+		mElement = mMuxer = new Pdraw::JfifRecordMuxer(
+			session, session, listener, this, url, params);
+#else
+		ULOGE("%s: libjfif is not supported", __func__);
+#endif
+	} else if (ext == ".dng" || ext == ".tdn") {
+#ifdef BUILD_LIBDNG_PARROT
+		mElement = mMuxer = new Pdraw::DngRecordMuxer(
+			session, session, listener, this, url, params);
+#else
+		ULOGE("%s: libdng-parrot is not supported", __func__);
+#endif
+	} else if (ext == ".png" || ext == ".tpn") {
+		mElement = mMuxer = new Pdraw::PngRecordMuxer(
 			session, session, listener, this, url, params);
 	} else {
 		ULOGE("%s: unsupported URL ('%s')", __func__, url.c_str());
@@ -1093,7 +799,7 @@ MuxerWrapper::MuxerWrapper(Session *session,
 }
 
 
-MuxerWrapper::~MuxerWrapper(void)
+MuxerWrapper::~MuxerWrapper()
 {
 	if (mMuxer == nullptr)
 		return;
@@ -1112,7 +818,7 @@ MuxerWrapper::~MuxerWrapper(void)
 }
 
 
-int MuxerWrapper::close(void)
+int MuxerWrapper::close()
 {
 	int res;
 
@@ -1152,6 +858,18 @@ int MuxerWrapper::addChapter(uint64_t timestamp, const char *name)
 }
 
 
+int MuxerWrapper::setFileMetadata(enum pdraw_muxer_metadata_type type,
+				  const uint8_t *data,
+				  size_t size,
+				  const void *params,
+				  size_t paramsSize)
+{
+	if (isElementStopped())
+		return -EPROTO;
+	return mMuxer->setFileMetadata(type, data, size, params, paramsSize);
+}
+
+
 int MuxerWrapper::getStats(struct pdraw_muxer_stats *stats)
 {
 	if (isElementStopped())
@@ -1179,7 +897,7 @@ int MuxerWrapper::getDynParams(struct pdraw_muxer_dyn_params *dyn_params)
 }
 
 
-int MuxerWrapper::forceSync(void)
+int MuxerWrapper::forceSync()
 {
 	if (isElementStopped())
 		return -EPROTO;

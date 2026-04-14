@@ -28,6 +28,7 @@ Parrot Drones SDK.
 * Demuxing
   * Record demuxer
     * Playback of local replays
+    * Playback modes: REALTIME or OFFLINE (as fast as possible)
     * MP4 file format (ISO/IEC 14496-12, ISO Base Media File Format /
     ISO/IEC 14496-14, MP4 File Format)
     * Multi-track support on the video and audio with user selection
@@ -38,6 +39,10 @@ Parrot Drones SDK.
     * RTP/AVP/MUX streams with SkyController remotes (using Parrot _libmux_)
     * Unicast only
     * RTSP 1.0 protocol (RFC 2326)
+    * RTSPS (RTSP over TLS)
+    * Domain name resolution
+    * Authentication support (Basic, Digest)
+    * RTSP interleaved support
     * Multi-track support on the video in RTSP with user selection
   * Playback control
     * Play/pause
@@ -56,6 +61,10 @@ Parrot Drones SDK.
      H.264 frames before decoding or YUV frames after decoding)
   * Audio
     * AAC audio decoding (ISO/IEC 13818-7), Low Complexity (LC) profile
+* Scaling
+  * Video
+    * I420, NV12, NV21 raw video scaling using libyuv
+    * Raw video format conversion (I420, NV12, NV21 and RGB)
 * Rendering
   * Video
     * OpenGL video rendering
@@ -82,9 +91,12 @@ Parrot Drones SDK.
     ISO/IEC 14496-14, MP4 File Format)
     * Multi-track support for video and audio
     * Chapter support (ISO/IEC 14496-12, 'chap' track)
+    * Photo record muxers (DNG, JFIF, PNG)
   * Stream muxer
     * Live video and audio streaming (fake audio)
     * RTMP streams (RTMP specification, AMF0/AMF3)
+    * RTSP streams (RTSP 1.0 protocol (RFC 2326), RTSP over TLS with domain
+    name resolution, authentication (Basic, Digest) and RTSP interleaved mode)
 * Sources
   * Video
     * Parrot Video IPC (VIPC) source (I420, N12, NV21)
@@ -132,6 +144,7 @@ The library depends on the following Alchemy modules:
 * libmedia-buffers-memory
 * libmedia-buffers-memory-generic
 * libmp4
+* libphoto-metadata-defs
 * libpomp
 * librtp
 * librtsp
@@ -211,6 +224,10 @@ The _libpdraw-vsink_ module provides two methods for retrieving frames:
   Note: This callback is executed from the _pdraw_vsink_ thread. The caller must
   ensure thread safety and be aware that the _pdraw_vsink_ thread is blocked
   during the callback execution.
+
+The library supports two playback synchronization modes: real-time, where frames
+follow the original stream timestamps, and offline, where frames are delivered
+as fast as the pipeline allows by ignoring real-time pacing.
 
 The library depends on the following Alchemy modules:
 

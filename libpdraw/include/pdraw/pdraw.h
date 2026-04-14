@@ -27,8 +27,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_H_
-#define _PDRAW_H_
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -301,6 +300,40 @@ struct pdraw_muxer_cbs {
 		enum pdraw_muxer_connection_state connection_state,
 		enum pdraw_muxer_disconnection_reason disconnection_reason,
 		void *userdata);
+
+	/* Media data ready callback function, called when a media frame
+	 * has been serialized and is ready in memory.
+	 * This function is called on the muxer's internal writer thread.
+	 * It provides direct access to the serialized buffer (e.g. a full
+	 * JPEG/JFIF) before it is written to the storage. This is intended
+	 * for efficient in-place processing such as SHA-256 hash computation.
+	 * @note The iovec array is only valid for the duration of the callback.
+	 * @param pdraw: PDrAW instance handle
+	 * @param muxer: muxer handle
+	 * @param media_path: future absolute path of the file being saved
+	 * @param iov: array of iovec structures pointing to memory blocks
+	 * @param iovcnt: number of elements in the iov array
+	 * @param userdata: user data pointer */
+	void (*media_ready)(struct pdraw *pdraw,
+			    struct pdraw_muxer *muxer,
+			    const char *media_path,
+			    const struct iovec *iov,
+			    int iovcnt,
+			    void *userdata);
+
+	/* Media saved callback function, called when a media file has
+	 * been successfully written and finalized on the storage device.
+	 * This function is called on the PDrAW loop thread.
+	 * When this function is called, the file is guaranteed to be
+	 * closed and available for external use (display, transfer, etc.).
+	 * @param pdraw: PDrAW instance handle
+	 * @param muxer: muxer handle
+	 * @param media_path: absolute path to the saved file
+	 * @param userdata: user data pointer */
+	void (*media_saved)(struct pdraw *pdraw,
+			    struct pdraw_muxer *muxer,
+			    const char *media_path,
+			    void *userdata);
 
 	/* Unrecoverable error callback function, called when a previously
 	 * opened session is no longer running. When this function is called,
@@ -1602,6 +1635,30 @@ int pdraw_muxer_set_thumbnail(struct pdraw *pdraw,
 
 
 /**
+ * Set the file metadata of the file written by the muxer.
+ * This function is available on a record muxer only; on any other type of muxer
+ * -ENOSYS is returned.
+ * The metadata type determines the format of the data buffer and the optional
+ * params structure.
+ * @param pdraw: PDrAW instance handle
+ * @param muxer: muxer handle
+ * @param type: type of the metadata
+ * @param data: metadata data, must be of length size
+ * @param size: size of data
+ * @param params: extra parameters specific to the metadata type (optional)
+ * @param params_size: size of params
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int pdraw_muxer_set_file_metadata(struct pdraw *pdraw,
+					    struct pdraw_muxer *muxer,
+					    enum pdraw_muxer_metadata_type type,
+					    const uint8_t *data,
+					    size_t size,
+					    const void *params,
+					    size_t params_size);
+
+
+/**
  * Add a chapter to the MP4 file written by the muxer.
  * This function is available on a record muxer only; on any other type of muxer
  * -ENOSYS is returned.
@@ -1635,13 +1692,14 @@ PDRAW_API int pdraw_muxer_get_stats(struct pdraw *pdraw,
 
 
 /**
- * Set the muxer dynamic parameters.
- * This function is available on a record muxer only; on any other type of muxer
- * -ENOSYS is returned.
+ * Update muxer dynamic parameters.
+ * Supported parameters vary by muxer type:
+ * - Record: 'tables_sync_period_ms'.
+ * - Stream: 'socket_tx_buffer_size' (e.g. for congestion control).
  * @param pdraw: PDrAW instance handle
  * @param muxer: muxer handle
  * @param dyn_params: dynamic parameters
- * @return 0 on success, negative errno value in case of error
+ * @return 0 on success, -ENOSYS if unsupported, or a negative errno.
  */
 PDRAW_API int
 pdraw_muxer_set_dyn_params(struct pdraw *pdraw,
@@ -1650,13 +1708,14 @@ pdraw_muxer_set_dyn_params(struct pdraw *pdraw,
 
 
 /**
- * Set the muxer dynamic parameters.
- * This function is available on a record muxer only; on any other type of muxer
- * -ENOSYS is returned.
+ * Get the current muxer dynamic parameters.
+ * Fills 'dyn_params' with values currently in use:
+ * - Record: 'tables_sync_period_ms'.
+ * - Stream: 'socket_tx_buffer_size'.
  * @param pdraw: PDrAW instance handle
  * @param muxer: muxer handle
  * @param dyn_params: dynamic parameters structure to fill
- * @return 0 on success, negative errno value in case of error
+ * @return 0 on success, -ENOSYS if unsupported, or a negative errno.
  */
 PDRAW_API int
 pdraw_muxer_get_dyn_params(struct pdraw *pdraw,
@@ -3075,6 +3134,20 @@ pdraw_video_encoder_get_config(struct pdraw *pdraw,
 			       struct pdraw_video_encoder *encoder,
 			       struct venc_dyn_config *config);
 
+
+/**
+ * Request a key frame from the video encoder.
+ * This function can be used to dynamically request a key frame from the video
+ * encoder.
+ * @param pdraw: PDrAW instance handle
+ * @param encoder: video encoder handle
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_API int
+pdraw_video_encoder_request_key_frame(struct pdraw *pdraw,
+				      struct pdraw_video_encoder *encoder);
+
+
 /**
  * Video scaler API
  */
@@ -3342,27 +3415,29 @@ pdraw_muxer_disconnection_reason_str(enum pdraw_muxer_disconnection_reason val);
 
 
 /**
+ * ToString function for enum pdraw_muxer_rtsp_transport.
+ * @param val: muxer RTP transport value to convert
+ * @return a string description of the muxer RTP transport
+ */
+PDRAW_API const char *
+pdraw_muxer_rtsp_transport_str(enum pdraw_muxer_rtsp_transport val);
+
+
+/**
+ * FromString function for enum pdraw_muxer_rtsp_transport.
+ * @param val: string to convert
+ * @return pdraw_muxer_rtsp_transport converted from the string description
+ */
+PDRAW_API enum pdraw_muxer_rtsp_transport
+pdraw_muxer_rtsp_transport_from_str(const char *val);
+
+
+/**
  * FromString function for enum pdraw_media_type.
  * @param val: string to convert
  * @return media type converted from the string description
  */
 PDRAW_API enum pdraw_media_type pdraw_media_type_from_str(const char *val);
-
-
-/**
- * ToString function for enum pdraw_video_type.
- * @param val: video type value to convert
- * @return a string description of the video type
- */
-PDRAW_API const char *pdraw_video_type_str(enum pdraw_video_type val);
-
-
-/**
- * FromString function for enum pdraw_video_type.
- * @param val: string to convert
- * @return video type converted from the string description
- */
-PDRAW_API enum pdraw_video_type pdraw_video_type_from_str(const char *val);
 
 
 /**
@@ -3504,6 +3579,67 @@ PDRAW_API void pdraw_media_info_free(struct pdraw_media_info *media_info);
 
 
 /**
+ * Duplicate a vipc_source_params structure.
+ * @param src: pointer to the pdraw_vipc_source_params structure to duplicate
+ * @return a pointer to the newly allocated structure or NULL on error.
+ */
+PDRAW_API struct pdraw_vipc_source_params *
+pdraw_vipc_source_params_dup(const struct pdraw_vipc_source_params *src);
+
+
+/**
+ * Free a vipc_source_params structure.
+ * @param params: pointer to the pdraw_vipc_source_params structure to free
+ */
+PDRAW_API void
+pdraw_vipc_source_params_free(struct pdraw_vipc_source_params *params);
+
+
+/**
+ * Duplicate a muxer_params structure.
+ * @param src: pointer to the pdraw_muxer_params structure to duplicate
+ * @return a pointer to the newly allocated structure or NULL on error.
+ */
+PDRAW_API struct pdraw_muxer_params *
+pdraw_muxer_params_dup(const struct pdraw_muxer_params *src);
+
+
+/**
+ * Free a muxer_params structure.
+ * @param params: pointer to the pdraw_muxer_params structure to free
+ */
+PDRAW_API void pdraw_muxer_params_free(struct pdraw_muxer_params *params);
+
+
+/**
+ * Duplicate a muxer_media_params structure.
+ * @param src: pointer to the pdraw_muxer_media_params structure to duplicate
+ * @return a pointer to the newly allocated structure or NULL on error.
+ */
+PDRAW_API struct pdraw_muxer_media_params *
+pdraw_muxer_media_params_dup(const struct pdraw_muxer_media_params *src);
+
+
+/**
+ * Free a muxer_media_params structure.
+ * @param params: pointer to the pdraw_muxer_media_params structure to free
+ */
+PDRAW_API void
+pdraw_muxer_media_params_free(struct pdraw_muxer_media_params *params);
+
+
+/**
+ * Free a demuxer_media list structure.
+ * @param media_list: pointer to the array of pdraw_demuxer_media structures to
+ * free
+ * @param media_count: number of elements in the media_list array
+ */
+PDRAW_API void
+pdraw_demuxer_media_list_free(struct pdraw_demuxer_media *media_list,
+			      size_t media_count);
+
+
+/**
  * Get the capabilities of an ALSA source.
  * This function retrieves the capabilities of the audio capture device.
  * The provided caps structure is filled by the function.
@@ -3519,5 +3655,3 @@ pdraw_alsa_source_get_capabilities(const char *address,
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-
-#endif /* !_PDRAW_H_ */

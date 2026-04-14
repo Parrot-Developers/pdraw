@@ -17,7 +17,8 @@ LOCAL_LIBRARIES := \
 	libmedia-buffers-memory-generic \
 	libpdraw \
 	libpomp \
-	libulog
+	libulog \
+	libvideo-metadata
 
 include $(BUILD_LIBRARY)
 

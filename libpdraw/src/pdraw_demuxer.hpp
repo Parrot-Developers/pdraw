@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_DEMUXER_HPP_
-#define _PDRAW_DEMUXER_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 #include "pdraw_media.hpp"
@@ -38,7 +37,7 @@
 
 #include <queue>
 
-#define DEMUXER_PENDING_COMMAND_TIMEOUT_MS (3000)
+constexpr size_t DEMUXER_PENDING_COMMAND_TIMEOUT_MS = 3000;
 
 namespace Pdraw {
 
@@ -47,9 +46,9 @@ class DemuxerWrapper;
 
 class Demuxer : public SourceElement {
 public:
-	virtual ~Demuxer(void);
+	~Demuxer() override;
 
-	const struct pdraw_demuxer_params *getParams(void)
+	const struct pdraw_demuxer_params *getParams() const
 	{
 		return &mParams;
 	}
@@ -62,20 +61,20 @@ public:
 
 	virtual int flush(bool discard = true) = 0;
 
-	inline virtual int drain(void)
+	inline virtual int drain()
 	{
 		return flush(false);
 	}
 
 	virtual int play(float speed = 1.0f) = 0;
 
-	virtual bool isReadyToPlay(void) = 0;
+	virtual bool isReadyToPlay() const = 0;
 
-	virtual bool isPaused(void) = 0;
+	virtual bool isPaused() const = 0;
 
-	virtual int previous(void) = 0;
+	virtual int previous() = 0;
 
-	virtual int next(void) = 0;
+	virtual int next() = 0;
 
 	virtual int seek(int64_t delta, bool exact = false) = 0;
 
@@ -84,16 +83,16 @@ public:
 	virtual int getChapterList(struct pdraw_chapter **chapterList,
 				   size_t *chapterCount);
 
-	virtual uint64_t getDuration(void) = 0;
+	virtual uint64_t getDuration() const = 0;
 
-	virtual uint64_t getCurrentTime(void) = 0;
+	virtual uint64_t getCurrentTime() const = 0;
 
-	IPdraw::IDemuxer *getDemuxer(void) const
+	IPdraw::IDemuxer *getDemuxer() const
 	{
 		return mDemuxer;
 	}
 
-	void clearDemuxerListener(void)
+	void clearDemuxerListener()
 	{
 		mDemuxerListener = nullptr;
 	}
@@ -132,67 +131,68 @@ protected:
 
 	void seekResponse(int status, uint64_t timestamp, float speed);
 
-	int updateMediaList(
-		struct pdraw_demuxer_media *newMediaList,
-		size_t newMediaListSize,
-		std::vector<struct pdraw_demuxer_media *> &newDefaultMedias,
-		uint32_t *selectedMedias);
+	int updateMediaList(struct pdraw_demuxer_media *newMediaList,
+			    size_t newMediaListSize,
+			    const std::vector<struct pdraw_demuxer_media *>
+				    &newDefaultMedias,
+			    uint32_t *selectedMedias);
 
-	void clearMediaList(void);
+	void clearMediaList();
 
-	uint32_t selectedMediasToBitfield(void);
+	uint32_t selectedMediasToBitfield() const;
 
 	static const char *getCommandStr(Demuxer::Command cmd);
 
 	int setPendingCommand(Demuxer::Command cmd);
 
-	Demuxer::Command getPendingCommand(void) const
+	Demuxer::Command getPendingCommand() const
 	{
 		return mPendingCmd;
 	}
 
-	void clearPendingCommand(void);
+	void clearPendingCommand();
 
-	IPdraw::IDemuxer *mDemuxer;
-	IPdraw::IDemuxer::Listener *mDemuxerListener;
-	struct pdraw_demuxer_params mParams;
-	bool mReadyToPlay;
-	bool mUnrecoverableError;
-	bool mCalledOpenResp;
-	bool mCallingSelectMedia;
-	struct pdraw_demuxer_media *mMediaList;
-	size_t mMediaListSize;
-	std::vector<struct pdraw_demuxer_media *> mDefaultMedias;
-	std::vector<struct pdraw_demuxer_media *> mSelectedMedias;
+	IPdraw::IDemuxer *mDemuxer = nullptr;
+	IPdraw::IDemuxer::Listener *mDemuxerListener = nullptr;
+	struct pdraw_demuxer_params mParams {
+	};
+	bool mReadyToPlay = false;
+	bool mUnrecoverableError = false;
+	bool mCalledOpenResp = false;
+	bool mCallingSelectMedia = false;
+	struct pdraw_demuxer_media *mMediaList = nullptr;
+	size_t mMediaListSize = 0;
+	std::vector<struct pdraw_demuxer_media *> mDefaultMedias{};
+	std::vector<struct pdraw_demuxer_media *> mSelectedMedias{};
 
 	/* Demuxer listener calls from idle functions */
 	static void callOpenResponse(void *userdata);
-	std::queue<int> mOpenRespStatusArgs;
+	std::queue<int> mOpenRespStatusArgs{};
 	static void callCloseResponse(void *userdata);
-	std::queue<int> mCloseRespStatusArgs;
+	std::queue<int> mCloseRespStatusArgs{};
 	static void callOnUnrecoverableError(void *userdata);
 	/* Note: callSelectMedia omitted: function has to be synchronous */
 	static void callReadyToPlay(void *userdata);
-	std::queue<bool> mReadyToPlayReadyArgs;
+	std::queue<bool> mReadyToPlayReadyArgs{};
 	static void callEndOfRange(void *userdata);
-	std::queue<uint64_t> mEndOfRangeTimestampArgs;
+	std::queue<uint64_t> mEndOfRangeTimestampArgs{};
 	static void callPlayResponse(void *userdata);
-	std::queue<int> mPlayRespStatusArgs;
-	std::queue<uint64_t> mPlayRespTimestampArgs;
-	std::queue<float> mPlayRespSpeedArgs;
+	std::queue<int> mPlayRespStatusArgs{};
+	std::queue<uint64_t> mPlayRespTimestampArgs{};
+	std::queue<float> mPlayRespSpeedArgs{};
 	static void callPauseResponse(void *userdata);
-	std::queue<int> mPauseRespStatusArgs;
-	std::queue<uint64_t> mPauseRespTimestampArgs;
+	std::queue<int> mPauseRespStatusArgs{};
+	std::queue<uint64_t> mPauseRespTimestampArgs{};
 	static void callSeekResponse(void *userdata);
-	std::queue<int> mSeekRespStatusArgs;
-	std::queue<uint64_t> mSeekRespTimestampArgs;
-	std::queue<float> mSeekRespSpeedArgs;
+	std::queue<int> mSeekRespStatusArgs{};
+	std::queue<uint64_t> mSeekRespTimestampArgs{};
+	std::queue<float> mSeekRespSpeedArgs{};
 
 private:
 	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
 
-	Demuxer::Command mPendingCmd;
-	struct pomp_timer *mWatchdogTimer;
+	Demuxer::Command mPendingCmd = Command::NONE;
+	struct pomp_timer *mWatchdogTimer = nullptr;
 };
 
 
@@ -214,9 +214,9 @@ public:
 		       const struct pdraw_demuxer_params *params,
 		       IPdraw::IDemuxer::Listener *listener);
 
-	~DemuxerWrapper(void);
+	~DemuxerWrapper() override;
 
-	int close(void) override;
+	int close() override;
 
 	int getMediaList(struct pdraw_demuxer_media **mediaList,
 			 size_t *mediaCount,
@@ -224,21 +224,21 @@ public:
 
 	int selectMedia(uint32_t selectedMedias) override;
 
-	uint16_t getSingleStreamLocalStreamPort(void) override;
+	uint16_t getSingleStreamLocalStreamPort() override;
 
-	uint16_t getSingleStreamLocalControlPort(void) override;
+	uint16_t getSingleStreamLocalControlPort() override;
 
-	bool isReadyToPlay(void) override;
+	bool isReadyToPlay() override;
 
-	bool isPaused(void) override;
+	bool isPaused() override;
 
 	int play(float speed = 1.0f) override;
 
-	int pause(void) override;
+	int pause() override;
 
-	int previousFrame(void) override;
+	int previousFrame() override;
 
-	int nextFrame(void) override;
+	int nextFrame() override;
 
 	int seek(int64_t delta, bool exact = false) override;
 
@@ -248,14 +248,14 @@ public:
 
 	int seekTo(uint64_t timestamp, bool exact = false) override;
 
-	uint64_t getDuration(void) override;
+	uint64_t getDuration() override;
 
-	uint64_t getCurrentTime(void) override;
+	uint64_t getCurrentTime() override;
 
 	int getChapterList(struct pdraw_chapter **chapterList,
 			   size_t *chapterCount) override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mDemuxer = nullptr;
@@ -267,15 +267,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mDemuxer == nullptr);
 	}
 
-	Demuxer *mDemuxer;
+	Demuxer *mDemuxer = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_DEMUXER_HPP_ */

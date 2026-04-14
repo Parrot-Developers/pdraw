@@ -28,17 +28,18 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_ENCODER_AUDIO_HPP_
-#define _PDRAW_ENCODER_AUDIO_HPP_
+#pragma once
 
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
 
+#include <mutex>
 #include <string>
 
 #include <audio-encode/aenc.h>
 #include <media-buffers/mbuf_audio_frame.h>
+#include <media-buffers/mbuf_queue.hpp>
 #include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
@@ -55,35 +56,35 @@ public:
 		     AudioEncoderWrapper *wrapper,
 		     const struct aenc_config *params);
 
-	~AudioEncoder(void);
+	~AudioEncoder() override;
 
-	int start(void) override;
+	int start() override;
 
-	int stop(void) override;
+	int stop() override;
 
-	void completeFlush(void);
+	void completeFlush();
 
-	void completeStop(void);
+	void completeStop();
 
-	IPdraw::IAudioEncoder *getAudioEncoder(void) const
+	IPdraw::IAudioEncoder *getAudioEncoder() const
 	{
 		return mEncoder;
 	}
 
 private:
-	int createOutputMedia(struct adef_frame *frame_info,
-			      AudioMedia::Frame &frame);
+	int createOutputMedia(const struct adef_frame *frame_info,
+			      const AudioMedia::Frame &frame);
 
 	int flush(bool discard = true);
 
-	inline int drain(void)
+	inline int drain()
 	{
 		return flush(false);
 	}
 
-	int tryStop(void);
+	int tryStop();
 
-	void removeEncoderListener(void);
+	void removeEncoderListener();
 
 	void onAudioChannelQueue(AudioChannel *channel,
 				 struct mbuf_audio_frame *frame) override;
@@ -115,21 +116,21 @@ private:
 
 	static void idleCompleteFlush(void *userdata);
 
-	IPdraw::IAudioEncoder *mEncoder;
-	IPdraw::IAudioEncoder::Listener *mEncoderListener;
-	pthread_mutex_t mListenerMutex;
-	AudioMedia *mInputMedia;
-	AudioMedia *mOutputMedia;
-	struct mbuf_pool *mInputBufferPool;
-	struct mbuf_audio_frame_queue *mInputBufferQueue;
-	struct aenc_config *mEncoderConfig;
-	std::string mEncoderName;
-	std::string mEncoderDevice;
-	struct aenc_encoder *mAenc;
-	bool mInputChannelFlushPending;
-	bool mOutputChannelDrainRequired;
-	bool mAencFlushPending;
-	bool mAencStopPending;
+	IPdraw::IAudioEncoder *mEncoder = nullptr;
+	IPdraw::IAudioEncoder::Listener *mEncoderListener = nullptr;
+	std::recursive_mutex mListenerMutex{};
+	AudioMedia *mInputMedia = nullptr;
+	std::unique_ptr<AudioMedia> mOutputMedia{};
+	struct mbuf_pool *mInputBufferPool = nullptr;
+	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
+	struct aenc_config *mEncoderConfig = nullptr;
+	std::string mEncoderName{};
+	std::string mEncoderDevice{};
+	struct aenc_encoder *mAenc = nullptr;
+	bool mInputChannelFlushPending = false;
+	bool mOutputChannelDrainRequired = false;
+	bool mAencFlushPending = false;
+	bool mAencStopPending = false;
 	static const struct aenc_cbs mEncoderCbs;
 };
 
@@ -141,9 +142,9 @@ public:
 			    const struct aenc_config *params,
 			    IPdraw::IAudioEncoder::Listener *listener);
 
-	~AudioEncoderWrapper(void);
+	~AudioEncoderWrapper() override;
 
-	void clearElement(void) override
+	void clearElement() override
 	{
 		ElementWrapper::clearElement();
 		mEncoder = nullptr;
@@ -160,15 +161,13 @@ public:
 	}
 
 private:
-	bool isElementStopped(void) const override
+	bool isElementStopped() const override
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mEncoder == nullptr);
 	}
 
-	AudioEncoder *mEncoder;
+	AudioEncoder *mEncoder = nullptr;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_ENCODER_AUDIO_HPP_ */

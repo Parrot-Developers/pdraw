@@ -40,10 +40,10 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 namespace Pdraw {
 
 
-#define NB_SUPPORTED_FORMATS 8
+constexpr size_t NB_SUPPORTED_FORMATS = 8;
 static struct adef_format supportedFormats[NB_SUPPORTED_FORMATS];
 static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
-static void initializeSupportedFormats(void)
+static void initializeSupportedFormats()
 {
 	supportedFormats[0] = adef_pcm_16b_44100hz_mono;
 	supportedFormats[1] = adef_pcm_16b_44100hz_stereo;
@@ -70,18 +70,11 @@ ExternalAudioSink::ExternalAudioSink(Session *session,
 			    nullptr,
 			    0,
 			    nullptr,
-			    0)
+			    0),
+		mAudioSink(wrapper), mAudioSinkListener(listener),
+		mTargetMediaId(mediaId)
 {
 	Element::setClassName(__func__);
-	mAudioSinkListener = listener;
-	mAudioSink = wrapper;
-	mInputMedia = nullptr;
-	mMediaId = 0;
-	mTargetMediaId = mediaId;
-	mInputFrameQueue = nullptr;
-	mInputChannelFlushPending = false;
-	mTearingDown = false;
-	mPendingRestart = false;
 
 	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
 	setAudioMediaFormatCaps(supportedFormats, NB_SUPPORTED_FORMATS);
@@ -90,7 +83,7 @@ ExternalAudioSink::ExternalAudioSink(Session *session,
 }
 
 
-ExternalAudioSink::~ExternalAudioSink(void)
+ExternalAudioSink::~ExternalAudioSink()
 {
 	int ret;
 
@@ -117,20 +110,17 @@ ExternalAudioSink::~ExternalAudioSink(void)
 
 	/* Flush and destroy the queue */
 	if (mInputFrameQueue != nullptr) {
-		ret = mbuf_audio_frame_queue_flush(mInputFrameQueue);
+		ret = mInputFrameQueue->flush();
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_flush", -ret);
-		ret = mbuf_audio_frame_queue_destroy(mInputFrameQueue);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_destroy", -ret);
-		mInputFrameQueue = nullptr;
+			PDRAW_LOG_ERRNO("flush", -ret);
+		mInputFrameQueue.reset();
 	}
 
 	Media::cleanupMediaInfo(&mMediaInfo);
 }
 
 
-int ExternalAudioSink::start(void)
+int ExternalAudioSink::start()
 {
 	if ((mState == State::STARTED) || (mState == State::STARTING)) {
 		return 0;
@@ -142,10 +132,12 @@ int ExternalAudioSink::start(void)
 	setState(State::STARTING);
 
 	/* Create the queue */
-	int res = mbuf_audio_frame_queue_new(&mInputFrameQueue);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_queue_new", -res);
-		return res;
+	try {
+		mInputFrameQueue =
+			mbuf::Queue::create(mbuf::Queue::Type::AUDIO);
+	} catch (const std::bad_alloc &) {
+		PDRAW_LOGE("queue allocation failed");
+		return -ENOMEM;
 	}
 
 	setState(State::STARTED);
@@ -154,7 +146,7 @@ int ExternalAudioSink::start(void)
 }
 
 
-int ExternalAudioSink::stop(void)
+int ExternalAudioSink::stop()
 {
 	int ret;
 	AudioChannel *channel = nullptr;
@@ -216,7 +208,7 @@ int ExternalAudioSink::setMediaId(unsigned int mediaId)
 }
 
 
-unsigned int ExternalAudioSink::getMediaId(void) const
+unsigned int ExternalAudioSink::getMediaId() const
 {
 	return mMediaId;
 }
@@ -224,7 +216,8 @@ unsigned int ExternalAudioSink::getMediaId(void) const
 
 int ExternalAudioSink::flush(bool discard)
 {
-	int ret, err;
+	int ret;
+	int err;
 
 	switch (getFlushingState()) {
 	case FlushingState::UNFLUSHED:
@@ -233,6 +226,14 @@ int ExternalAudioSink::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
+		ret = mInputFrameQueue->getCount();
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("getCount", -ret);
+			return ret;
+		} else if (ret > 0) {
+			setFlushingState(FlushingState::UNFLUSHED);
+			break;
+		}
 		PDRAW_LOGD("audio sink is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
 		ret = pomp_loop_idle_add_with_cookie(
@@ -269,13 +270,15 @@ int ExternalAudioSink::flushDone(bool discard)
 			   mFlushDiscard);
 	}
 
+	setFlushingState(FlushingState::FLUSHED);
+
 	Sink::lock();
 
 	if (mInputMedia == nullptr)
 		goto exit;
 
 	if (mInputChannelFlushPending) {
-		AudioChannel *channel = dynamic_cast<AudioChannel *>(
+		auto *channel = dynamic_cast<AudioChannel *>(
 			getInputChannel(mInputMedia));
 		if (channel == nullptr) {
 			PDRAW_LOGE("failed to get channel");
@@ -296,8 +299,6 @@ int ExternalAudioSink::flushDone(bool discard)
 exit:
 	Sink::unlock();
 
-	setFlushingState(FlushingState::FLUSHED);
-
 	if (mState == State::STOPPING)
 		setState(State::STOPPED);
 
@@ -307,7 +308,7 @@ exit:
 
 void ExternalAudioSink::idleFlushDone(void *userdata)
 {
-	ExternalAudioSink *self = (ExternalAudioSink *)userdata;
+	auto *self = static_cast<ExternalAudioSink *>(userdata);
 	if (self->mFlushDiscard)
 		(void)self->flushDone();
 	else
@@ -318,8 +319,7 @@ void ExternalAudioSink::idleFlushDone(void *userdata)
 void ExternalAudioSink::idleRenewMedia(void *userdata)
 {
 
-	ExternalAudioSink *self =
-		reinterpret_cast<ExternalAudioSink *>(userdata);
+	auto *self = static_cast<ExternalAudioSink *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mInputMedia != nullptr)
@@ -335,7 +335,7 @@ int ExternalAudioSink::addInputMedia(Media *media)
 	struct pdraw_media_info mediaInfoCopy = {};
 
 	/* Only accept raw video media */
-	AudioMedia *m = dynamic_cast<AudioMedia *>(media);
+	auto *m = dynamic_cast<AudioMedia *>(media);
 	if (m == nullptr) {
 		PDRAW_LOGE("unsupported input media");
 		return -ENOSYS;
@@ -360,14 +360,13 @@ int ExternalAudioSink::addInputMedia(Media *media)
 		return ret;
 	}
 
-	AudioChannel *channel =
-		dynamic_cast<AudioChannel *>(getInputChannel(m));
+	auto *channel = dynamic_cast<AudioChannel *>(getInputChannel(m));
 	if (channel == nullptr) {
 		Sink::unlock();
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
-	channel->setQueue(this, mInputFrameQueue);
+	channel->setQueue(this, mInputFrameQueue.get());
 
 	mInputMedia = m;
 	mMediaId = mTargetMediaId = m->id;
@@ -411,7 +410,7 @@ int ExternalAudioSink::removeInputMedia(Media *media)
 		mPendingRestart = false;
 	}
 
-	AudioChannel *channel =
+	const auto *channel =
 		dynamic_cast<AudioChannel *>(getInputChannel(media));
 	if (channel == nullptr) {
 		Sink::unlock();
@@ -419,12 +418,8 @@ int ExternalAudioSink::removeInputMedia(Media *media)
 		return -EPROTO;
 	}
 
-	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
-	if (queue != nullptr) {
-		ret = mbuf_audio_frame_queue_flush(queue);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_queue_flush",
-					-ret);
+	if (mInputFrameQueue != nullptr) {
+		mInputFrameQueue->flush();
 	}
 
 	ret = Sink::removeInputMedia(media);
@@ -440,25 +435,22 @@ int ExternalAudioSink::removeInputMedia(Media *media)
 }
 
 
-int ExternalAudioSink::prepareAudioFrame(AudioChannel *channel,
+int ExternalAudioSink::prepareAudioFrame(const AudioChannel *channel,
 					 struct mbuf_audio_frame *frame)
 {
 	int ret;
-	AudioMedia::Frame *in_meta;
-	struct pdraw_audio_frame out_meta = {};
+	const AudioMedia::Frame *in_meta;
+	struct pdraw_audio_frame out_meta {
+	};
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
 
 	if (mInputMedia == nullptr) {
 		PDRAW_LOGE("invalid input media");
 		return -ENOENT;
 	}
-	struct mbuf_audio_frame_queue *queue = channel->getQueue(this);
-	if (queue == nullptr) {
+	if (mInputFrameQueue == nullptr ||
+	    !channel->hasQueue(mInputFrameQueue.get())) {
 		PDRAW_LOGE("invalid queue");
-		return -ENOENT;
-	}
-	if (queue != mInputFrameQueue) {
-		PDRAW_LOGE("invalid input buffer queue");
 		return -EPROTO;
 	}
 
@@ -478,8 +470,8 @@ int ExternalAudioSink::prepareAudioFrame(AudioChannel *channel,
 		return ret;
 	}
 
-	in_meta = (AudioMedia::Frame *)mbuf_ancillary_data_get_buffer(
-		ancillaryData, nullptr);
+	in_meta = static_cast<const AudioMedia::Frame *>(
+		mbuf_ancillary_data_get_buffer(ancillaryData, nullptr));
 
 	if (!adef_format_intersect(&out_meta.audio.format,
 				   mAudioMediaFormatCaps,
@@ -604,7 +596,7 @@ void ExternalAudioSink::onChannelDrain(Channel *channel)
 
 void ExternalAudioSink::onChannelTeardown(Channel *channel)
 {
-	AudioChannel *c = dynamic_cast<AudioChannel *>(channel);
+	auto *c = dynamic_cast<AudioChannel *>(channel);
 	if (c == nullptr) {
 		PDRAW_LOG_ERRNO("channel", EINVAL);
 		return;
@@ -669,8 +661,7 @@ int ExternalAudioSink::channelTeardown(AudioChannel *channel)
 /* Listener call from an idle function */
 void ExternalAudioSink::callAudioSinkFlush(void *userdata)
 {
-	ExternalAudioSink *self =
-		reinterpret_cast<ExternalAudioSink *>(userdata);
+	auto *self = static_cast<ExternalAudioSink *>(userdata);
 	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 
 	if (self->mAudioSinkListener == nullptr) {
@@ -692,14 +683,18 @@ void ExternalAudioSink::callAudioSinkFlush(void *userdata)
 
 AudioSinkWrapper::AudioSinkWrapper(Session *session,
 				   unsigned int mediaId,
-				   IPdraw::IAudioSink::Listener *listener)
+				   IPdraw::IAudioSink::Listener *listener) :
+		ElementWrapper(new Pdraw::ExternalAudioSink(session,
+							    session,
+							    listener,
+							    this,
+							    mediaId)),
+		mSink(static_cast<Pdraw::ExternalAudioSink *>(mElement))
 {
-	mElement = mSink = new Pdraw::ExternalAudioSink(
-		session, session, listener, this, mediaId);
 }
 
 
-AudioSinkWrapper::~AudioSinkWrapper(void)
+AudioSinkWrapper::~AudioSinkWrapper()
 {
 	if (isElementStopped())
 		return;
@@ -717,7 +712,7 @@ int AudioSinkWrapper::setMediaId(unsigned int mediaId)
 }
 
 
-unsigned int AudioSinkWrapper::getMediaId(void)
+unsigned int AudioSinkWrapper::getMediaId()
 {
 	if (isElementStopped())
 		return -EPROTO;
@@ -725,15 +720,22 @@ unsigned int AudioSinkWrapper::getMediaId(void)
 }
 
 
-struct mbuf_audio_frame_queue *AudioSinkWrapper::getQueue(void)
+struct mbuf_audio_frame_queue *AudioSinkWrapper::getQueue()
 {
+	struct mbuf_audio_frame_queue *ret = nullptr;
+
 	if (isElementStopped())
 		return nullptr;
-	return mSink->getQueue();
+
+	mbuf::Queue *queue = mSink->getQueue();
+	if (queue == nullptr)
+		return nullptr;
+	queue->getCQueue(&ret);
+	return ret;
 }
 
 
-int AudioSinkWrapper::queueFlushed(void)
+int AudioSinkWrapper::queueFlushed()
 {
 	if (isElementStopped())
 		return -EPROTO;
@@ -741,7 +743,7 @@ int AudioSinkWrapper::queueFlushed(void)
 }
 
 
-int AudioSinkWrapper::queueDrained(void)
+int AudioSinkWrapper::queueDrained()
 {
 	if (isElementStopped())
 		return -EPROTO;

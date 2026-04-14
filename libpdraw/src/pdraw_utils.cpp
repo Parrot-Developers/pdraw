@@ -42,9 +42,10 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #endif
 
 extern "C" {
-const char *PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME = "pdraw.video.frame";
-const char *PDRAW_ANCILLARY_DATA_KEY_AUDIOFRAME = "pdraw.audio.frame";
-const char *PDRAW_VIDEO_RENDERER_DBG_FLAGS = "PDRAW_VIDEO_RENDERER_DBG_FLAGS";
+const char *const PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME = "pdraw.video.frame";
+const char *const PDRAW_ANCILLARY_DATA_KEY_AUDIOFRAME = "pdraw.audio.frame";
+const char *const PDRAW_VIDEO_RENDERER_DBG_FLAGS =
+	"PDRAW_VIDEO_RENDERER_DBG_FLAGS";
 }
 
 
@@ -97,9 +98,11 @@ static const std::map<enum pdraw_muxer_disconnection_reason, const char *>
 	};
 
 
-static const std::map<enum pdraw_video_type, const char *> pdraw_video_type_map{
-	{PDRAW_VIDEO_TYPE_DEFAULT_CAMERA, "DEFAULT_CAMERA"},
-};
+static const std::map<enum pdraw_muxer_rtsp_transport, const char *>
+	pdraw_muxer_rtsp_transport_map{
+		{PDRAW_MUXER_RTSP_TRANSPORT_UDP, "UDP"},
+		{PDRAW_MUXER_RTSP_TRANSPORT_TCP, "TCP"},
+	};
 
 
 static const std::map<enum pdraw_histogram_channel, const char *>
@@ -157,7 +160,12 @@ void pdraw_gaussianDistribution(float *samples,
 				float sigma)
 {
 	unsigned int i;
-	float a, x, g, start, step, sum;
+	float a;
+	float x;
+	float g;
+	float start;
+	float step;
+	float sum;
 
 	if (samples == nullptr)
 		return;
@@ -169,7 +177,7 @@ void pdraw_gaussianDistribution(float *samples,
 	if (sampleCount == 0)
 		return;
 
-	a = 1.f / (sqrtf(2.f * M_PI) * sigma);
+	a = 1.f / (sqrtf(2.f * (float)M_PI) * sigma);
 	start = -(float)sampleCount / 2.f;
 	step = (sampleCount > 1)
 		       ? (float)sampleCount / ((float)sampleCount - 1.f)
@@ -208,9 +216,8 @@ void pdraw_friendlyTimeFromUs(uint64_t time,
 	unsigned int _sec = (unsigned int)((time + 500) / 1000 -
 					   _hrs * 60 * 60000 - _min * 60000) /
 			    1000;
-	unsigned int _msec =
-		(unsigned int)((time + 500) / 1000 - _hrs * 60 * 60000 -
-			       _min * 60000 - _sec * 1000);
+	auto _msec = (unsigned int)((time + 500) / 1000 - _hrs * 60 * 60000 -
+				    _min * 60000 - _sec * 1000);
 	if (hrs)
 		*hrs = _hrs;
 	if (min)
@@ -332,25 +339,26 @@ pdraw_muxerDisconnectionReasonStr(enum pdraw_muxer_disconnection_reason val)
 }
 
 
-const char *pdraw_videoTypeStr(enum pdraw_video_type val)
+const char *pdraw_muxerRtpTransportStr(enum pdraw_muxer_rtsp_transport val)
 {
-	auto search = pdraw_video_type_map.find(val);
+	auto search = pdraw_muxer_rtsp_transport_map.find(val);
 
-	if (search != pdraw_video_type_map.end())
+	if (search != pdraw_muxer_rtsp_transport_map.end())
 		return search->second;
 
-	ULOGW("invalid pdraw_video_type: %d", val);
+	ULOGW("invalid pdraw_muxer_rtsp_transport_map: %d", val);
 	return "INVALID";
 }
 
 
-enum pdraw_video_type pdraw_videoTypeFromStr(const char *val)
+enum pdraw_muxer_rtsp_transport pdraw_muxerRtpTransportFromStr(const char *val)
 {
-	enum pdraw_video_type ret = pdraw_video_type_map.begin()->first;
+	enum pdraw_muxer_rtsp_transport ret =
+		pdraw_muxer_rtsp_transport_map.begin()->first;
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_video_type_map) {
+	for (auto i : pdraw_muxer_rtsp_transport_map) {
 		if (strcmp(i.second, val) == 0)
 			return i.first;
 	}
@@ -535,7 +543,7 @@ static void jsonFillRawVideoInfo(struct json_object *jobj,
 	ret = asprintf(&fmt,
 		       VDEF_RAW_FORMAT_TO_STR_FMT,
 		       VDEF_RAW_FORMAT_TO_STR_ARG(&frame->format));
-	if (fmt != nullptr) {
+	if ((ret > 0) && (fmt != nullptr)) {
 		json_object_object_add(
 			jobj_frame, "format", json_object_new_string(fmt));
 		free(fmt);
@@ -606,7 +614,7 @@ static void jsonFillCodedVideoInfo(struct json_object *jobj,
 	ret = asprintf(&fmt,
 		       VDEF_CODED_FORMAT_TO_STR_FMT,
 		       VDEF_CODED_FORMAT_TO_STR_ARG(&frame->format));
-	if (fmt != nullptr) {
+	if ((ret > 0) && (fmt != nullptr)) {
 		json_object_object_add(
 			jobj_frame, "format", json_object_new_string(fmt));
 		free(fmt);
@@ -654,23 +662,36 @@ int pdraw_frameMetadataToJsonStr(const struct pdraw_video_frame *frame,
 				 char *output,
 				 unsigned int len)
 {
-	if (!frame || !output)
-		return -EINVAL;
+	int ret = 0;
+	const char *jstr = nullptr;
+	size_t jlen = 0;
+	struct json_object *jobj = nullptr;
 
-	const char *jstr;
-	struct json_object *jobj = json_object_new_object();
+	ULOG_ERRNO_RETURN_ERR_IF(frame == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(output == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(len == 0, EINVAL);
+
+	jobj = json_object_new_object();
 	if (jobj == nullptr)
 		return -ENOMEM;
-	int ret = pdraw_frameMetadataToJson(frame, metadata, jobj);
+
+	ret = pdraw_frameMetadataToJson(frame, metadata, jobj);
 	if (ret < 0)
 		goto out;
-
 	jstr = json_object_to_json_string(jobj);
-	if (strlen(jstr) + 1 > len) {
+	if (!jstr) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	jlen = strnlen(jstr, len + 1);
+	if ((jlen >= len) || (jlen == 0)) {
 		ret = -ENOBUFS;
 		goto out;
 	}
-	strcpy(output, jstr);
+
+	memcpy(output, jstr, jlen + 1);
+	ret = 0;
 
 out:
 	json_object_put(jobj);
@@ -766,7 +787,7 @@ int pdraw_frameMetadataToJson(const struct pdraw_video_frame *frame,
 		jobj_sub = json_object_new_object();
 		if (jobj_sub == nullptr)
 			return -ENOMEM;
-		int ret = vmeta_frame_to_json(metadata, jobj_sub);
+		ret = vmeta_frame_to_json(metadata, jobj_sub);
 		if (ret < 0) {
 			if (jobj_sub != nullptr)
 				json_object_put(jobj_sub);
@@ -876,38 +897,27 @@ out:
 
 struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src)
 {
-	struct pdraw_media_info *dst;
-
 	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
 
-	dst = (pdraw_media_info *)malloc(sizeof(*src));
+	auto dst = static_cast<pdraw_media_info *>(malloc(sizeof(*src)));
 	if (dst == nullptr) {
-		ULOG_ERRNO("calloc", ENOMEM);
+		ULOG_ERRNO("malloc", ENOMEM);
 		return nullptr;
 	}
 	*dst = *src;
 
-	dst->name = nullptr;
-	dst->path = nullptr;
+	dst->name = xstrdup(src->name);
+	dst->path = xstrdup(src->path);
 
-	dst->name = strdup(src->name);
-	if (dst->name == nullptr) {
+	if ((src->name && !dst->name) || (src->path && !dst->path)) {
 		ULOG_ERRNO("strdup", ENOMEM);
-		goto failure;
-	}
-	dst->path = strdup(src->path);
-	if (dst->path == nullptr) {
-		ULOG_ERRNO("strdup", ENOMEM);
-		goto failure;
+		free(const_cast<char *>(dst->name));
+		free(const_cast<char *>(dst->path));
+		free(dst);
+		return nullptr;
 	}
 
 	return dst;
-
-failure:
-	free((void *)dst->name);
-	free((void *)dst->path);
-	free(dst);
-	return nullptr;
 }
 
 
@@ -916,9 +926,142 @@ void pdraw_mediaInfoFree(struct pdraw_media_info *media_info)
 	if (media_info == nullptr)
 		return;
 
-	free((void *)media_info->name);
-	free((void *)media_info->path);
+	free(const_cast<char *>(media_info->name));
+	free(const_cast<char *>(media_info->path));
 	free(media_info);
+}
+
+
+struct pdraw_vipc_source_params *
+pdraw_vipcSourceParamsDup(const struct pdraw_vipc_source_params *src)
+{
+	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
+
+	auto dst =
+		static_cast<pdraw_vipc_source_params *>(malloc(sizeof(*src)));
+	if (dst == nullptr) {
+		ULOG_ERRNO("malloc", ENOMEM);
+		return nullptr;
+	}
+
+	*dst = *src;
+
+	dst->address = xstrdup(src->address);
+	dst->friendly_name = xstrdup(src->friendly_name);
+	dst->backend_name = xstrdup(src->backend_name);
+
+	if ((src->address && !dst->address) ||
+	    (src->friendly_name && !dst->friendly_name) ||
+	    (src->backend_name && !dst->backend_name)) {
+		ULOG_ERRNO("strdup", ENOMEM);
+		free(const_cast<char *>(dst->address));
+		free(const_cast<char *>(dst->friendly_name));
+		free(const_cast<char *>(dst->backend_name));
+		free(dst);
+		return nullptr;
+	}
+
+	return dst;
+}
+
+
+void pdraw_vipcSourceParamsFree(struct pdraw_vipc_source_params *params)
+{
+	if (params == nullptr)
+		return;
+
+	free(const_cast<char *>(params->address));
+	free(const_cast<char *>(params->friendly_name));
+	free(const_cast<char *>(params->backend_name));
+	free(params);
+}
+
+
+struct pdraw_muxer_params *
+pdraw_muxerParamsDup(const struct pdraw_muxer_params *src)
+{
+	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
+
+	auto dst = static_cast<pdraw_muxer_params *>(malloc(sizeof(*src)));
+	if (dst == nullptr) {
+		ULOG_ERRNO("malloc", ENOMEM);
+		return nullptr;
+	}
+
+	*dst = *src;
+
+	dst->recovery.tables_file = xstrdup(src->recovery.tables_file);
+
+	if (src->recovery.tables_file && !dst->recovery.tables_file) {
+		ULOG_ERRNO("strdup", ENOMEM);
+		free(const_cast<char *>(dst->recovery.tables_file));
+		free(dst);
+		return nullptr;
+	}
+
+	return dst;
+}
+
+
+void pdraw_muxerParamsFree(struct pdraw_muxer_params *params)
+{
+	if (params == nullptr)
+		return;
+
+	free(const_cast<char *>(params->recovery.tables_file));
+	free(params);
+}
+
+
+struct pdraw_muxer_media_params *
+pdraw_muxerMediaParamsDup(const struct pdraw_muxer_media_params *src)
+{
+	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
+
+	auto dst =
+		static_cast<pdraw_muxer_media_params *>(malloc(sizeof(*src)));
+	if (dst == nullptr) {
+		ULOG_ERRNO("malloc", ENOMEM);
+		return nullptr;
+	}
+
+	*dst = *src;
+
+	dst->track_name = xstrdup(src->track_name);
+
+	if (src->track_name && !dst->track_name) {
+		ULOG_ERRNO("strdup", ENOMEM);
+		free(const_cast<char *>(dst->track_name));
+		free(dst);
+		return nullptr;
+	}
+
+	return dst;
+}
+
+
+void pdraw_muxerMediaParamsFree(struct pdraw_muxer_media_params *params)
+{
+	if (params == nullptr)
+		return;
+
+	free(const_cast<char *>(params->track_name));
+	free(params);
+}
+
+
+void pdraw_demuxerMediaListFree(struct pdraw_demuxer_media *media_list,
+				size_t media_count)
+{
+	if (media_list == nullptr)
+		return;
+
+	for (size_t i = 0; i < media_count; i++) {
+		free(const_cast<char *>(media_list[i].name));
+		free(const_cast<char *>(media_list[i].uri));
+	}
+
+	free(media_list);
 }
 
 
@@ -926,13 +1069,14 @@ namespace Pdraw {
 
 std::atomic<unsigned int> Loggable::mIdCounter(0);
 
-Loggable::Loggable()
+Loggable::Loggable() :
+		mName(std::string(__func__) + "#" +
+		      std::to_string(++mIdCounter)),
+		self(this)
 {
-	mName = std::string(__func__) + "#" + std::to_string(++mIdCounter);
-	self = this;
 }
 
-void Loggable::setName(std::string &name)
+void Loggable::setName(const std::string &name)
 {
 	mName = name;
 }

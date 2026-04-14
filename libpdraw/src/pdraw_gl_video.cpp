@@ -46,23 +46,23 @@ namespace Pdraw {
 
 
 /* Blurred padding dark coef */
-#	define PDRAW_BLURRED_PADDING_DARK_COEF (0.75f)
+constexpr float PDRAW_BLURRED_PADDING_DARK_COEF = 0.75f;
 
 /* The temporal frequency of zebra pattern */
-#	define PDRAW_ZEBRA_FREQUENCY_HZ (1.f)
+constexpr float PDRAW_ZEBRA_FREQUENCY_HZ = 1.f;
 /* The angle of zebra pattern relative to y axis */
-#	define PDRAW_ZEBRA_ANGLE (60.f * M_PI / 180.f)
+constexpr float PDRAW_ZEBRA_ANGLE = (60.f * M_PI / 180.f);
 /* The weight in pixels of zebra pattern, relative to 1920 width */
-#	define PDRAW_ZEBRA_WEIGHT (8.f)
+constexpr float PDRAW_ZEBRA_WEIGHT = 8.f;
 
-#	define GL_VIDEO_BLUR_MIN_SIGMA 0.8f
-#	define GL_VIDEO_BLUR_MAX_SIGMA 6.0f
-#	define GL_VIDEO_BLURRED_PADDING_SIGMA 3.0f
+constexpr float GL_VIDEO_BLUR_MIN_SIGMA = 0.8f;
+constexpr float GL_VIDEO_BLUR_MAX_SIGMA = 6.0f;
+constexpr float GL_VIDEO_BLURRED_PADDING_SIGMA = 3.0f;
 
-#	define GL_VIDEO_HISTOGRAM_COMPUTE_INTERVAL_US 100000
+constexpr size_t GL_VIDEO_HISTOGRAM_COMPUTE_INTERVAL_US = 100000;
 
-#	define GL_VIDEO_FLASH_LIGHT_COEF 0.3f
-#	define GL_VIDEO_FLASH_GAMMA_COEF 2.0f
+constexpr float GL_VIDEO_FLASH_LIGHT_COEF = 0.3f;
+constexpr float GL_VIDEO_FLASH_GAMMA_COEF = 2.0f;
 
 #	ifdef GL_ES_VERSION_2_0
 /* Default OpenGL ES Shading Language version (1.10.59) */
@@ -72,7 +72,7 @@ namespace Pdraw {
 #		define GLSL_VERSION "#version 110\n"
 #	endif
 
-static const GLchar *videoVertexShader =
+static const GLchar *const videoVertexShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 	"uniform mat4 transform_matrix;\n"
@@ -86,7 +86,7 @@ static const GLchar *videoVertexShader =
 	"    v_texcoord = texcoord;\n"
 	"}\n";
 
-static const GLchar *zebraFragmentShader =
+static const GLchar *const zebraFragmentShader =
 	"uniform float zebra_phase;\n"
 	"uniform float zebra_sat;\n"
 	"uniform float zebra_weight;\n"
@@ -105,7 +105,7 @@ static const GLchar *zebraFragmentShader =
 	"    return rgb;\n"
 	"}\n";
 
-static const GLchar *mbStatusFragmentShader =
+static const GLchar *const mbStatusFragmentShader =
 	"const float MB_STATUS_UNKNOWN = 0.5 / 255.;\n"
 	"const float MB_STATUS_VALID_ISLICE = 1.5 / 255.;\n"
 	"const float MB_STATUS_VALID_PSLICE = 2.5 / 255.;\n"
@@ -141,7 +141,7 @@ static const GLchar *mbStatusFragmentShader =
 	"    return rgb;\n"
 	"}\n";
 
-static const GLchar *textureNoconvFragmentShader =
+static const GLchar *const textureNoconvFragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -161,7 +161,7 @@ static const GLchar *textureNoconvFragmentShader =
 	"    return texture2D(s_texture_0, min(max_clamp[0], coord + offset_px * stride[0])).rgb;\n"
 	"}\n";
 
-static const GLchar *textureI420FragmentShader =
+static const GLchar *const textureI420FragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -197,7 +197,7 @@ static const GLchar *textureI420FragmentShader =
 
 /* YUV 4:2:0 planar with 16 bits data format in little endian
  * and 10 bits depth, padding in higher bits */
-static const GLchar *textureI42010LELowFragmentShader =
+static const GLchar *const textureI42010LELowFragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -237,7 +237,7 @@ static const GLchar *textureI42010LELowFragmentShader =
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
-static const GLchar *textureNV12FragmentShader =
+static const GLchar *const textureNV12FragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -269,7 +269,7 @@ static const GLchar *textureNV12FragmentShader =
 
 /* YUV 4:2:0 semi-planar with 16 bits data format in little endian
  * and 10 bits depth, padding in lower bits */
-static const GLchar *textureNV1210LEHighFragmentShader =
+static const GLchar *const textureNV1210LEHighFragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -305,7 +305,7 @@ static const GLchar *textureNV1210LEHighFragmentShader =
 	"    return yuv2rgb_mat * (yuv.rgb + yuv2rgb_offset);\n"
 	"}\n";
 
-static const GLchar *textureGrayFragmentShader =
+static const GLchar *const textureGrayFragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -325,7 +325,7 @@ static const GLchar *textureGrayFragmentShader =
 	"    return vec3(gray, gray, gray);\n"
 	"}\n";
 
-static const GLchar *textureGray16FragmentShader =
+static const GLchar *const textureGray16FragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -347,7 +347,7 @@ static const GLchar *textureGray16FragmentShader =
 	"    return vec3(gray, gray, gray);\n"
 	"}\n";
 
-static const GLchar *textureGray32FragmentShader =
+static const GLchar *const textureGray32FragmentShader =
 	"uniform sampler2D s_texture_0;\n"
 	"uniform sampler2D s_texture_1;\n"
 	"uniform sampler2D s_texture_2;\n"
@@ -369,7 +369,7 @@ static const GLchar *textureGray32FragmentShader =
 	"    return vec3(gray, gray, gray);\n"
 	"}\n";
 
-static const GLchar *videoFragmentShader =
+static const GLchar *const videoFragmentShader =
 #	if defined(GL_ES_VERSION_2_0)
 	"precision highp float;\n"
 #	endif
@@ -426,7 +426,7 @@ static const GLchar *videoFragmentShader =
 	"    gl_FragColor = vec4(rgb, 1.0);\n"
 	"}\n";
 
-static const GLchar *simpleVideoFragmentShader =
+static const GLchar *const simpleVideoFragmentShader =
 #	if defined(GL_ES_VERSION_2_0)
 	"precision mediump float;\n"
 #	endif
@@ -569,7 +569,7 @@ const GLchar *GlVideo::videoFragmentShaders[2][PROGRAM_MAX][5] = {
 	},
 };
 
-static const GLchar *simpleFragmentShader =
+static const GLchar *const simpleFragmentShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 #	if defined(GL_ES_VERSION_2_0)
@@ -584,7 +584,7 @@ static const GLchar *simpleFragmentShader =
 	"    gl_FragColor = vec4(rgb, 1.0);\n"
 	"}\n";
 
-static const GLchar *clearFragmentShader =
+static const GLchar *const clearFragmentShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 #	if defined(GL_ES_VERSION_2_0)
@@ -598,7 +598,7 @@ static const GLchar *clearFragmentShader =
 	"    gl_FragColor = vec4(clear_color, 1.0);\n"
 	"}\n";
 
-static const GLchar *blurHVertexShader =
+static const GLchar *const blurHVertexShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 	"attribute vec2 position;\n"
@@ -617,7 +617,7 @@ static const GLchar *blurHVertexShader =
 	"    v_texcoord_y = center_tex_coords.y;\n"
 	"}\n";
 
-static const GLchar *blurVVertexShader =
+static const GLchar *const blurVVertexShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 	"attribute vec2 position;\n"
@@ -636,7 +636,7 @@ static const GLchar *blurVVertexShader =
 	"    v_texcoord_x = center_tex_coords.x;\n"
 	"}\n";
 
-static const GLchar *blurHFragmentShader =
+static const GLchar *const blurHFragmentShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 #	if defined(GL_ES_VERSION_2_0)
@@ -657,7 +657,7 @@ static const GLchar *blurHFragmentShader =
 	"    gl_FragColor = vec4(rgb, 1.0);\n"
 	"}\n";
 
-static const GLchar *blurVFragmentShader =
+static const GLchar *const blurVFragmentShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 #	if defined(GL_ES_VERSION_2_0)
@@ -678,7 +678,7 @@ static const GLchar *blurVFragmentShader =
 	"    gl_FragColor = vec4(rgb, 1.0);\n"
 	"}\n";
 
-static const GLchar *histogramVertexShader =
+static const GLchar *const histogramVertexShader =
 	/* Explicitly needed on some platforms */
 	GLSL_VERSION
 	"attribute vec4 position;\n"
@@ -691,7 +691,7 @@ static const GLchar *histogramVertexShader =
 	"    v_texcoord = texcoord;\n"
 	"}\n";
 
-static const GLchar *histogramFragmentShader =
+static const GLchar *const histogramFragmentShader =
 #	if defined(GL_ES_VERSION_2_0)
 	"precision mediump float;\n"
 #	endif
@@ -772,110 +772,15 @@ static const GLfloat zebraAvgWeights[9] = {0.077847f,
 GlVideo::GlVideo(Session *session,
 		 GLuint defaultFbo,
 		 unsigned int firstTexUnit,
-		 bool simplified)
+		 bool simplified) :
+		mSession(session),
+		mFirstTexUnit(firstTexUnit), mDefaultFbo(defaultFbo)
 {
 	int ret;
-	GLint vertexShader = 0, fragmentShader[PROGRAM_MAX] = {};
+	GLint vertexShader = 0;
+	GLint fragmentShader[PROGRAM_MAX] = {};
 	GLint success = 0;
 	unsigned int i;
-
-	mSession = session;
-	mVideoWidth = 0;
-	mVideoHeight = 0;
-	mFillMode = PDRAW_VIDEO_RENDERER_FILL_MODE_FIT;
-	mFirstTexUnit = firstTexUnit;
-	mDefaultFbo = defaultFbo;
-	mTransition = GL_VIDEO_TRANSITION_NONE;
-	mTransitionStartTime = 0;
-	mTransitionDuration = 0;
-	mTransitionHold = false;
-	memset(mProgram, 0, sizeof(mProgram));
-	memset(mProgramTransformMatrix, 0, sizeof(mProgramTransformMatrix));
-	memset(mProgramYuv2RgbMatrix, 0, sizeof(mProgramYuv2RgbMatrix));
-	memset(mProgramYuv2RgbOffset, 0, sizeof(mProgramYuv2RgbOffset));
-	memset(mProgramStride, 0, sizeof(mProgramStride));
-	memset(mProgramMaxCoordsRatio, 0, sizeof(mProgramMaxCoordsRatio));
-	memset(mProgramMaxClamp, 0, sizeof(mProgramMaxClamp));
-	memset(mProgramBrightnessCoef, 0, sizeof(mProgramBrightnessCoef));
-	memset(mProgramContrastCoef, 0, sizeof(mProgramContrastCoef));
-	memset(mProgramGammaCoef, 0, sizeof(mProgramGammaCoef));
-	memset(mProgramSatCoef, 0, sizeof(mProgramSatCoef));
-	memset(mProgramLightCoef, 0, sizeof(mProgramLightCoef));
-	memset(mProgramDarkCoef, 0, sizeof(mProgramDarkCoef));
-	memset(mProgramZebraEnable, 0, sizeof(mProgramZebraEnable));
-	memset(mProgramZebraThreshold, 0, sizeof(mProgramZebraThreshold));
-	memset(mProgramZebraPhase, 0, sizeof(mProgramZebraPhase));
-	memset(mProgramZebraWeight, 0, sizeof(mProgramZebraWeight));
-	memset(mProgramMbStatusEnable, 0, sizeof(mProgramMbStatusEnable));
-	mSimpleProgram = 0;
-	mSimpleProgramTransformMatrix = 0;
-	mSimpleProgramUniformSampler = 0;
-	mSimpleProgramPositionHandle = 0;
-	mSimpleProgramTexcoordHandle = 0;
-	mClearProgram = 0;
-	mClearProgramTransformMatrix = 0;
-	mClearProgramPositionHandle = 0;
-	mClearProgramTexcoordHandle = 0;
-	mClearProgramColor = 0;
-	memset(mTextures, 0, sizeof(mTextures));
-	mMbStatusTexture = 0;
-	mExtTexture = 0;
-	memset(mUniformSamplers, 0, sizeof(mUniformSamplers));
-	memset(mPositionHandle, 0, sizeof(mPositionHandle));
-	memset(mTexcoordHandle, 0, sizeof(mTexcoordHandle));
-	memset(mMbStatusUniformSampler, 0, sizeof(mMbStatusUniformSampler));
-	mBlurInit = false;
-	mApplyBlur = false;
-	memset(mBlurWeights, 0, sizeof(mBlurWeights));
-	mBlurFboWidth = 0;
-	mBlurFboHeight = 0;
-	memset(mBlurFbo, 0, sizeof(mBlurFbo));
-	memset(mBlurFboTexture, 0, sizeof(mBlurFboTexture));
-	memset(mBlurProgram, 0, sizeof(mBlurProgram));
-	memset(mBlurUniformPixelSize, 0, sizeof(mBlurUniformPixelSize));
-	memset(mBlurUniformWeights, 0, sizeof(mBlurUniformWeights));
-	memset(mBlurUniformSampler, 0, sizeof(mBlurUniformSampler));
-	memset(mBlurPositionHandle, 0, sizeof(mBlurPositionHandle));
-	mPaddingPass1Width = 0;
-	mPaddingPass1Height = 0;
-	mPaddingPass2Width = 0;
-	mPaddingPass2Height = 0;
-	memset(mPaddingBlurWeights, 0, sizeof(mPaddingBlurWeights));
-	memset(mPaddingFbo, 0, sizeof(mPaddingFbo));
-	memset(mPaddingFboTexture, 0, sizeof(mPaddingFboTexture));
-	mHistogramInit = false;
-	mHistogramLastComputeTime = 0;
-	memset(mHistogramProgram, 0, sizeof(mHistogramProgram));
-	memset(mHistogramYuv2RgbMatrix, 0, sizeof(mHistogramYuv2RgbMatrix));
-	memset(mHistogramYuv2RgbOffset, 0, sizeof(mHistogramYuv2RgbOffset));
-	memset(mHistogramRgb2LumaMatrix, 0, sizeof(mHistogramRgb2LumaMatrix));
-	memset(mHistogramRgb2LumaOffset, 0, sizeof(mHistogramRgb2LumaOffset));
-	memset(mHistogramBrightnessCoef, 0, sizeof(mHistogramBrightnessCoef));
-	memset(mHistogramContrastCoef, 0, sizeof(mHistogramContrastCoef));
-	memset(mHistogramGammaCoef, 0, sizeof(mHistogramGammaCoef));
-	memset(mHistogramStride, 0, sizeof(mHistogramStride));
-	memset(mHistogramMaxCoordsRatio, 0, sizeof(mHistogramMaxCoordsRatio));
-	memset(mHistogramMaxClamp, 0, sizeof(mHistogramMaxClamp));
-	memset(mHistogramUniformSampler, 0, sizeof(mHistogramUniformSampler));
-	memset(mHistogramPositionHandle, 0, sizeof(mHistogramPositionHandle));
-	memset(mHistogramTexcoordHandle, 0, sizeof(mHistogramTexcoordHandle));
-	mHistogramFbo = 0;
-	mHistogramFboTexture = 0;
-	mHistogramBuffer = nullptr;
-	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++)
-		mHistogramValid[i] = false;
-	memset(mHistogram, 0, sizeof(mHistogram));
-	memset(mHistogramNorm, 0, sizeof(mHistogram));
-	mBrightnessCoef = 0.0f;
-	mContrastCoef = 1.0f;
-	mGammaCoef = 1.0f;
-	mSatCoef = 1.0f;
-	mBaseSatCoef = 1.0f;
-	mLightCoef = 1.0f;
-	mBaseLightCoef = 1.0f;
-	mDarkCoef = 1.0f;
-	mBaseDarkCoef = 1.0f;
-	mHasMbStatus = false;
 
 	GLCHK();
 
@@ -1091,7 +996,7 @@ GlVideo::GlVideo(Session *session,
 
 	/* Setup zebra shaders */
 	for (i = 0; i < PROGRAM_MAX; i++)
-		setupZebra((Pdraw::GlVideo::program)i);
+		setupZebra((Pdraw::GlVideo::Program)i);
 
 	GLCHK(glGenTextures(GL_VIDEO_TEX_UNIT_COUNT, mTextures));
 
@@ -1156,7 +1061,7 @@ err:
 }
 
 
-GlVideo::~GlVideo(void)
+GlVideo::~GlVideo()
 {
 	if (mMbStatusTexture)
 		GLCHK(glDeleteTextures(1, &mMbStatusTexture));
@@ -1177,34 +1082,34 @@ GlVideo::~GlVideo(void)
 }
 
 
-enum GlVideo::program GlVideo::getProgram(const struct vdef_raw_format *format,
-					  bool *swapUv) const
+GlVideo::Program GlVideo::getProgram(const struct vdef_raw_format *format,
+				     bool *swapUv) const
 {
 	*swapUv = false;
 	if (vdef_raw_format_cmp(format, &vdef_i420)) {
-		return PROGRAM_YUV_TO_RGB_PLANAR;
+		return Program::YUV_TO_RGB_PLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_nv12)) {
-		return PROGRAM_YUV_TO_RGB_SEMIPLANAR;
+		return Program::YUV_TO_RGB_SEMIPLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_nv21)) {
 		*swapUv = true;
-		return PROGRAM_YUV_TO_RGB_SEMIPLANAR;
+		return Program::YUV_TO_RGB_SEMIPLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_i420_10_16le)) {
-		return PROGRAM_YUV_TO_RGB_PLANAR_10_16LE;
+		return Program::YUV_TO_RGB_PLANAR_10_16LE;
 	} else if (vdef_raw_format_cmp(format, &vdef_nv12_10_16le_high)) {
-		return PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH;
+		return Program::YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH;
 	} else if (vdef_raw_format_cmp(format, &vdef_gray)) {
-		return PROGRAM_GRAY_TO_RGB_PLANAR;
+		return Program::GRAY_TO_RGB_PLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_raw16)) {
-		return PROGRAM_GRAY16_TO_RGB_PLANAR;
+		return Program::GRAY16_TO_RGB_PLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_raw32)) {
-		return PROGRAM_GRAY32_TO_RGB_PLANAR;
+		return Program::GRAY32_TO_RGB_PLANAR;
 	} else if (vdef_raw_format_cmp(format, &vdef_rgb)) {
-		return PROGRAM_NOCONV;
+		return Program::NOCONV;
 	} else if (vdef_raw_format_cmp(format, &vdef_opaque)) {
-		return PROGRAM_NOCONV;
+		return Program::NOCONV;
 	} else {
 		ULOGE("unsupported frame format");
-		return PROGRAM_NOCONV;
+		return Program::NOCONV;
 	}
 }
 
@@ -1213,7 +1118,7 @@ void GlVideo::fillYuv2RgbMatrix(enum vdef_matrix_coefs matrixCoefs,
 				bool fullRange,
 				bool swapUv,
 				float yuv2RgbMatrix[9],
-				float yuv2RgbOffset[3])
+				float yuv2RgbOffset[3]) const
 {
 	int fr = fullRange ? 1 : 0;
 
@@ -1263,11 +1168,13 @@ unsigned int GlVideo::getTextureMaxUnpackAlignment(unsigned int width)
 }
 
 
-int GlVideo::setupBlur(void)
+int GlVideo::setupBlur()
 {
 	int ret = 0;
-	GLint vertexShaderH = 0, vertexShaderV = 0;
-	GLint fragmentShaderH = 0, fragmentShaderV = 0;
+	GLint vertexShaderH = 0;
+	GLint vertexShaderV = 0;
+	GLint fragmentShaderH = 0;
+	GLint fragmentShaderV = 0;
 	GLint success = 0;
 
 	/* Free previous resources */
@@ -1378,13 +1285,9 @@ int GlVideo::setupBlur(void)
 	}
 
 	glDeleteShader(vertexShaderH);
-	vertexShaderH = 0;
 	glDeleteShader(vertexShaderV);
-	vertexShaderV = 0;
 	glDeleteShader(fragmentShaderH);
-	fragmentShaderH = 0;
 	glDeleteShader(fragmentShaderV);
-	fragmentShaderV = 0;
 
 	/* Attributes and uniforms handles */
 	mBlurUniformPixelSize[0] =
@@ -1413,7 +1316,7 @@ error:
 }
 
 
-void GlVideo::cleanupBlur(void)
+void GlVideo::cleanupBlur()
 {
 	cleanupBlurFbo();
 	if (mBlurProgram[0] > 0) {
@@ -1428,10 +1331,9 @@ void GlVideo::cleanupBlur(void)
 }
 
 
-int GlVideo::setupBlurFbo(void)
+int GlVideo::setupBlurFbo()
 {
 	int ret = 0;
-	unsigned int i;
 	GLenum gle;
 
 	/* Free previous resources */
@@ -1458,7 +1360,7 @@ int GlVideo::setupBlurFbo(void)
 	/* Allocate FBOs and textures */
 	GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
 			      GL_VIDEO_TEX_UNIT_COUNT));
-	for (i = 0; i < 2; i++) {
+	for (unsigned int i = 0; i < 2; i++) {
 		GLCHK(glGenFramebuffers(1, &mBlurFbo[i]));
 		if (mBlurFbo[i] <= 0) {
 			ULOGE("failed to create framebuffer");
@@ -1517,7 +1419,7 @@ error:
 }
 
 
-void GlVideo::cleanupBlurFbo(void)
+void GlVideo::cleanupBlurFbo()
 {
 	if (mBlurFboTexture[0] > 0) {
 		GLCHK(glDeleteTextures(2, mBlurFboTexture));
@@ -1561,44 +1463,46 @@ void GlVideo::renderBlur(
 	const struct pdraw_rect *renderPos,
 	float videoW,
 	float videoH,
-	const Eigen::Matrix4f &viewProjMat)
+	bool verticalMirror,
+	const Eigen::Matrix4f &viewProjMat) const
 {
-	unsigned int i;
-	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
 	float yuv2RgbOffset[3];
-	bool mirrorTexture = false, swapUv = false;
+	bool mirrorTexture = verticalMirror;
+	bool swapUv = false;
 
 	if (!mBlurInit)
 		return;
 
-	enum program prog;
+	Program prog;
 	prog = getProgram(format, &swapUv);
 
 	/* Pass 1 downscale */
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mBlurFbo[0]));
 	GLCHK(glViewport(0, 0, mBlurFboWidth, mBlurFboHeight));
 
-	GLCHK(glUseProgram(mProgram[prog]));
+	GLCHK(glUseProgram(mProgram[toIndex(prog)]));
 
 	switch (prog) {
 	default:
-	case PROGRAM_GRAY_TO_RGB_PLANAR:
-	case PROGRAM_GRAY16_TO_RGB_PLANAR:
-	case PROGRAM_GRAY32_TO_RGB_PLANAR:
-		mirrorTexture = true;
+	case Program::GRAY_TO_RGB_PLANAR:
+	case Program::GRAY16_TO_RGB_PLANAR:
+	case Program::GRAY32_TO_RGB_PLANAR:
+		mirrorTexture = !verticalMirror;
 		/* Fall through */
-	case PROGRAM_NOCONV:
+	case Program::NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 		GLCHK(glBindTexture(GL_TEXTURE_2D,
 				    (mExtTexture > 0) ? mExtTexture
 						      : mTextures[0]));
-		GLCHK(glUniform1i(mUniformSamplers[prog][0], mFirstTexUnit));
+		GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][0],
+				  mFirstTexUnit));
 		stride[0] = 1.f / framePlaneStride[0];
 		stride[1] = 1.f / info->resolution.height;
 		maxCoords[0] =
@@ -1606,15 +1510,15 @@ void GlVideo::renderBlur(
 		maxCoords[1] = (float)(crop->top + crop->height) /
 			       info->resolution.height;
 		break;
-	case PROGRAM_YUV_TO_RGB_PLANAR:
-	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
-		mirrorTexture = true;
-		for (i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
+	case Program::YUV_TO_RGB_PLANAR:
+	case Program::YUV_TO_RGB_PLANAR_10_16LE:
+		mirrorTexture = !verticalMirror;
+		for (unsigned int i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
 			int height =
 				info->resolution.height / ((i > 0) ? 2 : 1);
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
-			GLCHK(glUniform1i(mUniformSamplers[prog][i],
+			GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][i],
 					  mFirstTexUnit + i));
 			stride[2 * i] = 1.f / framePlaneStride[i];
 			stride[2 * i + 1] = 1.f / height;
@@ -1626,12 +1530,12 @@ void GlVideo::renderBlur(
 				info->resolution.height;
 		}
 		break;
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
-		mirrorTexture = true;
+	case Program::YUV_TO_RGB_SEMIPLANAR:
+	case Program::YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
+		mirrorTexture = !verticalMirror;
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-		GLCHK(glUniform1i(mUniformSamplers[prog][0],
+		GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][0],
 				  mFirstTexUnit + 0));
 		stride[0] = 1.f / framePlaneStride[0];
 		stride[1] = 1.f / info->resolution.height;
@@ -1642,7 +1546,7 @@ void GlVideo::renderBlur(
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-		GLCHK(glUniform1i(mUniformSamplers[prog][1],
+		GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][1],
 				  mFirstTexUnit + 1));
 		stride[2] = 1.f / (framePlaneStride[1] / 2);
 		stride[3] = 1.f / (info->resolution.height / 2);
@@ -1656,30 +1560,34 @@ void GlVideo::renderBlur(
 	computeMaxCoordsRatioAndClamp(
 		stride, maxCoords, maxCoordsRatio, maxClamp);
 
-	GLCHK(glUniform2fv(
-		mProgramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
-	GLCHK(glUniform2fv(mProgramMaxCoordsRatio[prog],
+	GLCHK(glUniform2fv(mProgramStride[toIndex(prog)],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   stride));
+	GLCHK(glUniform2fv(mProgramMaxCoordsRatio[toIndex(prog)],
 			   GL_VIDEO_TEX_UNIT_COUNT,
 			   maxCoordsRatio));
-	GLCHK(glUniform2fv(
-		mProgramMaxClamp[prog], GL_VIDEO_TEX_UNIT_COUNT, maxClamp));
+	GLCHK(glUniform2fv(mProgramMaxClamp[toIndex(prog)],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   maxClamp));
 	fillYuv2RgbMatrix(info->matrix_coefs,
 			  info->full_range,
 			  swapUv,
 			  yuv2RgbMatrix,
 			  yuv2RgbOffset);
-	GLCHK(glUniform3f(mProgramYuv2RgbOffset[prog],
+	GLCHK(glUniform3f(mProgramYuv2RgbOffset[toIndex(prog)],
 			  yuv2RgbOffset[0],
 			  yuv2RgbOffset[1],
 			  yuv2RgbOffset[2]));
-	GLCHK(glUniformMatrix3fv(
-		mProgramYuv2RgbMatrix[prog], 1, GL_FALSE, yuv2RgbMatrix));
+	GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[toIndex(prog)],
+				 1,
+				 GL_FALSE,
+				 yuv2RgbMatrix));
 
 	/* Disable overexposure zebras */
 	updateZebra(nullptr, prog, false, 0.f);
 
 	/* Disable MB status display */
-	GLCHK(glUniform1f(mProgramMbStatusEnable[prog], 0.f));
+	GLCHK(glUniform1f(mProgramMbStatusEnable[toIndex(prog)], 0.f));
 
 	vertices[0] = -1.;
 	vertices[1] = -1.;
@@ -1696,17 +1604,22 @@ void GlVideo::renderBlur(
 
 	Eigen::Matrix4f id = Eigen::Matrix4f::Identity();
 	GLCHK(glUniformMatrix4fv(
-		mProgramTransformMatrix[prog], 1, false, id.data()));
-	GLCHK(glUniform1f(mProgramBrightnessCoef[prog], mBrightnessCoef));
-	GLCHK(glUniform1f(mProgramContrastCoef[prog], mContrastCoef));
-	GLCHK(glUniform1f(mProgramGammaCoef[prog], mGammaCoef));
-	GLCHK(glUniform1f(mProgramSatCoef[prog], mSatCoef));
-	GLCHK(glUniform1f(mProgramLightCoef[prog], mLightCoef));
-	GLCHK(glUniform1f(mProgramDarkCoef[prog], mDarkCoef));
+		mProgramTransformMatrix[toIndex(prog)], 1, false, id.data()));
+	GLCHK(glUniform1f(mProgramBrightnessCoef[toIndex(prog)],
+			  mBrightnessCoef));
+	GLCHK(glUniform1f(mProgramContrastCoef[toIndex(prog)], mContrastCoef));
+	GLCHK(glUniform1f(mProgramGammaCoef[toIndex(prog)], mGammaCoef));
+	GLCHK(glUniform1f(mProgramSatCoef[toIndex(prog)], mSatCoef));
+	GLCHK(glUniform1f(mProgramLightCoef[toIndex(prog)], mLightCoef));
+	GLCHK(glUniform1f(mProgramDarkCoef[toIndex(prog)], mDarkCoef));
 
-	GLCHK(glVertexAttribPointer(
-		mPositionHandle[prog], 3, GL_FLOAT, false, 0, vertices));
-	GLCHK(glEnableVertexAttribArray(mPositionHandle[prog]));
+	GLCHK(glVertexAttribPointer(mPositionHandle[toIndex(prog)],
+				    3,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[toIndex(prog)]));
 
 	if (mirrorTexture) {
 		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
@@ -1740,14 +1653,18 @@ void GlVideo::renderBlur(
 			       (float)info->resolution.height;
 	}
 
-	GLCHK(glVertexAttribPointer(
-		mTexcoordHandle[prog], 2, GL_FLOAT, false, 0, texCoords));
-	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[prog]));
+	GLCHK(glVertexAttribPointer(mTexcoordHandle[toIndex(prog)],
+				    2,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[toIndex(prog)]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(mPositionHandle[prog]));
-	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[prog]));
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[toIndex(prog)]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[toIndex(prog)]));
 
 	/* Horizontal blur pass */
 	vertices[0] = -1.;
@@ -1845,14 +1762,13 @@ void GlVideo::renderBlur(
 	GLCHK(glDisableVertexAttribArray(mSimpleProgramPositionHandle));
 	GLCHK(glDisableVertexAttribArray(mSimpleProgramTexcoordHandle));
 
-	GLCHK(glUseProgram(mProgram[prog]));
+	GLCHK(glUseProgram(mProgram[toIndex(prog)]));
 }
 
 
-int GlVideo::setupPaddingFbo(void)
+int GlVideo::setupPaddingFbo()
 {
 	GLenum gle;
-	unsigned int i;
 
 	/* Free previous resources */
 	cleanupPaddingFbo();
@@ -1896,7 +1812,7 @@ int GlVideo::setupPaddingFbo(void)
 	/* Allocate new resources */
 	GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
 			      GL_VIDEO_TEX_UNIT_COUNT));
-	for (i = 0; i < 4; i++) {
+	for (unsigned int i = 0; i < 4; i++) {
 		GLCHK(glGenFramebuffers(1, &mPaddingFbo[i]));
 		if (mPaddingFbo[i] <= 0) {
 			ULOGE("failed to create framebuffer");
@@ -1953,7 +1869,7 @@ err:
 }
 
 
-void GlVideo::cleanupPaddingFbo(void)
+void GlVideo::cleanupPaddingFbo()
 {
 	if (mPaddingFboTexture[0] > 0) {
 		GLCHK(glDeleteTextures(4, mPaddingFboTexture));
@@ -1980,21 +1896,20 @@ void GlVideo::renderPadding(
 	float videoH,
 	float videoW2,
 	float videoH2,
-	float videoAR,
-	float windowAR,
+	bool verticalMirror,
 	bool immersive,
-	const Eigen::Matrix4f &viewProjMat)
+	const Eigen::Matrix4f &viewProjMat) const
 {
-	unsigned int i;
-	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
 	float yuv2RgbOffset[3];
-	bool mirrorTexture = false, swapUv = false;
+	bool mirrorTexture = verticalMirror;
+	bool swapUv = false;
 
 	if (!mBlurInit)
 		return;
@@ -2013,28 +1928,29 @@ void GlVideo::renderPadding(
 		return;
 	}
 
-	enum program prog;
+	Program prog;
 	prog = getProgram(format, &swapUv);
 
 	/* Pass 1 downscale */
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mPaddingFbo[0]));
 	GLCHK(glViewport(0, 0, mPaddingPass1Width, mPaddingPass1Height));
 
-	GLCHK(glUseProgram(mProgram[prog]));
+	GLCHK(glUseProgram(mProgram[toIndex(prog)]));
 
 	switch (prog) {
 	default:
-	case PROGRAM_GRAY_TO_RGB_PLANAR:
-	case PROGRAM_GRAY16_TO_RGB_PLANAR:
-	case PROGRAM_GRAY32_TO_RGB_PLANAR:
-		mirrorTexture = true;
+	case Program::GRAY_TO_RGB_PLANAR:
+	case Program::GRAY16_TO_RGB_PLANAR:
+	case Program::GRAY32_TO_RGB_PLANAR:
+		mirrorTexture = !verticalMirror;
 		/* Fall through */
-	case PROGRAM_NOCONV:
+	case Program::NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 		GLCHK(glBindTexture(GL_TEXTURE_2D,
 				    (mExtTexture > 0) ? mExtTexture
 						      : mTextures[0]));
-		GLCHK(glUniform1i(mUniformSamplers[prog][0], mFirstTexUnit));
+		GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][0],
+				  mFirstTexUnit));
 		stride[0] = 1.f / framePlaneStride[0];
 		stride[1] = 1.f / info->resolution.height;
 		maxCoords[0] =
@@ -2042,15 +1958,15 @@ void GlVideo::renderPadding(
 		maxCoords[1] = (float)(crop->top + crop->height) /
 			       info->resolution.height;
 		break;
-	case PROGRAM_YUV_TO_RGB_PLANAR:
-	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
-		mirrorTexture = true;
-		for (i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
+	case Program::YUV_TO_RGB_PLANAR:
+	case Program::YUV_TO_RGB_PLANAR_10_16LE:
+		mirrorTexture = !verticalMirror;
+		for (unsigned int i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
 			int height =
 				info->resolution.height / ((i > 0) ? 2 : 1);
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
-			GLCHK(glUniform1i(mUniformSamplers[prog][i],
+			GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][i],
 					  mFirstTexUnit + i));
 			stride[2 * i] = 1.f / framePlaneStride[i];
 			stride[2 * i + 1] = 1.f / height;
@@ -2062,12 +1978,12 @@ void GlVideo::renderPadding(
 				info->resolution.height;
 		}
 		break;
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
-		mirrorTexture = true;
+	case Program::YUV_TO_RGB_SEMIPLANAR:
+	case Program::YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
+		mirrorTexture = !verticalMirror;
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-		GLCHK(glUniform1i(mUniformSamplers[prog][0],
+		GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][0],
 				  mFirstTexUnit + 0));
 		stride[0] = 1.f / framePlaneStride[0];
 		stride[1] = 1.f / info->resolution.height;
@@ -2078,7 +1994,7 @@ void GlVideo::renderPadding(
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-		GLCHK(glUniform1i(mUniformSamplers[prog][1],
+		GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][1],
 				  mFirstTexUnit + 1));
 		stride[2] = 1.f / (framePlaneStride[1] / 2);
 		stride[3] = 1.f / (info->resolution.height / 2);
@@ -2092,30 +2008,34 @@ void GlVideo::renderPadding(
 	computeMaxCoordsRatioAndClamp(
 		stride, maxCoords, maxCoordsRatio, maxClamp);
 
-	GLCHK(glUniform2fv(
-		mProgramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
-	GLCHK(glUniform2fv(mProgramMaxCoordsRatio[prog],
+	GLCHK(glUniform2fv(mProgramStride[toIndex(prog)],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   stride));
+	GLCHK(glUniform2fv(mProgramMaxCoordsRatio[toIndex(prog)],
 			   GL_VIDEO_TEX_UNIT_COUNT,
 			   maxCoordsRatio));
-	GLCHK(glUniform2fv(
-		mProgramMaxClamp[prog], GL_VIDEO_TEX_UNIT_COUNT, maxClamp));
+	GLCHK(glUniform2fv(mProgramMaxClamp[toIndex(prog)],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   maxClamp));
 	fillYuv2RgbMatrix(info->matrix_coefs,
 			  info->full_range,
 			  swapUv,
 			  yuv2RgbMatrix,
 			  yuv2RgbOffset);
-	GLCHK(glUniform3f(mProgramYuv2RgbOffset[prog],
+	GLCHK(glUniform3f(mProgramYuv2RgbOffset[toIndex(prog)],
 			  yuv2RgbOffset[0],
 			  yuv2RgbOffset[1],
 			  yuv2RgbOffset[2]));
-	GLCHK(glUniformMatrix3fv(
-		mProgramYuv2RgbMatrix[prog], 1, GL_FALSE, yuv2RgbMatrix));
+	GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[toIndex(prog)],
+				 1,
+				 GL_FALSE,
+				 yuv2RgbMatrix));
 
 	/* Disable overexposure zebras */
 	updateZebra(nullptr, prog, false, 0.f);
 
 	/* Disable MB status display */
-	GLCHK(glUniform1f(mProgramMbStatusEnable[prog], 0.f));
+	GLCHK(glUniform1f(mProgramMbStatusEnable[toIndex(prog)], 0.f));
 
 	vertices[0] = -1.;
 	vertices[1] = -1.;
@@ -2132,20 +2052,25 @@ void GlVideo::renderPadding(
 
 	Eigen::Matrix4f id = Eigen::Matrix4f::Identity();
 	GLCHK(glUniformMatrix4fv(
-		mProgramTransformMatrix[prog], 1, false, id.data()));
-	GLCHK(glUniform1f(mProgramBrightnessCoef[prog], mBrightnessCoef));
-	GLCHK(glUniform1f(mProgramContrastCoef[prog], mContrastCoef));
-	GLCHK(glUniform1f(mProgramGammaCoef[prog], mGammaCoef));
-	GLCHK(glUniform1f(mProgramSatCoef[prog], mSatCoef));
-	GLCHK(glUniform1f(mProgramLightCoef[prog], mLightCoef));
-	GLCHK(glUniform1f(mProgramDarkCoef[prog],
+		mProgramTransformMatrix[toIndex(prog)], 1, false, id.data()));
+	GLCHK(glUniform1f(mProgramBrightnessCoef[toIndex(prog)],
+			  mBrightnessCoef));
+	GLCHK(glUniform1f(mProgramContrastCoef[toIndex(prog)], mContrastCoef));
+	GLCHK(glUniform1f(mProgramGammaCoef[toIndex(prog)], mGammaCoef));
+	GLCHK(glUniform1f(mProgramSatCoef[toIndex(prog)], mSatCoef));
+	GLCHK(glUniform1f(mProgramLightCoef[toIndex(prog)], mLightCoef));
+	GLCHK(glUniform1f(mProgramDarkCoef[toIndex(prog)],
 			  (immersive) ? mDarkCoef
 				      : PDRAW_BLURRED_PADDING_DARK_COEF *
 						mDarkCoef));
 
-	GLCHK(glVertexAttribPointer(
-		mPositionHandle[prog], 3, GL_FLOAT, false, 0, vertices));
-	GLCHK(glEnableVertexAttribArray(mPositionHandle[prog]));
+	GLCHK(glVertexAttribPointer(mPositionHandle[toIndex(prog)],
+				    3,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    vertices));
+	GLCHK(glEnableVertexAttribArray(mPositionHandle[toIndex(prog)]));
 
 	if (mirrorTexture) {
 		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
@@ -2179,14 +2104,18 @@ void GlVideo::renderPadding(
 			       (float)info->resolution.height;
 	}
 
-	GLCHK(glVertexAttribPointer(
-		mTexcoordHandle[prog], 2, GL_FLOAT, false, 0, texCoords));
-	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[prog]));
+	GLCHK(glVertexAttribPointer(mTexcoordHandle[toIndex(prog)],
+				    2,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    texCoords));
+	GLCHK(glEnableVertexAttribArray(mTexcoordHandle[toIndex(prog)]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(mPositionHandle[prog]));
-	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[prog]));
+	GLCHK(glDisableVertexAttribArray(mPositionHandle[toIndex(prog)]));
+	GLCHK(glDisableVertexAttribArray(mTexcoordHandle[toIndex(prog)]));
 
 	/* Pass 1 horizontal blur */
 	vertices[0] = -1.;
@@ -2333,36 +2262,37 @@ void GlVideo::renderPadding(
 	GLCHK(glDisableVertexAttribArray(mSimpleProgramPositionHandle));
 	GLCHK(glDisableVertexAttribArray(mSimpleProgramTexcoordHandle));
 
-	GLCHK(glUseProgram(mProgram[prog]));
+	GLCHK(glUseProgram(mProgram[toIndex(prog)]));
 }
 
 
-void GlVideo::setupZebra(enum program prog)
+void GlVideo::setupZebra(Program prog) const
 {
 	float co = cosf(PDRAW_ZEBRA_ANGLE);
 	float si = sinf(PDRAW_ZEBRA_ANGLE);
 	const GLfloat zebra_mat[] = {co, si, -si, co};
 
-	GLCHK(glUseProgram(mProgram[prog]));
+	GLCHK(glUseProgram(mProgram[toIndex(prog)]));
 	GLCHK(glUniformMatrix2fv(
-		glGetUniformLocation(mProgram[prog], "zebra_mat"),
+		glGetUniformLocation(mProgram[toIndex(prog)], "zebra_mat"),
 		1,
 		GL_FALSE,
 		zebra_mat));
-	GLCHK(glUniform1fv(
-		glGetUniformLocation(mProgram[prog], "zebra_avg_weights"),
-		9,
-		zebraAvgWeights));
+	GLCHK(glUniform1fv(glGetUniformLocation(mProgram[toIndex(prog)],
+						"zebra_avg_weights"),
+			   9,
+			   zebraAvgWeights));
 }
 
 
-void GlVideo::updateZebra(struct pdraw_rect *contentPos,
-			  enum program prog,
+void GlVideo::updateZebra(const struct pdraw_rect *contentPos,
+			  Program prog,
 			  bool enable,
-			  float threshold)
+			  float threshold) const
 {
-	GLCHK(glUniform1f(mProgramZebraEnable[prog], enable ? 1.f : 0.f));
-	GLCHK(glUniform1f(mProgramZebraThreshold[prog], threshold));
+	GLCHK(glUniform1f(mProgramZebraEnable[toIndex(prog)],
+			  enable ? 1.f : 0.f));
+	GLCHK(glUniform1f(mProgramZebraThreshold[toIndex(prog)], threshold));
 
 	if (enable && contentPos != nullptr) {
 		struct timespec ts;
@@ -2375,38 +2305,41 @@ void GlVideo::updateZebra(struct pdraw_rect *contentPos,
 			ULOGE("time_timespec_to_us");
 			return;
 		}
-		uint64_t zebra_period_us =
+		auto zebra_period_us =
 			(uint64_t)(1000000.f / PDRAW_ZEBRA_FREQUENCY_HZ);
 		float zebra_phase =
 			(float)(time_us % zebra_period_us) / zebra_period_us;
-		GLCHK(glUniform1f(mProgramZebraPhase[prog], zebra_phase));
+		GLCHK(glUniform1f(mProgramZebraPhase[toIndex(prog)],
+				  zebra_phase));
 		float zebra_weight =
 			PDRAW_ZEBRA_WEIGHT * contentPos->width / 1920;
-		GLCHK(glUniform1f(mProgramZebraWeight[prog], zebra_weight));
+		GLCHK(glUniform1f(mProgramZebraWeight[toIndex(prog)],
+				  zebra_weight));
 	}
 }
 
 
-int GlVideo::setupHistograms(void)
+int GlVideo::setupHistograms()
 {
 	int ret = 0;
 	GLenum gle;
 	GLint success = 0;
 	GLint vertexShaderHistogram = 0;
-	GLint fragmentShaderHistogram[PROGRAM_MAX] = {0};
+	GLint fragmentShaderHistogram[PROGRAM_MAX] = {};
 	unsigned int i;
 
 	/* Buffers allocation */
-	mHistogramBuffer =
-		(uint8_t *)malloc(4 * GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE *
-				  GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE);
+	mHistogramBuffer = static_cast<uint8_t *>(
+		malloc(4 * GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE *
+		       GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE));
 	if (mHistogramBuffer == nullptr) {
 		ULOG_ERRNO("malloc", ENOMEM);
 		ret = -ENOMEM;
 		goto error;
 	}
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
-		mHistogram[i] = (uint32_t *)malloc(256 * sizeof(uint32_t));
+		mHistogram[i] =
+			static_cast<uint32_t *>(malloc(256 * sizeof(uint32_t)));
 		if (mHistogram[i] == nullptr) {
 			ULOG_ERRNO("malloc", ENOMEM);
 			ret = -ENOMEM;
@@ -2414,7 +2347,8 @@ int GlVideo::setupHistograms(void)
 		}
 	}
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
-		mHistogramNorm[i] = (float *)calloc(256, sizeof(float));
+		mHistogramNorm[i] =
+			static_cast<float *>(calloc(256, sizeof(float)));
 		if (mHistogramNorm[i] == nullptr) {
 			ULOG_ERRNO("calloc", ENOMEM);
 			ret = -ENOMEM;
@@ -2599,7 +2533,7 @@ error:
 }
 
 
-void GlVideo::cleanupHistograms(void)
+void GlVideo::cleanupHistograms()
 {
 	unsigned int i;
 
@@ -2637,22 +2571,25 @@ void GlVideo::computeHistograms(
 	const struct vdef_frame_info *info,
 	const struct vdef_rect *crop,
 	const struct pdraw_rect *renderPos,
+	bool verticalMirror,
 	bool enable)
 {
-	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
 	float yuv2RgbOffset[3];
-	unsigned int i, j;
-	uint8_t *buf;
+	unsigned int i;
+	unsigned int j;
+	const uint8_t *buf;
 	uint32_t histoMax[PDRAW_HISTOGRAM_CHANNEL_MAX];
 	struct timespec ts;
 	uint64_t time_us;
-	bool mirrorTexture = false, swapUv = false;
+	bool mirrorTexture = verticalMirror;
+	bool swapUv = false;
 
 	if ((!mHistogramInit) || (!enable)) {
 		mHistogramLastComputeTime = 0;
@@ -2677,7 +2614,7 @@ void GlVideo::computeHistograms(
 	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++)
 		mHistogramValid[i] = false;
 
-	enum program prog;
+	Program prog;
 	prog = getProgram(format, &swapUv);
 
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mHistogramFbo));
@@ -2686,21 +2623,21 @@ void GlVideo::computeHistograms(
 			 0,
 			 GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE,
 			 GL_VIDEO_HISTOGRAM_FBO_TARGET_SIZE));
-	GLCHK(glUseProgram(mHistogramProgram[prog]));
+	GLCHK(glUseProgram(mHistogramProgram[toIndex(prog)]));
 
 	switch (prog) {
 	default:
-	case PROGRAM_GRAY_TO_RGB_PLANAR:
-	case PROGRAM_GRAY16_TO_RGB_PLANAR:
-	case PROGRAM_GRAY32_TO_RGB_PLANAR:
-		mirrorTexture = true;
+	case Program::GRAY_TO_RGB_PLANAR:
+	case Program::GRAY16_TO_RGB_PLANAR:
+	case Program::GRAY32_TO_RGB_PLANAR:
+		mirrorTexture = !verticalMirror;
 		/* Fall through */
-	case PROGRAM_NOCONV:
+	case Program::NOCONV:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 		GLCHK(glBindTexture(GL_TEXTURE_2D,
 				    (mExtTexture > 0) ? mExtTexture
 						      : mTextures[0]));
-		GLCHK(glUniform1i(mHistogramUniformSampler[prog][0],
+		GLCHK(glUniform1i(mHistogramUniformSampler[toIndex(prog)][0],
 				  mFirstTexUnit));
 		stride[0] = 1.f / framePlaneStride[0];
 		stride[1] = 1.f / info->resolution.height;
@@ -2709,16 +2646,17 @@ void GlVideo::computeHistograms(
 		maxCoords[1] = (float)(crop->top + crop->height) /
 			       info->resolution.height;
 		break;
-	case PROGRAM_YUV_TO_RGB_PLANAR:
-	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
-		mirrorTexture = true;
+	case Program::YUV_TO_RGB_PLANAR:
+	case Program::YUV_TO_RGB_PLANAR_10_16LE:
+		mirrorTexture = !verticalMirror;
 		for (i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
 			int height =
 				info->resolution.height / ((i > 0) ? 2 : 1);
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + i));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[i]));
-			GLCHK(glUniform1i(mHistogramUniformSampler[prog][i],
-					  mFirstTexUnit + i));
+			GLCHK(glUniform1i(
+				mHistogramUniformSampler[toIndex(prog)][i],
+				mFirstTexUnit + i));
 			stride[2 * i] = 1.f / framePlaneStride[i];
 			stride[2 * i + 1] = 1.f / height;
 			maxCoords[2 * i] =
@@ -2729,12 +2667,12 @@ void GlVideo::computeHistograms(
 				info->resolution.height;
 		}
 		break;
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
-		mirrorTexture = true;
+	case Program::YUV_TO_RGB_SEMIPLANAR:
+	case Program::YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
+		mirrorTexture = !verticalMirror;
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-		GLCHK(glUniform1i(mHistogramUniformSampler[prog][0],
+		GLCHK(glUniform1i(mHistogramUniformSampler[toIndex(prog)][0],
 				  mFirstTexUnit + 0));
 		stride[0] = 1.f / framePlaneStride[0];
 		stride[1] = 1.f / info->resolution.height;
@@ -2745,7 +2683,7 @@ void GlVideo::computeHistograms(
 
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-		GLCHK(glUniform1i(mHistogramUniformSampler[prog][1],
+		GLCHK(glUniform1i(mHistogramUniformSampler[toIndex(prog)][1],
 				  mFirstTexUnit + 1));
 		stride[2] = 1.f / (framePlaneStride[1] / 2);
 		stride[3] = 1.f / (info->resolution.height / 2);
@@ -2759,36 +2697,42 @@ void GlVideo::computeHistograms(
 	computeMaxCoordsRatioAndClamp(
 		stride, maxCoords, maxCoordsRatio, maxClamp);
 
-	GLCHK(glUniform2fv(
-		mHistogramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
-	GLCHK(glUniform2fv(mHistogramMaxCoordsRatio[prog],
+	GLCHK(glUniform2fv(mHistogramStride[toIndex(prog)],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   stride));
+	GLCHK(glUniform2fv(mHistogramMaxCoordsRatio[toIndex(prog)],
 			   GL_VIDEO_TEX_UNIT_COUNT,
 			   maxCoordsRatio));
-	GLCHK(glUniform2fv(
-		mHistogramMaxClamp[prog], GL_VIDEO_TEX_UNIT_COUNT, maxClamp));
+	GLCHK(glUniform2fv(mHistogramMaxClamp[toIndex(prog)],
+			   GL_VIDEO_TEX_UNIT_COUNT,
+			   maxClamp));
 
 	fillYuv2RgbMatrix(info->matrix_coefs,
 			  info->full_range,
 			  swapUv,
 			  yuv2RgbMatrix,
 			  yuv2RgbOffset);
-	GLCHK(glUniform3f(mHistogramYuv2RgbOffset[prog],
+	GLCHK(glUniform3f(mHistogramYuv2RgbOffset[toIndex(prog)],
 			  yuv2RgbOffset[0],
 			  yuv2RgbOffset[1],
 			  yuv2RgbOffset[2]));
-	GLCHK(glUniformMatrix3fv(
-		mHistogramYuv2RgbMatrix[prog], 1, GL_FALSE, yuv2RgbMatrix));
+	GLCHK(glUniformMatrix3fv(mHistogramYuv2RgbMatrix[toIndex(prog)],
+				 1,
+				 GL_FALSE,
+				 yuv2RgbMatrix));
 	GLCHK(glUniform3f(
-		mHistogramRgb2LumaMatrix[prog],
+		mHistogramRgb2LumaMatrix[toIndex(prog)],
 		vdef_rgb_to_yuv_norm_matrix[info->matrix_coefs][1][0],
 		vdef_rgb_to_yuv_norm_matrix[info->matrix_coefs][1][3],
 		vdef_rgb_to_yuv_norm_matrix[info->matrix_coefs][1][6]));
 	GLCHK(glUniform1f(
-		mHistogramRgb2LumaOffset[prog],
+		mHistogramRgb2LumaOffset[toIndex(prog)],
 		vdef_rgb_to_yuv_norm_offset[info->matrix_coefs][1][0]));
-	GLCHK(glUniform1f(mHistogramBrightnessCoef[prog], mBrightnessCoef));
-	GLCHK(glUniform1f(mHistogramContrastCoef[prog], mContrastCoef));
-	GLCHK(glUniform1f(mHistogramGammaCoef[prog], mGammaCoef));
+	GLCHK(glUniform1f(mHistogramBrightnessCoef[toIndex(prog)],
+			  mBrightnessCoef));
+	GLCHK(glUniform1f(mHistogramContrastCoef[toIndex(prog)],
+			  mContrastCoef));
+	GLCHK(glUniform1f(mHistogramGammaCoef[toIndex(prog)], mGammaCoef));
 
 	vertices[0] = -1.;
 	vertices[1] = -1.;
@@ -2803,13 +2747,14 @@ void GlVideo::computeHistograms(
 	vertices[10] = 1.;
 	vertices[11] = 1.;
 
-	GLCHK(glVertexAttribPointer(mHistogramPositionHandle[prog],
+	GLCHK(glVertexAttribPointer(mHistogramPositionHandle[toIndex(prog)],
 				    3,
 				    GL_FLOAT,
 				    false,
 				    0,
 				    vertices));
-	GLCHK(glEnableVertexAttribArray(mHistogramPositionHandle[prog]));
+	GLCHK(glEnableVertexAttribArray(
+		mHistogramPositionHandle[toIndex(prog)]));
 
 	if (mirrorTexture) {
 		texCoords[0] = (float)crop->left / (float)framePlaneStride[0];
@@ -2843,18 +2788,21 @@ void GlVideo::computeHistograms(
 			       (float)info->resolution.height;
 	}
 
-	GLCHK(glVertexAttribPointer(mHistogramTexcoordHandle[prog],
+	GLCHK(glVertexAttribPointer(mHistogramTexcoordHandle[toIndex(prog)],
 				    2,
 				    GL_FLOAT,
 				    false,
 				    0,
 				    texCoords));
-	GLCHK(glEnableVertexAttribArray(mHistogramTexcoordHandle[prog]));
+	GLCHK(glEnableVertexAttribArray(
+		mHistogramTexcoordHandle[toIndex(prog)]));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-	GLCHK(glDisableVertexAttribArray(mHistogramPositionHandle[prog]));
-	GLCHK(glDisableVertexAttribArray(mHistogramTexcoordHandle[prog]));
+	GLCHK(glDisableVertexAttribArray(
+		mHistogramPositionHandle[toIndex(prog)]));
+	GLCHK(glDisableVertexAttribArray(
+		mHistogramTexcoordHandle[toIndex(prog)]));
 
 	GLCHK(glFinish());
 
@@ -2916,9 +2864,7 @@ void GlVideo::getHistograms(
 	float *histogram[PDRAW_HISTOGRAM_CHANNEL_MAX],
 	size_t histogramLen[PDRAW_HISTOGRAM_CHANNEL_MAX]) const
 {
-	unsigned int i;
-
-	for (i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
+	for (unsigned int i = 0; i < PDRAW_HISTOGRAM_CHANNEL_MAX; i++) {
 		if ((mHistogramValid[i]) && (mHistogramNorm[i] != nullptr)) {
 			histogram[i] = mHistogramNorm[i];
 			histogramLen[i] = 256;
@@ -2927,11 +2873,11 @@ void GlVideo::getHistograms(
 }
 
 
-void GlVideo::startTransition(enum gl_video_transition transition,
+void GlVideo::startTransition(GlVideoTransition transition,
 			      uint64_t duration,
 			      bool hold)
 {
-	if (mTransition != GL_VIDEO_TRANSITION_NONE)
+	if (mTransition != GlVideoTransition::NONE)
 		abortTransition();
 	mTransition = transition;
 	mTransitionDuration = duration;
@@ -2939,28 +2885,29 @@ void GlVideo::startTransition(enum gl_video_transition transition,
 }
 
 
-void GlVideo::abortTransition(void)
+void GlVideo::abortTransition()
 {
-	mTransition = GL_VIDEO_TRANSITION_NONE;
+	mTransition = GlVideoTransition::NONE;
 	mTransitionDuration = 0;
 	mTransitionStartTime = 0;
 	mTransitionHold = false;
 }
 
 
-void GlVideo::updateTransition(void)
+void GlVideo::updateTransition()
 {
 	int res;
 	struct timespec ts = {0, 0};
 	uint64_t curTime = 0;
-	float progress, blurSigma;
+	float progress;
+	float blurSigma;
 
 	mApplyBlur = false;
 	mSatCoef = mBaseSatCoef;
 	mLightCoef = mBaseLightCoef;
 	mDarkCoef = mBaseDarkCoef;
 
-	if (mTransition == GL_VIDEO_TRANSITION_NONE)
+	if (mTransition == GlVideoTransition::NONE)
 		return;
 
 	res = time_get_monotonic(&ts);
@@ -2984,25 +2931,25 @@ void GlVideo::updateTransition(void)
 	}
 
 	switch (mTransition) {
-	case GL_VIDEO_TRANSITION_FADE_TO_BLACK:
+	case GlVideoTransition::FADE_TO_BLACK:
 		mDarkCoef = mBaseDarkCoef * (1. - progress);
 		break;
-	case GL_VIDEO_TRANSITION_FADE_FROM_BLACK:
+	case GlVideoTransition::FADE_FROM_BLACK:
 		mDarkCoef = mBaseDarkCoef * progress;
 		break;
-	case GL_VIDEO_TRANSITION_FADE_TO_WHITE:
+	case GlVideoTransition::FADE_TO_WHITE:
 		mLightCoef = mBaseLightCoef * (1. - progress);
 		break;
-	case GL_VIDEO_TRANSITION_FADE_FROM_WHITE:
+	case GlVideoTransition::FADE_FROM_WHITE:
 		mLightCoef = mBaseLightCoef * progress;
 		break;
-	case GL_VIDEO_TRANSITION_FADE_TO_BLACK_AND_WHITE:
+	case GlVideoTransition::FADE_TO_BLACK_AND_WHITE:
 		mSatCoef = mBaseSatCoef * (1. - progress);
 		break;
-	case GL_VIDEO_TRANSITION_FADE_FROM_BLACK_AND_WHITE:
+	case GlVideoTransition::FADE_FROM_BLACK_AND_WHITE:
 		mSatCoef = mBaseSatCoef * progress;
 		break;
-	case GL_VIDEO_TRANSITION_FADE_TO_BLUR:
+	case GlVideoTransition::FADE_TO_BLUR:
 		blurSigma = progress * (GL_VIDEO_BLUR_MAX_SIGMA -
 					GL_VIDEO_BLUR_MIN_SIGMA) +
 			    GL_VIDEO_BLUR_MIN_SIGMA;
@@ -3010,7 +2957,7 @@ void GlVideo::updateTransition(void)
 			mBlurWeights, GL_VIDEO_BLUR_TAP_COUNT, blurSigma);
 		mApplyBlur = mBlurInit;
 		break;
-	case GL_VIDEO_TRANSITION_FADE_FROM_BLUR:
+	case GlVideoTransition::FADE_FROM_BLUR:
 		blurSigma = (1. - progress) * (GL_VIDEO_BLUR_MAX_SIGMA -
 					       GL_VIDEO_BLUR_MIN_SIGMA) +
 			    GL_VIDEO_BLUR_MIN_SIGMA;
@@ -3018,7 +2965,7 @@ void GlVideo::updateTransition(void)
 			mBlurWeights, GL_VIDEO_BLUR_TAP_COUNT, blurSigma);
 		mApplyBlur = mBlurInit;
 		break;
-	case GL_VIDEO_TRANSITION_FLASH:
+	case GlVideoTransition::FLASH:
 		mLightCoef = mBaseLightCoef *
 			     (powf(progress, GL_VIDEO_FLASH_GAMMA_COEF) *
 				      GL_VIDEO_FLASH_LIGHT_COEF +
@@ -3027,7 +2974,8 @@ void GlVideo::updateTransition(void)
 			   powf(progress, GL_VIDEO_FLASH_GAMMA_COEF);
 		break;
 	default:
-		ULOGE("unsupported transition type: %d", mTransition);
+		ULOGE("unsupported transition type: %u",
+		      static_cast<unsigned int>(mTransition));
 		break;
 	}
 }
@@ -3039,7 +2987,8 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 		       const struct vdef_frame_info *info,
 		       const uint8_t *mbStatus)
 {
-	unsigned int i, align;
+	unsigned int i;
+	unsigned int align;
 	bool swapUv = false;
 
 	if ((info == nullptr) || (format == nullptr)) {
@@ -3054,7 +3003,7 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 		ULOGE("invalid planes");
 		return -EINVAL;
 	}
-	size_t _framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT];
+	size_t _framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT] = {};
 	unsigned int planeCount = vdef_get_raw_frame_plane_count(format);
 	if (framePlaneStride == nullptr) {
 		ULOGE("invalid strides");
@@ -3077,19 +3026,19 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 			framePlaneStride[i] / (format->data_size / 8);
 	}
 
-	enum program prog;
+	Program prog;
 	prog = getProgram(format, &swapUv);
 
 	GLint savedAlign = 0;
 	GLCHK(glGetIntegerv(GL_UNPACK_ALIGNMENT, &savedAlign));
 
-	GLCHK(glUseProgram(mProgram[prog]));
+	GLCHK(glUseProgram(mProgram[toIndex(prog)]));
 
 	switch (prog) {
 	default:
-	case PROGRAM_NOCONV:
+	case Program::NOCONV:
 		break;
-	case PROGRAM_YUV_TO_RGB_PLANAR:
+	case Program::YUV_TO_RGB_PLANAR:
 		for (i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
 			int height =
 				info->resolution.height / ((i > 0) ? 2 : 1);
@@ -3109,7 +3058,7 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 					   framePlanes[i]));
 		}
 		break;
-	case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
+	case Program::YUV_TO_RGB_PLANAR_10_16LE:
 		for (i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
 			int height =
 				info->resolution.height / ((i > 0) ? 2 : 1);
@@ -3129,7 +3078,7 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 					   framePlanes[i]));
 		}
 		break;
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
+	case Program::YUV_TO_RGB_SEMIPLANAR:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
 		align = getTextureMaxUnpackAlignment(_framePlaneStride[0]);
@@ -3158,7 +3107,7 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 				   GL_UNSIGNED_BYTE,
 				   framePlanes[1]));
 		break;
-	case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
+	case Program::YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
 		align = getTextureMaxUnpackAlignment(_framePlaneStride[0] * 2);
@@ -3187,7 +3136,7 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 				   GL_UNSIGNED_BYTE,
 				   framePlanes[1]));
 		break;
-	case PROGRAM_GRAY_TO_RGB_PLANAR:
+	case Program::GRAY_TO_RGB_PLANAR:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
 		align = getTextureMaxUnpackAlignment(_framePlaneStride[0]);
@@ -3202,7 +3151,7 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 				   GL_UNSIGNED_BYTE,
 				   framePlanes[0]));
 		break;
-	case PROGRAM_GRAY16_TO_RGB_PLANAR:
+	case Program::GRAY16_TO_RGB_PLANAR:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
 		align = getTextureMaxUnpackAlignment(_framePlaneStride[0]) * 2;
@@ -3217,7 +3166,7 @@ int GlVideo::loadFrame(const uint8_t *framePlanes[VDEF_RAW_MAX_PLANE_COUNT],
 				   GL_UNSIGNED_BYTE,
 				   framePlanes[0]));
 		break;
-	case PROGRAM_GRAY32_TO_RGB_PLANAR:
+	case Program::GRAY32_TO_RGB_PLANAR:
 		GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 		GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
 		align = getTextureMaxUnpackAlignment(_framePlaneStride[0] * 4);
@@ -3274,17 +3223,19 @@ int GlVideo::renderFrame(
 {
 	int ret;
 	unsigned int i;
-	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
-	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {0};
+	float stride[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoords[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxCoordsRatio[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
+	float maxClamp[GL_VIDEO_TEX_UNIT_COUNT * 2] = {};
 	float vertices[12];
 	float texCoords[8];
 	float yuv2RgbMatrix[9];
 	float yuv2RgbOffset[3];
-	bool mirrorTexture = false, swapUv = false;
+	bool mirrorTexture = params->vertical_mirror;
+	bool swapUv = false;
 	float videoAR;
-	GLboolean glBlendEnabled, glDepthTestEnabled;
+	GLboolean glBlendEnabled;
+	GLboolean glDepthTestEnabled;
 
 	if ((renderPos == nullptr) || (renderPos->width == 0) ||
 	    (renderPos->height == 0)) {
@@ -3300,7 +3251,7 @@ int GlVideo::renderFrame(
 		ULOGE("invalid dimensions");
 		return -EINVAL;
 	}
-	size_t _framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT];
+	size_t _framePlaneStride[VDEF_RAW_MAX_PLANE_COUNT] = {};
 	unsigned int planeCount = vdef_get_raw_frame_plane_count(format);
 	if (framePlaneStride == nullptr) {
 		ULOGE("invalid strides");
@@ -3336,7 +3287,7 @@ int GlVideo::renderFrame(
 	if (glDepthTestEnabled)
 		GLCHK(glDisable(GL_DEPTH_TEST));
 
-	enum program prog;
+	Program prog;
 	prog = getProgram(format, &swapUv);
 
 	bool setupBlur = ((mVideoWidth != _info.resolution.width) ||
@@ -3364,6 +3315,7 @@ int GlVideo::renderFrame(
 			  &_info,
 			  crop,
 			  renderPos,
+			  params->vertical_mirror,
 			  params->enable_histograms);
 
 	/* Video fill mode */
@@ -3444,8 +3396,7 @@ int GlVideo::renderFrame(
 			      videoH,
 			      videoW2,
 			      videoH2,
-			      videoAR,
-			      windowAR,
+			      params->vertical_mirror,
 			      false,
 			      viewProjMat);
 	}
@@ -3458,23 +3409,24 @@ int GlVideo::renderFrame(
 			   renderPos,
 			   videoW,
 			   videoH,
+			   params->vertical_mirror,
 			   viewProjMat);
 	} else {
-		GLCHK(glUseProgram(mProgram[prog]));
+		GLCHK(glUseProgram(mProgram[toIndex(prog)]));
 
 		switch (prog) {
 		default:
-		case PROGRAM_GRAY_TO_RGB_PLANAR:
-		case PROGRAM_GRAY16_TO_RGB_PLANAR:
-		case PROGRAM_GRAY32_TO_RGB_PLANAR:
-			mirrorTexture = true;
+		case Program::GRAY_TO_RGB_PLANAR:
+		case Program::GRAY16_TO_RGB_PLANAR:
+		case Program::GRAY32_TO_RGB_PLANAR:
+			mirrorTexture = !params->vertical_mirror;
 			/* Fall through */
-		case PROGRAM_NOCONV:
+		case Program::NOCONV:
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit));
 			GLCHK(glBindTexture(GL_TEXTURE_2D,
 					    (mExtTexture > 0) ? mExtTexture
 							      : mTextures[0]));
-			GLCHK(glUniform1i(mUniformSamplers[prog][0],
+			GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][0],
 					  mFirstTexUnit));
 			stride[0] = 1.f / _framePlaneStride[0];
 			stride[1] = 1.f / _info.resolution.height;
@@ -3483,9 +3435,9 @@ int GlVideo::renderFrame(
 			maxCoords[1] = (float)(crop->top + crop->height) /
 				       _info.resolution.height;
 			break;
-		case PROGRAM_YUV_TO_RGB_PLANAR:
-		case PROGRAM_YUV_TO_RGB_PLANAR_10_16LE:
-			mirrorTexture = true;
+		case Program::YUV_TO_RGB_PLANAR:
+		case Program::YUV_TO_RGB_PLANAR_10_16LE:
+			mirrorTexture = !params->vertical_mirror;
 			for (i = 0; i < GL_VIDEO_TEX_UNIT_COUNT; i++) {
 				int height = _info.resolution.height /
 					     ((i > 0) ? 2 : 1);
@@ -3493,8 +3445,9 @@ int GlVideo::renderFrame(
 						      mFirstTexUnit + i));
 				GLCHK(glBindTexture(GL_TEXTURE_2D,
 						    mTextures[i]));
-				GLCHK(glUniform1i(mUniformSamplers[prog][i],
-						  mFirstTexUnit + i));
+				GLCHK(glUniform1i(
+					mUniformSamplers[toIndex(prog)][i],
+					mFirstTexUnit + i));
 				stride[2 * i] = 1.f / _framePlaneStride[i];
 				stride[2 * i + 1] = 1.f / height;
 				maxCoords[2 * i] =
@@ -3506,12 +3459,12 @@ int GlVideo::renderFrame(
 					_info.resolution.height;
 			}
 			break;
-		case PROGRAM_YUV_TO_RGB_SEMIPLANAR:
-		case PROGRAM_YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
-			mirrorTexture = true;
+		case Program::YUV_TO_RGB_SEMIPLANAR:
+		case Program::YUV_TO_RGB_SEMIPLANAR_10_16LE_HIGH:
+			mirrorTexture = !params->vertical_mirror;
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 0));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[0]));
-			GLCHK(glUniform1i(mUniformSamplers[prog][0],
+			GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][0],
 					  mFirstTexUnit + 0));
 			stride[0] = 1.f / _framePlaneStride[0];
 			stride[1] = 1.f / _info.resolution.height;
@@ -3522,7 +3475,7 @@ int GlVideo::renderFrame(
 
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit + 1));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mTextures[1]));
-			GLCHK(glUniform1i(mUniformSamplers[prog][1],
+			GLCHK(glUniform1i(mUniformSamplers[toIndex(prog)][1],
 					  mFirstTexUnit + 1));
 			stride[2] = 1.f / (_framePlaneStride[1] / 2);
 			stride[3] = 1.f / (_info.resolution.height / 2);
@@ -3536,12 +3489,13 @@ int GlVideo::renderFrame(
 		computeMaxCoordsRatioAndClamp(
 			stride, maxCoords, maxCoordsRatio, maxClamp);
 
-		GLCHK(glUniform2fv(
-			mProgramStride[prog], GL_VIDEO_TEX_UNIT_COUNT, stride));
-		GLCHK(glUniform2fv(mProgramMaxCoordsRatio[prog],
+		GLCHK(glUniform2fv(mProgramStride[toIndex(prog)],
+				   GL_VIDEO_TEX_UNIT_COUNT,
+				   stride));
+		GLCHK(glUniform2fv(mProgramMaxCoordsRatio[toIndex(prog)],
 				   GL_VIDEO_TEX_UNIT_COUNT,
 				   maxCoordsRatio));
-		GLCHK(glUniform2fv(mProgramMaxClamp[prog],
+		GLCHK(glUniform2fv(mProgramMaxClamp[toIndex(prog)],
 				   GL_VIDEO_TEX_UNIT_COUNT,
 				   maxClamp));
 		fillYuv2RgbMatrix(_info.matrix_coefs,
@@ -3549,11 +3503,11 @@ int GlVideo::renderFrame(
 				  swapUv,
 				  yuv2RgbMatrix,
 				  yuv2RgbOffset);
-		GLCHK(glUniform3f(mProgramYuv2RgbOffset[prog],
+		GLCHK(glUniform3f(mProgramYuv2RgbOffset[toIndex(prog)],
 				  yuv2RgbOffset[0],
 				  yuv2RgbOffset[1],
 				  yuv2RgbOffset[2]));
-		GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[prog],
+		GLCHK(glUniformMatrix3fv(mProgramYuv2RgbMatrix[toIndex(prog)],
 					 1,
 					 GL_FALSE,
 					 yuv2RgbMatrix));
@@ -3565,30 +3519,33 @@ int GlVideo::renderFrame(
 			    params->overexposure_zebras_threshold);
 
 		/* MB status display */
-		GLCHK(glUniform1f(mProgramMbStatusEnable[prog],
+		GLCHK(glUniform1f(mProgramMbStatusEnable[toIndex(prog)],
 				  mHasMbStatus ? 1.f : 0.f));
 		if (mHasMbStatus) {
 			GLCHK(glActiveTexture(GL_TEXTURE0 + mFirstTexUnit +
 					      GL_VIDEO_TEX_UNIT_COUNT +
 					      GL_VIDEO_FBO_TEX_UNIT_COUNT));
 			GLCHK(glBindTexture(GL_TEXTURE_2D, mMbStatusTexture));
-			GLCHK(glUniform1i(mMbStatusUniformSampler[prog],
-					  mFirstTexUnit +
-						  GL_VIDEO_TEX_UNIT_COUNT +
-						  GL_VIDEO_FBO_TEX_UNIT_COUNT));
+			GLCHK(glUniform1i(
+				mMbStatusUniformSampler[toIndex(prog)],
+				mFirstTexUnit + GL_VIDEO_TEX_UNIT_COUNT +
+					GL_VIDEO_FBO_TEX_UNIT_COUNT));
 		}
 
-		GLCHK(glUniformMatrix4fv(mProgramTransformMatrix[prog],
+		GLCHK(glUniformMatrix4fv(mProgramTransformMatrix[toIndex(prog)],
 					 1,
 					 false,
 					 viewProjMat.data()));
-		GLCHK(glUniform1f(mProgramBrightnessCoef[prog],
+		GLCHK(glUniform1f(mProgramBrightnessCoef[toIndex(prog)],
 				  mBrightnessCoef));
-		GLCHK(glUniform1f(mProgramContrastCoef[prog], mContrastCoef));
-		GLCHK(glUniform1f(mProgramGammaCoef[prog], mGammaCoef));
-		GLCHK(glUniform1f(mProgramSatCoef[prog], mSatCoef));
-		GLCHK(glUniform1f(mProgramLightCoef[prog], mLightCoef));
-		GLCHK(glUniform1f(mProgramDarkCoef[prog], mDarkCoef));
+		GLCHK(glUniform1f(mProgramContrastCoef[toIndex(prog)],
+				  mContrastCoef));
+		GLCHK(glUniform1f(mProgramGammaCoef[toIndex(prog)],
+				  mGammaCoef));
+		GLCHK(glUniform1f(mProgramSatCoef[toIndex(prog)], mSatCoef));
+		GLCHK(glUniform1f(mProgramLightCoef[toIndex(prog)],
+				  mLightCoef));
+		GLCHK(glUniform1f(mProgramDarkCoef[toIndex(prog)], mDarkCoef));
 
 		vertices[0] = -videoW;
 		vertices[1] = -videoH;
@@ -3603,13 +3560,14 @@ int GlVideo::renderFrame(
 		vertices[10] = videoH;
 		vertices[11] = 1.;
 
-		GLCHK(glVertexAttribPointer(mPositionHandle[prog],
+		GLCHK(glVertexAttribPointer(mPositionHandle[toIndex(prog)],
 					    3,
 					    GL_FLOAT,
 					    false,
 					    0,
 					    vertices));
-		GLCHK(glEnableVertexAttribArray(mPositionHandle[prog]));
+		GLCHK(glEnableVertexAttribArray(
+			mPositionHandle[toIndex(prog)]));
 
 		if (mirrorTexture) {
 			texCoords[0] =
@@ -3647,18 +3605,21 @@ int GlVideo::renderFrame(
 				       (float)_info.resolution.height;
 		}
 
-		GLCHK(glVertexAttribPointer(mTexcoordHandle[prog],
+		GLCHK(glVertexAttribPointer(mTexcoordHandle[toIndex(prog)],
 					    2,
 					    GL_FLOAT,
 					    false,
 					    0,
 					    texCoords));
-		GLCHK(glEnableVertexAttribArray(mTexcoordHandle[prog]));
+		GLCHK(glEnableVertexAttribArray(
+			mTexcoordHandle[toIndex(prog)]));
 
 		GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
-		GLCHK(glDisableVertexAttribArray(mPositionHandle[prog]));
-		GLCHK(glDisableVertexAttribArray(mTexcoordHandle[prog]));
+		GLCHK(glDisableVertexAttribArray(
+			mPositionHandle[toIndex(prog)]));
+		GLCHK(glDisableVertexAttribArray(
+			mTexcoordHandle[toIndex(prog)]));
 	}
 
 	if (glBlendEnabled)
@@ -3670,7 +3631,7 @@ int GlVideo::renderFrame(
 }
 
 
-int GlVideo::clear(const Eigen::Matrix4f &viewProjMat)
+int GlVideo::clear(const Eigen::Matrix4f &viewProjMat) const
 {
 	float vertices[12];
 

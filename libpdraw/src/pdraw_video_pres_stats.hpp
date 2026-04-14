@@ -28,8 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _PDRAW_VIDEO_PRES_STATS_HPP_
-#define _PDRAW_VIDEO_PRES_STATS_HPP_
+#pragma once
 
 #include <inttypes.h>
 
@@ -43,12 +42,12 @@ namespace Pdraw {
  */
 class VideoPresStats {
 public:
-	VideoPresStats(void);
+	VideoPresStats() = default;
 
-	~VideoPresStats(void) {}
+	~VideoPresStats() = default;
 
 	/* Write video presentation statistics to a pomp_msg */
-	int writeMsg(struct pomp_msg *msg, uint32_t msgid);
+	int writeMsg(struct pomp_msg *msg, uint32_t msgid) const;
 
 	/* Read video presentation statistics from a pomp_msg */
 	int readMsg(const struct pomp_msg *msg);
@@ -56,53 +55,51 @@ public:
 	/* Timestamp associated with the video statistics (us, monotonic);
 	 * This must be set on the receiver side to a monotonic timestamp on
 	 * the sender's clock (e.g. a frame capture timestamp) */
-	uint64_t timestamp;
+	uint64_t timestamp = 0;
 
 	/* Presentation frame counter i.e. frames that reach presentation; this
 	 * value can be used with the integral time values below to compute
 	 * average values over a time period */
-	uint32_t presentationFrameCount;
+	uint32_t presentationFrameCount = 0;
 
 	/* Presentation frame timestamp delta integral value; timestamp delta is
 	 * the time difference between two consecutive presentation frames
 	 * acquisition timestamps */
-	uint64_t presentationTimestampDeltaIntegral;
+	uint64_t presentationTimestampDeltaIntegral = 0;
 
 	/* Presentation frame timestamp delta squared integral value */
-	uint64_t presentationTimestampDeltaIntegralSq;
+	uint64_t presentationTimestampDeltaIntegralSq = 0;
 
 	/* Frame presentation timing error integral value; the timing error
 	 * is the absolute difference between acquisition timestamp delta
 	 * and presentation timestamp delta for two consecutive presentation
 	 * frames */
-	uint64_t presentationTimingErrorIntegral;
+	uint64_t presentationTimingErrorIntegral = 0;
 
 	/* Frame presentation timing error squared integral value */
-	uint64_t presentationTimingErrorIntegralSq;
+	uint64_t presentationTimingErrorIntegralSq = 0;
 
 	/* Frame estimated latency integral value; the estimated latency is the
 	 * difference between a frame presentation timestamp and acquisition
 	 * timestamp using an estimation of the clock difference between the
 	 * sender and the receiver */
-	uint64_t presentationEstimatedLatencyIntegral;
+	uint64_t presentationEstimatedLatencyIntegral = 0;
 
 	/* Frame estimated latency squared integral value */
-	uint64_t presentationEstimatedLatencyIntegralSq;
+	uint64_t presentationEstimatedLatencyIntegralSq = 0;
 
 	/* Player-side frame latency integral value; the player latency is the
 	 * difference between a frame presentation timestamp and the output
 	 * timestamp of the frame from the reeciver */
-	uint64_t playerLatencyIntegral;
+	uint64_t playerLatencyIntegral = 0;
 
 	/* Player-side frame latency squared integral value */
-	uint64_t playerLatencyIntegralSq;
+	uint64_t playerLatencyIntegralSq = 0;
 
 	/* Estimated latency precision integral value; this is the precision of
 	 * the estimation of the clock difference between the sender and the
 	 * receiver */
-	uint64_t estimatedLatencyPrecisionIntegral;
+	uint64_t estimatedLatencyPrecisionIntegral = 0;
 };
 
 } /* namespace Pdraw */
-
-#endif /* !_PDRAW_VIDEO_PRES_STATS_HPP_ */

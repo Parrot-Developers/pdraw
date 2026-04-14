@@ -45,6 +45,9 @@ ULOG_DECLARE_TAG(pdraw_vipcsourcesink_test);
 #include <video-raw/vraw.h>
 
 
+#define UNUSED(x) (void)(x)
+
+
 struct pdraw_backend_app {
 	pthread_mutex_t mutex;
 	bool mutex_created;
@@ -72,6 +75,9 @@ static void ready_to_play_cb(struct pdraw_backend *pdraw,
 			     enum pdraw_vipc_source_eos_reason eos_reason,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+
 	struct pdraw_backend_app *self = userdata;
 
 	ULOGI("%s: ready=%d eos_reason=%s",
@@ -101,6 +107,10 @@ static void configured_cb(struct pdraw_backend *pdraw,
 			  const struct vdef_rectf *crop,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(source);
+	UNUSED(userdata);
+
 	ULOGI("%s: status=%d(%s) %ux%u@%.2ffps crop=%.2f,%.2f->%.2f,%.2f",
 	      __func__,
 	      status,
@@ -127,6 +137,9 @@ static void sink_flush_cb(struct pdraw_backend *pdraw,
 			  struct pdraw_raw_video_sink *sink,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -153,6 +166,9 @@ static void sink_drain_cb(struct pdraw_backend *pdraw,
 			  struct pdraw_raw_video_sink *sink,
 			  void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(sink);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -184,13 +200,15 @@ static const struct pdraw_backend_raw_video_sink_cbs sink_cbs = {
 static void
 stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 	pthread_mutex_lock(&self->mutex);
 	self->stop_resp = true;
 	self->stop_resp_status = status;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -199,6 +217,8 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 			   void *element_userdata,
 			   void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -232,8 +252,8 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	pthread_mutex_lock(&self->mutex);
 	self->media_added = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
@@ -242,6 +262,8 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 			     void *element_userdata,
 			     void *userdata)
 {
+	UNUSED(pdraw);
+
 	struct pdraw_backend_app *self = userdata;
 	int res;
 
@@ -264,14 +286,17 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 
 	pthread_mutex_lock(&self->mutex);
 	self->media_removed = true;
-	pthread_mutex_unlock(&self->mutex);
 	pthread_cond_signal(&self->cond);
+	pthread_mutex_unlock(&self->mutex);
 }
 
 
 static void
 socket_created_cb(struct pdraw_backend *pdraw, int fd, void *userdata)
 {
+	UNUSED(pdraw);
+	UNUSED(userdata);
+
 	ULOGI("%s fd=%d", __func__, fd);
 }
 
@@ -286,7 +311,8 @@ static const struct pdraw_backend_cbs be_cbs = {
 
 static void process_output(struct pdraw_backend_app *self)
 {
-	int res = 0, err;
+	int res = 0;
+	int err;
 
 	if (self->out_queue == NULL)
 		return;
@@ -378,6 +404,8 @@ static const struct option long_options[] = {
 
 static void welcome(int argc, char **argv)
 {
+	UNUSED(argc);
+
 	printf("%s - Parrot Drones Audio and Video Vector - "
 	       "Video IPC source to sink test program\n\n",
 	       argv[0]);
@@ -386,6 +414,8 @@ static void welcome(int argc, char **argv)
 
 static void usage(int argc, char **argv)
 {
+	UNUSED(argc);
+
 	/* clang-format off */
 	printf("Usage: %s [options] <vipc_address> <output_file>\n\n"
 	       "Options:\n"
@@ -399,8 +429,10 @@ static void usage(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-	int res, status = EXIT_SUCCESS;
-	const char *input = NULL, *output = NULL;
+	int res;
+	int status = EXIT_SUCCESS;
+	const char *input = NULL;
+	char *output = NULL;
 	struct pdraw_backend_app *self = NULL;
 	struct pdraw_vipc_source_params source_params = {0};
 	struct vraw_writer_config writer_config = {0};
@@ -408,7 +440,8 @@ int main(int argc, char **argv)
 	welcome(argc, argv);
 
 	/* Command-line parameters */
-	int idx, c;
+	int idx;
+	int c;
 	while ((c = getopt_long(
 			argc, argv, short_options, long_options, &idx)) != -1) {
 		switch (c) {

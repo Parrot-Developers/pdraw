@@ -29,6 +29,8 @@
  */
 
 #include "qpdraw_demuxer_priv.hpp"
+#include "qpdraw_priv.hpp"
+
 
 #define ULOG_TAG qpdraw_demuxer
 #include <ulog.h>
@@ -39,17 +41,9 @@ namespace QPdraw {
 namespace Internal {
 
 
-QPdrawDemuxerPriv::QPdrawDemuxerPriv(QPdrawDemuxer *parent) :
-		mParent(parent), mDemuxer(nullptr), mClosing(false)
+QPdrawDemuxerPriv::QPdrawDemuxerPriv(QPdrawDemuxer *parent) : mParent(parent)
 {
 	qRegisterMetaType<pdraw_chapter>("pdraw_chapter");
-}
-
-
-QPdrawDemuxerPriv::~QPdrawDemuxerPriv()
-{
-	if (mDemuxer != nullptr)
-		delete mDemuxer;
 }
 
 
@@ -57,7 +51,7 @@ IPdraw *QPdrawDemuxerPriv::getPdrawInternal()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mParent == nullptr, EPROTO, nullptr);
 	ULOG_ERRNO_RETURN_VAL_IF(mParent->parent() == nullptr, EPROTO, nullptr);
-	QPdraw *qpdraw = reinterpret_cast<QPdraw *>(mParent->parent());
+	auto *qpdraw = reinterpret_cast<QPdraw *>(mParent->parent());
 	ULOG_ERRNO_RETURN_VAL_IF(qpdraw == nullptr, EPROTO, nullptr);
 	return reinterpret_cast<IPdraw *>(qpdraw->getInternal());
 }
@@ -66,12 +60,18 @@ IPdraw *QPdrawDemuxerPriv::getPdrawInternal()
 int QPdrawDemuxerPriv::open(const std::string &url,
 			    const struct pdraw_demuxer_params *params)
 {
+	int ret;
+	IPdraw::IDemuxer *demuxer = nullptr;
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer != nullptr, EBUSY);
 
 	IPdraw *pdrawInternal = getPdrawInternal();
 	ULOG_ERRNO_RETURN_ERR_IF(pdrawInternal == nullptr, EPROTO);
 
-	return pdrawInternal->createDemuxer(url, params, this, &mDemuxer);
+	ret = pdrawInternal->createDemuxer(url, params, this, &demuxer);
+	ULOG_ERRNO_RETURN_ERR_IF(ret < 0, -ret);
+
+	mDemuxer.reset(demuxer);
+	return 0;
 }
 
 
@@ -83,20 +83,27 @@ int QPdrawDemuxerPriv::open(const std::string &localAddr,
 			    uint16_t remoteControlPort,
 			    const struct pdraw_demuxer_params *params)
 {
+	int ret;
+	IPdraw::IDemuxer *demuxer = nullptr;
+
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer != nullptr, EBUSY);
 
 	IPdraw *pdrawInternal = getPdrawInternal();
 	ULOG_ERRNO_RETURN_ERR_IF(pdrawInternal == nullptr, EPROTO);
 
-	return pdrawInternal->createDemuxer(localAddr,
-					    localStreamPort,
-					    localControlPort,
-					    remoteAddr,
-					    remoteStreamPort,
-					    remoteControlPort,
-					    params,
-					    this,
-					    &mDemuxer);
+	ret = pdrawInternal->createDemuxer(localAddr,
+					   localStreamPort,
+					   localControlPort,
+					   remoteAddr,
+					   remoteStreamPort,
+					   remoteControlPort,
+					   params,
+					   this,
+					   &demuxer);
+	ULOG_ERRNO_RETURN_ERR_IF(ret < 0, -ret);
+
+	mDemuxer.reset(demuxer);
+	return 0;
 }
 
 
@@ -104,16 +111,23 @@ int QPdrawDemuxerPriv::open(const std::string &url,
 			    struct mux_ctx *mux,
 			    const struct pdraw_demuxer_params *params)
 {
+	int ret;
+	IPdraw::IDemuxer *demuxer = nullptr;
+
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer != nullptr, EBUSY);
 
 	IPdraw *pdrawInternal = getPdrawInternal();
 	ULOG_ERRNO_RETURN_ERR_IF(pdrawInternal == nullptr, EPROTO);
 
-	return pdrawInternal->createDemuxer(url, mux, params, this, &mDemuxer);
+	ret = pdrawInternal->createDemuxer(url, mux, params, this, &demuxer);
+	ULOG_ERRNO_RETURN_ERR_IF(ret < 0, -ret);
+
+	mDemuxer.reset(demuxer);
+	return 0;
 }
 
 
-int QPdrawDemuxerPriv::close(void)
+int QPdrawDemuxerPriv::close()
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EINVAL);
 
@@ -144,7 +158,7 @@ int QPdrawDemuxerPriv::selectMedia(uint32_t selectedMedias)
 }
 
 
-uint16_t QPdrawDemuxerPriv::getSingleStreamLocalStreamPort(void)
+uint16_t QPdrawDemuxerPriv::getSingleStreamLocalStreamPort()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, 0);
 	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, 0);
@@ -153,7 +167,7 @@ uint16_t QPdrawDemuxerPriv::getSingleStreamLocalStreamPort(void)
 }
 
 
-uint16_t QPdrawDemuxerPriv::getSingleStreamLocalControlPort(void)
+uint16_t QPdrawDemuxerPriv::getSingleStreamLocalControlPort()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, 0);
 	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, 0);
@@ -162,7 +176,7 @@ uint16_t QPdrawDemuxerPriv::getSingleStreamLocalControlPort(void)
 }
 
 
-bool QPdrawDemuxerPriv::isReadyToPlay(void)
+bool QPdrawDemuxerPriv::isReadyToPlay()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, false);
 	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, false);
@@ -171,7 +185,7 @@ bool QPdrawDemuxerPriv::isReadyToPlay(void)
 }
 
 
-bool QPdrawDemuxerPriv::isPaused(void)
+bool QPdrawDemuxerPriv::isPaused()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, false);
 	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, false);
@@ -189,7 +203,7 @@ int QPdrawDemuxerPriv::play(float speed)
 }
 
 
-int QPdrawDemuxerPriv::pause(void)
+int QPdrawDemuxerPriv::pause()
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(mClosing, EPERM);
@@ -198,7 +212,7 @@ int QPdrawDemuxerPriv::pause(void)
 }
 
 
-int QPdrawDemuxerPriv::previousFrame(void)
+int QPdrawDemuxerPriv::previousFrame()
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(mClosing, EPERM);
@@ -207,7 +221,7 @@ int QPdrawDemuxerPriv::previousFrame(void)
 }
 
 
-int QPdrawDemuxerPriv::nextFrame(void)
+int QPdrawDemuxerPriv::nextFrame()
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mDemuxer == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(mClosing, EPERM);
@@ -262,7 +276,7 @@ int QPdrawDemuxerPriv::getChapterList(struct pdraw_chapter **chapterList,
 }
 
 
-uint64_t QPdrawDemuxerPriv::getDuration(void)
+uint64_t QPdrawDemuxerPriv::getDuration()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, 0);
 	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, 0);
@@ -271,7 +285,7 @@ uint64_t QPdrawDemuxerPriv::getDuration(void)
 }
 
 
-uint64_t QPdrawDemuxerPriv::getCurrentTime(void)
+uint64_t QPdrawDemuxerPriv::getCurrentTime()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mDemuxer == nullptr, EINVAL, 0);
 	ULOG_ERRNO_RETURN_VAL_IF(mClosing, EPERM, 0);
@@ -284,8 +298,8 @@ void QPdrawDemuxerPriv::demuxerOpenResponse(IPdraw *pdraw,
 					    IPdraw::IDemuxer *demuxer,
 					    int status)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->openResponse(status);
 }
@@ -295,8 +309,8 @@ void QPdrawDemuxerPriv::demuxerCloseResponse(IPdraw *pdraw,
 					     IPdraw::IDemuxer *demuxer,
 					     int status)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->closeResponse(status);
 }
@@ -305,8 +319,8 @@ void QPdrawDemuxerPriv::demuxerCloseResponse(IPdraw *pdraw,
 void QPdrawDemuxerPriv::onDemuxerUnrecoverableError(IPdraw *pdraw,
 						    IPdraw::IDemuxer *demuxer)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->onUnrecoverableError();
 }
@@ -321,8 +335,8 @@ int QPdrawDemuxerPriv::demuxerSelectMedia(
 {
 	int ret = -ENOSYS;
 
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->demuxerSelectMedia(
 		medias, (unsigned int)count, selectedMedias, &ret);
@@ -335,8 +349,8 @@ void QPdrawDemuxerPriv::demuxerReadyToPlay(IPdraw *pdraw,
 					   IPdraw::IDemuxer *demuxer,
 					   bool ready)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->readyToPlay(ready);
 }
@@ -346,8 +360,8 @@ void QPdrawDemuxerPriv::onDemuxerEndOfRange(IPdraw *pdraw,
 					    IPdraw::IDemuxer *demuxer,
 					    uint64_t timestamp)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->onEndOfRange(timestamp);
 }
@@ -359,8 +373,8 @@ void QPdrawDemuxerPriv::demuxerPlayResponse(IPdraw *pdraw,
 					    uint64_t timestamp,
 					    float speed)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->playResponse(status, timestamp, speed);
 }
@@ -371,8 +385,8 @@ void QPdrawDemuxerPriv::demuxerPauseResponse(IPdraw *pdraw,
 					     int status,
 					     uint64_t timestamp)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->pauseResponse(status, timestamp);
 }
@@ -384,8 +398,8 @@ void QPdrawDemuxerPriv::demuxerSeekResponse(IPdraw *pdraw,
 					    uint64_t timestamp,
 					    float speed)
 {
-	Q_UNUSED(pdraw);
-	Q_UNUSED(demuxer);
+	PDRAW_UNUSED(pdraw);
+	PDRAW_UNUSED(demuxer);
 
 	emit mParent->seekResponse(status, timestamp, speed);
 }
@@ -393,18 +407,17 @@ void QPdrawDemuxerPriv::demuxerSeekResponse(IPdraw *pdraw,
 } /* namespace Internal */
 
 
-QPdrawDemuxer::QPdrawDemuxer(QPdraw *parent) : QObject(parent)
+QPdrawDemuxer::QPdrawDemuxer(QPdraw *parent) :
+		QObject(parent),
+		mPriv(make_unique<Internal::QPdrawDemuxerPriv>(this))
 {
 	qRegisterMetaType<pdraw_demuxer_media>("pdraw_demuxer_media");
-
-	mPriv = new Internal::QPdrawDemuxerPriv(this);
 }
 
 
-QPdrawDemuxer::~QPdrawDemuxer()
-{
-	delete mPriv;
-}
+/* The destructor must be defined here because QPdrawDemuxerPriv is an
+ * incomplete type in the header (PIMPL idiom) */
+QPdrawDemuxer::~QPdrawDemuxer() = default;
 
 
 int QPdrawDemuxer::open(const std::string &url,
@@ -440,7 +453,7 @@ int QPdrawDemuxer::open(const std::string &url,
 }
 
 
-int QPdrawDemuxer::close(void)
+int QPdrawDemuxer::close()
 {
 	return mPriv->close();
 }
@@ -460,25 +473,25 @@ int QPdrawDemuxer::selectMedia(uint32_t selectedMedias)
 }
 
 
-uint16_t QPdrawDemuxer::getSingleStreamLocalStreamPort(void)
+uint16_t QPdrawDemuxer::getSingleStreamLocalStreamPort()
 {
 	return mPriv->getSingleStreamLocalStreamPort();
 }
 
 
-uint16_t QPdrawDemuxer::getSingleStreamLocalControlPort(void)
+uint16_t QPdrawDemuxer::getSingleStreamLocalControlPort()
 {
 	return mPriv->getSingleStreamLocalControlPort();
 }
 
 
-bool QPdrawDemuxer::isReadyToPlay(void)
+bool QPdrawDemuxer::isReadyToPlay()
 {
 	return mPriv->isReadyToPlay();
 }
 
 
-bool QPdrawDemuxer::isPaused(void)
+bool QPdrawDemuxer::isPaused()
 {
 	return mPriv->isPaused();
 }
@@ -490,19 +503,19 @@ int QPdrawDemuxer::play(float speed)
 }
 
 
-int QPdrawDemuxer::pause(void)
+int QPdrawDemuxer::pause()
 {
 	return mPriv->pause();
 }
 
 
-int QPdrawDemuxer::previousFrame(void)
+int QPdrawDemuxer::previousFrame()
 {
 	return mPriv->previousFrame();
 }
 
 
-int QPdrawDemuxer::nextFrame(void)
+int QPdrawDemuxer::nextFrame()
 {
 	return mPriv->nextFrame();
 }
@@ -539,13 +552,13 @@ int QPdrawDemuxer::getChapterList(struct pdraw_chapter **chapterList,
 }
 
 
-uint64_t QPdrawDemuxer::getDuration(void)
+uint64_t QPdrawDemuxer::getDuration()
 {
 	return mPriv->getDuration();
 }
 
 
-uint64_t QPdrawDemuxer::getCurrentTime(void)
+uint64_t QPdrawDemuxer::getCurrentTime()
 {
 	return mPriv->getCurrentTime();
 }
