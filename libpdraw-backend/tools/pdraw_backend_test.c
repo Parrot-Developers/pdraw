@@ -34,10 +34,10 @@
 
 #define ULOG_TAG pdraw_backend_test
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_backend_test);
 
 #include <pdraw/pdraw_backend.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #define UNUSED(x) (void)(x)
 

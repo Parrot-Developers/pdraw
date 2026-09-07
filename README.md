@@ -208,22 +208,39 @@ The library depends on the following Alchemy modules:
 #### libpdraw-vsink
 
 _libpdraw-vsink_ is a helper library to easily create a _libpdraw_ instance
-on a stream or record without rendering and get YUV frames, for example to
-process them with OpenCV in an application.
+on a stream or record without rendering and get raw (YUV) or coded (H.264/H.265)
+video frames, for example to process them with OpenCV in an application.
 
-The API is available in C. The functions can be called from any thread but
-are not thread-safe: they should always be called from the same thread,
-or it is the caller's responsibility to synchronize calls if multiple threads
-are used.
+Available APIs for _libpdraw-vsink_ are:
+
+* C
+* C++
+
+The C API functions can be called from any thread but are not thread-safe:
+they should always be called from the same thread, or it is the caller's
+responsibility to synchronize calls if multiple threads are used.
+
+The C++ API exposes the same capabilities through the `PdrawVsink::IPdrawVsink`
+interface and the `PdrawVsink::createPdrawVsink()` factory function. The
+instance is destroyed by deleting the `IPdrawVsink` pointer, which is
+equivalent to calling `pdraw_vsink_stop()` in C. Note that `getFrame()` must
+not be used if a `Listener` was provided at creation time.
+
+The `pdraw_vsink_params.video_media_type` field selects the type of frames
+delivered: `PDRAW_VSINK_VIDEO_MEDIA_TYPE_RAW` for raw (YUV) frames or
+`PDRAW_VSINK_VIDEO_MEDIA_TYPE_CODED` for coded (H.264/H.265) frames.
 
 The _libpdraw-vsink_ module provides two methods for retrieving frames:
-* Synchronous retrieval using the _pdraw_vsink_get_frame()_ function.
+* Synchronous retrieval using the _pdraw_vsink_get_frame()_ function (C) or
+  the _IPdrawVsink::getFrame()_ method (C++).
   * In blocking mode (timeout_ms = -1 or timeout_ms > 0)
-  * In non-blocking mode (polling, with timeout_ms = 0),
-* Asynchronous retrieval by registering a _get_frame_cb_t_ callback.
-  Note: This callback is executed from the _pdraw_vsink_ thread. The caller must
-  ensure thread safety and be aware that the _pdraw_vsink_ thread is blocked
-  during the callback execution.
+  * In non-blocking mode (polling, with timeout_ms = 0)
+* Asynchronous retrieval by registering a _frame_ready_ callback in
+  _struct pdraw_vsink_cbs_ (C) or by implementing
+  _IPdrawVsink::Listener::onFrameReady()_ (C++). This callback is executed
+  from the _pdraw_vsink_ internal thread. The caller must ensure thread safety
+  and be aware that the _pdraw_vsink_ thread is blocked during the callback
+  execution.
 
 The library supports two playback synchronization modes: real-time, where frames
 follow the original stream timestamps, and offline, where frames are delivered
@@ -238,6 +255,13 @@ The library depends on the following Alchemy modules:
 * libpdraw
 * libpomp
 * libulog
+* libvideo-metadata
+
+A face detection example built on this library, `pdraw-vsink-test-opencv`
+(see `libpdraw-vsink/tools/pdraw_vsink_test_opencv.cpp`), links against
+OpenCV. It uses the system OpenCV via `pkg-config` when available (e.g.
+`apt install libopencv-core-dev` on Debian/Ubuntu), and otherwise falls
+back to building the in-tree `opencv2` Alchemy package.
 
 #### libpdraw-gles2hud
 

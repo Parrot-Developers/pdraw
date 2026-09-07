@@ -36,7 +36,11 @@
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
 
+#include <vector>
+#include <video-metadata/vmeta_photo.h>
+
 namespace Pdraw {
+
 
 class PhotoRecordMuxer::PhotoMuxerMedia : public RecordMuxer::MuxerMedia {
 public:
@@ -44,12 +48,50 @@ public:
 
 	~PhotoMuxerMedia() override = default;
 
-	void updateMetadata(struct vmeta_frame *meta);
+	void updateMetadata(const struct vmeta_frame *meta) const;
+
+	int writeMetadata(struct vmeta_session &session,
+			  struct vmeta_frame *frame,
+			  const char *mimeType = nullptr);
+
+	static void
+	photoMetaWriteFileCb(enum pmeta_defs_dest dest,
+			     const struct pmeta_defs_exif_def *exifDef,
+			     const struct pmeta_defs_xmp_def *xmpDef,
+			     const char *value,
+			     void *userdata);
 
 protected:
+	static void appendIovec(std::vector<struct iovec> &iov,
+				const uint8_t *buf,
+				size_t len);
+
+	virtual int internalAddExif(const struct pmeta_defs_exif_def *exifDef,
+				    const char *value)
+	{
+		return -ENOSYS;
+	}
+
+	virtual int internalAddXmp(const struct pmeta_defs_xmp_def *xmpDef,
+				   const char *value)
+	{
+		return -ENOSYS;
+	}
+
+	virtual void internalClearMetadata()
+	{
+		/* Intentional no-op. */
+	}
+
+	virtual int internalSerialize(const uint8_t *buf,
+				      size_t len,
+				      std::vector<struct iovec> &iov,
+				      uint8_t **headerBuf) = 0;
+
+	virtual const char *internalGetMimeType() const = 0;
+
 	PhotoRecordMuxer *mPhotoMuxer = nullptr;
 };
-
 
 class PhotoRecordMuxer::PhotoMuxerCodedVideoMedia
 		: public PhotoRecordMuxer::PhotoMuxerMedia {
@@ -58,7 +100,7 @@ public:
 	int process() override;
 
 protected:
-	virtual int processFrame(struct mbuf_coded_video_frame *frame) = 0;
+	virtual int processFrame(struct mbuf_coded_video_frame *frame);
 };
 
 
@@ -69,7 +111,12 @@ public:
 	int process() override;
 
 protected:
-	virtual int processFrame(struct mbuf_raw_video_frame *frame) = 0;
+	virtual int processFrame(struct mbuf_raw_video_frame *frame);
+
+	virtual int internalSetupFormat(const struct vdef_raw_frame *info)
+	{
+		return 0;
+	}
 };
 
 } /* namespace Pdraw */

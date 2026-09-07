@@ -30,23 +30,11 @@
 
 #pragma once
 
-#include <inttypes.h>
-#include <pdraw/pdraw_defs.h>
+#include <pdraw-vsink/pdraw_vsink_defs.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
-
-/* To be used for all public API */
-#ifdef PDRAW_VSINK_API_EXPORTS
-#	ifdef _WIN32
-#		define PDRAW_VSINK_API __declspec(dllexport)
-#	else /* !_WIN32 */
-#		define PDRAW_VSINK_API __attribute__((visibility("default")))
-#	endif /* !_WIN32 */
-#else /* !PDRAW_VSINK_API_EXPORTS */
-#	define PDRAW_VSINK_API
-#endif /* !PDRAW_VSINK_API_EXPORTS */
 
 
 /* Forward declarations */
@@ -67,35 +55,9 @@ struct pdraw_vsink_cbs {
 	 * @param frame: the mbuf_raw_video_frame structure
 	 * @param frame_info: information about the frame
 	 * @param userdata: user data pointer */
-	void (*frame_ready)(struct mbuf_raw_video_frame *frame,
-			    struct pdraw_video_frame *frame_info,
+	void (*frame_ready)(struct pdraw_vsink_frame *frame,
+			    const struct pdraw_video_frame *frame_info,
 			    void *userdata);
-};
-
-
-/* Instance parameters */
-struct pdraw_vsink_params {
-	/* Network URL or local file (mandatory) */
-	const char *url;
-
-	/* Playback synchronization mode.
-	 * - PDRAW_PLAYBACK_MODE_REALTIME: Frames are delivered following the
-	 * original stream timestamps (synchronized with the clock).
-	 * - PDRAW_PLAYBACK_MODE_OFFLINE: Frames are delivered as fast as the
-	 * demuxing and decoding pipeline allows, ignoring real-time pacing. */
-	enum pdraw_playback_mode playback_mode;
-
-	/* Camera type to select (optional; set to VMETA_CAMERA_TYPE_UNKNOWN to
-	 * select the default camera) */
-	enum vmeta_camera_type camera_type;
-
-	/* Callback functions (optional; if the frame_ready callback is not
-	 * provided, use the pdraw_vsink_get_frame() function to retrieve
-	 * frames) */
-	struct pdraw_vsink_cbs cbs;
-
-	/* Callback functions user data pointer */
-	void *cbs_userdata;
 };
 
 
@@ -108,6 +70,10 @@ struct pdraw_vsink_params {
  * parameter. When no longer needed, the instance must be freed using the
  * pdraw_vsink_stop() function.
  * @param params: instance parameters
+ * @param cbs: callback functions (optional, can be null; if the frame_ready
+ *            callback is not provided, use the pdraw_vsink_get_frame()
+ *            function to retrieve frames)
+ * @param cbs_userdata: callback functions user data pointer
  * @param media_info: optional pointer to a media info structure (output)
  *                    Note: the ownership of the memory stays with the library
  *                    instance and will be freed in pdraw_vsink_stop().
@@ -115,6 +81,8 @@ struct pdraw_vsink_params {
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_VSINK_API int pdraw_vsink_start(const struct pdraw_vsink_params *params,
+				      const struct pdraw_vsink_cbs *cbs,
+				      void *cbs_userdata,
 				      struct pdraw_media_info **media_info,
 				      struct pdraw_vsink **ret_obj);
 
@@ -144,12 +112,11 @@ PDRAW_VSINK_API int pdraw_vsink_stop(struct pdraw_vsink *self);
  * @return 0 in case of success, -ETIMEDOUT if timeout occurred,
  *         negative errno value in case of error
  */
-PDRAW_VSINK_API int
-pdraw_vsink_get_frame(struct pdraw_vsink *self,
-		      int timeout_ms,
-		      struct mbuf_mem *frame_memory,
-		      struct pdraw_video_frame *frame_info,
-		      struct mbuf_raw_video_frame **ret_frame);
+PDRAW_VSINK_API int pdraw_vsink_get_frame(struct pdraw_vsink *self,
+					  int timeout_ms,
+					  struct mbuf_mem *frame_memory,
+					  struct pdraw_video_frame *frame_info,
+					  struct pdraw_vsink_frame *ret_frame);
 
 
 #ifdef __cplusplus

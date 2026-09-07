@@ -35,7 +35,6 @@
 #include <inttypes.h>
 
 #include <audio-defs/adefs.h>
-#include <libpomp.h>
 #include <media-buffers/mbuf_audio_frame.h>
 
 namespace Pdraw {
@@ -54,7 +53,7 @@ public:
 	AudioChannel(Sink *owner,
 		     SinkListener *sinkListener,
 		     AudioSinkListener *audioSinkListener,
-		     struct pomp_loop *loop);
+		     pomp::Loop *loop);
 
 	~AudioChannel() override = default;
 

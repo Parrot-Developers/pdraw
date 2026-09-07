@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_rndvidgl
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_renderer_video_gl.hpp"
 #include "pdraw_session.hpp"
@@ -41,9 +40,12 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #	include <string.h>
 #	include <time.h>
 #	include <unistd.h>
+#	include <array>
 
 #	include <media-buffers/mbuf_ancillary_data.h>
 #	include <video-streaming/vstrm.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -65,19 +67,19 @@ constexpr size_t GL_RENDERER_VIDEO_PRES_STATS_TIME_MS = 200;
 constexpr size_t GL_RENDERER_SCHED_ADAPTIVE_EPSILON_PERCENT = 5;
 constexpr size_t GL_RENDERER_SCHED_ADAPTIVE_INIT_BUF_DELAY_PERCENT = 50;
 
-constexpr size_t NB_SUPPORTED_FORMATS = 8;
-static struct vdef_raw_format supportedFormats[NB_SUPPORTED_FORMATS];
-static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
-static void initializeSupportedFormats()
+static const std::array<struct vdef_raw_format, 8> &getSupportedFormats()
 {
-	supportedFormats[0] = vdef_i420;
-	supportedFormats[1] = vdef_nv12;
-	supportedFormats[2] = vdef_nv21;
-	supportedFormats[3] = vdef_i420_10_16le;
-	supportedFormats[4] = vdef_nv12_10_16le_high;
-	supportedFormats[5] = vdef_gray;
-	supportedFormats[6] = vdef_raw16;
-	supportedFormats[7] = vdef_raw32;
+	static const std::array<struct vdef_raw_format, 8> formats = {{
+		vdef_i420,
+		vdef_nv12,
+		vdef_nv21,
+		vdef_i420_10_16le,
+		vdef_nv12_10_16le_high,
+		vdef_gray,
+		vdef_raw16,
+		vdef_raw32,
+	}};
+	return formats;
 }
 
 
@@ -106,8 +108,9 @@ GlVideoRenderer::GlVideoRenderer(
 
 	Element::setClassName(__func__);
 
-	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
-	setRawVideoMediaFormatCaps(supportedFormats, NB_SUPPORTED_FORMATS);
+	setRawVideoMediaFormatCaps(
+		getSupportedFormats().data(),
+		static_cast<int>(getSupportedFormats().size()));
 
 	if (mRendererListener != nullptr) {
 		ret = mRendererListener->loadVideoTexture(
@@ -128,10 +131,18 @@ GlVideoRenderer::GlVideoRenderer(
 	}
 
 	if (renderPos != nullptr && params != nullptr) {
-		ret = setup(renderPos, params);
+		/* Explicit non-virtual call: object is still constructing */
+		ret = GlVideoRenderer::setup(renderPos, params);
 		if (ret != 0)
 			return;
 	}
+
+	mTimerHandler.set([this] { onTimer(); });
+	mWatchdogTimerHandler.set([this] { onWatchdogTimer(); });
+	mVideoPresStatsTimerHandler.set([this] { onVideoPresStatsTimer(); });
+	mIdleStartHandler.set([this] { idleStart(); });
+	mIdleRenewMediaHandler.set([this] { idleRenewMedia(); });
+	mIdleCompleteDrainHandler.set([this] { idleCompleteDrain(); });
 
 	/* Post a message on the loop thread */
 	setStateAsyncNotify(State::CREATED);
@@ -151,16 +162,34 @@ GlVideoRenderer::~GlVideoRenderer()
 	mRenderVideoOverlay = false;
 
 	/* Remove any leftover idle callbacks */
-	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	ret = mSession->getPompLoop()->idleRemove(this);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -ret);
 
-	unsigned int count = getInputMediaCount();
+	auto count = static_cast<int>(getInputMediaCount());
 	if (count > 0) {
 		PDRAW_LOGW("not all input media have been removed");
-		ret = removeInputMedias();
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("removeInputMedias", -ret);
+		/* Inlined instead of calling removeInputMedias(): the derived
+		 * class is already destroyed, so the non-virtual
+		 * removeInputMediaImpl() must be called directly here (no
+		 * virtual call may be made from a destructor).
+		 * removeInputMedias() itself cannot be reused as-is, since it
+		 * calls removeInputMedia() virtually, which must keep
+		 * dispatching normally when called outside of destruction
+		 * (e.g. from completeStop()) */
+		Sink::lock();
+		for (int i = count - 1; i >= 0; i--) {
+			auto *media =
+				dynamic_cast<RawVideoMedia *>(getInputMedia(i));
+			if (media == nullptr) {
+				PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
+				continue;
+			}
+			ret = removeInputMediaImpl(media);
+			if (ret < 0)
+				PDRAW_LOG_ERRNO("removeInputMedia", -ret);
+		}
+		Sink::unlock();
 	}
 
 	if (mLoadedFrame.metadata != nullptr) {
@@ -182,37 +211,14 @@ GlVideoRenderer::~GlVideoRenderer()
 		if (err < 0)
 			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
 		mNextFrame.frame = nullptr;
+		mNextFrame.media = nullptr;
 	}
 
 	Media::cleanupMediaInfo(&mMediaInfo);
 
-	if (mTimer != nullptr) {
-		ret = pomp_timer_clear(mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
-		mTimer = nullptr;
-	}
-	if (mWatchdogTimer != nullptr) {
-		ret = pomp_timer_clear(mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
-		mWatchdogTimer = nullptr;
-	}
-	if (mVideoPresStatsTimer != nullptr) {
-		ret = pomp_timer_clear(mVideoPresStatsTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(mVideoPresStatsTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
-		mVideoPresStatsTimer = nullptr;
-	}
+	mTimer.reset();
+	mWatchdogTimer.reset();
+	mVideoPresStatsTimer.reset();
 
 	mGlVideo.reset();
 }
@@ -223,7 +229,7 @@ int GlVideoRenderer::setup(const struct pdraw_rect *renderPos,
 			   const struct pdraw_video_renderer_params *params)
 {
 	int ret = 0;
-	char *key = nullptr;
+	unique_c_ptr<char> key;
 
 	if (params == nullptr)
 		return -EINVAL;
@@ -237,18 +243,25 @@ int GlVideoRenderer::setup(const struct pdraw_rect *renderPos,
 
 	GLCHK(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &mDefaultFbo));
 
-	ret = mbuf_ancillary_data_build_key(
-		GL_RENDERER_ANCILLARY_DATA_KEY_INPUT_TIME,
-		(uintptr_t)this,
-		&key);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_ancillary_data_build_key", -ret);
-		goto out;
+	{
+		char *rawKey = nullptr;
+		ret = mbuf_ancillary_data_build_key(
+			GL_RENDERER_ANCILLARY_DATA_KEY_INPUT_TIME,
+			(uintptr_t)this,
+			&rawKey);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_ancillary_data_build_key", -ret);
+			goto out;
+		}
+		key.reset(rawKey);
 	}
-	mAncillaryKey = key;
+	mAncillaryKey = key.get();
 
 	if (renderPos->width != 0 && renderPos->height != 0) {
-		ret = resize(renderPos);
+		/* Explicit non-virtual call: setup() is only ever called from
+		 * the constructor, where virtual dispatch would not reach a
+		 * subclass override anyway */
+		ret = GlVideoRenderer::resize(renderPos);
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("resize", -ret);
 			goto out;
@@ -262,7 +275,7 @@ int GlVideoRenderer::setup(const struct pdraw_rect *renderPos,
 	}
 
 	try {
-		mGlVideo = make_unique<GlVideo>(
+		mGlVideo = std::make_unique<GlVideo>(
 			mSession,
 			mDefaultFbo,
 			mGlVideoFirstTexUnit,
@@ -276,7 +289,6 @@ int GlVideoRenderer::setup(const struct pdraw_rect *renderPos,
 
 out:
 	GLCHK(glBindFramebuffer(GL_FRAMEBUFFER, mDefaultFbo));
-	free(key);
 	return ret;
 }
 
@@ -296,95 +308,72 @@ int GlVideoRenderer::start()
 
 	mRunning = true;
 
-	int ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleStart, this, this);
+	int ret = mSession->getPompLoop()->idleAdd(&mIdleStartHandler, this);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 
 	return ret;
 }
 
 /* Called on the loop thread by start() */
-void GlVideoRenderer::idleStart(void *renderer)
+void GlVideoRenderer::idleStart()
 {
-	auto *self = static_cast<GlVideoRenderer *>(renderer);
-	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
 	int err;
 
-	if (self->mState != State::STARTING) {
+	if (mState != State::STARTING) {
 		PDRAW_LOGE("renderer is not starting");
 		return;
 	}
 
-	if (self->mTimer == nullptr) {
-		self->mTimer = pomp_timer_new(
-			self->mSession->getLoop(), timerCb, self);
-		if (self->mTimer == nullptr) {
-			PDRAW_LOGE("pomp_timer_new failed");
+	if (mTimer == nullptr) {
+		try {
+			mTimer = std::make_unique<pomp::Timer>(
+				mSession->getPompLoop(), &mTimerHandler);
+		} catch (const std::bad_alloc &) {
+			PDRAW_LOGE("pomp::Timer allocation failed");
 			goto error;
 		}
 	}
-	if (self->mWatchdogTimer == nullptr) {
-		self->mWatchdogTimer = pomp_timer_new(
-			self->mSession->getLoop(), watchdogTimerCb, self);
-		if (self->mWatchdogTimer == nullptr) {
-			PDRAW_LOGE("pomp_timer_new failed");
+	if (mWatchdogTimer == nullptr) {
+		try {
+			mWatchdogTimer = std::make_unique<pomp::Timer>(
+				mSession->getPompLoop(),
+				&mWatchdogTimerHandler);
+		} catch (const std::bad_alloc &) {
+			PDRAW_LOGE("pomp::Timer allocation failed");
 			goto error;
 		}
 	}
-	if (self->mVideoPresStatsTimer == nullptr) {
-		self->mVideoPresStatsTimer = pomp_timer_new(
-			self->mSession->getLoop(), videoPresStatsTimerCb, self);
-		if (self->mVideoPresStatsTimer == nullptr) {
-			PDRAW_LOGE("pomp_timer_new failed");
+	if (mVideoPresStatsTimer == nullptr) {
+		try {
+			mVideoPresStatsTimer = std::make_unique<pomp::Timer>(
+				mSession->getPompLoop(),
+				&mVideoPresStatsTimerHandler);
+		} catch (const std::bad_alloc &) {
+			PDRAW_LOGE("pomp::Timer allocation failed");
 			goto error;
 		}
 	}
 
 	{
-		std::unique_lock<std::mutex> lock(self->mListenerMutex);
-		if ((self->mRendererListener != nullptr) &&
-		    (self->mParams.scheduling_mode !=
+		std::scoped_lock lock(mListenerMutex);
+		if ((mRendererListener != nullptr) &&
+		    (mParams.scheduling_mode !=
 		     PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP_SIGNAL_ONCE)) {
-			err = pomp_timer_set(self->mTimer,
-					     GL_RENDERER_DEFAULT_DELAY_MS);
+			err = mTimer->set(GL_RENDERER_DEFAULT_DELAY_MS);
 			if (err < 0)
-				PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+				PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 		}
 	}
 
 	/* Post a message on the loop thread */
-	self->setState(State::STARTED);
+	setState(State::STARTED);
 	return;
 
 error:
-	if (self->mTimer != nullptr) {
-		err = pomp_timer_clear(self->mTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(self->mTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		self->mTimer = nullptr;
-	}
-	if (self->mWatchdogTimer != nullptr) {
-		err = pomp_timer_clear(self->mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(self->mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		self->mWatchdogTimer = nullptr;
-	}
-	if (self->mVideoPresStatsTimer != nullptr) {
-		err = pomp_timer_clear(self->mVideoPresStatsTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(self->mVideoPresStatsTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		self->mVideoPresStatsTimer = nullptr;
-	}
+	mTimer.reset();
+	mWatchdogTimer.reset();
+	mVideoPresStatsTimer.reset();
 }
 
 
@@ -416,13 +405,9 @@ out:
 
 
 /* Called on the loop thread */
-void GlVideoRenderer::idleCompleteDrain(void *renderer)
+void GlVideoRenderer::idleCompleteDrain()
 {
-	auto *self = static_cast<GlVideoRenderer *>(renderer);
-
-	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	self->completeDrain();
+	completeDrain();
 }
 
 
@@ -466,6 +451,7 @@ int GlVideoRenderer::stop()
 		if (err < 0)
 			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
 		mNextFrame.frame = nullptr;
+		mNextFrame.media = nullptr;
 	}
 	Sink::unlock();
 
@@ -479,9 +465,9 @@ int GlVideoRenderer::stop()
 		PDRAW_LOG_ERRNO("stopExtLoad", -err);
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	/* Post a message on the loop thread */
 	asyncCompleteStop();
@@ -498,21 +484,12 @@ void GlVideoRenderer::completeStop()
 	if (mState == State::STOPPED)
 		return;
 
-	if (mTimer != nullptr) {
-		ret = pomp_timer_clear(mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-	}
-	if (mWatchdogTimer != nullptr) {
-		ret = pomp_timer_clear(mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-	}
-	if (mVideoPresStatsTimer != nullptr) {
-		ret = pomp_timer_clear(mVideoPresStatsTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-	}
+	if (mTimer != nullptr)
+		(void)mTimer->clear();
+	if (mWatchdogTimer != nullptr)
+		(void)mWatchdogTimer->clear();
+	if (mVideoPresStatsTimer != nullptr)
+		(void)mVideoPresStatsTimer->clear();
 
 	ret = removeInputMedias();
 	if (ret < 0)
@@ -523,9 +500,9 @@ void GlVideoRenderer::completeStop()
 
 
 /* Called on the loop thread */
-void GlVideoRenderer::queueEventCb(struct pomp_evt *evt, void *userdata)
+void GlVideoRenderer::queueEventCb([[maybe_unused]] struct pomp_evt *evt,
+				   void *userdata)
 {
-	PDRAW_UNUSED(evt);
 
 	auto *self = static_cast<GlVideoRenderer *>(userdata);
 	int err = 0;
@@ -584,12 +561,12 @@ void GlVideoRenderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 
 	bool setRenderReadyScheduled = false;
 	{
-		std::unique_lock<std::mutex> lock(self->mListenerMutex);
+		std::scoped_lock lock(self->mListenerMutex);
 		if (self->mRendererListener &&
 		    (!self->mRenderReadyScheduled || processAnyway)) {
 			uint32_t maxDelayMs =
 				self->getPrimaryMediaFrameIntervalMs();
-			delayMs = (delayUs + 500) / 1000;
+			delayMs = static_cast<uint32_t>((delayUs + 500) / 1000);
 			if (delayMs == 0) {
 				/* Signal "render ready" now and schedule a
 				 * renderer keepalive timer */
@@ -606,9 +583,10 @@ void GlVideoRenderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 			if (self->mParams.scheduling_mode !=
 			    /* codecheck_ignore[LONG_LINE] */
 			    PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP_SIGNAL_ONCE) {
-				err = pomp_timer_set(self->mTimer, delayMs);
+				err = self->mTimer->set(delayMs);
 				if (err < 0)
-					PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+					PDRAW_LOG_ERRNO("pomp::Timer::set",
+							-err);
 				else if (setRenderReadyScheduled)
 					self->mRenderReadyScheduled = true;
 			}
@@ -618,11 +596,8 @@ void GlVideoRenderer::queueEventCb(struct pomp_evt *evt, void *userdata)
 
 
 /* Called on the loop thread */
-void GlVideoRenderer::timerCb(struct pomp_timer *timer, void *userdata)
+void GlVideoRenderer::onTimer()
 {
-	PDRAW_UNUSED(timer);
-
-	auto *self = static_cast<GlVideoRenderer *>(userdata);
 	int err;
 	bool sinkLocked = false;
 	mbuf::Queue *queue = nullptr;
@@ -632,23 +607,18 @@ void GlVideoRenderer::timerCb(struct pomp_timer *timer, void *userdata)
 	uint64_t delayUs = 0;
 	bool setRenderReadyScheduled = false;
 
-	if (self == nullptr) {
-		PDRAW_LOGE("invalid renderer pointer");
-		return;
-	}
-
-	if ((!self->mRunning) || (self->mState != State::STARTED))
+	if ((!mRunning) || (mState != State::STARTED))
 		goto out;
 
-	self->Sink::lock();
+	Sink::lock();
 	sinkLocked = true;
 
-	if (self->mPrimaryMedia == nullptr) {
+	if (mPrimaryMedia == nullptr) {
 		/* No current media */
 		goto out;
 	}
 
-	queue = self->getPrimaryMediaQueue();
+	queue = getPrimaryMediaQueue();
 	if (queue == nullptr)
 		goto out;
 
@@ -663,113 +633,104 @@ void GlVideoRenderer::timerCb(struct pomp_timer *timer, void *userdata)
 		goto out;
 	}
 
-	err = self->getNextFrameDelay(queue,
-				      curTime,
-				      false,
-				      nullptr,
-				      nullptr,
-				      &delayUs,
-				      nullptr,
-				      nullptr,
-				      nullptr,
-				      0);
+	err = getNextFrameDelay(queue,
+				curTime,
+				false,
+				nullptr,
+				nullptr,
+				&delayUs,
+				nullptr,
+				nullptr,
+				nullptr,
+				0);
 	if ((err < 0) && (err != -EAGAIN)) {
 		PDRAW_LOG_ERRNO("getNextFrameDelay", -err);
 		goto out;
 	}
 
-	self->Sink::unlock();
+	Sink::unlock();
 	sinkLocked = false;
 
 	{
-		std::unique_lock<std::mutex> lock(self->mListenerMutex);
-		if (self->mRendererListener) {
-			uint32_t maxDelayMs =
-				self->getPrimaryMediaFrameIntervalMs();
-			delayMs = (delayUs + 500) / 1000;
+		std::scoped_lock lock(mListenerMutex);
+		if (mRendererListener) {
+			uint32_t maxDelayMs = getPrimaryMediaFrameIntervalMs();
+			delayMs = static_cast<uint32_t>((delayUs + 500) / 1000);
 			if (delayMs > 0) {
 				/* Only true when the timer is set for a delayed
 				 * frame and not the renderer keepalive timer */
 				setRenderReadyScheduled = true;
 			}
 			if ((err == -EAGAIN) || (delayMs == 0)) {
-				self->mRendererListener->onVideoRenderReady(
-					self->mSession, self->mRenderer);
+				mRendererListener->onVideoRenderReady(
+					mSession, mRenderer);
 				delayMs = maxDelayMs;
 			}
 			if (delayMs > maxDelayMs)
 				delayMs = maxDelayMs;
-			if (self->mParams.scheduling_mode !=
+			if (mParams.scheduling_mode !=
 			    /* codecheck_ignore[LONG_LINE] */
 			    PDRAW_VIDEO_RENDERER_SCHEDULING_MODE_ASAP_SIGNAL_ONCE) {
-				err = pomp_timer_set(self->mTimer, delayMs);
+				err = mTimer->set(delayMs);
 				if (err < 0)
-					PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+					PDRAW_LOG_ERRNO("pomp::Timer::set",
+							-err);
 				else if (setRenderReadyScheduled)
-					self->mRenderReadyScheduled = true;
+					mRenderReadyScheduled = true;
 			}
 		}
 	}
 
 out:
 	if (!setRenderReadyScheduled)
-		self->mRenderReadyScheduled = false;
+		mRenderReadyScheduled = false;
 	if (sinkLocked)
-		self->Sink::unlock();
+		Sink::unlock();
 }
 
 
 /* Called on the loop thread */
-void GlVideoRenderer::watchdogTimerCb(struct pomp_timer *timer, void *userdata)
+void GlVideoRenderer::onWatchdogTimer()
 {
-	PDRAW_UNUSED(timer);
-
-	auto *self = static_cast<GlVideoRenderer *>(userdata);
-
-	if ((!self->mRunning) || (self->mState != State::STARTED))
+	if ((!mRunning) || (mState != State::STARTED))
 		return;
 
 	bool expected = false;
-	if (self->mWatchdogTriggered.compare_exchange_strong(expected, true)) {
+	if (mWatchdogTriggered.compare_exchange_strong(expected, true)) {
 		PDRAW_LOGW("no new frame for %zus",
 			   GL_RENDERER_WATCHDOG_TIME_S);
 	}
 
-	if (self->isDraining())
-		self->completeDrain();
+	if (isDraining())
+		completeDrain();
 }
 
 
 /* Called on the loop thread */
-void GlVideoRenderer::videoPresStatsTimerCb(struct pomp_timer *timer,
-					    void *userdata)
+void GlVideoRenderer::onVideoPresStatsTimer()
 {
-	PDRAW_UNUSED(timer);
-
-	auto *self = static_cast<GlVideoRenderer *>(userdata);
-
-	if ((!self->mRunning) || (self->mState != State::STARTED))
+	if ((!mRunning) || (mState != State::STARTED))
 		return;
 
-	self->Sink::lock();
-	if (self->mPrimaryMedia == nullptr) {
+	Sink::lock();
+	if (mPrimaryMedia == nullptr) {
 		/* No current media */
-		self->Sink::unlock();
+		Sink::unlock();
 		return;
 	}
 
-	Channel *channel = self->getInputChannel(self->mPrimaryMedia);
+	Channel *channel = getInputChannel(mPrimaryMedia);
 	if (channel == nullptr) {
-		self->Sink::unlock();
+		Sink::unlock();
 		PDRAW_LOG_ERRNO("failed to get input port", EPROTO);
 		return;
 	}
 
-	int err = channel->sendVideoPresStats(&self->mVideoPresStats);
+	int err = channel->sendVideoPresStats(&mVideoPresStats);
 	if (err < 0)
 		PDRAW_LOG_ERRNO("channel->sendVideoPresStats", -err);
 
-	self->Sink::unlock();
+	Sink::unlock();
 }
 
 
@@ -779,10 +740,7 @@ void GlVideoRenderer::onChannelFlush(Channel *channel)
 	int ret;
 
 	auto *c = dynamic_cast<RawVideoChannel *>(channel);
-	if (c == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(c == nullptr, EINVAL);
 
 	PDRAW_LOGD("flushing input channel");
 
@@ -807,6 +765,7 @@ void GlVideoRenderer::onChannelFlush(Channel *channel)
 		if (err < 0)
 			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
 		mNextFrame.frame = nullptr;
+		mNextFrame.media = nullptr;
 	}
 
 	setFlushingState(FlushingState::FLUSHED);
@@ -823,12 +782,9 @@ void GlVideoRenderer::onChannelFlush(Channel *channel)
 void GlVideoRenderer::onChannelDrain(Channel *channel)
 {
 	int ret;
-	mbuf::Queue *queue = nullptr;
+	const mbuf::Queue *queue = nullptr;
 	auto *c = dynamic_cast<RawVideoChannel *>(channel);
-	if (c == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(c == nullptr, EINVAL);
 
 	PDRAW_LOGD("draining input channel");
 
@@ -848,6 +804,7 @@ void GlVideoRenderer::onChannelDrain(Channel *channel)
 		if (err < 0)
 			PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref", -err);
 		mNextFrame.frame = nullptr;
+		mNextFrame.media = nullptr;
 	}
 
 	Sink::unlock();
@@ -855,10 +812,10 @@ void GlVideoRenderer::onChannelDrain(Channel *channel)
 	queue = c->getQueue(this);
 	if ((queue != nullptr) && (queue->getCount() > 0)) {
 		/* Arm watchdog to avoid being stuck in DRAINING state */
-		int err = pomp_timer_set(mWatchdogTimer,
-					 1000 * GL_RENDERER_WATCHDOG_TIME_S);
+		int err =
+			mWatchdogTimer->set(1000 * GL_RENDERER_WATCHDOG_TIME_S);
 		if (err != 0)
-			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+			PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 		else
 			return;
 	}
@@ -874,10 +831,7 @@ void GlVideoRenderer::onChannelDrain(Channel *channel)
 /* Must be called on the loop thread */
 void GlVideoRenderer::onChannelSos(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	mEos = false;
 
@@ -895,22 +849,17 @@ void GlVideoRenderer::onChannelSos(Channel *channel)
 /* Must be called on the loop thread */
 void GlVideoRenderer::onChannelEos(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	mEos = true;
 
 	Sink::lock();
 
 	Sink::onChannelEos(channel);
-	int ret = pomp_timer_clear(mWatchdogTimer);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-	ret = pomp_timer_clear(mVideoPresStatsTimer);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
+	if (mWatchdogTimer != nullptr)
+		(void)mWatchdogTimer->clear();
+	if (mVideoPresStatsTimer != nullptr)
+		(void)mVideoPresStatsTimer->clear();
 	if (mParams.enable_transition_flags &
 	    PDRAW_VIDEO_RENDERER_TRANSITION_FLAG_EOS)
 		mPendingTransition = Transition::FADE_TO_BLACK;
@@ -922,10 +871,7 @@ void GlVideoRenderer::onChannelEos(Channel *channel)
 /* Must be called on the loop thread */
 void GlVideoRenderer::onChannelReconfigure(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	mPendingRestart = true;
 
@@ -943,10 +889,7 @@ void GlVideoRenderer::onChannelReconfigure(Channel *channel)
 /* Must be called on the loop thread */
 void GlVideoRenderer::onChannelResolutionChange(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	mPendingRestart = true;
 
@@ -967,10 +910,7 @@ void GlVideoRenderer::onChannelResolutionChange(Channel *channel)
 /* Must be called on the loop thread */
 void GlVideoRenderer::onChannelFramerateChange(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	mPendingRestart = true;
 
@@ -991,10 +931,7 @@ void GlVideoRenderer::onChannelFramerateChange(Channel *channel)
 /* Must be called on the loop thread */
 void GlVideoRenderer::onChannelTimeout(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 
@@ -1010,10 +947,7 @@ void GlVideoRenderer::onChannelTimeout(Channel *channel)
 /* Must be called on the loop thread */
 void GlVideoRenderer::onChannelPhotoTrigger(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 
@@ -1122,7 +1056,8 @@ int GlVideoRenderer::addInputMedia(Media *media)
 		return -ENOSYS;
 	}
 
-	if ((mTargetPrimaryMediaId != 0) && (mTargetPrimaryMediaId != m->id))
+	if ((mTargetPrimaryMediaId != 0) &&
+	    (mTargetPrimaryMediaId != m->getId()))
 		return -EPERM;
 	if (mPrimaryMedia != nullptr)
 		return -EBUSY;
@@ -1160,17 +1095,17 @@ int GlVideoRenderer::addInputMedia(Media *media)
 	args.filter = &queueFilter;
 	args.filter_userdata = this;
 	args.max_frames = GL_RENDERER_QUEUE_MAX_FRAMES;
-	mbuf::Queue *queue = nullptr;
 	try {
-		queue = mbuf::Queue::createWithArgs(&args).release();
+		mInputQueue = mbuf::Queue::createWithArgs(&args);
 	} catch (const std::bad_alloc &) {
 		Sink::unlock();
 		PDRAW_LOGE("queue allocation failed");
 		return -ENOMEM;
 	}
-	channel->setQueue(this, queue);
+	channel->setQueue(this, mInputQueue.get());
 
-	res = queue->attachToLoop(mSession->getLoop(), &queueEventCb, this);
+	res = mInputQueue->attachToLoop(
+		mSession->getLoop(), &queueEventCb, this);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("queue::attachToLoop", -res);
 		goto error;
@@ -1179,10 +1114,16 @@ int GlVideoRenderer::addInputMedia(Media *media)
 	mPrimaryMedia = m;
 	mPrimaryMediaId = mTargetPrimaryMediaId;
 
-	m->fillMediaInfo(&mMediaInfo);
-	/* Deep copy: copy the session metadata */
-	mMediaInfoSessionMeta = *mMediaInfo.video.session_meta;
-	mMediaInfo.video.session_meta = &mMediaInfoSessionMeta;
+	if (!mFrameLoaded) {
+		/* No stale frame is displayed: initialise mMediaInfo now.
+		 * When a stale frame is shown, mMediaInfo will be updated by
+		 * onNextFrameLoaded() when the first frame from the new media
+		 * arrives, keeping it consistent with the displayed texture. */
+		Media::cleanupMediaInfo(&mMediaInfo);
+		m->fillMediaInfo(&mMediaInfo);
+		mMediaInfoSessionMeta = *mMediaInfo.video.session_meta;
+		mMediaInfo.video.session_meta = &mMediaInfoSessionMeta;
+	}
 
 	/* Another deep copy only used by the listener (must be unlocked). */
 	m->fillMediaInfo(&mediaInfoCopy);
@@ -1194,7 +1135,7 @@ int GlVideoRenderer::addInputMedia(Media *media)
 	Sink::unlock();
 
 	{
-		std::unique_lock<std::mutex> lock(mListenerMutex);
+		std::scoped_lock lock(mListenerMutex);
 		if (mRendererListener) {
 			mRendererListener->onVideoRendererMediaAdded(
 				mSession, mRenderer, &mediaInfoCopy);
@@ -1214,6 +1155,13 @@ error:
 /* Must be called on the loop thread */
 int GlVideoRenderer::removeInputMedia(Media *media)
 {
+	return removeInputMediaImpl(media);
+}
+
+
+/* Must be called on the loop thread */
+int GlVideoRenderer::removeInputMediaImpl(Media *media)
+{
 	int ret;
 
 	Sink::lock();
@@ -1222,7 +1170,7 @@ int GlVideoRenderer::removeInputMedia(Media *media)
 		mPrimaryMedia = nullptr;
 		mPrimaryMediaId = 0;
 		{
-			std::unique_lock<std::mutex> lock(mListenerMutex);
+			std::scoped_lock lock(mListenerMutex);
 			if (mRendererListener) {
 				mRendererListener->onVideoRendererMediaRemoved(
 					mSession,
@@ -1246,9 +1194,11 @@ int GlVideoRenderer::removeInputMedia(Media *media)
 				PDRAW_LOG_ERRNO("mbuf_raw_video_frame_unref",
 						-err);
 			mNextFrame.frame = nullptr;
+			mNextFrame.media = nullptr;
 		}
 
-		Media::cleanupMediaInfo(&mMediaInfo);
+		if (!mFrameLoaded)
+			Media::cleanupMediaInfo(&mMediaInfo);
 		mPendingRestart = false;
 	}
 
@@ -1260,19 +1210,14 @@ int GlVideoRenderer::removeInputMedia(Media *media)
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
-	/* Keep a reference on the queue to destroy it after removing the
-	 * input media (avoids deadlocks when trying to push new frames out
-	 * of the VideoDecoder whereas the queue is already destroyed) */
-	mbuf::Queue *queue = channel->getQueue(this);
-
-	if (queue != nullptr) {
+	if (mInputQueue) {
 		/* Disconnect and flush queue before removing input media, as
 		 * all memories from a pool owned by the upstream element can be
 		 * released once the channel is unlinked */
-		ret = queue->detachFromLoop(mSession->getLoop());
+		ret = mInputQueue->detachFromLoop(mSession->getLoop());
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("queue::detachFromLoop", -ret);
-		ret = queue->flush();
+		ret = mInputQueue->flush();
 		if (ret < 0)
 			PDRAW_LOG_ERRNO("queue::flush", -ret);
 	}
@@ -1286,8 +1231,7 @@ int GlVideoRenderer::removeInputMedia(Media *media)
 
 	Sink::unlock();
 
-	if (queue != nullptr)
-		delete queue;
+	mInputQueue.reset();
 
 	if ((mTargetPrimaryMediaId == 0) && (mState == State::STARTED) &&
 	    mRunning) {
@@ -1346,13 +1290,9 @@ void GlVideoRenderer::renewMedia()
 }
 
 
-void GlVideoRenderer::idleRenewMedia(void *userdata)
+void GlVideoRenderer::idleRenewMedia()
 {
-	auto *self = static_cast<GlVideoRenderer *>(userdata);
-
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	self->renewMedia();
+	renewMedia();
 }
 
 
@@ -1470,6 +1410,7 @@ out:
 }
 
 
+/* Called on the rendering thread */
 void GlVideoRenderer::onNextFrameLoaded()
 {
 	if (mLoadedFrame.frame != nullptr)
@@ -1485,6 +1426,19 @@ void GlVideoRenderer::onNextFrameLoaded()
 	mLoadedFrame.metadata = mNextFrame.metadata;
 	if (mLoadedFrame.metadata != nullptr)
 		(void)vmeta_frame_ref(mLoadedFrame.metadata);
+
+	/* Update mMediaInfo to match the frame now displayed, so that any
+	 * consumer of mMediaInfo (overlay callback, scheduling, SYNC CHECK…)
+	 * always sees parameters consistent with the GL texture.
+	 * Use mNextFrame.media (captured at dequeue time) rather than
+	 * mPrimaryMedia, which may already point to a newer media when the
+	 * last frame of the previous media is being loaded. */
+	if (mNextFrame.media != nullptr) {
+		Media::cleanupMediaInfo(&mMediaInfo);
+		mNextFrame.media->fillMediaInfo(&mMediaInfo);
+		mMediaInfoSessionMeta = *mMediaInfo.video.session_meta;
+		mMediaInfo.video.session_meta = &mMediaInfoSessionMeta;
+	}
 }
 
 
@@ -1528,8 +1482,10 @@ void GlVideoRenderer::setNormalization()
 		goto reset;
 	}
 
-	contrast = (1 << mLoadedFrame.info.format.pix_size) / (maxVal - minVal);
-	brightness = -minVal / (1 << mLoadedFrame.info.format.pix_size);
+	contrast = static_cast<float>(1 << mLoadedFrame.info.format.pix_size) /
+		   (maxVal - minVal);
+	brightness = -minVal /
+		     static_cast<float>(1 << mLoadedFrame.info.format.pix_size);
 
 	mGlVideo->setBrightnessCoef(brightness);
 	mGlVideo->setContrastCoef(contrast);
@@ -1547,7 +1503,7 @@ int GlVideoRenderer::loadVideoFrame(struct mbuf_raw_video_frame *frame)
 {
 	int ret;
 	unsigned int planeCount = 0;
-	const void *planes[VDEF_RAW_MAX_PLANE_COUNT] = {};
+	std::array<const uint8_t *, VDEF_RAW_MAX_PLANE_COUNT> planes{};
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
 	const uint8_t *mbStatus = nullptr;
 
@@ -1571,16 +1527,18 @@ int GlVideoRenderer::loadVideoFrame(struct mbuf_raw_video_frame *frame)
 	planeCount = vdef_get_raw_frame_plane_count(&mNextFrame.info.format);
 	for (unsigned int i = 0; i < planeCount; i++) {
 		size_t dummyPlaneLen;
+		const void *rawPlane = nullptr;
 		ret = mbuf_raw_video_frame_get_plane(
-			frame, i, &planes[i], &dummyPlaneLen);
+			frame, i, &rawPlane, &dummyPlaneLen);
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO(
 				"mbuf_raw_video_frame_get_plane(%u)", -ret, i);
 			goto out;
 		}
+		planes[i] = static_cast<const uint8_t *>(rawPlane);
 	}
 
-	ret = mGlVideo->loadFrame(reinterpret_cast<const uint8_t **>(planes),
+	ret = mGlVideo->loadFrame(planes.data(),
 				  mNextFrame.info.plane_stride,
 				  &mNextFrame.info.format,
 				  &mNextFrame.info.info,
@@ -1653,7 +1611,7 @@ int GlVideoRenderer::loadExternalVideoFrame(
 
 	{
 		/* Texture loading callback function */
-		std::unique_lock<std::mutex> lock(mListenerMutex);
+		std::scoped_lock lock(mListenerMutex);
 		if (mRendererListener != nullptr) {
 			ret = mRendererListener->loadVideoTexture(
 				mSession,
@@ -1716,7 +1674,8 @@ int GlVideoRenderer::renderExternalVideoFrame(
 		.width = mExtVideoTextureWidth,
 		.height = mExtVideoTextureHeight,
 	};
-	size_t frameStride[3] = {mExtVideoTextureWidth, 0, 0};
+	std::array<size_t, VDEF_RAW_MAX_PLANE_COUNT> frameStride = {
+		mExtVideoTextureWidth, 0, 0};
 
 	info.sar.width = mLoadedFrame.info.info.resolution.width *
 			 mExtVideoTextureHeight;
@@ -1726,7 +1685,7 @@ int GlVideoRenderer::renderExternalVideoFrame(
 	return mGlVideo->renderFrame(renderPos,
 				     contentPos,
 				     viewProjMat,
-				     frameStride,
+				     frameStride.data(),
 				     &vdef_rgb,
 				     &info,
 				     &crop,
@@ -1945,7 +1904,9 @@ int GlVideoRenderer::getNextFrameDelay(mbuf::Queue *queue,
 	frame = nullptr;
 
 	uint32_t outputDelay =
-		(inputTime != UINT64_MAX) ? curTime - inputTime : 0;
+		(inputTime != UINT64_MAX)
+			? static_cast<uint32_t>(curTime - inputTime)
+			: 0;
 	int64_t timingError = 0;
 	int64_t addedTimingError = 0;
 	int64_t compensation;
@@ -2008,7 +1969,7 @@ int GlVideoRenderer::getNextFrameDelay(mbuf::Queue *queue,
 			if ((count < GL_RENDERER_QUEUE_MAX_FRAMES - 1) &&
 			    (getFlushingState() != FlushingState::FLUSHING)) {
 				/* Process the frame later; break */
-				delay = timingError;
+				delay = static_cast<uint32_t>(timingError);
 				compensation = 0;
 				_shouldBreak = true;
 				if (logLevel) {
@@ -2157,6 +2118,7 @@ int GlVideoRenderer::scheduleFrame(uint64_t curTime,
 		if (mNextFrame.frame != nullptr)
 			(void)mbuf_raw_video_frame_unref(mNextFrame.frame);
 		mNextFrame.frame = frame;
+		mNextFrame.media = mPrimaryMedia;
 		_load = true;
 		frame = nullptr;
 		mSchedLastOutputTimestamp = curTime + compensation;
@@ -2168,14 +2130,10 @@ int GlVideoRenderer::scheduleFrame(uint64_t curTime,
 	if (getFlushingState() == FlushingState::FLUSHING) {
 		count = queue->getCount();
 		if ((count == 0) && (getPrimaryMediaQueue() == queue)) {
-			err = pomp_loop_idle_add_with_cookie(
-				mSession->getLoop(),
-				idleCompleteDrain,
-				this,
-				this);
+			err = mSession->getPompLoop()->idleAdd(
+				&mIdleCompleteDrainHandler, this);
 			if (err < 0) {
-				PDRAW_LOG_ERRNO(
-					"pomp_loop_idle_add_with_cookie", -err);
+				PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 			}
 		}
 	}
@@ -2192,10 +2150,7 @@ void GlVideoRenderer::onChannelSessionMetaUpdate(Channel *channel)
 	int inputMediaCount;
 	Sink::onChannelSessionMetaUpdate(channel);
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 
@@ -2270,7 +2225,9 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 		renderDelta = curTime - mLastRenderTimestamp;
 	mLastRenderTimestamp = curTime;
 	mAvgRenderRate = 0.9f * mAvgRenderRate +
-			 (renderDelta ? 0.1f * 1000000 / renderDelta : 0.f);
+			 (renderDelta ? 0.1f * 1000000.f /
+						static_cast<float>(renderDelta)
+				      : 0.f);
 
 	GLCHK(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &mDefaultFbo));
 
@@ -2316,11 +2273,6 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 		goto skip_dequeue;
 	}
 
-	Media::cleanupMediaInfo(&mMediaInfo);
-	mPrimaryMedia->fillMediaInfo(&mMediaInfo);
-	/* Deep copy: copy the session metadata */
-	mMediaInfoSessionMeta = *mMediaInfo.video.session_meta;
-	mMediaInfo.video.session_meta = &mMediaInfoSessionMeta;
 	mediaInfoPtr = &mMediaInfo;
 
 	err = scheduleFrame(curTime, &load, &compensation);
@@ -2336,11 +2288,9 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 							       false)) {
 			PDRAW_LOGI("new frame to render");
 		}
-		err = pomp_timer_set(mWatchdogTimer,
-				     1000 * GL_RENDERER_WATCHDOG_TIME_S);
-		if (err != 0) {
-			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
-		}
+		err = mWatchdogTimer->set(1000 * GL_RENDERER_WATCHDOG_TIME_S);
+		if (err != 0)
+			PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 	}
 
 	if (mNextFrame.frame == nullptr) {
@@ -2394,12 +2344,11 @@ int GlVideoRenderer::render(struct pdraw_rect *contentPos,
 
 	if (mFirstFrame) {
 		mFirstFrame = false;
-		err = pomp_timer_set_periodic(
-			mVideoPresStatsTimer,
+		err = mVideoPresStatsTimer->set(
 			GL_RENDERER_VIDEO_PRES_STATS_TIME_MS,
 			GL_RENDERER_VIDEO_PRES_STATS_TIME_MS);
 		if (err != 0)
-			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+			PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 		if (mExtLoadVideoTexture) {
 			err = setupExtTexture(&mNextFrame.info);
 			if (err < 0)
@@ -2422,8 +2371,17 @@ skip_dequeue:
 
 	if (mNextFrame.frame != nullptr) {
 		if (mExtLoadVideoTexture) {
+			/* External loading needs the live primary media info
+			 * (format of the frame being loaded, not the last
+			 * displayed frame), so build it locally. */
+			struct pdraw_media_info extMediaInfo = {};
+			struct vmeta_session extSessionMeta = {};
+			mPrimaryMedia->fillMediaInfo(&extMediaInfo);
+			extSessionMeta = *extMediaInfo.video.session_meta;
+			extMediaInfo.video.session_meta = &extSessionMeta;
 			err = loadExternalVideoFrame(mNextFrame.frame,
-						     mediaInfoPtr);
+						     &extMediaInfo);
+			Media::cleanupMediaInfo(&extMediaInfo);
 			if (err < 0) {
 				Sink::unlock();
 				goto skip_render;
@@ -2441,7 +2399,7 @@ skip_dequeue:
 		/* First rendering of the current frame */
 
 		int queueCount = 0;
-		mbuf::Queue *queue = getPrimaryMediaQueue();
+		const mbuf::Queue *queue = getPrimaryMediaQueue();
 		if (queue != nullptr)
 			queueCount = queue->getCount();
 
@@ -2572,7 +2530,7 @@ skip_render:
 			frameExtraPtr = &frameExtra;
 		}
 		{
-			std::unique_lock<std::mutex> lock(mListenerMutex);
+			std::scoped_lock lock(mListenerMutex);
 			if (mRendererListener != nullptr) {
 				mRendererListener->renderVideoOverlay(
 					mSession,
@@ -2714,10 +2672,10 @@ int GlVideoRenderer::setMediaId(unsigned int mediaId)
 		return 0;
 
 	mTargetPrimaryMediaId = mediaId;
-	int ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleRenewMedia, this, this);
+	int ret =
+		mSession->getPompLoop()->idleAdd(&mIdleRenewMediaHandler, this);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 
 	return 0;
 }

@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_rtspmuxer_media
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_stream_rtsp.hpp"
 #include "pdraw_muxer_stream_rtsp_video_media.hpp"
@@ -41,23 +40,18 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <array>
 #include <libmp4.h>
 #include <media-buffers/mbuf_mem_generic.h>
+#include <memory>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
-constexpr size_t DEFAULT_RX_BUFFER_SIZE = 1500;
-constexpr size_t PDRAW_RTP_TXBUF_SIZE = (1 * 1024 * 1024); /* In Bytes */
-constexpr size_t PDRAW_RTP_RXBUF_SIZE = (1 * 1024 * 1024); /* In Bytes */
-constexpr size_t MUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT = 55004 + 10;
-constexpr size_t MUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT = 55005 + 10;
 constexpr size_t RTP_CLOCK_RATE = 90000;
 constexpr const char *STREAM_TEARDOWN_REASON = "user disconnection";
 
 
 const struct vstrm_sender_cbs RtspStreamMuxer::VideoMedia::mSenderCbs = {
-	.send_data = &RtspStreamMuxer::VideoMedia::sendDataCb,
 	.send_ctrl = &RtspStreamMuxer::VideoMedia::sendCtrlCb,
-	.monitor_send_data_ready =
-		&RtspStreamMuxer::VideoMedia::monitorSendDataReadyCb,
 	.session_metadata_peer_changed = nullptr,
 	.receiver_report = &RtspStreamMuxer::VideoMedia::receiverReportCb,
 	.video_stats = &RtspStreamMuxer::VideoMedia::videoStatsCb,
@@ -65,14 +59,7 @@ const struct vstrm_sender_cbs RtspStreamMuxer::VideoMedia::mSenderCbs = {
 };
 
 
-RtspStreamMuxer::VideoMedia::VideoMedia(
-	RtspStreamMuxer *muxer,
-	enum pdraw_muxer_rtsp_transport transport) :
-		mMuxer(muxer),
-		mLowerTransport(
-			RtspStreamMuxer::
-				pdrawMuxerRtspTransportToRtspLowerTransport(
-					transport))
+RtspStreamMuxer::VideoMedia::VideoMedia(RtspStreamMuxer *muxer) : mMuxer(muxer)
 {
 	std::string name = muxer->getName() + "#VideoMedia";
 	Loggable::setName(name);
@@ -81,18 +68,24 @@ RtspStreamMuxer::VideoMedia::VideoMedia(
 
 RtspStreamMuxer::VideoMedia::~VideoMedia()
 {
-	stopRtpAvp();
+	/* Safety net: in the normal teardown path stopRtpAvp() has already been
+	 * called explicitly (via setTearingDown). Here we only need to destroy
+	 * the sender; subclass destructors have already cleaned up their
+	 * transport-specific resources (sockets, proxies, etc.). */
+	destroySender();
+
+	if (mList != nullptr) {
+		int err = tpkt_list_destroy(mList);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("tpkt_list_destroy", -err);
+	}
 }
 
 
-int RtspStreamMuxer::VideoMedia::prepareSetup()
+int RtspStreamMuxer::VideoMedia::stopRtpAvp()
 {
-	int res = createSockets();
-	if (res != 0) {
-		PDRAW_LOG_ERRNO("createSockets", -res);
-		return res;
-	}
-
+	PDRAW_LOGD("stopRtpAvp (base: destroying sender only)");
+	destroySender();
 	return 0;
 }
 
@@ -103,7 +96,7 @@ int RtspStreamMuxer::VideoMedia::createSender()
 	std::unique_ptr<struct vstrm_sender_cfg> cfg;
 
 	try {
-		cfg = make_unique<struct vstrm_sender_cfg>();
+		cfg = std::make_unique<struct vstrm_sender_cfg>();
 	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
 		PDRAW_LOG_ERRNO("std::make_unique", -ret);
@@ -112,7 +105,7 @@ int RtspStreamMuxer::VideoMedia::createSender()
 
 	memset(cfg.get(), 0, sizeof(*cfg.get()));
 
-	/* Create the stream receiver */
+	/* Create the stream sender */
 	cfg->loop = mMuxer->mSession->getLoop();
 	cfg->flags = 0 | VSTRM_SENDER_FLAGS_ENABLE_RTCP;
 	cfg->dyn.target_packet_size = 1400;
@@ -135,10 +128,9 @@ int RtspStreamMuxer::VideoMedia::createSender()
 
 	uint32_t ssrc = 0;
 
-	/* Retrieve the SPS/PPS out of band if available */
 	ret = vstrm_sender_get_ssrc_self(mSender, &ssrc);
 	if (ret < 0) {
-		ULOG_ERRNO("vstrm_sender_get_ssrc_self", -ret);
+		PDRAW_LOG_ERRNO("vstrm_sender_get_ssrc_self", -ret);
 		destroySender();
 		return ret;
 	}
@@ -156,7 +148,7 @@ int RtspStreamMuxer::VideoMedia::destroySender()
 		res = vstrm_sender_send_goodbye(mSender,
 						STREAM_TEARDOWN_REASON);
 		if (res < 0)
-			ULOG_ERRNO("vstrm_sender_send_goodbye", -res);
+			PDRAW_LOG_ERRNO("vstrm_sender_send_goodbye", -res);
 		res = vstrm_sender_destroy(mSender);
 		if (res < 0)
 			PDRAW_LOG_ERRNO("vstrm_sender_destroy", -res);
@@ -178,7 +170,7 @@ int RtspStreamMuxer::VideoMedia::setup(const std::string &controlUrl,
 	mControlUrl = controlUrl;
 
 	/* Only accept coded video media */
-	auto *cvm = dynamic_cast<CodedVideoMedia *>(media);
+	const auto *cvm = dynamic_cast<CodedVideoMedia *>(media);
 	if (cvm == nullptr) {
 		PDRAW_LOGE("%s: unsupported input media", __func__);
 		return -ENOSYS;
@@ -213,17 +205,25 @@ int RtspStreamMuxer::VideoMedia::setup(const std::string &controlUrl,
 
 	mSdpMedia->h264_fmtp.sps =
 		static_cast<uint8_t *>(calloc(spsSize, sizeof(uint8_t)));
+	if (mSdpMedia->h264_fmtp.sps == nullptr) {
+		PDRAW_LOG_ERRNO("calloc", ENOMEM);
+		return -ENOMEM;
+	}
 	mSdpMedia->h264_fmtp.sps_size = static_cast<uint32_t>(spsSize);
 	memcpy(mSdpMedia->h264_fmtp.sps, sps, spsSize);
 
 	mSdpMedia->h264_fmtp.pps =
 		static_cast<uint8_t *>(calloc(ppsSize, sizeof(uint8_t)));
+	if (mSdpMedia->h264_fmtp.pps == nullptr) {
+		PDRAW_LOG_ERRNO("calloc", ENOMEM);
+		return -ENOMEM;
+	}
 	mSdpMedia->h264_fmtp.pps_size = static_cast<uint32_t>(ppsSize);
 	memcpy(mSdpMedia->h264_fmtp.pps, pps, ppsSize);
 
 	if (spsSize >= 4) {
 		/* FIXME better way? */
-		uint8_t *spsPtr = mSdpMedia->h264_fmtp.sps;
+		const uint8_t *spsPtr = mSdpMedia->h264_fmtp.sps;
 		uint8_t nal_header = spsPtr[0];
 		(void)nal_header;
 		mSdpMedia->h264_fmtp.profile_idc = spsPtr[1];
@@ -237,6 +237,12 @@ int RtspStreamMuxer::VideoMedia::setup(const std::string &controlUrl,
 
 	mVideoMedia = media;
 
+	ret = tpkt_list_new(&mList);
+	if (ret < 0) {
+		PDRAW_LOG_ERRNO("tpkt_list_new", -ret);
+		return ret;
+	}
+
 	mMuxer->mSetupRequestsCount++;
 	ret = prepareSetup();
 	if (ret == -EINPROGRESS) {
@@ -247,72 +253,6 @@ int RtspStreamMuxer::VideoMedia::setup(const std::string &controlUrl,
 		return ret;
 	}
 	finishSetup();
-	return 0;
-}
-
-
-int RtspStreamMuxer::VideoMedia::startRtpAvp()
-{
-	int res;
-	const char *label = getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP
-				    ? "Channel"
-				    : "Port";
-
-	/* Create sockets only if not created during prepareSetup */
-	if (mStrm.sock == nullptr && mCtrl.sock == nullptr &&
-	    getLowerTransport() != RTSP_LOWER_TRANSPORT_TCP) {
-		res = createSockets();
-		if (res != 0) {
-			PDRAW_LOG_ERRNO("createSockets", -res);
-			goto error;
-		}
-	} else if ((mStrm.sock != nullptr && mCtrl.sock == nullptr) ||
-		   (mStrm.sock == nullptr && mCtrl.sock != nullptr)) {
-		PDRAW_LOGE("bad state, only one socket created!");
-		res = -EPROTO;
-		goto error;
-	}
-
-	PDRAW_LOGI("startRtpAvp localStream%s=%d localControl%s=%d",
-		   label,
-		   mStrm.localPort,
-		   label,
-		   mCtrl.localPort);
-
-	/* Create the stream sender */
-	res = createSender();
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("createSender", -res);
-		goto error;
-	}
-
-	return 0;
-
-error:
-	stopRtpAvp();
-	return res;
-}
-
-
-int RtspStreamMuxer::VideoMedia::stopRtpAvp()
-{
-	int err;
-	PDRAW_LOGD("stopRtpAvp");
-	destroySender();
-	if (mStrm.sock != nullptr) {
-		err = tskt_socket_destroy(mStrm.sock);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("tskt_socket_destroy", -err);
-		mStrm.sock = nullptr;
-	}
-	if (mCtrl.sock != nullptr) {
-		err = tskt_socket_destroy(mCtrl.sock);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("tskt_socket_destroy", -err);
-		mCtrl.sock = nullptr;
-	}
-	tpkt_unref(mRxPkt);
-	mRxPkt = nullptr;
 	return 0;
 }
 
@@ -353,39 +293,9 @@ void RtspStreamMuxer::VideoMedia::setTearingDown()
 {
 	mPendingTearDown = false;
 	mTearingDown = true;
-	/* Needed to close sockets */
+	/* Needed to close transport */
 	stopRtpAvp();
 	/* TODO: remove TEARDOWN request from the queue? */
-}
-
-
-void RtspStreamMuxer::VideoMedia::setRemoteStreamPort(uint16_t port)
-{
-	mStrm.remotePort = port;
-
-	if (mStrm.sock != nullptr) {
-		int res = tskt_socket_set_remote(
-			mStrm.sock,
-			mMuxer->mUrl->getResolvedHost().c_str(),
-			mStrm.remotePort);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("tskt_socket_set_remote(strm)", -res);
-	}
-}
-
-
-void RtspStreamMuxer::VideoMedia::setRemoteControlPort(uint16_t port)
-{
-	mCtrl.remotePort = port;
-
-	if (mCtrl.sock != nullptr) {
-		int res = tskt_socket_set_remote(
-			mCtrl.sock,
-			mMuxer->mUrl->getResolvedHost().c_str(),
-			mCtrl.remotePort);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("tskt_socket_set_remote(ctrl)", -res);
-	}
 }
 
 
@@ -448,61 +358,26 @@ struct tpkt_packet_userdata {
 };
 
 
-void RtspStreamMuxer::VideoMedia::rtpFrameDispose(struct vstrm_frame *vframe)
-{
-	int res;
-	struct mbuf_coded_video_frame *frame = nullptr;
-	struct tpkt_packet_userdata *aData = nullptr;
-
-	ULOG_ERRNO_RETURN_IF(vframe == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_IF(vframe->userdata == nullptr, EINVAL);
-
-	frame = static_cast<struct mbuf_coded_video_frame *>(vframe->userdata);
-	aData = (struct tpkt_packet_userdata *)vframe->ancillary_data.data;
-
-	for (uint32_t i = 0; i < vframe->nalu_count; i++) {
-		int start_code_off = (int)(intptr_t)vframe->nalus[i].userdata;
-		res = mbuf_coded_video_frame_release_nalu(
-			frame, i, vframe->nalus[i].cdata - start_code_off);
-		if (res < 0)
-			ULOG_ERRNO("mbuf_coded_video_frame_release_nalu", -res);
-	}
-
-	struct vdef_coded_frame frameInfo {
-	};
-	res = mbuf_coded_video_frame_get_frame_info(frame, &frameInfo);
-	if (res < 0) {
-		ULOG_ERRNO("mbuf_coded_video_frame_get_frame_info", -res);
-	}
-
-	res = mbuf_coded_video_frame_unref(frame);
-	if (res < 0)
-		ULOG_ERRNO("mbuf_coded_video_frame_unref", -res);
-
-	if (aData != nullptr)
-		free(aData);
-}
-
-
 int RtspStreamMuxer::VideoMedia::processFrame(
 	struct mbuf_coded_video_frame *frame)
 {
 	int res;
 	int err;
-	struct vstrm_frame *vframe = nullptr;
-	struct vstrm_frame_ops ops;
-	struct tpkt_packet_userdata *tpkt_userdata = nullptr;
+	unique_c_ptr<tpkt_packet_userdata> tpkt_userdata;
+	struct tpkt_list *list = nullptr;
 	unsigned int naluCount = 0;
 	unsigned int sliceCount = 0;
 	struct vdef_coded_frame frameInfo;
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
 	const CodedVideoMedia::Frame *meta;
 	const void *aData;
+	struct vmeta_frame *metadata = nullptr;
+	bool metadataOwned = false;
 
 	mbuf_coded_video_frame_ref(frame);
 	res = mbuf_coded_video_frame_get_frame_info(frame, &frameInfo);
 	if (res < 0) {
-		ULOG_ERRNO("mbuf_coded_video_frame_get_frame_info", -res);
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_frame_info", -res);
 		goto error;
 	}
 
@@ -531,24 +406,15 @@ int RtspStreamMuxer::VideoMedia::processFrame(
 	if (res == 0) {
 		mbuf_coded_video_frame_release_packed_buffer(frame, data);
 	} else if (res < 0 && res != -EPROTO) {
-		ULOG_ERRNO("mbuf_coded_video_frame_get_packed_buffer", -res);
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_packed_buffer",
+				-res);
 		goto error;
 	}
 
-	memset(&ops, 0, sizeof(ops));
-	ops.dispose = &rtpFrameDispose;
-	res = vstrm_frame_new(&ops, sizeof(frame), &vframe);
-	if (res < 0) {
-		ULOG_ERRNO("vstrm_frame_new", -res);
-		goto error;
-	}
-
-	tpkt_userdata = static_cast<struct tpkt_packet_userdata *>(
-		calloc(1, sizeof(struct tpkt_packet_userdata)));
-
-	if (tpkt_userdata == nullptr) {
+	tpkt_userdata = make_c_struct<unique_c_ptr<tpkt_packet_userdata>>();
+	if (!tpkt_userdata) {
 		res = -errno;
-		ULOG_ERRNO("calloc", -res);
+		PDRAW_LOG_ERRNO("calloc", -res);
 		goto error;
 	}
 	tpkt_userdata->capture_timestamp = frameInfo.info.capture_timestamp;
@@ -563,32 +429,23 @@ int RtspStreamMuxer::VideoMedia::processFrame(
 						   frameInfo.info.timescale;
 	}
 
-	vframe->userdata = frame;
-	vframe->ancillary_data.data = tpkt_userdata;
-	vframe->ancillary_data.size = sizeof(*tpkt_userdata);
-
-	/* Metadata */
-	{
-		struct vmeta_frame *vmeta = nullptr;
-		res = mbuf_coded_video_frame_get_metadata(frame, &vmeta);
-		if (res == -ENOENT) {
-			/* No metadata, not an error case */
-			res = 0;
-		} else if (res < 0) {
-			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_metadata",
-					-res);
-			goto out;
-		} else {
-			vframe->metadata = vmeta;
-		}
+	/* Metadata: vstrm_sender_send_frame() below only borrows it (it does
+	 * not take ownership), so this reference (if any) must still be
+	 * dropped by us once we are done with it */
+	res = mbuf_coded_video_frame_get_metadata(frame, &metadata);
+	if (res == -ENOENT) {
+		/* No metadata, not an error case */
+		metadata = nullptr;
+	} else if (res < 0) {
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_metadata", -res);
+		goto out;
+	} else {
+		metadataOwned = true;
 	}
-
-	vframe->timestamps.ntp =
-		(frameInfo.info.timestamp * 1000000) / frameInfo.info.timescale;
 
 	res = mbuf_coded_video_frame_get_nalu_count(frame);
 	if (res < 0) {
-		ULOG_ERRNO("mbuf_coded_video_frame_get_nalu_count", -res);
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_nalu_count", -res);
 		goto error;
 	}
 	naluCount = res;
@@ -596,91 +453,187 @@ int RtspStreamMuxer::VideoMedia::processFrame(
 	for (unsigned int i = 0; i < naluCount; i++) {
 		const void *_data;
 		struct vdef_nalu nalu;
-		int start_code_size;
 		res = mbuf_coded_video_frame_get_nalu(frame, i, &_data, &nalu);
 		if (res < 0) {
-			ULOG_ERRNO("mbuf_coded_video_frame_get_nalu", -res);
-			goto error;
-		}
-
-		/* Compute start code size */
-		switch (frameInfo.format.data_format) {
-		case VDEF_CODED_DATA_FORMAT_RAW_NALU:
-			start_code_size = 0;
-			break;
-		case VDEF_CODED_DATA_FORMAT_AVCC:
-			start_code_size = 4;
-			break;
-		case VDEF_CODED_DATA_FORMAT_BYTE_STREAM: {
-			res = h264_get_start_code_length(
-				reinterpret_cast<const uint8_t *>(_data),
-				nalu.size);
-			if (res < 0) {
-				ULOG_ERRNO("get_start_code_length", -res);
-				goto error;
-			}
-			start_code_size = res;
-			break;
-		}
-		default:
-			res = -ENOSYS;
-			ULOG_ERRNO("unsupported data format", -res);
-			goto error;
-		}
-
-		struct vstrm_frame_nalu nalu_obj {
-		};
-		nalu_obj.cdata = (uint8_t *)_data + start_code_size;
-		nalu_obj.len = nalu.size - start_code_size;
-		nalu_obj.importance = nalu.importance;
-		nalu_obj.userdata = (void *)(intptr_t)start_code_size;
-
-		res = vstrm_frame_add_nalu(vframe, &nalu_obj);
-		if (res < 0) {
-			ULOG_ERRNO("vstrm_frame_add_nalu", -res);
+			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_nalu",
+					-res);
 			goto error;
 		}
 
 		if ((nalu.h264.type == H264_NALU_TYPE_SLICE_IDR) ||
 		    (nalu.h264.type == H264_NALU_TYPE_SLICE))
 			sliceCount++;
+
+		res = mbuf_coded_video_frame_release_nalu(frame, i, _data);
+		if (res < 0) {
+			PDRAW_LOG_ERRNO("mbuf_coded_video_frame_release_nalu",
+					-res);
+			goto error;
+		}
 	}
 
 	/* Do not stream 0-slice frames (frames with discarded slices) */
 	if (sliceCount == 0)
 		goto out;
 
-	res = vstrm_sender_send_frame(mSender, vframe);
+	res = vstrm_sender_send_frame(mSender,
+				      frame,
+				      metadata,
+				      tpkt_userdata.get(),
+				      sizeof(*tpkt_userdata),
+				      &list);
 	if (res < 0) {
-		ULOG_ERRNO("vstrm_sender_send_frame", -res);
+		PDRAW_LOG_ERRNO("vstrm_sender_send_frame", -res);
 		goto error;
 	}
 
-	vstrm_frame_unref(vframe);
+	if (metadataOwned)
+		vmeta_frame_unref(metadata);
 	if (ancillaryData)
 		mbuf_ancillary_data_unref(ancillaryData);
+	err = mbuf_coded_video_frame_unref(frame);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -err);
+
+	res = processList(list);
+	if (res < 0 && res != -EAGAIN)
+		PDRAW_LOG_ERRNO("processList", -res);
+	res = tpkt_list_destroy(list);
+	if (res < 0)
+		PDRAW_LOG_ERRNO("tpkt_list_destroy", -res);
+
 	return 0;
 
 out:
 	res = 0;
 
 error:
+	if (metadataOwned)
+		vmeta_frame_unref(metadata);
 	if (ancillaryData)
 		mbuf_ancillary_data_unref(ancillaryData);
-	if (vframe != nullptr) {
-		vstrm_frame_unref(vframe);
-	} else {
-		err = mbuf_coded_video_frame_unref(frame);
-		if (err < 0)
-			ULOG_ERRNO("mbuf_coded_video_frame_unref", -err);
-		free(tpkt_userdata);
+	err = mbuf_coded_video_frame_unref(frame);
+	if (err < 0)
+		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_unref", -err);
+
+	return res;
+}
+
+
+int RtspStreamMuxer::VideoMedia::processList(struct tpkt_list *newList)
+{
+	int res = 0;
+	struct tpkt_packet *pkt;
+	struct timespec ts = {0, 0};
+	uint64_t curTimestamp = 0;
+	uint64_t expirationTimestamp;
+
+	time_get_monotonic(&ts);
+	time_timespec_to_us(&ts, &curTimestamp);
+
+	if (newList != nullptr) {
+		/* Transfer packets to our own pending packets list */
+		pkt = tpkt_list_first(newList);
+		while (pkt != nullptr) {
+			int err = tpkt_list_remove(newList, pkt);
+			if (err < 0) {
+				PDRAW_LOG_ERRNO("tpkt_list_remove", -err);
+				pkt = tpkt_list_first(newList);
+				continue;
+			}
+
+			err = tpkt_list_add_last(mList, pkt);
+			if (err < 0) {
+				PDRAW_LOG_ERRNO("tpkt_list_add_last", -err);
+				tpkt_unref(pkt);
+				pkt = tpkt_list_first(newList);
+				continue;
+			}
+
+			err = tpkt_unref(pkt);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("tpkt_unref", -err);
+			pkt = tpkt_list_first(newList);
+		}
+	}
+
+	/* Send pending packets in the list */
+	pkt = tpkt_list_first(mList);
+	while (pkt != nullptr) {
+		res = tpkt_list_remove(mList, pkt);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("tpkt_list_remove", -res);
+
+		/* Remove packets on timeout (selective drop) */
+		expirationTimestamp = tpkt_get_expiration_timestamp(pkt);
+		if ((expirationTimestamp != 0) &&
+		    (curTimestamp > expirationTimestamp)) {
+			uint64_t delta = curTimestamp - expirationTimestamp;
+			uint32_t importance = 0;
+			tpkt_get_importance(pkt, &importance);
+			PDRAW_LOGD("drop packet: importance=%" PRIu32
+				   " (%ums late)",
+				   importance,
+				   (unsigned int)(delta / 1000));
+			goto next;
+		}
+
+		res = sendPkt(
+			pkt, getRemoteStreamPort(), getStreamSocket(), "strm");
+		if (res == -EAGAIN) {
+			/* Send socket buffer full, stop processing packets
+			 * and retry later */
+			int err = tpkt_list_add_first(mList, pkt);
+			if (err < 0)
+				PDRAW_LOG_ERRNO("tpkt_list_add_first", -err);
+			mNetdownLogged = false;
+			err = tpkt_unref(pkt);
+			if (err < 0)
+				ULOG_ERRNO("tpkt_unref", -err);
+			break;
+		} else if (res < 0) {
+			if (res == -ENETUNREACH || res == -ENETDOWN) {
+				if (!mNetdownLogged) {
+					PDRAW_LOG_ERRNO(
+						"tskt_socket_write_pkt "
+						"(logged only once)",
+						-res);
+					mNetdownLogged = true;
+				}
+			} else {
+				PDRAW_LOG_ERRNO("tskt_socket_write_pkt", -res);
+				mNetdownLogged = false;
+			}
+			goto next;
+		}
+		mNetdownLogged = false;
+
+		/* clang-format off */
+next:
+		/* clang-format on */
+		res = tpkt_unref(pkt);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("tpkt_unref", -res);
+
+		pkt = tpkt_list_first(mList);
+	}
+
+	if (getLowerTransport() != RTSP_LOWER_TRANSPORT_TCP) {
+		bool monitorOut = tpkt_list_get_count(mList) != 0;
+		uint32_t events =
+			POMP_FD_EVENT_IN | (monitorOut ? POMP_FD_EVENT_OUT : 0);
+		int fd = tskt_socket_get_fd(getStreamSocket());
+		if (fd < 0)
+			ULOG_ERRNO("tskt_socket_get_fd", -fd);
+		else
+			mMuxer->mSession->getPompLoop()->update(fd, events);
 	}
 
 	return res;
 }
 
 
-void RtspStreamMuxer::VideoMedia::flush(bool discard)
+void RtspStreamMuxer::VideoMedia::flush([[maybe_unused]] bool discard) const
 {
 	/* Unref frame/mem? */
 }
@@ -710,165 +663,19 @@ void RtspStreamMuxer::VideoMedia::finishTeardown()
 }
 
 
-int RtspStreamMuxer::VideoMedia::createSockets()
-{
-	int res;
-	int err;
-	int txBufSize;
-	int rxBufSize;
-	if (getLowerTransport() != RTSP_LOWER_TRANSPORT_TCP) {
-		if (mStrm.localPort == 0)
-			mStrm.localPort =
-				MUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
-		if (mCtrl.localPort == 0)
-			mCtrl.localPort =
-				MUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
-	} else {
-		mStrm.localPort = 0;
-		mCtrl.localPort = 0;
-	}
-
-	/* Create the rx buffer */
-	mRxBufLen = DEFAULT_RX_BUFFER_SIZE;
-	if (mRxPkt == nullptr) {
-		mRxPkt = newRxPkt();
-		if (mRxPkt == nullptr) {
-			res = -ENOMEM;
-			PDRAW_LOG_ERRNO("newRxPkt", -res);
-			goto error;
-		}
-	}
-
-	/* Socket are not needed in TCP mode */
-	if (getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP)
-		return 0;
-
-	/* Sockets will be created once address resolution is done */
-	if (!mMuxer->mUrl->hasResolvedHost())
-		return 0;
-
-	/* Create the sockets */
-	res = tskt_socket_new(mMuxer->mLocalHost.c_str(),
-			      &mStrm.localPort,
-			      mMuxer->mUrl->getResolvedHost().c_str(),
-			      mStrm.remotePort,
-			      nullptr,
-			      mMuxer->mSession->getLoop(),
-			      dataCb,
-			      this,
-			      &mStrm.sock);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("tskt_socket_new:stream(%s)(%u->%u)",
-				-res,
-				mMuxer->mUrl->getResolvedHost().c_str(),
-				mStrm.localPort,
-				mStrm.remotePort);
-		goto error;
-	}
-
-	PDRAW_LOGI("created data socket on port: local=%d, remote=%d",
-		   mStrm.localPort,
-		   mStrm.remotePort);
-
-	txBufSize = PDRAW_RTP_TXBUF_SIZE;
-	res = tskt_socket_set_txbuf_size(mStrm.sock, txBufSize);
-	if (res < 0)
-		PDRAW_LOGW("tskt_socket_set_txbuf_size");
-	rxBufSize = PDRAW_RTP_RXBUF_SIZE;
-	res = tskt_socket_set_rxbuf_size(mStrm.sock, rxBufSize);
-	if (res < 0)
-		PDRAW_LOGW("tskt_socket_set_rxbuf_size");
-
-	res = tskt_socket_get_rxbuf_size(mStrm.sock);
-	if (res < 0)
-		PDRAW_LOGW("tskt_socket_get_rxbuf_size");
-	else if (res != 2 * rxBufSize)
-		PDRAW_LOGW("failed to set rx buffer size: got %d, expecting %d",
-			   res / 2,
-			   rxBufSize);
-
-	res = tskt_socket_set_class_selector(mStrm.sock,
-					     IPTOS_PREC_FLASHOVERRIDE);
-	if (res < 0)
-		PDRAW_LOGW("failed to set class selector for stream socket");
-
-	res = tskt_socket_new(mMuxer->mLocalHost.c_str(),
-			      &mCtrl.localPort,
-			      mMuxer->mUrl->getResolvedHost().c_str(),
-			      mCtrl.remotePort,
-			      nullptr,
-			      mMuxer->mSession->getLoop(),
-			      ctrlCb,
-			      this,
-			      &mCtrl.sock);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("tskt_socket_new:control", -res);
-		goto error;
-	}
-
-	PDRAW_LOGI("created ctrl socket on port: local=%d, remote=%d",
-		   mCtrl.localPort,
-		   mCtrl.remotePort);
-
-	res = tskt_socket_set_class_selector(mCtrl.sock,
-					     IPTOS_PREC_FLASHOVERRIDE);
-	if (res < 0)
-		PDRAW_LOGW("failed to set class selector for control socket");
-
-	return 0;
-
-error:
-	err = tskt_socket_destroy(mStrm.sock);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("tskt_socket_destroy", -err);
-	mStrm.sock = nullptr;
-	err = tskt_socket_destroy(mCtrl.sock);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("tskt_socket_destroy", -err);
-	mCtrl.sock = nullptr;
-	tpkt_unref(mRxPkt);
-	mRxPkt = nullptr;
-	return res;
-}
-
-
-struct tpkt_packet *RtspStreamMuxer::VideoMedia::newRxPkt()
-{
-	struct pomp_buffer *buf = pomp_buffer_new(mRxBufLen);
-	if (!buf)
-		return nullptr;
-
-	struct tpkt_packet *pkt;
-	int res = tpkt_new_from_buffer(buf, &pkt);
-	pomp_buffer_unref(buf);
-	if (res < 0)
-		return nullptr;
-
-	return pkt;
-}
-
-
-void RtspStreamMuxer::VideoMedia::setRxPkt(struct tpkt_packet *newPkt)
-{
-	if (mRxPkt != nullptr)
-		tpkt_unref(mRxPkt);
-	mRxPkt = newPkt;
-}
-
-
 int RtspStreamMuxer::VideoMedia::notifyReadyToSend()
 {
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(mSender == nullptr, EINVAL);
 
-	int res = vstrm_sender_notify_send_data_ready(mSender);
-	if (res < 0)
-		ULOG_ERRNO("vstrm_sender_notify_send_data_ready", -res);
+	int res = processList(nullptr);
+	if (res < 0 && res != -EAGAIN)
+		PDRAW_LOG_ERRNO("processList", -res);
 
 	return res;
 }
 
 
-int RtspStreamMuxer::VideoMedia::processDataPkt(struct tpkt_packet *pkt)
+int RtspStreamMuxer::VideoMedia::processDataPkt(struct tpkt_packet *pkt) const
 {
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(pkt == nullptr, EINVAL);
 
@@ -882,122 +689,14 @@ int RtspStreamMuxer::VideoMedia::processCtrlPkt(struct tpkt_packet *pkt)
 {
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(pkt == nullptr, EINVAL);
 
+	if (mSender == nullptr)
+		return 0;
+
 	int res = vstrm_sender_recv_ctrl(mSender, pkt);
 	if (res < 0)
 		PDRAW_LOG_ERRNO("vstrm_sender_recv_ctrl", -res);
 
 	return res;
-}
-
-
-void RtspStreamMuxer::VideoMedia::dataCb(int fd,
-					 uint32_t events,
-					 void *userdata)
-{
-	PDRAW_UNUSED(fd);
-	PDRAW_UNUSED(events);
-
-	auto *self = static_cast<VideoMedia *>(userdata);
-	int res;
-	size_t readlen = 0;
-
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if ((events & POMP_FD_EVENT_OUT) != 0) {
-		/* Notify sender */
-		res = vstrm_sender_notify_send_data_ready(self->mSender);
-		if (res < 0)
-			ULOG_ERRNO("vstrm_sender_notify_send_data_ready", -res);
-	}
-
-	if ((events & POMP_FD_EVENT_IN) == 0)
-		return;
-
-	while (true) {
-		/* Read data */
-		res = tskt_socket_read_pkt(self->mStrm.sock, self->mRxPkt);
-		if (res < 0)
-			return;
-
-		/* Discard any data received before starting a vstrm_sender */
-		if (!self->mSender)
-			continue;
-
-		/* Something read? */
-		res = tpkt_get_cdata(self->mRxPkt, nullptr, &readlen, nullptr);
-		if (res < 0)
-			return;
-
-		if (readlen == 0) {
-			/* TODO: EOF */
-			return;
-		}
-
-		res = self->processDataPkt(self->mRxPkt);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("processCtrlPkt", -res);
-
-		/* Allocate new packet for replacement */
-		struct tpkt_packet *newPkt = self->newRxPkt();
-		if (!newPkt) {
-			PDRAW_LOG_ERRNO("newTxPkt", ENOMEM);
-			return;
-		}
-		/* Replace processed packet with new one */
-		self->setRxPkt(newPkt);
-	}
-}
-
-
-void RtspStreamMuxer::VideoMedia::ctrlCb(int fd,
-					 uint32_t events,
-					 void *userdata)
-{
-	PDRAW_UNUSED(fd);
-	PDRAW_UNUSED(events);
-
-	auto *self = static_cast<VideoMedia *>(userdata);
-	int res;
-	size_t readlen = 0;
-
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if ((events & POMP_FD_EVENT_IN) == 0)
-		return;
-
-	while (true) {
-		/* Read data */
-		res = tskt_socket_read_pkt(self->mCtrl.sock, self->mRxPkt);
-		if (res < 0)
-			return;
-
-		/* Discard any data received before starting a vstrm_sender */
-		if (!self->mSender)
-			continue;
-
-		/* Something read? */
-		res = tpkt_get_cdata(self->mRxPkt, nullptr, &readlen, nullptr);
-		if (res < 0)
-			return;
-
-		if (readlen == 0) {
-			/* TODO: EOF */
-			return;
-		}
-
-		res = self->processCtrlPkt(self->mRxPkt);
-		if (res < 0)
-			PDRAW_LOG_ERRNO("processCtrlPkt", -res);
-
-		/* Allocate new packet for replacement */
-		struct tpkt_packet *newPkt = self->newRxPkt();
-		if (!newPkt) {
-			PDRAW_LOG_ERRNO("newTxPkt", ENOMEM);
-			return;
-		}
-		/* Replace processed packet with new one */
-		self->setRxPkt(newPkt);
-	}
 }
 
 
@@ -1039,59 +738,25 @@ int RtspStreamMuxer::VideoMedia::sendPkt(struct tpkt_packet *pkt,
 }
 
 
-int RtspStreamMuxer::VideoMedia::sendDataCb(struct vstrm_sender *stream,
-					    struct tpkt_packet *pkt,
-					    bool marker,
-					    void *userdata)
-{
-	const auto self = static_cast<VideoMedia *>(userdata);
-	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-
-	return self->sendPkt(
-		pkt, self->getRemoteStreamPort(), self->mStrm.sock, "strm");
-}
-
-
-int RtspStreamMuxer::VideoMedia::sendCtrlCb(struct vstrm_sender *stream,
-					    struct tpkt_packet *pkt,
-					    void *userdata)
-{
-	const auto self = static_cast<VideoMedia *>(userdata);
-	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-
-	return self->sendPkt(
-		pkt, self->getRemoteControlPort(), self->mCtrl.sock, "ctrl");
-}
-
-
-int RtspStreamMuxer::VideoMedia::monitorSendDataReadyCb(
-	struct vstrm_sender *stream,
-	int enable,
+int RtspStreamMuxer::VideoMedia::sendCtrlCb(
+	[[maybe_unused]] struct vstrm_sender *stream,
+	struct tpkt_packet *pkt,
 	void *userdata)
 {
 	const auto self = static_cast<VideoMedia *>(userdata);
-	uint32_t events = POMP_FD_EVENT_IN | (enable ? POMP_FD_EVENT_OUT : 0);
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
 
-	if (self->getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP)
-		return 0;
-
-	ULOG_ERRNO_RETURN_ERR_IF(self->mSender == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_ERR_IF(self->mStrm.sock == nullptr, EINVAL);
-
-	int fd = tskt_socket_get_fd(self->mStrm.sock);
-	if (fd < 0) {
-		ULOG_ERRNO("tskt_socket_get_fd", -fd);
-		return fd;
-	}
-
-	return pomp_loop_update(self->mMuxer->mSession->getLoop(), fd, events);
+	return self->sendPkt(pkt,
+			     self->getRemoteControlPort(),
+			     self->getControlSocket(),
+			     "ctrl");
 }
 
 
 void RtspStreamMuxer::VideoMedia::videoStatsCb(
-	struct vstrm_sender *stream,
-	const struct vstrm_video_stats *video_stats,
-	const struct vstrm_video_stats_dyn *video_stats_dyn,
+	[[maybe_unused]] struct vstrm_sender *stream,
+	[[maybe_unused]] const struct vstrm_video_stats *video_stats,
+	[[maybe_unused]] const struct vstrm_video_stats_dyn *video_stats_dyn,
 	void *userdata)
 {
 	const auto self = static_cast<VideoMedia *>(userdata);
@@ -1161,7 +826,7 @@ int RtspStreamMuxer::VideoMedia::updateStats(
 
 
 void RtspStreamMuxer::VideoMedia::receiverReportCb(
-	struct vstrm_sender *stream,
+	[[maybe_unused]] struct vstrm_sender *stream,
 	const struct rtcp_pkt_receiver_report *rr,
 	uint32_t rtd,
 	void *userdata)
@@ -1177,9 +842,10 @@ void RtspStreamMuxer::VideoMedia::receiverReportCb(
 }
 
 
-void RtspStreamMuxer::VideoMedia::goodbyeCb(struct vstrm_sender *stream,
-					    const char *reason,
-					    void *userdata)
+void RtspStreamMuxer::VideoMedia::goodbyeCb(
+	[[maybe_unused]] struct vstrm_sender *stream,
+	const char *reason,
+	void *userdata)
 {
 	auto *self = static_cast<VideoMedia *>(userdata);
 
@@ -1191,6 +857,19 @@ void RtspStreamMuxer::VideoMedia::goodbyeCb(struct vstrm_sender *stream,
 		   reason ? reason : "");
 
 	self->mMuxer->onUnrecoverableError(-ENETDOWN);
+}
+
+void RtspStreamMuxer::VideoMedia::requestResync()
+{
+	auto *channel = dynamic_cast<CodedVideoChannel *>(
+		mMuxer->getInputChannel(mVideoMedia));
+	if (channel == nullptr) {
+		PDRAW_LOG_ERRNO("getInputChannel", ENODEV);
+		return;
+	}
+	int res = channel->resync();
+	if (res < 0)
+		PDRAW_LOG_ERRNO("channel::resync", -res);
 }
 
 } /* namespace Pdraw */

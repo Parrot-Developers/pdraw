@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_channel_audio
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_channel_audio.hpp"
 #include "pdraw_media.hpp"
 
 #include <errno.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -43,7 +44,7 @@ namespace Pdraw {
 AudioChannel::AudioChannel(Sink *owner,
 			   SinkListener *sinkListener,
 			   AudioSinkListener *audioSinkListener,
-			   struct pomp_loop *loop) :
+			   pomp::Loop *loop) :
 		Channel(owner, sinkListener, loop),
 		mAudioSinkListener(audioSinkListener)
 {
@@ -77,10 +78,7 @@ int AudioChannel::queue(mbuf_audio_frame *frame)
 {
 	if (frame == nullptr)
 		return -EINVAL;
-	if (mAudioSinkListener == nullptr) {
-		ULOGE("invalid sink listener");
-		return -EPROTO;
-	}
+	ULOG_ERRNO_RETURN_ERR_IF(mAudioSinkListener == nullptr, EPROTO);
 
 	mAudioSinkListener->onAudioChannelQueue(this, frame);
 	return 0;

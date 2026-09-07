@@ -66,7 +66,7 @@ int QPdrawPriv::stop()
 }
 
 
-intptr_t QPdrawPriv::getInternal()
+intptr_t QPdrawPriv::getInternal() const
 {
 	return reinterpret_cast<intptr_t>(mPdraw.get());
 }
@@ -78,40 +78,32 @@ struct pomp_loop *QPdrawPriv::getLoop()
 }
 
 
-void QPdrawPriv::stopResponse(IPdraw *pdraw, int status)
+void QPdrawPriv::stopResponse([[maybe_unused]] IPdraw *pdraw, int status)
 {
-	PDRAW_UNUSED(pdraw);
-
 	emit mParent->stopResponse(status);
 }
 
 
-void QPdrawPriv::onMediaAdded(IPdraw *pdraw,
+void QPdrawPriv::onMediaAdded([[maybe_unused]] IPdraw *pdraw,
 			      const struct pdraw_media_info *info,
 			      void *elementUserData)
 {
-	PDRAW_UNUSED(pdraw);
-
 	struct pdraw_media_info info_copy = *info;
 	emit mParent->onMediaAdded(info_copy, elementUserData);
 }
 
 
-void QPdrawPriv::onMediaRemoved(IPdraw *pdraw,
+void QPdrawPriv::onMediaRemoved([[maybe_unused]] IPdraw *pdraw,
 				const struct pdraw_media_info *info,
 				void *elementUserData)
 {
-	PDRAW_UNUSED(pdraw);
-
 	struct pdraw_media_info info_copy = *info;
 	emit mParent->onMediaRemoved(info_copy, elementUserData);
 }
 
 
-void QPdrawPriv::onSocketCreated(IPdraw *pdraw, int fd)
+void QPdrawPriv::onSocketCreated([[maybe_unused]] IPdraw *pdraw, int fd)
 {
-	PDRAW_UNUSED(pdraw);
-
 	emit mParent->onSocketCreated(fd);
 }
 
@@ -119,7 +111,8 @@ void QPdrawPriv::onSocketCreated(IPdraw *pdraw, int fd)
 
 
 QPdraw::QPdraw(QObject *parent) :
-		QObject(parent), mPriv(make_unique<Internal::QPdrawPriv>(this))
+		QObject(parent),
+		mPriv(std::make_unique<Internal::QPdrawPriv>(this))
 {
 	qRegisterMetaType<pdraw_media_info>("pdraw_media_info");
 }
@@ -142,7 +135,7 @@ int QPdraw::stop()
 }
 
 
-intptr_t QPdraw::getInternal()
+intptr_t QPdraw::getInternal() const
 {
 	return mPriv->getInternal();
 }

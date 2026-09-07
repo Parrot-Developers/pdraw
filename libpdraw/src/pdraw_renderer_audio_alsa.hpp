@@ -72,9 +72,9 @@ public:
 
 	int addInputMedia(Media *media) override;
 
-	int removeInputMedia(Media *media) override;
+	int removeInputMedia(Media *media) final;
 
-	int removeInputMedias() override;
+	int removeInputMedias() final;
 
 	void completeStop() override;
 
@@ -91,26 +91,27 @@ private:
 
 	void onChannelEos(Channel *channel) override;
 
-	static void idleStart(void *renderer);
+	void idleStart();
 
-	static void idleDrain(void *renderer);
+	void idleDrain();
 
 	int render();
 
 	static void renderCb(struct pomp_evt *event, void *userdata);
 
-	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
+	void onWatchdogTimer();
 
 	static bool queueFilter(struct mbuf_audio_frame *frame, void *userdata);
 
 	mbuf::Queue *getLastAddedMediaQueue();
 
-	static void idleRenewMedia(void *userdata);
+	void idleRenewMedia();
 
 	unsigned int mMediaId = 0;
 	unsigned int mCurrentMediaId = 0;
 	bool mRunning = false;
 	AudioMedia *mLastAddedMedia = nullptr;
+	std::unique_ptr<mbuf::Queue> mInputQueue;
 	struct pdraw_media_info mMediaInfo {
 	};
 	bool mAlsaReady = false;
@@ -125,9 +126,13 @@ private:
 
 	/* Watchdog timer: triggered if no new frame is received for a given
 	 * amount of time */
-	struct pomp_timer *mWatchdogTimer = nullptr;
+	pomp::Timer::HandlerFunc mWatchdogTimerHandler;
+	std::unique_ptr<pomp::Timer> mWatchdogTimer;
 	std::atomic_bool mWatchdogTriggered{false};
 	std::atomic_bool mEos{false};
+	pomp::Loop::IdleHandlerFunc mIdleStartHandler;
+	pomp::Loop::IdleHandlerFunc mIdleDrainHandler;
+	pomp::Loop::IdleHandlerFunc mIdleRenewMediaHandler;
 };
 
 } /* namespace Pdraw */

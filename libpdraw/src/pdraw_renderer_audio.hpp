@@ -54,7 +54,7 @@ public:
 
 	virtual int getParams(struct pdraw_audio_renderer_params *params) = 0;
 
-	static AudioRenderer *
+	static std::unique_ptr<AudioRenderer>
 	create(Session *session,
 	       Element::Listener *listener,
 	       AudioRendererWrapper *wrapper,
@@ -84,7 +84,9 @@ protected:
 	std::mutex mListenerMutex{};
 
 private:
-	static void idleCompleteStop(void *userdata);
+	void idleCompleteStop();
+
+	pomp::Loop::IdleHandlerFunc mCompleteStopHandler;
 };
 
 
@@ -124,7 +126,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mRenderer == nullptr);

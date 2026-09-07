@@ -31,22 +31,25 @@
 
 #define ULOG_TAG pdraw_alsaaudio
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_alsa_audio.hpp"
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 #ifdef PDRAW_USE_ALSA
 
-#	define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
+#	include <array>
 
 
 namespace Pdraw {
 
 
-static const struct {
-	enum _snd_pcm_format sndFormat;
+struct AudioFormatEntry {
+	snd_pcm_format_t sndFormat;
 	const struct adef_format *adefFormat;
-} audio_format_map[] = {
+};
+
+static const std::array<AudioFormatEntry, 24> audioFormatMap = {{
 	{SND_PCM_FORMAT_S16_LE, &adef_pcm_16b_8000hz_stereo},
 	{SND_PCM_FORMAT_S16_LE, &adef_pcm_16b_8000hz_mono},
 	{SND_PCM_FORMAT_S16_LE, &adef_pcm_16b_11025hz_mono},
@@ -71,27 +74,25 @@ static const struct {
 	{SND_PCM_FORMAT_S16_LE, &adef_pcm_16b_88200hz_stereo},
 	{SND_PCM_FORMAT_S16_LE, &adef_pcm_16b_96000hz_mono},
 	{SND_PCM_FORMAT_S16_LE, &adef_pcm_16b_96000hz_stereo},
-};
+}};
 
 
 snd_pcm_format_t AlsaAudio::adefFormatToAlsa(const struct adef_format *format)
 {
-	for (unsigned int i = 0; i < ARRAY_SIZE(audio_format_map); i++) {
-		if (adef_format_cmp(audio_format_map[i].adefFormat, format))
-			return audio_format_map[i].sndFormat;
+	for (const auto &e : audioFormatMap) {
+		if (adef_format_cmp(e.adefFormat, format))
+			return e.sndFormat;
 	}
-
 	return SND_PCM_FORMAT_UNKNOWN;
 }
 
 
 const struct adef_format *AlsaAudio::alsaFormatToAdef(snd_pcm_format_t format)
 {
-	for (unsigned int i = 0; i < ARRAY_SIZE(audio_format_map); i++) {
-		if (audio_format_map[i].sndFormat == format)
-			return audio_format_map[i].adefFormat;
+	for (const auto &e : audioFormatMap) {
+		if (e.sndFormat == format)
+			return e.adefFormat;
 	}
-
 	return nullptr;
 }
 

@@ -52,14 +52,23 @@ public:
 		  const struct pdraw_muxer_media_params *params) override;
 
 protected:
-	static void
-	photoMetaWriteFileCb(enum pmeta_defs_dest dest,
-			     const struct pmeta_defs_exif_def *exifDef,
-			     const struct pmeta_defs_xmp_def *xmpDef,
-			     const char *value,
-			     void *userdata);
+	int internalAddExif(const struct pmeta_defs_exif_def *exifDef,
+			    const char *value) override;
 
-	int processFrame(struct mbuf_coded_video_frame *frame) override;
+	int internalAddXmp(const struct pmeta_defs_xmp_def *xmpDef,
+			   const char *value) override;
+
+	void internalClearMetadata() override;
+
+	int internalSerialize(const uint8_t *buf,
+			      size_t len,
+			      std::vector<struct iovec> &iov,
+			      uint8_t **headerBuf) override;
+
+	const char *internalGetMimeType() const override
+	{
+		return vdef_get_encoding_mime_type(VDEF_ENCODING_JPEG);
+	}
 
 	JfifRecordMuxer *mJfifMuxer = nullptr;
 };

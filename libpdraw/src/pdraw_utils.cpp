@@ -30,9 +30,10 @@
 
 #define ULOG_TAG pdraw_utils
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_utils.hpp"
+
+#include <array>
 
 #include <math.h>
 #include <string.h>
@@ -40,6 +41,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #ifdef BUILD_JSON
 #	include <json-c/json.h>
 #endif
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 extern "C" {
 const char *const PDRAW_ANCILLARY_DATA_KEY_VIDEOFRAME = "pdraw.video.frame";
@@ -250,9 +253,9 @@ pdraw_demuxerAutodecodingModeFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_demuxer_autodecoding_mode_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] : pdraw_demuxer_autodecoding_mode_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -277,9 +280,9 @@ enum pdraw_playback_type pdraw_playbackTypeFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_playback_type_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] : pdraw_playback_type_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -305,9 +308,9 @@ enum pdraw_media_type pdraw_mediaTypeFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_media_type_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] : pdraw_media_type_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -358,9 +361,9 @@ enum pdraw_muxer_rtsp_transport pdraw_muxerRtpTransportFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_muxer_rtsp_transport_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] : pdraw_muxer_rtsp_transport_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -386,9 +389,9 @@ enum pdraw_histogram_channel pdraw_histogramChannelFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_histogram_channel_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] : pdraw_histogram_channel_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -416,9 +419,10 @@ pdraw_videoRendererSchedulingModeFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_video_renderer_scheduling_mode_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] :
+	     pdraw_video_renderer_scheduling_mode_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -446,9 +450,9 @@ pdraw_videoRendererFillModeFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_video_renderer_fill_mode_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] : pdraw_video_renderer_fill_mode_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -476,9 +480,10 @@ pdraw_videoRendererTransitionFlagFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_video_renderer_transition_flag_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] :
+	     pdraw_video_renderer_transition_flag_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -505,9 +510,9 @@ pdraw_vipcSourceEosReasonFromStr(const char *val)
 
 	ULOG_ERRNO_RETURN_VAL_IF(val == nullptr, EINVAL, ret);
 
-	for (auto i : pdraw_vipc_source_eos_reason_map) {
-		if (strcmp(i.second, val) == 0)
-			return i.first;
+	for (const auto &[key, str] : pdraw_vipc_source_eos_reason_map) {
+		if (strcmp(str, val) == 0)
+			return key;
 	}
 	ULOGW("invalid input: %s", val);
 	return ret;
@@ -518,7 +523,6 @@ pdraw_vipcSourceEosReasonFromStr(const char *val)
 static void jsonFillRawVideoInfo(struct json_object *jobj,
 				 const struct vdef_raw_frame *frame)
 {
-	int ret;
 	struct json_object *jobj_frame = json_object_new_object();
 	if (jobj_frame == nullptr) {
 		ULOG_ERRNO("json_object_new_object", ENOMEM);
@@ -539,15 +543,14 @@ static void jsonFillRawVideoInfo(struct json_object *jobj,
 			       json_object_new_int(frame->info.timescale));
 	json_object_object_add(
 		jobj_frame, "index", json_object_new_int(frame->info.index));
-	char *fmt = nullptr;
-	ret = asprintf(&fmt,
-		       VDEF_RAW_FORMAT_TO_STR_FMT,
-		       VDEF_RAW_FORMAT_TO_STR_ARG(&frame->format));
-	if ((ret > 0) && (fmt != nullptr)) {
-		json_object_object_add(
-			jobj_frame, "format", json_object_new_string(fmt));
-		free(fmt);
-	}
+	std::array<char, 64> fmt;
+	if (snprintf(fmt.data(),
+		     fmt.size(),
+		     VDEF_RAW_FORMAT_TO_STR_FMT,
+		     VDEF_RAW_FORMAT_TO_STR_ARG(&frame->format)) > 0)
+		json_object_object_add(jobj_frame,
+				       "format",
+				       json_object_new_string(fmt.data()));
 
 	json_object_object_add(jobj_info,
 			       "full_range",
@@ -589,7 +592,6 @@ static void jsonFillRawVideoInfo(struct json_object *jobj,
 static void jsonFillCodedVideoInfo(struct json_object *jobj,
 				   const struct vdef_coded_frame *frame)
 {
-	int ret;
 	struct json_object *jobj_frame = json_object_new_object();
 	if (jobj_frame == nullptr) {
 		ULOG_ERRNO("json_object_new_object", ENOMEM);
@@ -610,15 +612,14 @@ static void jsonFillCodedVideoInfo(struct json_object *jobj,
 			       json_object_new_int(frame->info.timescale));
 	json_object_object_add(
 		jobj_frame, "index", json_object_new_int(frame->info.index));
-	char *fmt = nullptr;
-	ret = asprintf(&fmt,
-		       VDEF_CODED_FORMAT_TO_STR_FMT,
-		       VDEF_CODED_FORMAT_TO_STR_ARG(&frame->format));
-	if ((ret > 0) && (fmt != nullptr)) {
-		json_object_object_add(
-			jobj_frame, "format", json_object_new_string(fmt));
-		free(fmt);
-	}
+	std::array<char, 64> fmt;
+	if (snprintf(fmt.data(),
+		     fmt.size(),
+		     VDEF_CODED_FORMAT_TO_STR_FMT,
+		     VDEF_CODED_FORMAT_TO_STR_ARG(&frame->format)) > 0)
+		json_object_object_add(jobj_frame,
+				       "format",
+				       json_object_new_string(fmt.data()));
 
 	json_object_object_add(jobj_info,
 			       "full_range",
@@ -899,9 +900,9 @@ struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src)
 {
 	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
 
-	auto dst = static_cast<pdraw_media_info *>(malloc(sizeof(*src)));
+	auto dst = make_c_struct<MediaInfoPtr>();
 	if (dst == nullptr) {
-		ULOG_ERRNO("malloc", ENOMEM);
+		ULOG_ERRNO("calloc", ENOMEM);
 		return nullptr;
 	}
 	*dst = *src;
@@ -911,13 +912,10 @@ struct pdraw_media_info *pdraw_mediaInfoDup(const struct pdraw_media_info *src)
 
 	if ((src->name && !dst->name) || (src->path && !dst->path)) {
 		ULOG_ERRNO("strdup", ENOMEM);
-		free(const_cast<char *>(dst->name));
-		free(const_cast<char *>(dst->path));
-		free(dst);
 		return nullptr;
 	}
 
-	return dst;
+	return dst.release();
 }
 
 
@@ -937,10 +935,9 @@ pdraw_vipcSourceParamsDup(const struct pdraw_vipc_source_params *src)
 {
 	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
 
-	auto dst =
-		static_cast<pdraw_vipc_source_params *>(malloc(sizeof(*src)));
+	auto dst = make_c_struct<VipcSourceParamsPtr>();
 	if (dst == nullptr) {
-		ULOG_ERRNO("malloc", ENOMEM);
+		ULOG_ERRNO("calloc", ENOMEM);
 		return nullptr;
 	}
 
@@ -954,14 +951,10 @@ pdraw_vipcSourceParamsDup(const struct pdraw_vipc_source_params *src)
 	    (src->friendly_name && !dst->friendly_name) ||
 	    (src->backend_name && !dst->backend_name)) {
 		ULOG_ERRNO("strdup", ENOMEM);
-		free(const_cast<char *>(dst->address));
-		free(const_cast<char *>(dst->friendly_name));
-		free(const_cast<char *>(dst->backend_name));
-		free(dst);
 		return nullptr;
 	}
 
-	return dst;
+	return dst.release();
 }
 
 
@@ -982,9 +975,9 @@ pdraw_muxerParamsDup(const struct pdraw_muxer_params *src)
 {
 	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
 
-	auto dst = static_cast<pdraw_muxer_params *>(malloc(sizeof(*src)));
+	auto dst = make_c_struct<MuxerParamsPtr>();
 	if (dst == nullptr) {
-		ULOG_ERRNO("malloc", ENOMEM);
+		ULOG_ERRNO("calloc", ENOMEM);
 		return nullptr;
 	}
 
@@ -994,12 +987,10 @@ pdraw_muxerParamsDup(const struct pdraw_muxer_params *src)
 
 	if (src->recovery.tables_file && !dst->recovery.tables_file) {
 		ULOG_ERRNO("strdup", ENOMEM);
-		free(const_cast<char *>(dst->recovery.tables_file));
-		free(dst);
 		return nullptr;
 	}
 
-	return dst;
+	return dst.release();
 }
 
 
@@ -1018,10 +1009,9 @@ pdraw_muxerMediaParamsDup(const struct pdraw_muxer_media_params *src)
 {
 	ULOG_ERRNO_RETURN_VAL_IF(src == nullptr, EINVAL, nullptr);
 
-	auto dst =
-		static_cast<pdraw_muxer_media_params *>(malloc(sizeof(*src)));
+	auto dst = make_c_struct<MuxerMediaParamsPtr>();
 	if (dst == nullptr) {
-		ULOG_ERRNO("malloc", ENOMEM);
+		ULOG_ERRNO("calloc", ENOMEM);
 		return nullptr;
 	}
 
@@ -1031,12 +1021,10 @@ pdraw_muxerMediaParamsDup(const struct pdraw_muxer_media_params *src)
 
 	if (src->track_name && !dst->track_name) {
 		ULOG_ERRNO("strdup", ENOMEM);
-		free(const_cast<char *>(dst->track_name));
-		free(dst);
 		return nullptr;
 	}
 
-	return dst;
+	return dst.release();
 }
 
 
@@ -1076,7 +1064,7 @@ Loggable::Loggable() :
 {
 }
 
-void Loggable::setName(const std::string &name)
+void Loggable::setName(std::string_view name)
 {
 	mName = name;
 }
@@ -1086,4 +1074,4 @@ void Loggable::setName(const char *name)
 	mName = std::string(name);
 }
 
-} // namespace Pdraw
+} /* namespace Pdraw */

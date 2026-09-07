@@ -45,7 +45,6 @@
 
 #define ULOG_TAG pdraw_codedsourcesink_test
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_codedsourcesink_test);
 
 #include <h264/h264.h>
 #include <h265/h265.h>
@@ -54,6 +53,7 @@ ULOG_DECLARE_TAG(pdraw_codedsourcesink_test);
 #include <pdraw/pdraw_backend.h>
 #include <video-defs/vdefs.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #define UNUSED(x) (void)(x)
 
@@ -264,12 +264,14 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	ULOGI("%s id=%d", __func__, info->id);
 
-	if (element_userdata != self->source_element_userdata)
+	if (element_userdata != self->source)
 		return;
 	if (info->type != PDRAW_MEDIA_TYPE_VIDEO)
 		return;
 	if (info->video.format != VDEF_FRAME_TYPE_CODED)
 		return;
+
+	self->source_element_userdata = element_userdata;
 
 	if (strcmp(info->video.session_meta->friendly_name, FRIENDLY_NAME) != 0)
 		ULOGW("mismatch on friendly_name session metadata");
@@ -651,7 +653,6 @@ static int configure(struct pdraw_backend_app *self)
 		ULOG_ERRNO("pdraw_be_coded_video_source_new", -res);
 		return res;
 	}
-	self->source_element_userdata = self->source;
 	pthread_mutex_lock(&self->mutex);
 	while (!self->media_added)
 		pthread_cond_wait(&self->cond, &self->mutex);
@@ -1025,7 +1026,6 @@ static void process_output(struct pdraw_backend_app *self)
 	while (res == 0) {
 		struct mbuf_coded_video_frame *frame = NULL;
 		struct vdef_coded_frame info;
-		size_t i;
 		size_t nalu_count;
 		const uint8_t *data;
 		const void *nalu_data;
@@ -1056,7 +1056,7 @@ static void process_output(struct pdraw_backend_app *self)
 
 		/* Write the frame */
 		nalu_count = mbuf_coded_video_frame_get_nalu_count(frame);
-		for (i = 0; i < nalu_count; i++) {
+		for (unsigned int i = 0; i < nalu_count; i++) {
 			res = mbuf_coded_video_frame_get_nalu(
 				frame, i, &nalu_data, &nalu);
 			if (res < 0) {
@@ -1066,8 +1066,9 @@ static void process_output(struct pdraw_backend_app *self)
 			}
 			data = nalu_data;
 
-			res = fwrite(data, nalu.size, 1, self->out_file);
-			if (res != 1) {
+			size_t written =
+				fwrite(data, nalu.size, 1, self->out_file);
+			if (written != 1) {
 				res = -errno;
 				ULOG_ERRNO("fwrite", -res);
 			}
@@ -1141,8 +1142,8 @@ int main(int argc, char **argv)
 {
 	int res;
 	int status = EXIT_SUCCESS;
-	char *input = NULL;
-	char *output = NULL;
+	const char *input = NULL;
+	const char *output = NULL;
 	struct pdraw_backend_app *self = NULL;
 	struct vdef_coded_format format = {0};
 	unsigned int max_count = 0;
@@ -1161,7 +1162,6 @@ int main(int argc, char **argv)
 		case 'h':
 			usage(argc, argv);
 			exit(EXIT_SUCCESS);
-			break;
 
 		case 'e':
 			format.encoding = vdef_encoding_from_str(optarg);
@@ -1177,7 +1177,6 @@ int main(int argc, char **argv)
 		default:
 			usage(argc, argv);
 			exit(EXIT_FAILURE);
-			break;
 		}
 	}
 

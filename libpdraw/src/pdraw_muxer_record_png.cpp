@@ -30,23 +30,23 @@
 
 #define ULOG_TAG pdraw_recmux_png
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_png.hpp"
 #include "pdraw_muxer_record_png_media.hpp"
 
 #include <array>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
 
 
-constexpr size_t NB_SUPPORTED_CODED_FORMATS = 1;
-static std::array<vdef_coded_format, NB_SUPPORTED_CODED_FORMATS>
-	supportedCodedFormats;
-static std::once_flag supportedFormatsOnceFlag;
-static void initializeSupportedFormats()
+static const std::array<vdef_coded_format, 1> &getSupportedCodedFormats()
 {
-	supportedCodedFormats[0] = vdef_png;
+	static const std::array<vdef_coded_format, 1> formats = {{
+		vdef_png,
+	}};
+	return formats;
 }
 
 
@@ -63,12 +63,11 @@ PngRecordMuxer::PngRecordMuxer(Session *session,
 				 fileName,
 				 params)
 {
-	std::call_once(supportedFormatsOnceFlag, initializeSupportedFormats);
-
 	Element::setClassName(__func__);
 
-	setCodedVideoMediaFormatCaps(supportedCodedFormats.data(),
-				     supportedCodedFormats.size());
+	setCodedVideoMediaFormatCaps(
+		getSupportedCodedFormats().data(),
+		static_cast<int>(getSupportedCodedFormats().size()));
 }
 
 
@@ -79,7 +78,7 @@ PngRecordMuxer::PngRecordMuxer::createMedia(const MuxerMediaConfig &cfg)
 	try {
 		switch (cfg.type) {
 		case Media::Type::CODED_VIDEO:
-			return make_unique<PngMuxerMedia>(this, cfg);
+			return std::make_unique<PngMuxerMedia>(this, cfg);
 		default:
 			PDRAW_LOGE("unsupported media type: %d",
 				   static_cast<int>(cfg.type));

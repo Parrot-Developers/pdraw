@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_adec
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_decoder_audio.hpp"
 #include "pdraw_session.hpp"
@@ -40,6 +39,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <unistd.h>
 
 #include <vector>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -72,6 +73,8 @@ AudioDecoder::AudioDecoder(Session *session,
 
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+
 	/* Supported input formats */
 	supportedInputFormatsCount = adec_get_supported_input_formats(
 		ADEC_DECODER_IMPLEM_AUTO, &supportedInputFormats);
@@ -95,9 +98,7 @@ AudioDecoder::~AudioDecoder()
 		PDRAW_LOGW("decoder is still running");
 
 	/* Remove any leftover idle callbacks */
-	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
+	mSession->getPompLoop()->idleRemove(this);
 
 	if (mAdec != nullptr) {
 		ret = adec_destroy(mAdec);
@@ -114,7 +115,7 @@ int AudioDecoder::start()
 {
 	int ret = 0;
 	int err;
-	InputPort *port = nullptr;
+	const InputPort *port = nullptr;
 	struct adec_config cfg = {};
 	Channel *c = nullptr;
 	AudioChannel *channel = nullptr;
@@ -235,6 +236,12 @@ int AudioDecoder::stop()
 
 	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
+	if (mState == State::CREATED) {
+		/* Skip flush/drain for unstarted elements to prevent them from
+		 * getting stuck in CREATED and blocking session stop */
+		setState(State::STOPPED);
+		return 0;
+	}
 	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: decoder is not started", __func__);
 		return -EPROTO;
@@ -273,20 +280,22 @@ int AudioDecoder::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
-		ret = mInputBufferQueue->getCount();
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("queue::getCount", -ret);
-			return ret;
-		} else if (ret > 0) {
-			setFlushingState(FlushingState::UNFLUSHED);
-			break;
+		if (mInputBufferQueue != nullptr) {
+			ret = mInputBufferQueue->getCount();
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("queue::getCount", -ret);
+				return ret;
+			} else if (ret > 0) {
+				setFlushingState(FlushingState::UNFLUSHED);
+				break;
+			}
 		}
 		PDRAW_LOGD("decoder is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -431,10 +440,9 @@ void AudioDecoder::completeFlush()
 }
 
 
-void AudioDecoder::idleCompleteFlush(void *userdata)
+void AudioDecoder::idleCompleteFlush()
 {
-	auto *self = static_cast<AudioDecoder *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -468,8 +476,11 @@ int AudioDecoder::tryStop()
 	}
 	Source::unlock();
 
-	/* Stop the decoder */
-	if (mAdec != nullptr) {
+	/* Stop the decoder
+	 * tryStop() can be re-entered while STOPPING; guard against issuing
+	 * adec_stop() more than once (see VideoScaler/vscale_libyuv). */
+	if ((mAdec != nullptr) && (!mAdecStopIssued)) {
+		mAdecStopIssued = true;
 		ret = adec_stop(mAdec);
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("adec_stop", -ret);
@@ -543,17 +554,17 @@ exit:
 }
 
 
-int AudioDecoder::createOutputMedia(const struct adef_frame *frameInfo,
-				    const AudioMedia::Frame &frame)
+int AudioDecoder::createOutputMedia(
+	const struct adef_frame *frameInfo,
+	[[maybe_unused]] const AudioMedia::Frame &frame)
 {
-	PDRAW_UNUSED(frame);
 
 	int ret;
 
 	Source::lock();
 
 	try {
-		mOutputMedia = make_unique<AudioMedia>(mSession);
+		mOutputMedia = std::make_unique<AudioMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -571,8 +582,7 @@ int AudioDecoder::createOutputMedia(const struct adef_frame *frameInfo,
 	}
 
 	mOutputMedia->format = frameInfo->format;
-	mOutputMedia->playbackType = mInputMedia->playbackType;
-	mOutputMedia->duration = mInputMedia->duration;
+	mOutputMedia->copyPropertiesFrom(mInputMedia);
 
 	Source::unlock();
 
@@ -587,14 +597,9 @@ int AudioDecoder::createOutputMedia(const struct adef_frame *frameInfo,
 void AudioDecoder::onAudioChannelQueue(AudioChannel *channel,
 				       struct mbuf_audio_frame *frame)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
-	if (frame == nullptr) {
-		PDRAW_LOG_ERRNO("frame", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_IF(frame == nullptr, EINVAL);
+
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("frame input: decoder is not started");
 		return;
@@ -620,10 +625,7 @@ void AudioDecoder::onAudioChannelQueue(AudioChannel *channel,
 
 void AudioDecoder::onChannelFlush(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("flushing input channel");
 	mInputChannelFlushPending = true;
@@ -636,10 +638,7 @@ void AudioDecoder::onChannelFlush(Channel *channel)
 
 void AudioDecoder::onChannelDrain(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("draining input channel");
 	mInputChannelFlushPending = true;
@@ -652,10 +651,7 @@ void AudioDecoder::onChannelDrain(Channel *channel)
 
 void AudioDecoder::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -673,10 +669,7 @@ void AudioDecoder::onChannelFlushed(Channel *channel)
 
 void AudioDecoder::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -694,10 +687,7 @@ void AudioDecoder::onChannelDrained(Channel *channel)
 
 void AudioDecoder::onChannelTeardown(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("tearing down input channel");
 
@@ -709,10 +699,7 @@ void AudioDecoder::onChannelTeardown(Channel *channel)
 
 void AudioDecoder::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -721,12 +708,11 @@ void AudioDecoder::onChannelUnlink(Channel *channel)
 }
 
 
-void AudioDecoder::frameOutputCb(struct adec_decoder *dec,
+void AudioDecoder::frameOutputCb([[maybe_unused]] struct adec_decoder *dec,
 				 int status,
 				 struct mbuf_audio_frame *out_frame,
 				 void *userdata)
 {
-	PDRAW_UNUSED(dec);
 
 	int ret;
 	auto *self = static_cast<AudioDecoder *>(userdata);
@@ -741,14 +727,9 @@ void AudioDecoder::frameOutputCb(struct adec_decoder *dec,
 		return;
 	}
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
-	if (out_frame == nullptr) {
-		PDRAW_LOG_ERRNO("out_frame", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
+	PDRAW_LOG_ERRNO_RETURN_IF(out_frame == nullptr, EINVAL);
+
 	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("frame output: decoder is not started");
 		return;
@@ -854,16 +835,13 @@ void AudioDecoder::frameOutputCb(struct adec_decoder *dec,
 }
 
 
-void AudioDecoder::flushCb(struct adec_decoder *dec, void *userdata)
+void AudioDecoder::flushCb([[maybe_unused]] struct adec_decoder *dec,
+			   void *userdata)
 {
-	PDRAW_UNUSED(dec);
 
 	auto *self = static_cast<AudioDecoder *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("decoder is flushed");
 	self->mAdecFlushPending = false;
@@ -872,16 +850,13 @@ void AudioDecoder::flushCb(struct adec_decoder *dec, void *userdata)
 }
 
 
-void AudioDecoder::stopCb(struct adec_decoder *dec, void *userdata)
+void AudioDecoder::stopCb([[maybe_unused]] struct adec_decoder *dec,
+			  void *userdata)
 {
-	PDRAW_UNUSED(dec);
 
 	auto *self = static_cast<AudioDecoder *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("decoder is stopped");
 	self->mAdecStopPending = false;

@@ -296,7 +296,7 @@ int RecordDemuxer::DemuxerCodedVideoMedia::setupMedia(
 		std::unique_ptr<CodedVideoMedia> codedMedia;
 
 		try {
-			codedMedia = make_unique<CodedVideoMedia>(
+			codedMedia = std::make_unique<CodedVideoMedia>(
 				mDemuxer->mSession);
 		} catch (const std::bad_alloc &) {
 			ret = -ENOMEM;
@@ -323,8 +323,8 @@ int RecordDemuxer::DemuxerCodedVideoMedia::setupMedia(
 			mDemuxer->Element::getName() + "$" + c->getName();
 		c->setPath(path);
 		(void)mDemuxer->fetchSessionMetadata(mTrackId, &c->sessionMeta);
-		c->playbackType = PDRAW_PLAYBACK_TYPE_REPLAY;
-		c->duration = mDemuxer->mDuration;
+		c->setPlaybackType(PDRAW_PLAYBACK_TYPE_REPLAY);
+		c->setDuration(mDemuxer->mDuration);
 	}
 	if (tkinfo->has_metadata && tkinfo->metadata_mime_format != nullptr)
 		mMetadataMimeType = std::string(tkinfo->metadata_mime_format);
@@ -491,12 +491,10 @@ int RecordDemuxer::DemuxerCodedVideoMedia::processSample(
 	uint64_t curTime = 0;
 	CodedVideoMedia::Frame data = {};
 	uint8_t *buf = nullptr;
-	uint8_t *tmp;
-	const uint8_t *sei = nullptr;
+	const uint8_t *tmp;
 	size_t bufSize = 0;
 	size_t offset;
 	uint32_t naluSize;
-	size_t seiSize = 0;
 
 	/* Get an output buffer */
 	if (mCurrentFrame != nullptr) {
@@ -530,11 +528,14 @@ int RecordDemuxer::DemuxerCodedVideoMedia::processSample(
 		goto exit;
 	}
 	requiredMedia = codedMedias[requiredMediaIndex];
-	ret = mbuf_mem_get_data(
-		mCurrentMem, reinterpret_cast<void **>(&buf), &bufSize);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
-		goto exit;
+	{
+		void *rawBuf = nullptr;
+		ret = mbuf_mem_get_data(mCurrentMem, &rawBuf, &bufSize);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
+			goto exit;
+		}
+		buf = static_cast<uint8_t *>(rawBuf);
 	}
 	mCurrentFrameCaptureTs = 0;
 
@@ -628,10 +629,23 @@ int RecordDemuxer::DemuxerCodedVideoMedia::processSample(
 					naluSize);
 				goto exit;
 			}
-			naluType = (enum h264_nalu_type)(*(tmp + 4) & 0x1F);
+			naluType =
+				extractNaluType<h264_nalu_type>(tmp[4], 0x1F);
 			if (naluType == H264_NALU_TYPE_SEI) {
-				sei = tmp + 4;
-				seiSize = naluSize;
+				/* Parse each SEI NALU as it is found: an
+				 * access unit may carry several (e.g. pic
+				 * timing, user data, recovery point), and
+				 * only the reader's callbacks distinguish
+				 * between them -- deferring to a single
+				 * parse call after the loop would only ever
+				 * see the last one, silently dropping any
+				 * earlier SEI in the same access unit. */
+				ret = h264_reader_parse_nalu(
+					mH264Reader, 0, tmp + 4, naluSize);
+				if (ret < 0) {
+					PDRAW_LOG_ERRNO(
+						"h264_reader_parse_nalu", -ret);
+				}
 			} else if (naluType == H264_NALU_TYPE_SLICE_IDR) {
 				frameInfo.type = VDEF_CODED_FRAME_TYPE_IDR;
 				sliceType = H264_SLICE_TYPE_I;
@@ -653,13 +667,6 @@ int RecordDemuxer::DemuxerCodedVideoMedia::processSample(
 			tmp += 4 + naluSize;
 			offset += 4 + naluSize;
 		}
-		if ((sei != nullptr) && (seiSize != 0)) {
-			ret = h264_reader_parse_nalu(
-				mH264Reader, 0, sei, seiSize);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("h264_reader_parse_nalu", -ret);
-			}
-		}
 		break;
 	case VDEF_ENCODING_H265:
 		/* Parse the H.265 bitstream to convert to byte stream, fill
@@ -677,12 +684,24 @@ int RecordDemuxer::DemuxerCodedVideoMedia::processSample(
 					naluSize);
 				goto exit;
 			}
-			naluType =
-				(enum h265_nalu_type)((*(tmp + 4) >> 1) & 0x3F);
+			naluType = extractNaluType<h265_nalu_type>(
+				tmp[4], 0x3F, 1);
 			if ((naluType == H265_NALU_TYPE_PREFIX_SEI_NUT) ||
 			    (naluType == H265_NALU_TYPE_SUFFIX_SEI_NUT)) {
-				sei = tmp + 4;
-				seiSize = naluSize;
+				/* Parse each SEI NALU as it is found: an
+				 * access unit may carry several (e.g. CLL,
+				 * MDCV, user data, pic timing, buffering
+				 * period), and only the reader's callbacks
+				 * distinguish between them -- deferring to a
+				 * single parse call after the loop would only
+				 * ever see the last one, silently dropping any
+				 * earlier SEI in the same access unit. */
+				ret = h265_reader_parse_nalu(
+					mH265Reader, 0, tmp + 4, naluSize);
+				if (ret < 0) {
+					PDRAW_LOG_ERRNO(
+						"h265_reader_parse_nalu", -ret);
+				}
 			} else if ((naluType == H265_NALU_TYPE_IDR_W_RADL) ||
 				   (naluType == H265_NALU_TYPE_IDR_N_LP)) {
 				frameInfo.type = VDEF_CODED_FRAME_TYPE_IDR;
@@ -701,13 +720,6 @@ int RecordDemuxer::DemuxerCodedVideoMedia::processSample(
 			}
 			tmp += 4 + naluSize;
 			offset += 4 + naluSize;
-		}
-		if ((sei != nullptr) && (seiSize != 0)) {
-			ret = h265_reader_parse_nalu(
-				mH265Reader, 0, sei, seiSize);
-			if (ret < 0) {
-				PDRAW_LOG_ERRNO("h265_reader_parse_nalu", -ret);
-			}
 		}
 		break;
 	default:
@@ -924,13 +936,12 @@ exit:
 
 
 void RecordDemuxer::DemuxerCodedVideoMedia::h264UserDataSeiCb(
-	struct h264_ctx *ctx,
+	[[maybe_unused]] struct h264_ctx *ctx,
 	const uint8_t *buf,
 	size_t len,
 	const struct h264_sei_user_data_unregistered *sei,
 	void *userdata)
 {
-	PDRAW_UNUSED(ctx);
 
 	int ret = 0;
 	auto *self = static_cast<DemuxerCodedVideoMedia *>(userdata);
@@ -960,13 +971,11 @@ void RecordDemuxer::DemuxerCodedVideoMedia::h264UserDataSeiCb(
 
 void RecordDemuxer::DemuxerCodedVideoMedia::h264PicTimingSeiCb(
 	struct h264_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
+	[[maybe_unused]] const uint8_t *buf,
+	[[maybe_unused]] size_t len,
 	const struct h264_sei_pic_timing *sei,
 	void *userdata)
 {
-	PDRAW_UNUSED(buf);
-	PDRAW_UNUSED(len);
 
 	auto *self = static_cast<DemuxerCodedVideoMedia *>(userdata);
 
@@ -984,15 +993,12 @@ void RecordDemuxer::DemuxerCodedVideoMedia::h264PicTimingSeiCb(
 
 
 void RecordDemuxer::DemuxerCodedVideoMedia::h265UserDataSeiCb(
-	struct h265_ctx *ctx,
+	[[maybe_unused]] struct h265_ctx *ctx,
 	const uint8_t *buf,
 	size_t len,
 	const struct h265_sei_user_data_unregistered *sei,
 	void *userdata)
 {
-	PDRAW_UNUSED(ctx);
-	PDRAW_UNUSED(buf);
-	PDRAW_UNUSED(len);
 
 	auto *self = static_cast<DemuxerCodedVideoMedia *>(userdata);
 	int ret = 0;
@@ -1018,13 +1024,11 @@ void RecordDemuxer::DemuxerCodedVideoMedia::h265UserDataSeiCb(
 
 void RecordDemuxer::DemuxerCodedVideoMedia::h265TimeCodeSeiCb(
 	struct h265_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
+	[[maybe_unused]] const uint8_t *buf,
+	[[maybe_unused]] size_t len,
 	const struct h265_sei_time_code *sei,
 	void *userdata)
 {
-	PDRAW_UNUSED(buf);
-	PDRAW_UNUSED(len);
 
 	auto *self = static_cast<DemuxerCodedVideoMedia *>(userdata);
 
@@ -1043,13 +1047,11 @@ void RecordDemuxer::DemuxerCodedVideoMedia::h265TimeCodeSeiCb(
 
 void RecordDemuxer::DemuxerCodedVideoMedia::h265MdcvSeiCb(
 	struct h265_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
+	[[maybe_unused]] const uint8_t *buf,
+	[[maybe_unused]] size_t len,
 	const struct h265_sei_mastering_display_colour_volume *sei,
 	void *userdata)
 {
-	PDRAW_UNUSED(buf);
-	PDRAW_UNUSED(len);
 
 	auto *self = static_cast<const DemuxerCodedVideoMedia *>(userdata);
 
@@ -1090,13 +1092,11 @@ void RecordDemuxer::DemuxerCodedVideoMedia::h265MdcvSeiCb(
 
 void RecordDemuxer::DemuxerCodedVideoMedia::h265CllSeiCb(
 	struct h265_ctx *ctx,
-	const uint8_t *buf,
-	size_t len,
+	[[maybe_unused]] const uint8_t *buf,
+	[[maybe_unused]] size_t len,
 	const struct h265_sei_content_light_level *sei,
 	void *userdata)
 {
-	PDRAW_UNUSED(buf);
-	PDRAW_UNUSED(len);
 
 	auto *self = static_cast<const DemuxerCodedVideoMedia *>(userdata);
 

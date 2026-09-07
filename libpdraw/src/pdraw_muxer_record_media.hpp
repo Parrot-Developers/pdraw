@@ -75,9 +75,9 @@ public:
 		mQueue = queue;
 	}
 
-	void *getQueue() const
+	mbuf::Queue *getQueue() const
 	{
-		return mQueue ? mQueue->getQueuePtr() : nullptr;
+		return mQueue;
 	}
 
 	static bool isVideo(Pdraw::Media::Type type)

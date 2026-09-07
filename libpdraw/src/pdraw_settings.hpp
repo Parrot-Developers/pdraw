@@ -53,10 +53,6 @@ public:
 
 	~Settings() = default;
 
-	void lock();
-
-	void unlock();
-
 	void getFriendlyName(std::string *friendlyName);
 
 	void setFriendlyName(const std::string &friendlyName);

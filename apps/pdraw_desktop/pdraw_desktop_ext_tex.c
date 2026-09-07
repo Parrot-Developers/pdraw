@@ -145,9 +145,7 @@ int pdraw_desktop_ext_tex_setup(struct pdraw_desktop *self)
 	}
 
 	glDeleteShader(v_shader);
-	v_shader = 0;
 	glDeleteShader(f_shader);
-	f_shader = 0;
 
 	self->ext_tex_yuv2rgb_matrix =
 		glGetUniformLocation(self->ext_tex_program, "yuv2rgb_mat");
@@ -208,14 +206,17 @@ int pdraw_desktop_ext_tex_cleanup(struct pdraw_desktop *self)
 }
 
 
-int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
-			       struct pdraw_backend *pdraw,
-			       struct pdraw_video_renderer *renderer,
+int pdraw_desktop_ext_tex_load(const struct pdraw_desktop *self,
+			       const struct pdraw_backend *pdraw,
+			       const struct pdraw_video_renderer *renderer,
 			       const struct pdraw_media_info *media_info,
 			       struct mbuf_raw_video_frame *frame,
 			       const void *frame_userdata,
 			       size_t frame_userdata_len)
 {
+	UNUSED(frame_userdata);
+	UNUSED(frame_userdata_len);
+
 	int ret;
 	unsigned int i;
 	unsigned int nplanes;

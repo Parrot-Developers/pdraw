@@ -140,7 +140,7 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	char **values = nullptr;
 	const char *formatStr = nullptr;
 	const char *resolutionStr = nullptr;
-	const char *dataInterpretationStr = nullptr;
+	[[maybe_unused]] const char *dataInterpretationStr = nullptr;
 	struct vdef_raw_format format = {};
 	struct vdef_format_info info = {};
 	bool unknownFormat = true;
@@ -178,7 +178,6 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 				  "com.parrot.regis.data_interpretation") ==
 			   0) {
 			dataInterpretationStr = values[i];
-			PDRAW_UNUSED(dataInterpretationStr);
 			/* TODO: this value should be added as a metadata of
 			 * the media */
 		}
@@ -258,7 +257,8 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	std::unique_ptr<RawVideoMedia> rawVideoMedia = nullptr;
 
 	try {
-		rawVideoMedia = make_unique<RawVideoMedia>(mDemuxer->mSession);
+		rawVideoMedia =
+			std::make_unique<RawVideoMedia>(mDemuxer->mSession);
 	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
 		mDemuxer->Source::unlock();
@@ -283,14 +283,12 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 	mRawVideoMedia->format = format;
 	mRawVideoMedia->info = info;
 
-	char *fmt = vdef_raw_format_to_str(&format);
-	PDRAW_LOGI("%dx%d @ %d/%d fps, format=%s",
+	PDRAW_LOGI("%dx%d @ %d/%d fps, format=" VDEF_RAW_FORMAT_TO_STR_FMT,
 		   info.resolution.width,
 		   info.resolution.height,
 		   info.framerate.num,
 		   info.framerate.den,
-		   fmt);
-	free(fmt);
+		   VDEF_RAW_FORMAT_TO_STR_ARG(&format));
 
 	std::string path =
 		mDemuxer->Element::getName() + "$" + mRawVideoMedia->getName();
@@ -299,8 +297,8 @@ int RecordDemuxer::DemuxerRawVideoMedia::setupMedia(
 					     &mRawVideoMedia->sessionMeta);
 	if (mRawVideoMedia->sessionMeta.first_frame_capture_ts != 0)
 		mFirstTs = mRawVideoMedia->sessionMeta.first_frame_capture_ts;
-	mRawVideoMedia->playbackType = PDRAW_PLAYBACK_TYPE_REPLAY;
-	mRawVideoMedia->duration = mDemuxer->mDuration;
+	mRawVideoMedia->setPlaybackType(PDRAW_PLAYBACK_TYPE_REPLAY);
+	mRawVideoMedia->setDuration(mDemuxer->mDuration);
 	if (tkinfo->has_metadata && tkinfo->metadata_mime_format != nullptr)
 		mMetadataMimeType = std::string(tkinfo->metadata_mime_format);
 
@@ -366,11 +364,14 @@ int RecordDemuxer::DemuxerRawVideoMedia::processSample(
 		*waitFlush = true;
 		goto exit;
 	}
-	ret = mbuf_mem_get_data(
-		mCurrentMem, reinterpret_cast<void **>(&buf), &bufSize);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
-		goto exit;
+	{
+		void *rawBuf = nullptr;
+		ret = mbuf_mem_get_data(mCurrentMem, &rawBuf, &bufSize);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
+			goto exit;
+		}
+		buf = static_cast<uint8_t *>(rawBuf);
 	}
 
 	/* Get a sample size */

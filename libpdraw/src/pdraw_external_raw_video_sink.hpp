@@ -81,7 +81,7 @@ public:
 
 	int addInputMedia(Media *media) override;
 
-	int removeInputMedia(Media *media) override;
+	int removeInputMedia(Media *media) final;
 
 private:
 	int flush(bool discard = true);
@@ -114,12 +114,16 @@ private:
 	int prepareRawVideoFrame(const RawVideoChannel *channel,
 				 struct mbuf_raw_video_frame *frame);
 
-	static void idleFlushDone(void *userdata);
+	void idleFlushDone();
 
 	/* Video sink listener calls from idle functions */
-	static void callVideoSinkFlush(void *userdata);
+	void callVideoSinkFlush();
 
-	static void idleRenewMedia(void *userdata);
+	void idleRenewMedia();
+
+	pomp::Loop::IdleHandlerFunc mFlushDoneHandler;
+	pomp::Loop::IdleHandlerFunc mCallVideoSinkFlushHandler;
+	pomp::Loop::IdleHandlerFunc mRenewMediaHandler;
 
 	IPdraw::IRawVideoSink *mVideoSink = nullptr;
 	IPdraw::IRawVideoSink::Listener *mVideoSinkListener = nullptr;
@@ -176,7 +180,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() || mSink == nullptr);
 	}

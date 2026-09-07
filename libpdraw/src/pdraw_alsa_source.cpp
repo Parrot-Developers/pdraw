@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_alsa_source
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <time.h>
 
 #include "pdraw_alsa_source.hpp"
 #include "pdraw_session.hpp"
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #ifdef PDRAW_USE_ALSA
 constexpr const char *PDRAW_ALSA_SOURCE_ANCILLARY_KEY_INPUT_TIME =
@@ -62,11 +63,16 @@ AlsaSource::AlsaSource(Session *session,
 			      wrapper,
 			      1,
 			      sourceListener),
-		mAlsaSource(wrapper), mAlsaSourceListener(listener)
+		mAlsaSource(wrapper), mAlsaSourceListener(listener),
+		mParams(*params)
 {
+	mTimerHandler.set([this] { onTimer(); });
+	mOnMediaAddedHandler.set([this] { callOnMediaAdded(); });
+	mPauseResponseHandler.set([this] { callPauseResponse(); });
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+
 	Element::setClassName(__func__);
 
-	mParams = *params;
 	if (params->address != nullptr) {
 		mAddress = params->address;
 		mParams.address = mAddress.c_str();
@@ -88,9 +94,9 @@ AlsaSource::~AlsaSource()
 	mAlsaSourceListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	if (mHandle != nullptr) {
 		err = snd_pcm_close(mHandle);
@@ -124,11 +130,13 @@ int AlsaSource::start()
 	}
 	setState(State::STARTING);
 
-	if (mTimer == nullptr) {
-		mTimer = pomp_timer_new(mSession->getLoop(), timerCb, this);
-		if (mTimer == nullptr) {
+	if (!mTimer) {
+		try {
+			mTimer = std::make_unique<pomp::Timer>(
+				mSession->getPompLoop(), &mTimerHandler);
+		} catch (const std::bad_alloc &) {
 			ret = -ENOMEM;
-			PDRAW_LOGE("pomp_timer_new failed");
+			PDRAW_LOGE("pomp::Timer allocation failed");
 			goto error;
 		}
 	}
@@ -347,44 +355,24 @@ void AlsaSource::completeStop()
 exit:
 	Source::unlock();
 
-	if (mTimer != nullptr) {
-		err = pomp_timer_clear(mTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(mTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		mTimer = nullptr;
-	}
+	mTimer.reset();
 
 	setState(State::STOPPED);
 }
 
 
-void AlsaSource::playResponse()
-{
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callPlayResponse, this, this);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
-}
-
-
 void AlsaSource::pauseResponse()
 {
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callPauseResponse, this, this);
+	int err =
+		mSession->getPompLoop()->idleAdd(&mPauseResponseHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
 void AlsaSource::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -412,10 +400,9 @@ void AlsaSource::onChannelUnlink(Channel *channel)
 }
 
 
-void AlsaSource::idleCompleteFlush(void *userdata)
+void AlsaSource::idleCompleteFlush()
 {
-	auto *self = static_cast<AlsaSource *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -434,10 +421,10 @@ int AlsaSource::flush(bool discard)
 		return -EALREADY;
 	case FlushingState::FLUSHED:
 		PDRAW_LOGD("alsa source is already flushed, nothing to do");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -517,28 +504,31 @@ void AlsaSource::completeFlush()
 
 	setFlushingState(FlushingState::FLUSHED);
 
-	if ((mState != State::STOPPING) && (!mOutputMediaChanging))
+	/* pause() may have been requested while a drain was in flight; fire
+	 * the response now that it's complete. */
+	if (mPausePending)
+		pauseResponse();
+
+	if (mState == State::STOPPING) {
+		tryStop();
+		return;
+	}
+
+	if (!mOutputMediaChanging)
 		return;
 
 	int pendingCount = teardownChannels();
 	if (pendingCount == 0) {
-		if (mState == State::STOPPING) {
-			completeStop();
-		} else if (mOutputMediaChanging) {
-			(void)destroyMedia();
-			mOutputMediaChanging = false;
-			(void)setupMedia();
-		}
+		(void)destroyMedia();
+		mOutputMediaChanging = false;
+		(void)setupMedia();
 	}
 }
 
 
 void AlsaSource::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -556,10 +546,7 @@ void AlsaSource::onChannelFlushed(Channel *channel)
 
 void AlsaSource::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -572,11 +559,6 @@ void AlsaSource::onChannelDrained(Channel *channel)
 		   channel->getOwner());
 
 	completeFlush();
-
-
-	if (mPausePending) {
-		pauseResponse();
-	}
 }
 
 
@@ -617,15 +599,14 @@ int AlsaSource::play()
 		return ret;
 	}
 
-	if (mTimer != nullptr) {
+	if (mTimer) {
 		uint32_t timerFreqMs =
 			(1000000 / mParams.audio.format.sample_rate *
 			 mParams.sample_count) /
 			1000;
-		int err = pomp_timer_set_periodic(
-			mTimer, timerFreqMs, timerFreqMs);
+		int err = mTimer->set(timerFreqMs, timerFreqMs);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+			PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 	}
 
 	mRunning = true;
@@ -648,10 +629,10 @@ int AlsaSource::pause()
 		return -EALREADY;
 
 	if (mReady && mRunning) {
-		if (mTimer != nullptr) {
-			int err = pomp_timer_clear(mTimer);
+		if (mTimer) {
+			int err = mTimer->clear();
 			if (err < 0)
-				PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+				PDRAW_LOG_ERRNO("pomp::Timer::clear", -err);
 		}
 
 		ret = snd_pcm_drop(mHandle);
@@ -664,14 +645,17 @@ int AlsaSource::pause()
 		mRunning = false;
 	}
 
+	/* Must be set before drain(): a synchronous completion would call
+	 * completeFlush() before the flag is set otherwise. */
+	mPausePending = true;
+
 	/* Drain */
 	ret = drain();
 	if (ret < 0 && ret != -EALREADY) {
 		PDRAW_LOG_ERRNO("drain", -ret);
+		mPausePending = false;
 		return ret;
 	}
-
-	mPausePending = true;
 
 	return 0;
 }
@@ -682,7 +666,7 @@ int AlsaSource::getCapabilities(const std::string &address,
 {
 	int ret;
 	unsigned int val;
-	snd_pcm_t *handle;
+	snd_pcm_t *handle = nullptr;
 	snd_pcm_hw_params_t *hwParams = nullptr;
 	struct pdraw_alsa_source_caps tmpCaps = {};
 
@@ -957,47 +941,28 @@ int AlsaSource::setupMedia()
 /**
  * Alsa source listener calls from idle functions
  */
-void AlsaSource::callOnMediaAdded(void *userdata)
+void AlsaSource::callOnMediaAdded()
 {
-	auto *self = static_cast<AlsaSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if (self->mOutputMedia == nullptr) {
+	if (mOutputMedia == nullptr) {
 		PDRAW_LOGW("%s: output media not found", __func__);
 		return;
 	}
 
-	if (self->Source::mListener) {
-		self->Source::mListener->onOutputMediaAdded(
-			self, self->mOutputMedia.get(), self->getAlsaSource());
+	if (Source::mListener) {
+		Source::mListener->onOutputMediaAdded(
+			this, mOutputMedia.get(), getAlsaSource());
 	}
 }
 
 
 /* Listener call from an idle function */
-void AlsaSource::callPlayResponse(void *userdata)
+void AlsaSource::callPauseResponse()
 {
-	auto *self = static_cast<AlsaSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	mPausePending = false;
 
-	if (self->mAlsaSourceListener != nullptr) {
-		self->mAlsaSourceListener->alsaSourcePlayResponse(
-			self->mSession, self->getAlsaSource());
-	}
-}
-
-
-/* Listener call from an idle function */
-void AlsaSource::callPauseResponse(void *userdata)
-{
-	auto *self = static_cast<AlsaSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	self->mPausePending = false;
-
-	if (self->mAlsaSourceListener != nullptr) {
-		self->mAlsaSourceListener->alsaSourcePauseResponse(
-			self->mSession, self->getAlsaSource());
+	if (mAlsaSourceListener != nullptr) {
+		mAlsaSourceListener->alsaSourcePauseResponse(mSession,
+							     getAlsaSource());
 	}
 }
 
@@ -1024,7 +989,7 @@ int AlsaSource::createMedia()
 	}
 
 	try {
-		mOutputMedia = make_unique<AudioMedia>(mSession);
+		mOutputMedia = std::make_unique<AudioMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -1051,10 +1016,10 @@ int AlsaSource::createMedia()
 		 * callstack as a direct call could ultimately be blocking
 		 * in a pdraw-backend application calling another pdraw-backend
 		 * function from the onMediaAdded listener function */
-		err = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), callOnMediaAdded, this, this);
+		err = mSession->getPompLoop()->idleAdd(&mOnMediaAddedHandler,
+						       this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	}
 
 	if (!mReady) {
@@ -1146,15 +1111,6 @@ int AlsaSource::teardownChannels()
 	Source::unlock();
 
 	return pendingCount;
-}
-
-
-const char *AlsaSource::getSourceName() const
-{
-	if (!mAddress.empty())
-		return mAddress.c_str();
-	else
-		return "<NULL>";
 }
 
 
@@ -1278,29 +1234,26 @@ unref:
 
 
 /* Called on the loop thread */
-void AlsaSource::timerCb(struct pomp_timer *timer, void *userdata)
+void AlsaSource::onTimer()
 {
-	PDRAW_UNUSED(timer);
-
 	int err;
-	auto *self = static_cast<AlsaSource *>(userdata);
 
-	if (self->mState != State::STARTED) {
+	if (mState != State::STARTED) {
 		PDRAW_LOGE("%s: invalid state (%s)",
 			   __func__,
-			   Element::getElementStateStr(self->mState));
+			   Element::getElementStateStr(mState));
 		return;
 	}
-	if (!self->mReady) {
+	if (!mReady) {
 		PDRAW_LOGE("%s: timer called while not ready", __func__);
 		return;
 	}
-	if (!self->mRunning) {
+	if (!mRunning) {
 		PDRAW_LOGE("%s: timer called while not running", __func__);
 		return;
 	}
 
-	while ((err = self->readFrame()) != -EAGAIN) {
+	while ((err = readFrame()) != -EAGAIN) {
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("readFrame", -err);
 			goto unrecoverable_error;
@@ -1310,19 +1263,19 @@ void AlsaSource::timerCb(struct pomp_timer *timer, void *userdata)
 	return;
 
 unrecoverable_error:
-	self->mReady = false;
+	mReady = false;
 
-	if (self->mTimer != nullptr) {
-		err = pomp_timer_clear(self->mTimer);
+	if (mTimer) {
+		err = mTimer->clear();
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+			PDRAW_LOG_ERRNO("pomp::Timer::clear", -err);
 	}
 
-	if (self->mAlsaSourceListener != nullptr) {
-		self->mAlsaSourceListener->alsaSourceReadyToPlay(
-			self->mSession,
-			self->getAlsaSource(),
-			self->mReady,
+	if (mAlsaSourceListener != nullptr) {
+		mAlsaSourceListener->alsaSourceReadyToPlay(
+			mSession,
+			getAlsaSource(),
+			mReady,
 			PDRAW_ALSA_SOURCE_EOS_REASON_UNRECOVERABLE_ERROR);
 	}
 }
@@ -1331,9 +1284,9 @@ unrecoverable_error:
 
 
 AlsaSourceWrapper::AlsaSourceWrapper(
-	Session *session,
-	const struct pdraw_alsa_source_params *params,
-	IPdraw::IAlsaSource::Listener *listener)
+	[[maybe_unused]] Session *session,
+	[[maybe_unused]] const struct pdraw_alsa_source_params *params,
+	[[maybe_unused]] IPdraw::IAlsaSource::Listener *listener)
 #ifdef PDRAW_USE_ALSA
 		:
 		ElementWrapper(new Pdraw::AlsaSource(session,
@@ -1349,10 +1302,6 @@ AlsaSourceWrapper::AlsaSourceWrapper(
 #endif
 {
 #ifndef PDRAW_USE_ALSA
-	PDRAW_UNUSED(session);
-	PDRAW_UNUSED(params);
-	PDRAW_UNUSED(listener);
-
 	ULOGE("no ALSA source implementation found");
 #endif
 }

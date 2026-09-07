@@ -37,7 +37,12 @@
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <pdraw/pdraw.hpp>
 
+#include <memory>
+#include <mutex>
 #include <queue>
+#include <unordered_map>
+
+struct mux_ctx;
 
 namespace Pdraw {
 
@@ -72,7 +77,7 @@ public:
 	int removeInputMedia(Media *media) override;
 
 	/* Must be called on the loop thread */
-	int removeInputMedias() override;
+	int removeInputMedias() final;
 
 	IPdraw::IMuxer *getMuxer() const
 	{
@@ -97,11 +102,10 @@ public:
 	virtual int addChapter(uint64_t timestamp, const char *name);
 
 	/* Must be called on the loop thread */
-	virtual int setFileMetadata(enum pdraw_muxer_metadata_type type,
-				    const uint8_t *data,
-				    size_t size,
-				    const void *params,
-				    size_t paramsSize);
+	virtual int
+	setFileMetadata(const struct pdraw_muxer_metadata_params *params,
+			const uint8_t *data,
+			size_t size);
 
 	/* Must be called on the loop thread */
 	virtual int getStats(struct pdraw_muxer_stats *stats);
@@ -122,7 +126,8 @@ protected:
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
-	static int createInputQueue(Media::Type type, mbuf::Queue **queue);
+	static int createInputQueue(Media::Type type,
+				    std::unique_ptr<mbuf::Queue> &queue);
 
 	/* Can be called from any thread */
 	void onChannelFlush(Channel *channel) override;
@@ -135,9 +140,7 @@ protected:
 
 	int asyncCompleteStop();
 
-	static void idleCompleteFlush(void *userdata);
-
-	static void idleCompleteStop(void *userdata);
+	void idleCompleteStop();
 
 	int completeStop();
 
@@ -149,6 +152,7 @@ protected:
 
 	void onUnrecoverableError(int error);
 
+	std::unordered_map<Media *, std::unique_ptr<mbuf::Queue>> mInputQueues;
 	IPdraw::IMuxer *mMuxer = nullptr;
 	IPdraw::IMuxer::Listener *mMuxerListener = nullptr;
 	struct pdraw_muxer_params mParams {
@@ -157,6 +161,8 @@ protected:
 	std::atomic_bool mReadyToStop{false};
 	std::atomic_bool mAsyncFlush{false};
 	std::atomic_bool mUnrecoverableError{false};
+	std::atomic_int mUnrecoverableErrorStatus{};
+	pomp::Loop::IdleHandlerFunc mCompleteStopHandler;
 
 private:
 	void completeFlush(const Channel *channel, bool discard);
@@ -164,18 +170,29 @@ private:
 	std::atomic_bool mFlushing{false};
 	bool mClosing = false;
 
+	void callCompleteFlush();
+
 	/* Muxer listener calls from idle functions */
-	static void callOnConnectionStateChanged(void *userdata);
+	void callOnConnectionStateChanged();
+	void callCloseResponse();
+	void callOnUnrecoverableError();
+
+	struct completeFlushArgs {
+		Channel *channel;
+		bool discard;
+	};
+	std::mutex mCompleteFlushMutex;
+	std::queue<completeFlushArgs> mCompleteFlushArgs;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
 	std::queue<enum pdraw_muxer_connection_state>
 		mConnectionStateChangedStateArgs;
 	std::queue<enum pdraw_muxer_disconnection_reason>
 		mConnectionStateChangedReasonArgs;
-	static void callOnMediaSaved(void *userdata);
-	std::queue<std::string> mMediaSavedPathArgs;
-	static void callCloseResponse(void *userdata);
 	std::queue<int> mCloseRespStatusArgs;
-	static void callOnUnrecoverableError(void *userdata);
 	std::queue<int> mUnrecoverableErrorStatusArgs;
+	pomp::Loop::IdleHandlerFunc mOnConnectionStateChangedHandler;
+	pomp::Loop::IdleHandlerFunc mCloseResponseHandler;
+	pomp::Loop::IdleHandlerFunc mOnUnrecoverableErrorHandler;
 };
 
 
@@ -183,8 +200,24 @@ class MuxerWrapper : public IPdraw::IMuxer, public ElementWrapper {
 public:
 	MuxerWrapper(Session *session,
 		     const std::string &url,
+		     struct mux_ctx *mux,
+		     const std::string &remoteHost,
 		     const struct pdraw_muxer_params *params,
 		     IPdraw::IMuxer::Listener *listener);
+
+	/* Convenience overload for callers that have no mux context */
+	MuxerWrapper(Session *session,
+		     const std::string &url,
+		     const struct pdraw_muxer_params *params,
+		     IPdraw::IMuxer::Listener *listener) :
+			MuxerWrapper(session,
+				     url,
+				     nullptr,
+				     {},
+				     params,
+				     listener)
+	{
+	}
 
 	~MuxerWrapper() override;
 
@@ -197,11 +230,9 @@ public:
 
 	int addChapter(uint64_t timestamp, const char *name) override;
 
-	int setFileMetadata(enum pdraw_muxer_metadata_type type,
+	int setFileMetadata(const struct pdraw_muxer_metadata_params *params,
 			    const uint8_t *data,
-			    size_t size,
-			    const void *params = nullptr,
-			    size_t paramsSize = 0) override;
+			    size_t size) override;
 
 	int getStats(struct pdraw_muxer_stats *stats) override;
 
@@ -226,7 +257,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mMuxer == nullptr);

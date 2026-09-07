@@ -957,18 +957,16 @@ public:
 		 * Set binary file-level metadata for the muxer.
 		 * This function is available on record muxers (e.g. DNG) that
 		 * support specific binary metadata (e.g. LSC).
-		 * @param type: type of the metadata
+		 * @param params: metadata parameters (type + type-specific
+		 * fields)
 		 * @param data: pointer to the metadata buffer
 		 * @param size: size of the metadata buffer in bytes
-		 * @param params: optional parameters depending on the type
-		 * @param paramsSize: size of the parameters structure
 		 * @return 0 on success, negative errno value in case of error
 		 */
-		virtual int setFileMetadata(enum pdraw_muxer_metadata_type type,
-					    const uint8_t *data,
-					    size_t size,
-					    const void *params = nullptr,
-					    size_t paramsSize = 0) = 0;
+		virtual int setFileMetadata(
+			const struct pdraw_muxer_metadata_params *params,
+			const uint8_t *data,
+			size_t size) = 0;
 
 		/**
 		 * Get statistics about the muxer.
@@ -1032,6 +1030,31 @@ public:
 	 * @return 0 on success, negative errno value in case of error
 	 */
 	virtual int createMuxer(const std::string &url,
+				const struct pdraw_muxer_params *params,
+				IPdraw::IMuxer::Listener *listener,
+				IPdraw::IMuxer **retObj) = 0;
+
+	/**
+	 * Create a muxer on a mux channel.
+	 * Identical to createMuxer() but tunnels the RTSP stream over a mux
+	 * connection (SkyController link) instead of a direct network socket.
+	 * Only supported for RTSP URLs (rtsp://). The mux_ctx handle must
+	 * remain valid for the lifetime of the muxer.
+	 * @param url: destination RTSP URL (rtsp://); for the mux transport
+	 * this is expected to be the loopback URL of the TCP control-channel
+	 * tunnel, NOT the real destination
+	 * @param mux: mux instance handle
+	 * @param remoteHost: real destination host (hostname or IP, no
+	 * scheme/port/credentials) that the UDP RTP/RTCP mux_ip_proxy
+	 * instances must relay to; mandatory (must not be empty)
+	 * @param params: muxer parameters
+	 * @param listener: muxer listener functions implementation
+	 * @param retObj: muxer object pointer (output)
+	 * @return 0 on success, negative errno value in case of error
+	 */
+	virtual int createMuxer(const std::string &url,
+				struct mux_ctx *mux,
+				const std::string &remoteHost,
 				const struct pdraw_muxer_params *params,
 				IPdraw::IMuxer::Listener *listener,
 				IPdraw::IMuxer **retObj) = 0;

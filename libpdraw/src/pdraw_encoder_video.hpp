@@ -33,6 +33,7 @@
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
+#include <memory>
 
 #include <mutex>
 #include <string>
@@ -44,6 +45,8 @@
 #include <video-encode/venc.h>
 
 namespace Pdraw {
+
+DECLARE_UNIQUE_C_PTR(struct venc_config, VencConfig, venc_config_free);
 
 class VideoEncoderWrapper;
 
@@ -124,7 +127,7 @@ private:
 	static void framePreReleaseCb(struct mbuf_coded_video_frame *frame,
 				      void *userdata);
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	IPdraw::IVideoEncoder *mEncoder = nullptr;
 	IPdraw::IVideoEncoder::Listener *mEncoderListener = nullptr;
@@ -133,7 +136,7 @@ private:
 	std::unique_ptr<CodedVideoMedia> mOutputMedia{};
 	struct mbuf_pool *mInputBufferPool = nullptr;
 	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
-	struct venc_config *mEncoderConfig = nullptr;
+	VencConfigPtr mEncoderConfig;
 	std::string mEncoderName{};
 	std::string mEncoderDevice{};
 	struct venc_encoder *mVenc = nullptr;
@@ -141,6 +144,8 @@ private:
 	bool mOutputChannelDrainRequired = false;
 	bool mVencFlushPending = false;
 	bool mVencStopPending = false;
+	bool mVencStopIssued = false;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
 	static const struct venc_cbs mEncoderCbs;
 };
 
@@ -177,7 +182,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mEncoder == nullptr);

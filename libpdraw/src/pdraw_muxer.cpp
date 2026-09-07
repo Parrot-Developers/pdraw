@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_muxer
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer.hpp"
 #include "pdraw_muxer_record_dng.hpp"
@@ -39,6 +38,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include "pdraw_muxer_record_png.hpp"
 #include "pdraw_muxer_stream_rtmp.hpp"
 #include "pdraw_muxer_stream_rtsp.hpp"
+#include "pdraw_muxer_stream_rtsp_mux.hpp"
+#include "pdraw_muxer_stream_rtsp_net.hpp"
 #include "pdraw_session.hpp"
 
 #include <time.h>
@@ -46,7 +47,28 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <h264/h264.h>
 #include <h265/h265.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
+
+
+template <typename F> static void doRemoveInputMedias(Muxer *self, F fn)
+{
+	/* Note: loop downwards because calling removeInputMedia removes
+	 * input ports and decreases the media count */
+	self->Sink::lock();
+	for (int i = (int)self->getInputMediaCount() - 1; i >= 0; i--) {
+		Media *media = self->getInputMedia(i);
+		if (media == nullptr) {
+			PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
+			continue;
+		}
+		int err = fn(media);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("removeInputMedia", -err);
+	}
+	self->Sink::unlock();
+}
 
 
 Muxer::Muxer(Session *session,
@@ -68,6 +90,14 @@ Muxer::Muxer(Session *session,
 {
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { callCompleteFlush(); });
+	mCompleteStopHandler.set([this] { idleCompleteStop(); });
+	mCloseResponseHandler.set([this] { callCloseResponse(); });
+	mOnConnectionStateChangedHandler.set(
+		[this] { callOnConnectionStateChanged(); });
+	mOnUnrecoverableErrorHandler.set(
+		[this] { callOnUnrecoverableError(); });
+
 	setState(State::CREATED);
 }
 
@@ -79,9 +109,9 @@ Muxer::~Muxer()
 	/* Make sure listener functions will no longer be called */
 	mMuxerListener = nullptr;
 
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	if ((mState == State::STARTED) || (mState == State::STARTING))
 		PDRAW_LOGW("%s: still running (%s)",
@@ -92,7 +122,11 @@ Muxer::~Muxer()
 	if (count > 0) {
 		PDRAW_LOGW("%s: not all input media have been removed",
 			   __func__);
-		(void)removeInputMedias();
+		/* Explicit non-virtual call: derived class is already destroyed
+		 */
+		doRemoveInputMedias(this, [this](Media *m) {
+			return Muxer::removeInputMedia(m);
+		});
 	}
 }
 
@@ -250,38 +284,34 @@ void Muxer::completeFlush(const Channel *channel, bool discard)
 }
 
 
-struct asyncCompleteFlushParams {
-	Muxer *muxer;
-	Channel *channel;
-	bool discard;
-};
-
-
 int Muxer::asyncCompleteFlush(Channel *channel, bool discard)
 {
-	int ret;
-	struct asyncCompleteFlushParams *params = nullptr;
-
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(channel == nullptr, EINVAL);
 
-	params = static_cast<struct asyncCompleteFlushParams *>(
-		calloc(1, sizeof(*params)));
-	if (params == nullptr) {
-		ret = -ENOMEM;
-		PDRAW_LOG_ERRNO("calloc", -ret);
-		return ret;
+	{
+		std::scoped_lock lock(mCompleteFlushMutex);
+		mCompleteFlushArgs.push({channel, discard});
 	}
-	params->muxer = this;
-	params->channel = channel;
-	params->discard = discard;
 
-	ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleCompleteFlush, params, this);
+	int ret =
+		mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler, this);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 		return ret;
 	}
 	return 0;
+}
+
+
+void Muxer::callCompleteFlush()
+{
+	completeFlushArgs args;
+	{
+		std::scoped_lock lock(mCompleteFlushMutex);
+		args = mCompleteFlushArgs.front();
+		mCompleteFlushArgs.pop();
+	}
+	completeFlush(args.channel, args.discard);
 }
 
 
@@ -289,44 +319,23 @@ int Muxer::asyncCompleteStop()
 {
 	int ret;
 
-	ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleCompleteStop, this, this);
+	ret = mSession->getPompLoop()->idleAdd(&mCompleteStopHandler, this);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 		return ret;
 	}
 	return 0;
 }
 
 
-void Muxer::idleCompleteFlush(void *userdata)
+void Muxer::idleCompleteStop()
 {
-	Muxer *self = nullptr;
-	struct asyncCompleteFlushParams *params = nullptr;
-
-	params = static_cast<struct asyncCompleteFlushParams *>(userdata);
-	ULOG_ERRNO_RETURN_IF(params == nullptr, EPROTO);
-
-	self = params->muxer;
-	PDRAW_LOG_ERRNO_RETURN_IF(params->muxer == nullptr, EPROTO);
-	PDRAW_LOG_ERRNO_RETURN_IF(params->channel == nullptr, EPROTO);
-
-	params->muxer->completeFlush(params->channel, params->discard);
-
-	free(params);
+	completeStop();
 }
 
 
-void Muxer::idleCompleteStop(void *userdata)
-{
-	auto *self = static_cast<Muxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EPROTO);
-
-	self->completeStop();
-}
-
-
-int Muxer::createInputQueue(Media::Type type, mbuf::Queue **queue)
+int Muxer::createInputQueue(Media::Type type,
+			    std::unique_ptr<mbuf::Queue> &queue)
 {
 	mbuf::Queue::Type qtype;
 	switch (type) {
@@ -344,8 +353,7 @@ int Muxer::createInputQueue(Media::Type type, mbuf::Queue **queue)
 	}
 
 	try {
-		auto q = mbuf::Queue::create(qtype);
-		*queue = q.release();
+		queue = mbuf::Queue::create(qtype);
 	} catch (const std::bad_alloc &) {
 		ULOGE("queue allocation failed");
 		return -ENOMEM;
@@ -359,7 +367,7 @@ int Muxer::addInputMedia(Media *media,
 			 const struct pdraw_muxer_media_params *params)
 {
 	int res;
-	mbuf::Queue *queue = nullptr;
+	std::unique_ptr<mbuf::Queue> queue;
 
 	Sink::lock();
 
@@ -378,16 +386,18 @@ int Muxer::addInputMedia(Media *media,
 			goto error_remove;
 		}
 
-		res = createInputQueue(media->type, &queue);
+		res = createInputQueue(media->getType(), queue);
 		if (res < 0) {
 			PDRAW_LOG_ERRNO("createInputQueue", -res);
 			goto error_remove;
 		}
 
-		channel->setQueue(this, queue);
+		channel->setQueue(this, queue.get());
+		mInputQueues[media] = std::move(queue);
 	}
 
-	res = queue->attachToLoop(mSession->getLoop(), &queueEventCb, this);
+	res = mInputQueues[media]->attachToLoop(
+		mSession->getLoop(), &queueEventCb, this);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("queue::attachToLoop", -res);
 		goto error_remove;
@@ -411,7 +421,7 @@ int Muxer::removeInputMedia(Media *media)
 
 	Sink::lock();
 
-	Channel *channel = getInputChannel(media);
+	const Channel *channel = getInputChannel(media);
 	if (!channel) {
 		Sink::unlock();
 		res = -ENODEV;
@@ -419,20 +429,18 @@ int Muxer::removeInputMedia(Media *media)
 		return res;
 	}
 
-	mbuf::Queue *queue = channel->getQueue(this);
-
 	res = Sink::removeInputMedia(media);
 	if (res < 0) {
 		Sink::unlock();
 		PDRAW_LOG_ERRNO("Sink::removeInputMedia", -res);
 		return res;
 	}
-	media = nullptr;
 
-	if (queue != nullptr) {
-		queue->detachFromLoop(mSession->getLoop());
-		queue->flush();
-		delete queue;
+	auto it = mInputQueues.find(media);
+	if (it != mInputQueues.end()) {
+		it->second->detachFromLoop(mSession->getLoop());
+		it->second->flush();
+		mInputQueues.erase(it);
 	}
 
 	Sink::unlock();
@@ -442,35 +450,15 @@ int Muxer::removeInputMedia(Media *media)
 
 int Muxer::removeInputMedias()
 {
-	int inputMediaCount;
-
-	Sink::lock();
-
-	inputMediaCount = getInputMediaCount();
-
-	/* Note: loop downwards because calling removeInputMedia removes
-	 * input ports and decreases the media count */
-	for (int i = inputMediaCount - 1; i >= 0; i--) {
-		Media *media = getInputMedia(i);
-		if (media == nullptr) {
-			PDRAW_LOG_ERRNO("getInputMedia", ENOENT);
-			continue;
-		}
-		int err = removeInputMedia(media);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("removeInputMedia", -err);
-	}
-
-	Sink::unlock();
-
+	doRemoveInputMedias(this,
+			    [this](Media *m) { return removeInputMedia(m); });
 	return 0;
 }
 
 
 /* Called on the loop thread */
-void Muxer::queueEventCb(struct pomp_evt *evt, void *userdata)
+void Muxer::queueEventCb([[maybe_unused]] struct pomp_evt *evt, void *userdata)
 {
-	PDRAW_UNUSED(evt);
 
 	auto *self = static_cast<Muxer *>(userdata);
 
@@ -616,11 +604,9 @@ int Muxer::addChapter(uint64_t timestamp, const char *name)
 }
 
 
-int Muxer::setFileMetadata(enum pdraw_muxer_metadata_type type,
+int Muxer::setFileMetadata(const struct pdraw_muxer_metadata_params *params,
 			   const uint8_t *data,
-			   size_t size,
-			   const void *params,
-			   size_t paramsSize)
+			   size_t size)
 {
 	return -ENOSYS;
 }
@@ -652,11 +638,17 @@ int Muxer::forceSync()
 
 void Muxer::closeResponse(int status)
 {
-	mCloseRespStatusArgs.push(status);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callCloseResponse, this, this);
+	try {
+		mCloseRespStatusArgs.push(status);
+	} catch (const std::bad_alloc &e) {
+		PDRAW_LOGE("%s: failed to push status: %s", __func__, e.what());
+		return;
+	}
+
+	int err =
+		mSession->getPompLoop()->idleAdd(&mCloseResponseHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -667,10 +659,10 @@ void Muxer::onConnectionStateChanged(
 	mConnectionStateChangedStateArgs.push(state);
 	mConnectionStateChangedReasonArgs.push(reason);
 
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callOnConnectionStateChanged, this, this);
+	int err = mSession->getPompLoop()->idleAdd(
+		&mOnConnectionStateChangedHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -684,75 +676,68 @@ void Muxer::onUnrecoverableError(int error)
 		return;
 
 	mUnrecoverableErrorStatusArgs.push(error);
+	mUnrecoverableErrorStatus = error;
 
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callOnUnrecoverableError, this, this);
+	int err = mSession->getPompLoop()->idleAdd(
+		&mOnUnrecoverableErrorHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
 /* Listener call from an idle function */
-void Muxer::callCloseResponse(void *userdata)
+void Muxer::callCloseResponse()
 {
-	auto *self = static_cast<Muxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int status = mCloseRespStatusArgs.front();
+	mCloseRespStatusArgs.pop();
 
-	int status = self->mCloseRespStatusArgs.front();
-	self->mCloseRespStatusArgs.pop();
-
-	if (self->mMuxerListener == nullptr)
+	if (mMuxerListener == nullptr)
 		return;
 
-	self->mMuxerListener->muxerCloseResponse(
-		self->mSession, self->mMuxer, status);
+	mMuxerListener->muxerCloseResponse(mSession, mMuxer, status);
 }
 
 
 /* Listener call from an idle function */
-void Muxer::callOnConnectionStateChanged(void *userdata)
+void Muxer::callOnConnectionStateChanged()
 {
-	auto *self = static_cast<Muxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
 	enum pdraw_muxer_connection_state state =
-		self->mConnectionStateChangedStateArgs.front();
-	self->mConnectionStateChangedStateArgs.pop();
+		mConnectionStateChangedStateArgs.front();
+	mConnectionStateChangedStateArgs.pop();
 	enum pdraw_muxer_disconnection_reason reason =
-		self->mConnectionStateChangedReasonArgs.front();
-	self->mConnectionStateChangedReasonArgs.pop();
+		mConnectionStateChangedReasonArgs.front();
+	mConnectionStateChangedReasonArgs.pop();
 
-	if (self->mMuxerListener == nullptr)
+	if (mMuxerListener == nullptr)
 		return;
 
-	self->mMuxerListener->onMuxerConnectionStateChanged(
-		self->mSession, self->mMuxer, state, reason);
+	mMuxerListener->onMuxerConnectionStateChanged(
+		mSession, mMuxer, state, reason);
 }
 
 
 /* Listener call from an idle function */
-void Muxer::callOnUnrecoverableError(void *userdata)
+void Muxer::callOnUnrecoverableError()
 {
-	auto *self = static_cast<Muxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int status = mUnrecoverableErrorStatusArgs.front();
+	mUnrecoverableErrorStatusArgs.pop();
 
-	int status = self->mUnrecoverableErrorStatusArgs.front();
-	self->mUnrecoverableErrorStatusArgs.pop();
-
-	if (self->mMuxerListener == nullptr)
+	if (mMuxerListener == nullptr)
 		return;
 
-	self->mMuxerListener->onMuxerUnrecoverableError(
-		self->mSession, self->mMuxer, status);
+	mMuxerListener->onMuxerUnrecoverableError(mSession, mMuxer, status);
 }
 
 
 MuxerWrapper::MuxerWrapper(Session *session,
 			   const std::string &url,
+			   struct mux_ctx *mux,
+			   [[maybe_unused]] const std::string &remoteHost,
 			   const struct pdraw_muxer_params *params,
 			   IPdraw::IMuxer::Listener *listener)
 {
 	std::string ext;
+	std::unique_ptr<Muxer> impl;
 
 	if (url.length() < 4) {
 		ULOGE("%s: invalid URL length", __func__);
@@ -761,40 +746,67 @@ MuxerWrapper::MuxerWrapper(Session *session,
 	ext = url.substr(url.length() - 4, 4);
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-	if ((url.substr(0, 7) == "rtmp://") ||
-	    (url.substr(0, 8) == "rtmps://")) {
+	try {
+		if ((mux != nullptr) && ((url.substr(0, 7) == "rtsp://") ||
+					 (url.substr(0, 8) == "rtsps://"))) {
+#ifdef BUILD_LIBMUX
+			impl = std::make_unique<RtspStreamMuxerMux>(session,
+								    session,
+								    listener,
+								    this,
+								    url,
+								    mux,
+								    remoteHost,
+								    params);
+#else /* BUILD_LIBMUX */
+			ULOGE("%s: libmux is not supported", __func__);
+#endif /* BUILD_LIBMUX */
+		} else if ((url.substr(0, 7) == "rtmp://") ||
+			   (url.substr(0, 8) == "rtmps://")) {
 #ifdef BUILD_LIBRTMP
-		mElement = mMuxer = new Pdraw::RtmpStreamMuxer(
-			session, session, listener, this, url, params);
+			impl = std::make_unique<RtmpStreamMuxer>(
+				session, session, listener, this, url, params);
 #else
-		ULOGE("%s: librtmp is not supported", __func__);
+			ULOGE("%s: librtmp is not supported", __func__);
 #endif
-	} else if ((url.substr(0, 7) == "rtsp://") ||
-		   (url.substr(0, 8) == "rtsps://")) {
-		mElement = mMuxer = new Pdraw::RtspStreamMuxer(
-			session, session, listener, this, url, params);
-	} else if (ext == ".mp4" || ext == ".tmp") {
-		mElement = mMuxer = new Pdraw::IsobmffRecordMuxer(
-			session, session, listener, this, url, params);
-	} else if (ext == ".jpg" || ext == ".tpg") {
+		} else if ((url.substr(0, 7) == "rtsp://") ||
+			   (url.substr(0, 8) == "rtsps://")) {
+			impl = std::make_unique<RtspStreamMuxerNet>(
+				session, session, listener, this, url, params);
+		} else if (ext == ".mp4" || ext == ".m4a" || ext == ".tmp") {
+			impl = std::make_unique<IsobmffRecordMuxer>(
+				session, session, listener, this, url, params);
+		} else if (ext == ".jpg" || ext == ".tpg") {
 #ifdef BUILD_LIBJFIF
-		mElement = mMuxer = new Pdraw::JfifRecordMuxer(
-			session, session, listener, this, url, params);
+			impl = std::make_unique<JfifRecordMuxer>(
+				session, session, listener, this, url, params);
 #else
-		ULOGE("%s: libjfif is not supported", __func__);
+			ULOGE("%s: libjfif is not supported", __func__);
 #endif
-	} else if (ext == ".dng" || ext == ".tdn") {
+		} else if (ext == ".dng" || ext == ".tdn") {
 #ifdef BUILD_LIBDNG_PARROT
-		mElement = mMuxer = new Pdraw::DngRecordMuxer(
-			session, session, listener, this, url, params);
+			impl = std::make_unique<DngRecordMuxer>(
+				session, session, listener, this, url, params);
 #else
-		ULOGE("%s: libdng-parrot is not supported", __func__);
+			ULOGE("%s: libdng-parrot is not supported", __func__);
 #endif
-	} else if (ext == ".png" || ext == ".tpn") {
-		mElement = mMuxer = new Pdraw::PngRecordMuxer(
-			session, session, listener, this, url, params);
-	} else {
-		ULOGE("%s: unsupported URL ('%s')", __func__, url.c_str());
+		} else if (ext == ".png" || ext == ".tpn") {
+			impl = std::make_unique<PngRecordMuxer>(
+				session, session, listener, this, url, params);
+		} else {
+			ULOGE("%s: unsupported URL ('%s')",
+			      __func__,
+			      url.c_str());
+		}
+	} catch (const std::bad_alloc &) {
+		ULOGE("%s: failed to allocate muxer", __func__);
+	}
+
+	/* Ownership is transferred to Session::mElements immediately after
+	 * construction via unique_ptr<Element>(wrapper->getElement()) */
+	if (impl) {
+		mMuxer = impl.get();
+		mElement = impl.release();
 	}
 }
 
@@ -811,9 +823,13 @@ MuxerWrapper::~MuxerWrapper()
 	if (mElementStopped)
 		return;
 
-	int res = mMuxer->stop();
-	if (res < 0)
-		ULOG_ERRNO("Muxer::stop", -res);
+	try {
+		int res = mMuxer->stop();
+		if (res < 0)
+			ULOG_ERRNO("Muxer::stop", -res);
+	} catch (const std::exception &e) {
+		ULOGW("~MuxerWrapper: exception caught in stop: %s", e.what());
+	}
 	mElementStopped = true;
 }
 
@@ -858,15 +874,14 @@ int MuxerWrapper::addChapter(uint64_t timestamp, const char *name)
 }
 
 
-int MuxerWrapper::setFileMetadata(enum pdraw_muxer_metadata_type type,
-				  const uint8_t *data,
-				  size_t size,
-				  const void *params,
-				  size_t paramsSize)
+int MuxerWrapper::setFileMetadata(
+	const struct pdraw_muxer_metadata_params *params,
+	const uint8_t *data,
+	size_t size)
 {
 	if (isElementStopped())
 		return -EPROTO;
-	return mMuxer->setFileMetadata(type, data, size, params, paramsSize);
+	return mMuxer->setFileMetadata(params, data, size);
 }
 
 

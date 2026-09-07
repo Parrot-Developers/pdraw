@@ -30,13 +30,13 @@
 
 #define ULOG_TAG pdraw_recmux
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record.hpp"
 #include "pdraw_muxer_record_media.hpp"
 #include "pdraw_session.hpp"
 
 #include <array>
+#include <system_error>
 #include <time.h>
 
 #ifdef _WIN32
@@ -47,6 +47,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #endif /* !_WIN32 */
 
 #include <futils/futils.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #if defined(__APPLE__)
 #	include <TargetConditionals.h>
@@ -99,7 +101,7 @@ RecordMuxer::RecordMuxer(Session *session,
 	Element::setClassName(__func__);
 
 	try {
-		mThread.evt = make_unique<pomp::Event>();
+		mThread.evt = std::make_unique<pomp::Event>();
 	} catch (const std::bad_alloc &e) {
 		PDRAW_LOGE("allocation failed: %s", e.what());
 	}
@@ -115,6 +117,7 @@ RecordMuxer::RecordMuxer(Session *session,
 	mStats.type = PDRAW_MUXER_TYPE_RECORD;
 
 	mThread.evtHandler.set([this] { processTasks(); });
+	mCallCompleteStopHandler.set([this] { callCompleteStop(); });
 }
 
 
@@ -122,25 +125,31 @@ RecordMuxer::~RecordMuxer()
 {
 	int err;
 
-	err = internalStop();
-	if (err < 0)
-		PDRAW_LOG_ERRNO("internalStop", -err);
+	try {
+		err = internalStop();
+		if (err < 0)
+			PDRAW_LOG_ERRNO("internalStop", -err);
+	} catch (const std::exception &e) {
+		PDRAW_LOGW("%s: exception caught in internalStop: %s",
+			   __func__,
+			   e.what());
+	}
 
 	if (isThreadAlive()) {
 		mThread.shouldStop = true;
 		if (isThreadRunning()) {
 			err = mThread.loop->wakeup();
 			if (err < 0)
-				PDRAW_LOG_ERRNO("pomp_loop_wakeup", -err);
+				PDRAW_LOG_ERRNO("pomp::Loop::wakeup", -err);
 		}
 	}
 	if (isThreadJoinable())
 		mThread.thread.join();
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 }
 
 
@@ -149,7 +158,8 @@ int RecordMuxer::addInputMedia(Media *media,
 			       const struct pdraw_muxer_media_params *params)
 {
 	int ret;
-	mbuf::Queue *queue = nullptr;
+	std::unique_ptr<mbuf::Queue> queue;
+	mbuf::Queue *rawQueue = nullptr;
 
 	PDRAW_CHECK_WRITER_THREAD(false);
 
@@ -179,21 +189,24 @@ int RecordMuxer::addInputMedia(Media *media,
 			goto error_remove;
 		}
 
-		ret = createInputQueue(media->type, &queue);
+		ret = createInputQueue(media->getType(), queue);
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("createInputQueue", -ret);
 			goto error_remove;
 		}
 
-		channel->setQueue(this, queue);
+		rawQueue = queue.get();
+		channel->setQueue(this, rawQueue);
+		mInputQueues[media] = std::move(queue);
 	}
 
 	{
-		Media::Type mediaType = media->type;
+		Media::Type mediaType = media->getType();
 		ret = postTask(
-			CmdType::ADD_QUEUE_EVENT, [this, mediaType, queue]() {
+			CmdType::ADD_QUEUE_EVENT,
+			[this, mediaType, rawQueue]() {
 				int err = this->internalAddQueueEvtToLoop(
-					mediaType, queue);
+					mediaType, rawQueue);
 				if (err < 0)
 					PDRAW_LOG_ERRNO(
 						"internalAddQueueEvtToLoop",
@@ -228,7 +241,6 @@ out_unlock:
 int RecordMuxer::removeInputMedia(Media *media)
 {
 	int res = 0;
-	mbuf::Queue *queue = nullptr;
 
 	PDRAW_CHECK_WRITER_THREAD(false);
 
@@ -241,31 +253,36 @@ int RecordMuxer::removeInputMedia(Media *media)
 		goto out;
 	}
 
-	queue = channel->getQueue(this);
+	{
+		auto it = mInputQueues.find(media);
+		if (it != mInputQueues.end()) {
+			auto qSptr = std::shared_ptr<mbuf::Queue>(
+				it->second.release());
+			mInputQueues.erase(it);
 
-	if (queue) {
-		channel->setQueue(this, nullptr);
-		bool taskPosted = false;
+			channel->setQueue(this, nullptr);
 
-		if (canPostTask(false)) {
-			Media::Type mediaType = media->type;
-			auto task = [this, mediaType, queue]() {
-				int err = internalRemoveQueueEvtFromLoop(
-					mediaType, queue);
-				if (err < 0) {
-					PDRAW_LOG_ERRNO(
-						"internalRemoveQueueEvtFromLoop",
-						-err);
-				}
-			};
-			res = postTask(CmdType::REMOVE_QUEUE_EVENT, task);
-			if (res == 0)
-				taskPosted = true;
-			else
-				PDRAW_LOG_ERRNO("postTask", -res);
+			if (canPostTask(false)) {
+				Media::Type mediaType = media->getType();
+				auto task = [this, mediaType, qSptr]() {
+					int err =
+						internalRemoveQueueEvtFromLoop(
+							mediaType, qSptr.get());
+					if (err < 0)
+						PDRAW_LOG_ERRNO(
+							"internalRemoveQueueEvtFromLoop",
+							-err);
+					/* qSptr destroyed here → queue deleted
+					 */
+				};
+				res = postTask(CmdType::REMOVE_QUEUE_EVENT,
+					       task);
+				if (res < 0)
+					PDRAW_LOG_ERRNO("postTask", -res);
+			}
+			/* If task not posted, qSptr goes out of scope =>
+			 * queue deleted automatically */
 		}
-		if (!taskPosted)
-			delete queue;
 	}
 
 	res = Sink::removeInputMedia(media);
@@ -312,42 +329,34 @@ int RecordMuxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 
 
 /* Must be called on the loop thread */
-int RecordMuxer::setFileMetadata(enum pdraw_muxer_metadata_type type,
-				 const uint8_t *data,
-				 size_t size,
-				 const void *params,
-				 size_t paramsSize)
+int RecordMuxer::setFileMetadata(
+	const struct pdraw_muxer_metadata_params *params,
+	const uint8_t *data,
+	size_t size)
 {
 	int ret;
 
 	PDRAW_CHECK_WRITER_THREAD(false);
 
-	ULOG_ERRNO_RETURN_ERR_IF(type == PDRAW_MUXER_METADATA_TYPE_UNKNOWN,
-				 EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(
+		params->type == PDRAW_MUXER_METADATA_TYPE_UNKNOWN, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(data == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(size == 0, EINVAL);
 
-	ULOGI("setFileMetadata type=%d, size=%zu", type, size);
+	ULOGI("setFileMetadata type=%d, size=%zu", params->type, size);
 
 	std::vector<uint8_t> buffer(data, data + size);
-	std::vector<uint8_t> paramsBuffer;
-	if (params && paramsSize > 0) {
-		const uint8_t *p = static_cast<const uint8_t *>(params);
-		paramsBuffer.assign(p, p + paramsSize);
-	}
+	struct pdraw_muxer_metadata_params paramsCopy = *params;
 
-	ret = postTask(CmdType::SET_FILE_METADATA,
-		       [this, type, buffer, paramsBuffer]() {
-			       int err = this->internalSetFileMetadata(
-				       type,
-				       buffer.data(),
-				       buffer.size(),
-				       paramsBuffer.data(),
-				       paramsBuffer.size());
-			       if (err < 0)
-				       PDRAW_LOG_ERRNO(
-					       "internalSetFileMetadata", -err);
-		       });
+	ret = postTask(
+		CmdType::SET_FILE_METADATA, [this, paramsCopy, buffer]() {
+			int err = this->internalSetFileMetadata(
+				&paramsCopy, buffer.data(), buffer.size());
+			if (err < 0)
+				PDRAW_LOG_ERRNO("internalSetFileMetadata",
+						-err);
+		});
 	if (ret < 0) {
 		PDRAW_LOG_ERRNO("postTask", -ret);
 		return ret;
@@ -498,8 +507,8 @@ int RecordMuxer::postTask(CmdType type, const RecordTask &task)
 	pomp::Event *evtToSignal = nullptr;
 	size_t taskId;
 
-	{
-		std::lock_guard<std::mutex> lock(mTasksMutex);
+	try {
+		std::scoped_lock lock(mTasksMutex);
 
 		evtToSignal = mThread.evt.get();
 		if (!evtToSignal)
@@ -514,6 +523,13 @@ int RecordMuxer::postTask(CmdType type, const RecordTask &task)
 		});
 
 		res = evtToSignal->signal();
+	} catch (const std::bad_alloc &e) {
+		PDRAW_LOGE(
+			"%s: memory allocation failed: %s", __func__, e.what());
+		return -ENOMEM;
+	} catch (const std::system_error &e) {
+		PDRAW_LOGE("%s: mutex lock failed: %s", __func__, e.what());
+		return -EFAULT;
 	}
 
 	if (res < 0) {
@@ -532,11 +548,12 @@ static ssize_t getFreeSpace(const std::string &filePath)
 	size_t freeSpaceLeft;
 
 #ifdef _WIN32
-	char volume[MAX_PATH] = "";
-	ULARGE_INTEGER freeBytes = {};
+	std::array<char, MAX_PATH> volume{};
+	ULARGE_INTEGER freeBytes;
+	freeBytes.QuadPart = 0;
 
-	GetVolumePathNameA(filePath.c_str(), volume, sizeof(volume));
-	GetDiskFreeSpaceExA(volume, &freeBytes, nullptr, nullptr);
+	GetVolumePathNameA(filePath.c_str(), volume.data(), volume.size());
+	GetDiskFreeSpaceExA(volume.data(), &freeBytes, nullptr, nullptr);
 
 	freeSpaceLeft = freeBytes.QuadPart;
 #else
@@ -614,7 +631,7 @@ int RecordMuxer::addMuxerMedia(Media *media,
 		return -EPROTO;
 	}
 
-	uint32_t mediaId = media->id;
+	uint32_t mediaId = media->getId();
 	Media::Type mediaType;
 	struct pdraw_media_info mediaInfo;
 	memset(&mediaInfo, 0, sizeof(mediaInfo));
@@ -697,11 +714,11 @@ int RecordMuxer::internalAddMuxerMedia(
 		return res;
 
 	Sink::lock();
-	Channel *channel = nullptr;
+	const Channel *channel = nullptr;
 	unsigned int mediaCount = getInputMediaCount();
 	for (unsigned int i = 0; i < mediaCount; i++) {
 		const Media *m = getInputMedia(i);
-		if (m && m->id == mediaId) {
+		if (m && m->getId() == mediaId) {
 			channel = getInputChannel(m);
 			break;
 		}
@@ -731,7 +748,8 @@ int RecordMuxer::internalAddMuxerMedia(
 
 
 /* Called on the writer thread */
-int RecordMuxer::internalAddQueueEvtToLoop(Media::Type type, mbuf::Queue *queue)
+int RecordMuxer::internalAddQueueEvtToLoop([[maybe_unused]] Media::Type type,
+					   const mbuf::Queue *queue)
 {
 	PDRAW_CHECK_WRITER_THREAD(true);
 
@@ -745,18 +763,16 @@ int RecordMuxer::internalAddQueueEvtToLoop(Media::Type type, mbuf::Queue *queue)
 
 /* Called on the writer thread */
 int RecordMuxer::internalRemoveQueueEvtFromLoop(Media::Type type,
-						mbuf::Queue *queue)
+						mbuf::Queue *queue) const
 {
 	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (!queue)
 		return -EINVAL;
 
-	void *qPtr = queue->getQueuePtr();
-
 	for (const auto &track : mMedias) {
 		if ((track->getMediaType() == type) &&
-		    (track->getQueue() == qPtr)) {
+		    (track->getQueue() == queue)) {
 			track->setQueue(nullptr);
 		}
 	}
@@ -764,9 +780,28 @@ int RecordMuxer::internalRemoveQueueEvtFromLoop(Media::Type type,
 	queue->detachFromLoop(mThread.loop->get());
 
 	queue->flush();
-	delete queue;
+	/* queue lifetime is managed by the shared_ptr in the calling lambda */
 
 	return 0;
+}
+
+
+void RecordMuxer::sessionSetMediaDate(struct vmeta_session &session,
+				      bool force) const
+{
+	if (session.media_date == 0 || force) {
+		session.media_date = mMediaDate;
+		session.media_date_gmtoff = mMediaDateGmtOff;
+	}
+}
+
+
+int RecordMuxer::updateMediaDate()
+{
+	int ret = time_local_get(&mMediaDate, &mMediaDateGmtOff);
+	if (ret < 0)
+		PDRAW_LOG_ERRNO("time_local_get", -ret);
+	return ret;
 }
 
 
@@ -779,9 +814,9 @@ int RecordMuxer::internalStart()
 
 	PDRAW_CHECK_WRITER_THREAD(false);
 
-	err = time_local_get(&mMediaDate, &mMediaDateGmtOff);
+	err = updateMediaDate();
 	if (err < 0)
-		PDRAW_LOG_ERRNO("time_local_get", -err);
+		PDRAW_LOG_ERRNO("updateMediaDate", -err);
 
 	/* Ensure that there is enough free space on the storage */
 	res = ensureFreeSpace(0);
@@ -888,9 +923,9 @@ void RecordMuxer::onChannelFlush(Channel *channel)
 	}
 
 	int err = postTask(CmdType::FLUSH, [this, channel]() {
-		int err = this->internalFlush(channel, true);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("internalFlush", -err);
+		int res = this->internalFlush(channel, true);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("internalFlush", -res);
 	});
 	if (err < 0)
 		PDRAW_LOG_ERRNO("postTask", -err);
@@ -911,9 +946,9 @@ void RecordMuxer::onChannelDrain(Channel *channel)
 	}
 
 	int err = postTask(CmdType::DRAIN, [this, channel]() {
-		int err = this->internalFlush(channel, false);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("internalFlush", -err);
+		int res = this->internalFlush(channel, false);
+		if (res < 0)
+			PDRAW_LOG_ERRNO("internalFlush", -res);
 	});
 	if (err < 0)
 		PDRAW_LOG_ERRNO("postTask", -err);
@@ -929,10 +964,7 @@ void RecordMuxer::onChannelSessionMetaUpdate(Channel *channel)
 
 	Sink::onChannelSessionMetaUpdate(channel);
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	if (!canPostTask(true)) {
 		PDRAW_LOGE("%s: cannot send command to thread", __func__);
@@ -958,7 +990,7 @@ void RecordMuxer::onChannelSessionMetaUpdate(Channel *channel)
 		else
 			continue;
 
-		uint32_t mediaId = media->id;
+		uint32_t mediaId = media->getId();
 
 		try {
 			auto metaPtr = std::make_shared<struct vmeta_session>(
@@ -1038,19 +1070,19 @@ void RecordMuxer::writerThread()
 
 #if defined(__APPLE__)
 #	if !TARGET_OS_IPHONE
-	err = pthread_setname_np("pdraw_recordmx");
+	err = pthread_setname_np(getThreadName());
 	if (err != 0)
 		PDRAW_LOG_ERRNO("pthread_setname_np", err);
 #	endif
 #else
-	err = pthread_setname_np(pthread_self(), "pdraw_recordmx");
+	err = pthread_setname_np(pthread_self(), getThreadName());
 	if (err != 0)
 		PDRAW_LOG_ERRNO("pthread_setname_np", err);
 #endif
 
 	try {
 		mMetaBuffer.resize(VMETA_FRAME_MAX_SIZE);
-		mThread.loop = make_unique<pomp::Loop>();
+		mThread.loop = std::make_unique<pomp::Loop>();
 	} catch (const std::bad_alloc &e) {
 		err = -ENOMEM;
 		PDRAW_LOGE("allocation failed: %s", e.what());
@@ -1073,7 +1105,7 @@ void RecordMuxer::writerThread()
 	while (!mThread.shouldStop) {
 		err = mThread.loop->waitAndProcess(1000);
 		if (err < 0 && err != -ETIMEDOUT)
-			PDRAW_LOG_ERRNO("pomp_loop_wait_and_process", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::waitAndProcess", -err);
 	}
 
 	setThreadState(State::STOPPING);
@@ -1098,7 +1130,7 @@ void RecordMuxer::writerThread()
 
 		channel->setQueue(this, nullptr);
 
-		err = internalRemoveQueueEvtFromLoop(media->type, queue);
+		err = internalRemoveQueueEvtFromLoop(media->getType(), queue);
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("internalRemoveQueueEvtFromLoop", -err);
 		}
@@ -1111,7 +1143,7 @@ out:
 
 	if ((mThread.evt != nullptr) && (mThread.loop != nullptr)) {
 		{
-			std::lock_guard<std::mutex> lock(mTasksMutex);
+			std::scoped_lock lock(mTasksMutex);
 			mPendingTasks = {};
 		}
 
@@ -1126,10 +1158,10 @@ out:
 
 	if (mState.load() == State::STOPPING) {
 		/* Call completeStop on the loop thread */
-		err = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &callCompleteStop, this, this);
+		err = mSession->getPompLoop()->idleAdd(
+			&mCallCompleteStopHandler, this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	}
 
 	mMetaBuffer.clear();
@@ -1147,7 +1179,7 @@ void RecordMuxer::processTasks()
 	std::queue<RecordTask> tasks;
 
 	{
-		std::lock_guard<std::mutex> lock(mTasksMutex);
+		std::scoped_lock lock(mTasksMutex);
 		tasks.swap(mPendingTasks);
 	}
 
@@ -1175,22 +1207,19 @@ int RecordMuxer::internalStopThread()
 
 	err = mThread.loop->wakeup();
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_wakeup", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::wakeup", -err);
 
 	return 0;
 }
 
 
 /* Must be called on the loop thread */
-void RecordMuxer::callCompleteStop(void *userdata)
+void RecordMuxer::callCompleteStop()
 {
-	auto *self = static_cast<RecordMuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	PDRAW_CHECK_WRITER_THREAD(false);
 
-	PDRAW_CHECK_WRITER_THREAD_SELF(self, false);
-
-	self->mPendingStop = false;
-	idleCompleteStop(userdata);
+	mPendingStop = false;
+	idleCompleteStop();
 }
 
 

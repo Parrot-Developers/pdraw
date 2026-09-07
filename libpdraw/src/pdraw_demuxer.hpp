@@ -166,33 +166,43 @@ protected:
 	std::vector<struct pdraw_demuxer_media *> mSelectedMedias{};
 
 	/* Demuxer listener calls from idle functions */
-	static void callOpenResponse(void *userdata);
-	std::queue<int> mOpenRespStatusArgs{};
-	static void callCloseResponse(void *userdata);
-	std::queue<int> mCloseRespStatusArgs{};
-	static void callOnUnrecoverableError(void *userdata);
+	void callOpenResponse();
+	void callCloseResponse();
+	void callOnUnrecoverableError();
 	/* Note: callSelectMedia omitted: function has to be synchronous */
-	static void callReadyToPlay(void *userdata);
+	void callReadyToPlay();
+	void callEndOfRange();
+	void callPlayResponse();
+	void callPauseResponse();
+	void callSeekResponse();
+
+	std::queue<int> mOpenRespStatusArgs{};
+	std::queue<int> mCloseRespStatusArgs{};
 	std::queue<bool> mReadyToPlayReadyArgs{};
-	static void callEndOfRange(void *userdata);
 	std::queue<uint64_t> mEndOfRangeTimestampArgs{};
-	static void callPlayResponse(void *userdata);
 	std::queue<int> mPlayRespStatusArgs{};
 	std::queue<uint64_t> mPlayRespTimestampArgs{};
 	std::queue<float> mPlayRespSpeedArgs{};
-	static void callPauseResponse(void *userdata);
 	std::queue<int> mPauseRespStatusArgs{};
 	std::queue<uint64_t> mPauseRespTimestampArgs{};
-	static void callSeekResponse(void *userdata);
 	std::queue<int> mSeekRespStatusArgs{};
 	std::queue<uint64_t> mSeekRespTimestampArgs{};
 	std::queue<float> mSeekRespSpeedArgs{};
+	pomp::Loop::IdleHandlerFunc mCallOpenResponseHandler;
+	pomp::Loop::IdleHandlerFunc mCallCloseResponseHandler;
+	pomp::Loop::IdleHandlerFunc mCallOnUnrecoverableErrorHandler;
+	pomp::Loop::IdleHandlerFunc mCallReadyToPlayHandler;
+	pomp::Loop::IdleHandlerFunc mCallEndOfRangeHandler;
+	pomp::Loop::IdleHandlerFunc mCallPlayResponseHandler;
+	pomp::Loop::IdleHandlerFunc mCallPauseResponseHandler;
+	pomp::Loop::IdleHandlerFunc mCallSeekResponseHandler;
 
 private:
-	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
+	void onWatchdogTimer();
 
 	Demuxer::Command mPendingCmd = Command::NONE;
-	struct pomp_timer *mWatchdogTimer = nullptr;
+	pomp::Timer::HandlerFunc mWatchdogTimerHandler;
+	std::unique_ptr<pomp::Timer> mWatchdogTimer;
 };
 
 
@@ -267,7 +277,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mDemuxer == nullptr);

@@ -89,17 +89,24 @@ protected:
 				 const uint8_t *data,
 				 size_t size) override;
 
-	int internalSetFileMetadata(enum pdraw_muxer_metadata_type type,
-				    const uint8_t *data,
-				    size_t size,
-				    const void *params,
-				    size_t paramsSize) override;
+	int internalSetFileMetadata(
+		const struct pdraw_muxer_metadata_params *params,
+		const uint8_t *data,
+		size_t size) override;
 
 	void onInternalStopThread() override;
 
 	int onWriterLoopInit() override;
 
 	int onWriterLoopCleanup() override;
+
+	const char *getThreadName() const override
+	{
+		static constexpr char name[] = "pdraw_recmx_mp4";
+		static_assert(sizeof(name) <= 16,
+			      "Thread name is too long for pthread_setname_np");
+		return name;
+	}
 
 	int onBeforeAddMuxerMedias() override;
 

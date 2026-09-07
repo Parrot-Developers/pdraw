@@ -30,10 +30,13 @@
 
 #define ULOG_TAG pdraw_rndaudioalsa
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_renderer_audio_alsa.hpp"
 #include "pdraw_settings.hpp"
+
+#include <array>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #ifdef PDRAW_USE_ALSA
 
@@ -46,38 +49,23 @@ constexpr const char *ALSA_RENDERER_ANCILLARY_DATA_KEY_INPUT_TIME =
 constexpr size_t ALSA_RENDERER_QUEUE_MAX_FRAMES = 5;
 constexpr size_t ALSA_RENDERER_MIN_FRAMES_START = 5;
 
-constexpr size_t NB_SUPPORTED_FORMATS = 24;
-static struct adef_format supportedFormats[NB_SUPPORTED_FORMATS];
-static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
-
-static void initializeSupportedFormats()
+static const std::array<struct adef_format, 24> &getSupportedFormats()
 {
-	size_t i = 0;
-
-	supportedFormats[i++] = adef_pcm_16b_8000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_8000hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_11025hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_11025hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_12000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_12000hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_16000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_16000hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_22050hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_22050hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_24000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_24000hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_32000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_32000hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_44100hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_44100hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_48000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_48000hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_64000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_64000hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_88200hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_88200hz_stereo;
-	supportedFormats[i++] = adef_pcm_16b_96000hz_mono;
-	supportedFormats[i++] = adef_pcm_16b_96000hz_stereo;
+	static const std::array<struct adef_format, 24> formats = {{
+		adef_pcm_16b_8000hz_mono,  adef_pcm_16b_8000hz_stereo,
+		adef_pcm_16b_11025hz_mono, adef_pcm_16b_11025hz_stereo,
+		adef_pcm_16b_12000hz_mono, adef_pcm_16b_12000hz_stereo,
+		adef_pcm_16b_16000hz_mono, adef_pcm_16b_16000hz_stereo,
+		adef_pcm_16b_22050hz_mono, adef_pcm_16b_22050hz_stereo,
+		adef_pcm_16b_24000hz_mono, adef_pcm_16b_24000hz_stereo,
+		adef_pcm_16b_32000hz_mono, adef_pcm_16b_32000hz_stereo,
+		adef_pcm_16b_44100hz_mono, adef_pcm_16b_44100hz_stereo,
+		adef_pcm_16b_48000hz_mono, adef_pcm_16b_48000hz_stereo,
+		adef_pcm_16b_64000hz_mono, adef_pcm_16b_64000hz_stereo,
+		adef_pcm_16b_88200hz_mono, adef_pcm_16b_88200hz_stereo,
+		adef_pcm_16b_96000hz_mono, adef_pcm_16b_96000hz_stereo,
+	}};
+	return formats;
 }
 
 
@@ -98,20 +86,24 @@ AlsaAudioRenderer::AlsaAudioRenderer(
 			      0,
 			      mediaId,
 			      params),
-		mMediaId(mediaId)
+		mMediaId(mediaId), mParams(*params)
 {
-	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
-	setAudioMediaFormatCaps(supportedFormats, NB_SUPPORTED_FORMATS);
+	setAudioMediaFormatCaps(getSupportedFormats().data(),
+				static_cast<int>(getSupportedFormats().size()));
 
 	Element::setClassName(__func__);
 
-	mParams = *params;
 	if (params->address != nullptr) {
 		mAddress = params->address;
 		mParams.address = mAddress.c_str();
 	} else {
 		mParams.address = nullptr;
 	}
+
+	mWatchdogTimerHandler.set([this] { onWatchdogTimer(); });
+	mIdleStartHandler.set([this] { idleStart(); });
+	mIdleDrainHandler.set([this] { idleDrain(); });
+	mIdleRenewMediaHandler.set([this] { idleRenewMedia(); });
 
 	setState(State::CREATED);
 }
@@ -128,9 +120,9 @@ AlsaAudioRenderer::~AlsaAudioRenderer()
 	removeRendererListener();
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	unsigned int count = getInputMediaCount();
 	if (count > 0) {
@@ -142,30 +134,17 @@ AlsaAudioRenderer::~AlsaAudioRenderer()
 
 	Media::cleanupMediaInfo(&mMediaInfo);
 
-	if (mWatchdogTimer != nullptr) {
-		err = pomp_timer_clear(mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		mWatchdogTimer = nullptr;
-	}
+	mWatchdogTimer.reset();
 }
 
 
-void AlsaAudioRenderer::watchdogTimerCb(struct pomp_timer *timer,
-					void *userdata)
+void AlsaAudioRenderer::onWatchdogTimer()
 {
-	PDRAW_UNUSED(timer);
-
-	auto *self = static_cast<AlsaAudioRenderer *>(userdata);
-
-	if ((!self->mRunning) || (self->mState != State::STARTED))
+	if ((!mRunning) || (mState != State::STARTED))
 		return;
 
 	bool expected = false;
-	if (self->mWatchdogTriggered.compare_exchange_strong(expected, true)) {
+	if (mWatchdogTriggered.compare_exchange_strong(expected, true)) {
 		PDRAW_LOGW("no new frame for %zus",
 			   ALSA_RENDERER_WATCHDOG_TIME_S);
 	}
@@ -376,10 +355,7 @@ void AlsaAudioRenderer::onChannelFlush(Channel *channel)
 	int err;
 
 	auto *c = dynamic_cast<AudioChannel *>(channel);
-	if (c == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(c == nullptr, EINVAL);
 
 	PDRAW_LOGD("flushing input channel");
 
@@ -407,12 +383,9 @@ void AlsaAudioRenderer::onChannelFlush(Channel *channel)
 void AlsaAudioRenderer::onChannelDrain(Channel *channel)
 {
 	int err;
-	mbuf::Queue *queue = nullptr;
+	const mbuf::Queue *queue = nullptr;
 	auto *c = dynamic_cast<AudioChannel *>(channel);
-	if (c == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(c == nullptr, EINVAL);
 
 	PDRAW_LOGD("flushing input channel");
 
@@ -437,10 +410,7 @@ void AlsaAudioRenderer::onChannelDrain(Channel *channel)
 
 void AlsaAudioRenderer::onChannelSos(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	mEos = false;
 
@@ -450,76 +420,59 @@ void AlsaAudioRenderer::onChannelSos(Channel *channel)
 
 void AlsaAudioRenderer::onChannelEos(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	mEos = true;
 
 	Sink::onChannelEos(channel);
-	int ret = pomp_timer_clear(mWatchdogTimer);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
+	if (mWatchdogTimer != nullptr)
+		(void)mWatchdogTimer->clear();
 }
 
 
-void AlsaAudioRenderer::idleStart(void *renderer)
+void AlsaAudioRenderer::idleStart()
 {
-	auto *self = static_cast<AlsaAudioRenderer *>(renderer);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	int err;
-
-	if (self->mState != State::STARTING) {
+	if (mState != State::STARTING) {
 		PDRAW_LOGE("renderer is not starting");
 		return;
 	}
 
-	if (self->mWatchdogTimer == nullptr) {
-		self->mWatchdogTimer = pomp_timer_new(
-			self->mSession->getLoop(), watchdogTimerCb, self);
-		if (self->mWatchdogTimer == nullptr) {
-			PDRAW_LOGE("pomp_timer_new failed");
+	if (mWatchdogTimer == nullptr) {
+		try {
+			mWatchdogTimer = std::make_unique<pomp::Timer>(
+				mSession->getPompLoop(),
+				&mWatchdogTimerHandler);
+		} catch (const std::bad_alloc &) {
+			PDRAW_LOGE("pomp::Timer allocation failed");
 			goto error;
 		}
 	}
 
-	self->setState(State::STARTED);
+	setState(State::STARTED);
 	return;
 
 error:
-	if (self->mWatchdogTimer != nullptr) {
-		err = pomp_timer_clear(self->mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(self->mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		self->mWatchdogTimer = nullptr;
-	}
+	mWatchdogTimer.reset();
 }
 
 
 /* Called on the loop thread */
-void AlsaAudioRenderer::idleDrain(void *renderer)
+void AlsaAudioRenderer::idleDrain()
 {
 	int err = 0;
 	AudioChannel *channel = nullptr;
-	auto *self = static_cast<AlsaAudioRenderer *>(renderer);
 
-	ULOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	self->lock();
-	if (self->mLastAddedMedia == nullptr) {
-		self->unlock();
+	lock();
+	if (mLastAddedMedia == nullptr) {
+		unlock();
 		return;
 	}
 
-	channel = dynamic_cast<AudioChannel *>(
-		self->getInputChannel(self->mLastAddedMedia));
+	channel =
+		dynamic_cast<AudioChannel *>(getInputChannel(mLastAddedMedia));
 	if (channel == nullptr) {
 		PDRAW_LOGE("failed to get input channel");
-		self->unlock();
+		unlock();
 		return;
 	}
 
@@ -527,8 +480,8 @@ void AlsaAudioRenderer::idleDrain(void *renderer)
 	if (err < 0)
 		PDRAW_LOG_ERRNO("Channel::asyncFlushDone", -err);
 
-	self->unlock();
-	self->setFlushingState(FlushingState::FLUSHED);
+	unlock();
+	setFlushingState(FlushingState::FLUSHED);
 }
 
 
@@ -547,10 +500,9 @@ int AlsaAudioRenderer::start()
 
 	mRunning = true;
 
-	int ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleStart, this, this);
+	int ret = mSession->getPompLoop()->idleAdd(&mIdleStartHandler, this);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 
 	return ret;
 }
@@ -604,9 +556,9 @@ int AlsaAudioRenderer::stop()
 	removeRendererListener();
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	/* Post a message on the loop thread */
 	asyncCompleteStop();
@@ -621,10 +573,10 @@ int AlsaAudioRenderer::setMediaId(unsigned int mediaId)
 		return 0;
 
 	mMediaId = mediaId;
-	int ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleRenewMedia, this, this);
+	int ret =
+		mSession->getPompLoop()->idleAdd(&mIdleRenewMediaHandler, this);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 
 	return 0;
 }
@@ -632,7 +584,7 @@ int AlsaAudioRenderer::setMediaId(unsigned int mediaId)
 
 unsigned int AlsaAudioRenderer::getMediaId() const
 {
-	return mMediaId;
+	return mCurrentMediaId;
 }
 
 
@@ -666,7 +618,7 @@ int AlsaAudioRenderer::getParams(struct pdraw_audio_renderer_params *params)
 
 
 bool AlsaAudioRenderer::queueFilter(struct mbuf_audio_frame *frame,
-				    void *userdata)
+				    [[maybe_unused]] void *userdata)
 {
 	int err;
 	uint64_t ts_us;
@@ -698,7 +650,7 @@ int AlsaAudioRenderer::addInputMedia(Media *media)
 		return -ENOSYS;
 	}
 
-	if ((mMediaId != 0) && (mMediaId != m->id))
+	if ((mMediaId != 0) && (mMediaId != m->getId()))
 		return -EPERM;
 	if (mLastAddedMedia != nullptr)
 		return -EBUSY;
@@ -728,24 +680,23 @@ int AlsaAudioRenderer::addInputMedia(Media *media)
 	args.filter = &queueFilter;
 	args.filter_userdata = this;
 	args.max_frames = ALSA_RENDERER_QUEUE_MAX_FRAMES;
-	mbuf::Queue *queue = nullptr;
 	try {
-		queue = mbuf::Queue::createWithArgs(&args).release();
+		mInputQueue = mbuf::Queue::createWithArgs(&args);
 	} catch (const std::bad_alloc &) {
 		Sink::unlock();
 		PDRAW_LOGE("queue allocation failed");
 		return -ENOMEM;
 	}
-	channel->setQueue(this, queue);
+	channel->setQueue(this, mInputQueue.get());
 
-	res = queue->attachToLoop(mSession->getLoop(), renderCb, this);
+	res = mInputQueue->attachToLoop(mSession->getLoop(), renderCb, this);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("queue::attachToLoop", -res);
 		goto error;
 	}
 
 	mLastAddedMedia = m;
-	mCurrentMediaId = mMediaId;
+	mCurrentMediaId = m->getId();
 
 	m->fillMediaInfo(&mMediaInfo);
 
@@ -758,7 +709,7 @@ int AlsaAudioRenderer::addInputMedia(Media *media)
 	}
 
 	{
-		std::unique_lock<std::mutex> lock(mListenerMutex);
+		std::scoped_lock lock(mListenerMutex);
 		if (mRendererListener) {
 			mRendererListener->onAudioRendererMediaAdded(
 				mSession, mRenderer, &mMediaInfo);
@@ -784,7 +735,7 @@ int AlsaAudioRenderer::removeInputMedia(Media *media)
 		mLastAddedMedia = nullptr;
 		mCurrentMediaId = 0;
 		{
-			std::unique_lock<std::mutex> lock(mListenerMutex);
+			std::scoped_lock lock(mListenerMutex);
 			if (mRendererListener) {
 				mRendererListener->onAudioRendererMediaRemoved(
 					mSession, mRenderer, &mMediaInfo);
@@ -801,11 +752,6 @@ int AlsaAudioRenderer::removeInputMedia(Media *media)
 		PDRAW_LOGE("failed to get channel");
 		return -EPROTO;
 	}
-	/* Keep a reference on the queue to destroy it after removing the
-	 * input media (avoids deadlocks when trying to push new frames out
-	 * of the AudioDecoder whereas the queue is already destroyed) */
-	mbuf::Queue *queue = channel->getQueue(this);
-
 	ret = Sink::removeInputMedia(media);
 	if (ret < 0) {
 		Sink::unlock();
@@ -815,14 +761,14 @@ int AlsaAudioRenderer::removeInputMedia(Media *media)
 
 	Sink::unlock();
 
-	if (queue != nullptr) {
-		err = queue->detachFromLoop(mSession->getLoop());
+	if (mInputQueue) {
+		err = mInputQueue->detachFromLoop(mSession->getLoop());
 		if (err < 0)
 			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
-		err = queue->flush();
+		err = mInputQueue->flush();
 		if (err < 0)
 			PDRAW_LOG_ERRNO("queue::flush", -err);
-		delete queue;
+		mInputQueue.reset();
 	}
 
 	err = stopAlsa();
@@ -865,13 +811,11 @@ int AlsaAudioRenderer::removeInputMedias()
 }
 
 
-void AlsaAudioRenderer::idleRenewMedia(void *userdata)
+void AlsaAudioRenderer::idleRenewMedia()
 {
-	auto *self = static_cast<AlsaAudioRenderer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	if (self->mLastAddedMedia != nullptr)
-		self->removeInputMedia(self->mLastAddedMedia);
-	self->mSession->addMediaToAudioRenderer(self->mMediaId, self);
+	if (mLastAddedMedia != nullptr)
+		removeInputMedia(mLastAddedMedia);
+	mSession->addMediaToAudioRenderer(mMediaId, this);
 }
 
 
@@ -882,11 +826,8 @@ void AlsaAudioRenderer::completeStop()
 	if (mState == State::STOPPED)
 		return;
 
-	if (mWatchdogTimer != nullptr) {
-		ret = pomp_timer_clear(mWatchdogTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-	}
+	if (mWatchdogTimer != nullptr)
+		(void)mWatchdogTimer->clear();
 
 	ret = removeInputMedias();
 	if (ret < 0)
@@ -896,9 +837,9 @@ void AlsaAudioRenderer::completeStop()
 }
 
 
-void AlsaAudioRenderer::renderCb(struct pomp_evt *event, void *userdata)
+void AlsaAudioRenderer::renderCb([[maybe_unused]] struct pomp_evt *event,
+				 void *userdata)
 {
-	PDRAW_UNUSED(event);
 
 	auto *self = static_cast<AlsaAudioRenderer *>(userdata);
 	/* We have a new frame */
@@ -909,11 +850,10 @@ void AlsaAudioRenderer::renderCb(struct pomp_evt *event, void *userdata)
 								     false)) {
 			PDRAW_LOGI("new frame to render");
 		}
-		int err = pomp_timer_set(self->mWatchdogTimer,
-					 1000 * ALSA_RENDERER_WATCHDOG_TIME_S);
-		if (err != 0) {
-			PDRAW_LOG_ERRNO("pomp_timer_set", -err);
-		}
+		int err = self->mWatchdogTimer->set(
+			1000 * ALSA_RENDERER_WATCHDOG_TIME_S);
+		if (err != 0)
+			PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 	}
 	self->render();
 }
@@ -945,10 +885,10 @@ int AlsaAudioRenderer::render()
 
 	count = queue->getCount();
 	if (count < 1) {
-		err = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), idleDrain, this, this);
+		err = mSession->getPompLoop()->idleAdd(&mIdleDrainHandler,
+						       this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 		ret = -EAGAIN;
 		PDRAW_LOGW("no frame in queue");
 		goto out;
@@ -960,7 +900,16 @@ int AlsaAudioRenderer::render()
 		goto out;
 	}
 
-	setFlushingState(FlushingState::UNFLUSHED);
+	/* Don't clobber a pending drain (FLUSHING): unconditionally resetting
+	 * to UNFLUSHED here would make asyncDrainDone() never fire. */
+	if (getFlushingState() != FlushingState::FLUSHING) {
+		setFlushingState(FlushingState::UNFLUSHED);
+	} else if (queue->getCount() == 0) {
+		err = mSession->getPompLoop()->idleAdd(&mIdleDrainHandler,
+						       this);
+		if (err < 0)
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
+	}
 
 	ret = mbuf_audio_frame_get_buffer(frame, &data, &len);
 	if (ret < 0) {
@@ -982,12 +931,14 @@ int AlsaAudioRenderer::render()
 
 	while (true) {
 		if (mMediaInfo.audio.format.pcm.interleaved) {
-			ret = snd_pcm_writei(mHandle, data, mSampleCount);
-			if (ret < 0) {
-				if (ret == -EPIPE) {
+			snd_pcm_sframes_t frames =
+				snd_pcm_writei(mHandle, data, mSampleCount);
+			if (frames < 0) {
+				if (frames == -EPIPE) {
 					snd_pcm_prepare(mHandle);
 					continue;
 				}
+				ret = static_cast<int>(frames);
 				PDRAW_LOG_ERRNO("snd_pcm_writei", -ret);
 				break;
 			}

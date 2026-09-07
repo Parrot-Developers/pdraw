@@ -36,7 +36,6 @@
 
 #define ULOG_TAG pdraw_rawsourcesink_test
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_rawsourcesink_test);
 
 #include <media-buffers/mbuf_mem_generic.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
@@ -44,6 +43,7 @@ ULOG_DECLARE_TAG(pdraw_rawsourcesink_test);
 #include <video-defs/vdefs.h>
 #include <video-raw/vraw.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #define UNUSED(x) (void)(x)
 
@@ -218,12 +218,14 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	ULOGI("%s id=%d", __func__, info->id);
 
-	if (element_userdata != self->source_element_userdata)
+	if (element_userdata != self->source)
 		return;
 	if (info->type != PDRAW_MEDIA_TYPE_VIDEO)
 		return;
 	if (info->video.format != VDEF_FRAME_TYPE_RAW)
 		return;
+
+	self->source_element_userdata = element_userdata;
 
 	if (strcmp(info->video.session_meta->friendly_name, FRIENDLY_NAME) != 0)
 		ULOGW("mismatch on friendly_name session metadata");
@@ -443,8 +445,8 @@ int main(int argc, char **argv)
 {
 	int res;
 	int status = EXIT_SUCCESS;
-	char *input = NULL;
-	char *output = NULL;
+	const char *input = NULL;
+	const char *output = NULL;
 	struct pdraw_backend_app *self = NULL;
 	struct pdraw_video_source_params source_params = {0};
 	struct vraw_reader_config reader_config = {0};
@@ -467,7 +469,6 @@ int main(int argc, char **argv)
 		case 'h':
 			usage(argc, argv);
 			exit(EXIT_SUCCESS);
-			break;
 
 		case 'f':
 			res = vdef_raw_format_from_str(optarg,
@@ -506,7 +507,6 @@ int main(int argc, char **argv)
 		default:
 			usage(argc, argv);
 			exit(EXIT_FAILURE);
-			break;
 		}
 	}
 
@@ -634,7 +634,6 @@ int main(int argc, char **argv)
 		status = EXIT_FAILURE;
 		goto out;
 	}
-	self->source_element_userdata = self->source;
 	pthread_mutex_lock(&self->mutex);
 	while (!self->media_added)
 		pthread_cond_wait(&self->cond, &self->mutex);
@@ -659,6 +658,7 @@ int main(int argc, char **argv)
 		uint8_t *data = NULL;
 		size_t capacity = 0;
 		unsigned int plane_count;
+		size_t next_offset;
 		int err;
 
 		res = mbuf_mem_generic_new(frame_len, &mem);
@@ -698,13 +698,11 @@ int main(int argc, char **argv)
 
 		plane_count =
 			vdef_get_raw_frame_plane_count(&in_frame.frame.format);
-		for (unsigned int i = 0; i < plane_count; i++) {
+		next_offset = frame_len;
+		for (unsigned int i = plane_count; i-- > 0;) {
 			size_t plane_offset = in_frame.data[i] - data;
-			size_t plane_size =
-				(i == plane_count - 1)
-					? frame_len - plane_offset
-					: (size_t)(in_frame.data[i + 1] -
-						   in_frame.data[i]);
+			size_t plane_size = next_offset - plane_offset;
+			next_offset = plane_offset;
 			res = mbuf_raw_video_frame_set_plane(
 				frame, i, mem, plane_offset, plane_size);
 			if (res < 0) {

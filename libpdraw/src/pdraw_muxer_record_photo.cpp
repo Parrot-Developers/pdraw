@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_recmux_photo
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_photo.hpp"
 #include "pdraw_session.hpp"
@@ -40,6 +39,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <unistd.h>
 
 #include <futils/futils.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -63,7 +64,7 @@ PhotoRecordMuxer::PhotoRecordMuxer(Session *session,
 
 
 /* Called on the writer thread */
-int PhotoRecordMuxer::generateFileName(std::string &fileName)
+int PhotoRecordMuxer::generateFileName(std::string &fileName) const
 {
 	/* Compute size */
 #pragma GCC diagnostic push
@@ -122,7 +123,9 @@ static ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 	ssize_t total = 0;
 	ssize_t ret;
 	for (int i = 0; i < iovcnt; i++) {
-		ret = write(fd, iov[i].iov_base, iov[i].iov_len);
+		ret = write(fd,
+			    iov[i].iov_base,
+			    static_cast<unsigned int>(iov[i].iov_len));
 		if (ret < 0)
 			return total == 0 ? ret : total;
 		total += ret;
@@ -137,9 +140,12 @@ static ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 /* Called on the writer thread */
 int PhotoRecordMuxer::writeToFileIov(const std::string &fileName,
 				     const struct iovec *iov,
-				     int iovcnt)
+				     int iovcnt) const
 {
-	int fd = open(fileName.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	/* 0 means "use the default" (documented on filemode), matching
+	 * mp4_mux_open()'s own fallback. */
+	mode_t mode = mFileMode ? mFileMode : (S_IRUSR | S_IWUSR);
+	int fd = open(fileName.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
 	if (fd < 0) {
 		return -errno;
 	}
@@ -250,11 +256,9 @@ int PhotoRecordMuxer::internalSetThumbnail(enum pdraw_muxer_thumbnail_type type,
 
 /* Called on the writer thread */
 int PhotoRecordMuxer::internalSetFileMetadata(
-	enum pdraw_muxer_metadata_type type,
+	const struct pdraw_muxer_metadata_params *params,
 	const uint8_t *data,
-	size_t size,
-	const void *params,
-	size_t paramsSize)
+	size_t size)
 {
 	return -ENOSYS;
 }

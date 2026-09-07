@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_external_raw_video_source
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_external_raw_video_source.hpp"
 #include "pdraw_session.hpp"
 
 #include <time.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 constexpr const char *PDRAW_EXT_RAW_VIDEO_SOURCE_ANCILLARY_KEY_INPUT_TIME =
 	"pdraw.rawvideosource.input_time";
@@ -60,6 +61,11 @@ ExternalRawVideoSource::ExternalRawVideoSource(
 {
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+	mCallOnMediaAddedHandler.set([this] { callOnMediaAdded(); });
+	mCallVideoSourceFlushedHandler.set(
+		[this] { callVideoSourceFlushed(); });
+
 	setState(State::CREATED);
 }
 
@@ -75,9 +81,9 @@ ExternalRawVideoSource::~ExternalRawVideoSource()
 	mVideoSourceListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	if (mFrameQueue != nullptr) {
 		err = mFrameQueue->flush();
@@ -88,8 +94,14 @@ ExternalRawVideoSource::~ExternalRawVideoSource()
 			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
 	}
 
-	if (mOutputMedia != nullptr)
+	if (mOutputMedia != nullptr) {
 		PDRAW_LOGW("output media was not properly removed");
+		/* Tear down output channels first, else a still-attached
+		 * sink's Media* is left dangling by mOutputMedia.reset(). */
+		(void)teardownOutputChannels(mOutputMedia.get());
+		(void)removeOutputPort(mOutputMedia.get());
+		mOutputMedia.reset();
+	}
 }
 
 
@@ -134,7 +146,7 @@ int ExternalRawVideoSource::start()
 	Source::lock();
 
 	try {
-		mOutputMedia = make_unique<RawVideoMedia>(mSession);
+		mOutputMedia = std::make_unique<RawVideoMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -154,8 +166,8 @@ int ExternalRawVideoSource::start()
 	mOutputMedia->format = mParams.video.raw.format;
 	mOutputMedia->info = mParams.video.raw.info;
 	mOutputMedia->sessionMeta = mParams.session_meta;
-	mOutputMedia->playbackType = mParams.playback_type;
-	mOutputMedia->duration = mParams.duration;
+	mOutputMedia->setPlaybackType(mParams.playback_type);
+	mOutputMedia->setDuration(mParams.duration);
 
 	Source::unlock();
 
@@ -164,10 +176,10 @@ int ExternalRawVideoSource::start()
 		 * callstack as a direct call could ultimately be blocking
 		 * in a pdraw-backend application calling another pdraw-backend
 		 * function from the onMediaAdded listener function */
-		err = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), callOnMediaAdded, this, this);
+		err = mSession->getPompLoop()->idleAdd(
+			&mCallOnMediaAddedHandler, this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	}
 
 	return 0;
@@ -213,10 +225,9 @@ int ExternalRawVideoSource::stop()
 }
 
 
-void ExternalRawVideoSource::idleCompleteFlush(void *userdata)
+void ExternalRawVideoSource::idleCompleteFlush()
 {
-	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -306,10 +317,7 @@ exit:
 
 void ExternalRawVideoSource::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -342,10 +350,10 @@ int ExternalRawVideoSource::flush(bool discard)
 		}
 		PDRAW_LOGD("video source is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -474,12 +482,10 @@ void ExternalRawVideoSource::completeFlush()
 
 	if (mState != State::STOPPING) {
 		/* Signal to the application that flushing is done */
-		err = pomp_loop_idle_add_with_cookie(mSession->getLoop(),
-						     callVideoSourceFlushed,
-						     this,
-						     this);
+		err = mSession->getPompLoop()->idleAdd(
+			&mCallVideoSourceFlushedHandler, this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	} else {
 		setFlushingState(FlushingState::FLUSHED);
 	}
@@ -490,10 +496,7 @@ void ExternalRawVideoSource::completeFlush()
 
 void ExternalRawVideoSource::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -511,10 +514,7 @@ void ExternalRawVideoSource::onChannelFlushed(Channel *channel)
 
 void ExternalRawVideoSource::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -562,9 +562,9 @@ int ExternalRawVideoSource::process()
 }
 
 
-void ExternalRawVideoSource::queueEventCb(struct pomp_evt *evt, void *userdata)
+void ExternalRawVideoSource::queueEventCb([[maybe_unused]] struct pomp_evt *evt,
+					  void *userdata)
 {
-	PDRAW_UNUSED(evt);
 
 	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
 
@@ -769,38 +769,32 @@ out:
 
 
 /* Listener call from an idle function */
-void ExternalRawVideoSource::callOnMediaAdded(void *userdata)
+void ExternalRawVideoSource::callOnMediaAdded()
 {
-	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if (self->mOutputMedia == nullptr) {
+	if (mOutputMedia == nullptr) {
 		PDRAW_LOGW("%s: output media not found", __func__);
 		return;
 	}
 
-	if (self->Source::mListener) {
-		self->Source::mListener->onOutputMediaAdded(
-			self, self->mOutputMedia.get(), self->getVideoSource());
+	if (Source::mListener) {
+		Source::mListener->onOutputMediaAdded(
+			this, mOutputMedia.get(), getVideoSource());
 	}
 }
 
 
 /* Listener call from an idle function */
-void ExternalRawVideoSource::callVideoSourceFlushed(void *userdata)
+void ExternalRawVideoSource::callVideoSourceFlushed()
 {
-	auto *self = static_cast<ExternalRawVideoSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	setFlushingState(FlushingState::FLUSHED);
 
-	self->setFlushingState(FlushingState::FLUSHED);
-
-	if (self->mVideoSourceListener != nullptr) {
-		if (self->mFlushDiscard) {
-			self->mVideoSourceListener->onRawVideoSourceFlushed(
-				self->mSession, self->getVideoSource());
+	if (mVideoSourceListener != nullptr) {
+		if (mFlushDiscard) {
+			mVideoSourceListener->onRawVideoSourceFlushed(
+				mSession, getVideoSource());
 		} else {
-			self->mVideoSourceListener->onRawVideoSourceDrained(
-				self->mSession, self->getVideoSource());
+			mVideoSourceListener->onRawVideoSourceDrained(
+				mSession, getVideoSource());
 		}
 	}
 }
@@ -838,7 +832,7 @@ struct mbuf_raw_video_frame_queue *RawVideoSourceWrapper::getQueue()
 	if (isElementStopped())
 		return nullptr;
 
-	mbuf::Queue *queue = mSource->getQueue();
+	const mbuf::Queue *queue = mSource->getQueue();
 	if (queue == nullptr)
 		return nullptr;
 	queue->getCQueue(&ret);

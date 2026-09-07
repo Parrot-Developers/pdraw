@@ -30,26 +30,58 @@
 
 #include <errno.h>
 #include <getopt.h>
+#include <time.h>
 #include <unistd.h>
 
 #define ULOG_TAG pdraw_vsink_test
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_vsink_test);
 
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <pdraw-vsink/pdraw_vsink.h>
+#include <pdraw/pdraw.h>
 #include <pdraw/pdraw_defs.h>
 #include <stdatomic.h>
 #include <video-defs/vdefs.h>
 #include <video-metadata/vmeta.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 static atomic_int frame_count;
 
 
 /* Can be called from any thread */
-static void print_frame_info(const struct pdraw_video_frame *frame_info,
-			     struct mbuf_raw_video_frame *frame,
-			     int frame_index)
+static void print_coded_frame_info(const struct pdraw_video_frame *frame_info,
+				   struct mbuf_coded_video_frame *frame,
+				   int frame_index)
+{
+	struct vmeta_frame *frame_meta = NULL;
+	int err = 0;
+
+	/* Get frame information */
+	ULOGI("frame #%d (width=%u height=%u)",
+	      frame_index,
+	      frame_info->coded.info.resolution.width,
+	      frame_info->coded.info.resolution.height);
+
+	/* Get the video metadata */
+	err = mbuf_coded_video_frame_get_metadata(frame, &frame_meta);
+	if (err < 0 && err != -ENOENT)
+		ULOG_ERRNO("mbuf_coded_video_frame_get_metadata", -err);
+	if (frame_meta != NULL) {
+		uint8_t battery_percentage;
+		vmeta_frame_get_battery_percentage(frame_meta,
+						   &battery_percentage);
+		ULOGI("metadata: battery_percentage=%d%%", battery_percentage);
+	}
+
+	vmeta_frame_unref(frame_meta);
+}
+
+
+/* Can be called from any thread */
+static void print_raw_frame_info(const struct pdraw_video_frame *frame_info,
+				 struct mbuf_raw_video_frame *frame,
+				 int frame_index)
 {
 	unsigned int plane_count;
 	struct vmeta_frame *frame_meta = NULL;
@@ -100,13 +132,45 @@ static void print_frame_info(const struct pdraw_video_frame *frame_info,
 
 
 /* Called from the pdraw_vsink thread */
-static void frame_ready_cb(struct mbuf_raw_video_frame *frame,
-			   struct pdraw_video_frame *frame_info,
+static void frame_ready_cb(struct pdraw_vsink_frame *frame,
+			   const struct pdraw_video_frame *frame_info,
 			   void *userdata)
 {
-	print_frame_info(frame_info, frame, atomic_load(&frame_count));
+
+	if (frame->type == PDRAW_VSINK_VIDEO_MEDIA_TYPE_CODED) {
+		print_coded_frame_info(
+			frame_info, frame->coded, atomic_load(&frame_count));
+	} else {
+		print_raw_frame_info(
+			frame_info, frame->raw, atomic_load(&frame_count));
+	}
 
 	atomic_fetch_add(&frame_count, 1);
+}
+
+
+static void print_media_info(struct pdraw_media_info *media_info,
+			     enum pdraw_vsink_video_media_type video_media_type)
+{
+	const struct vdef_format_info *info;
+
+	ULOGI("media_info: name=%s, path=%s",
+	      media_info->name,
+	      media_info->path);
+
+	if (video_media_type == PDRAW_VSINK_VIDEO_MEDIA_TYPE_CODED)
+		info = &media_info->video.coded.info;
+	else
+		info = &media_info->video.raw.info;
+
+	ULOGI("media_info: duration=%.3fs, res=%ux%u, framerate=%u/%u",
+	      media_info->duration / 1000000.0,
+	      info->resolution.width,
+	      info->resolution.height,
+	      info->framerate.num,
+	      info->framerate.den);
+
+	pdraw_media_info_free(media_info);
 }
 
 
@@ -114,39 +178,37 @@ static void frame_ready_cb(struct mbuf_raw_video_frame *frame,
 static int async_test(const char *url,
 		      enum pdraw_playback_mode playback_mode,
 		      enum vmeta_camera_type camera_type,
-		      int count)
+		      int count,
+		      enum pdraw_vsink_video_media_type video_media_type)
 {
 	int res;
 	struct pdraw_vsink *vsink = NULL;
 	struct pdraw_media_info *media_info = NULL;
+	const struct timespec sleep_1ms = {
+		.tv_sec = 0, .tv_nsec = 1000 * 1000, /* 1ms */
+	};
 	struct pdraw_vsink_params params = {
 		.url = url,
 		.playback_mode = playback_mode,
 		.camera_type = camera_type,
-		.cbs.frame_ready = &frame_ready_cb,
-		.cbs_userdata = NULL,
+		.video_media_type = video_media_type,
+	};
+	struct pdraw_vsink_cbs cbs = {
+		.frame_ready = &frame_ready_cb,
 	};
 
-	res = pdraw_vsink_start(&params, &media_info, &vsink);
+	res = pdraw_vsink_start(&params, &cbs, NULL, &media_info, &vsink);
 	if (res < 0 || media_info == NULL) {
 		ULOG_ERRNO("pdraw_vsink_start", -res);
 		exit(EXIT_FAILURE);
 	}
 	ULOGI("started");
 
-	ULOGI("media_info: name=%s, path=%s",
-	      media_info->name,
-	      media_info->path);
-	ULOGI("media_info: duration=%.3fs, res=%ux%u, framerate=%u/%u",
-	      media_info->duration / 1000000.0,
-	      media_info->video.raw.info.resolution.width,
-	      media_info->video.raw.info.resolution.height,
-	      media_info->video.raw.info.framerate.num,
-	      media_info->video.raw.info.framerate.den);
+	print_media_info(media_info, video_media_type);
 
 	while (atomic_load(&frame_count) < count) {
 		/* Wait */
-		usleep(1000);
+		nanosleep(&sleep_1ms, NULL);
 	}
 
 	res = pdraw_vsink_stop(vsink);
@@ -163,51 +225,51 @@ static int sync_test(const char *url,
 		     enum pdraw_playback_mode playback_mode,
 		     enum vmeta_camera_type camera_type,
 		     int timeout_ms,
-		     int count)
+		     int count,
+		     enum pdraw_vsink_video_media_type video_media_type)
 {
 	int res;
 	int i = 0;
 	struct pdraw_vsink *vsink = NULL;
 	struct pdraw_media_info *media_info = NULL;
+	const struct timespec sleep_1ms = {
+		.tv_sec = 0, .tv_nsec = 1000 * 1000, /* 1ms */
+	};
 	struct pdraw_vsink_params params = {
 		.url = url,
 		.playback_mode = playback_mode,
 		.camera_type = camera_type,
-		.cbs.frame_ready = NULL,
-		.cbs_userdata = NULL,
+		.video_media_type = video_media_type,
 	};
 
-	res = pdraw_vsink_start(&params, &media_info, &vsink);
+	res = pdraw_vsink_start(&params, NULL, NULL, &media_info, &vsink);
 	if (res < 0 || media_info == NULL) {
 		ULOG_ERRNO("pdraw_vsink_start", -res);
 		exit(EXIT_FAILURE);
 	}
 	ULOGI("started");
 
-	ULOGI("media_info: name=%s, path=%s",
-	      media_info->name,
-	      media_info->path);
-	ULOGI("media_info: duration=%.3fs, res=%ux%u, framerate=%u/%u",
-	      media_info->duration / 1000000.0,
-	      media_info->video.raw.info.resolution.width,
-	      media_info->video.raw.info.resolution.height,
-	      media_info->video.raw.info.framerate.num,
-	      media_info->video.raw.info.framerate.den);
+	print_media_info(media_info, video_media_type);
 
 	while (i < count) {
 		struct pdraw_video_frame frame_info = {0};
-		struct mbuf_raw_video_frame *frame = NULL;
+		struct pdraw_vsink_frame vframe;
 
 		/* Get a new frame */
 		res = pdraw_vsink_get_frame(
-			vsink, timeout_ms, NULL, &frame_info, &frame);
+			vsink, timeout_ms, NULL, &frame_info, &vframe);
 		if (res < 0) {
 			ULOG_ERRNO("pdraw_vsink_get_frame", -res);
-			usleep(1000);
+			nanosleep(&sleep_1ms, NULL);
 			continue;
 		}
-		print_frame_info(&frame_info, frame, i);
-		mbuf_raw_video_frame_unref(frame);
+		if (vframe.type == PDRAW_VSINK_VIDEO_MEDIA_TYPE_CODED) {
+			print_coded_frame_info(&frame_info, vframe.coded, i);
+			mbuf_coded_video_frame_unref(vframe.coded);
+		} else {
+			print_raw_frame_info(&frame_info, vframe.raw, i);
+			mbuf_raw_video_frame_unref(vframe.raw);
+		}
 		i++;
 	}
 
@@ -220,6 +282,11 @@ static int sync_test(const char *url,
 }
 
 
+enum args_id {
+	ARGS_ID_NO_DECODE = 256,
+};
+
+
 static const char short_options[] = "ht:oc:n:";
 
 
@@ -229,6 +296,7 @@ static const struct option long_options[] = {
 	{"camera-type", required_argument, NULL, 'c'},
 	{"count", required_argument, NULL, 'n'},
 	{"timeout", required_argument, NULL, 't'},
+	{"no-decode", no_argument, NULL, ARGS_ID_NO_DECODE},
 };
 
 
@@ -251,6 +319,8 @@ static void usage(char *prog_name)
 		       "Set the maximum time to wait (in ms) to get a frame, "
 		       "0 to return immediately (non-blocking mode) or -1 for "
 		       "infinite wait\n"
+	       "     | --no-decode                     "
+		       "Don't decode the frames\n"
 	       "\n",
 	       prog_name);
 	/* clang-format on */
@@ -268,6 +338,8 @@ int main(int argc, char **argv)
 	int timeout_ms = -1;
 	int count = 20;
 	enum pdraw_playback_mode playback_mode = PDRAW_PLAYBACK_MODE_REALTIME;
+	enum pdraw_vsink_video_media_type video_media_type =
+		PDRAW_VSINK_VIDEO_MEDIA_TYPE_RAW;
 
 	atomic_init(&frame_count, 0);
 
@@ -300,6 +372,10 @@ int main(int argc, char **argv)
 			sscanf(optarg, "%d", &timeout_ms);
 			break;
 
+		case ARGS_ID_NO_DECODE:
+			video_media_type = PDRAW_VSINK_VIDEO_MEDIA_TYPE_CODED;
+			break;
+
 		default:
 			usage(argv[0]);
 			status = EXIT_FAILURE;
@@ -319,12 +395,18 @@ int main(int argc, char **argv)
 	}
 
 	/* Sync mode: polling using pdraw_vsink_get_frame() */
-	res = sync_test(url, playback_mode, camera_type, timeout_ms, count);
+	res = sync_test(url,
+			playback_mode,
+			camera_type,
+			timeout_ms,
+			count,
+			video_media_type);
 	if (res < 0)
 		ULOG_ERRNO("sync_test", -res);
 
 	/* Async mode: notify using the frame_ready callback */
-	res = async_test(url, playback_mode, camera_type, count);
+	res = async_test(
+		url, playback_mode, camera_type, count, video_media_type);
 	if (res < 0)
 		ULOG_ERRNO("async_test", -res);
 

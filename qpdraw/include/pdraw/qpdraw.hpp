@@ -77,7 +77,7 @@ public:
 	 * @return a pointer on the internal PDrAW instance on success,
 	 *         null in case of error
 	 */
-	intptr_t getInternal();
+	intptr_t getInternal() const;
 
 	/**
 	 * Get the internal event loop.

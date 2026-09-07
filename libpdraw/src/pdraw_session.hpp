@@ -58,8 +58,6 @@
 #	undef OPAQUE
 #	undef near
 #	undef far
-constexpr unsigned int IPTOS_PREC_INTERNETCONTROL = 0xc0;
-constexpr unsigned int IPTOS_PREC_FLASHOVERRIDE = 0x80;
 #else /* !_WIN32 */
 #	include <arpa/inet.h>
 #	include <netinet/ip.h>
@@ -71,10 +69,12 @@ constexpr unsigned int IPTOS_PREC_FLASHOVERRIDE = 0x80;
 #include <vector>
 
 #include <futils/futils.h>
-#include <libpomp.h>
+#include <libpomp.hpp>
 #include <pdraw/pdraw.hpp>
 
 #ifdef _WIN32
+constexpr unsigned int IPTOS_PREC_INTERNETCONTROL = 0xc0;
+constexpr unsigned int IPTOS_PREC_FLASHOVERRIDE = 0x80;
 constexpr unsigned int PIPE_BUF = 4096;
 #endif /* _WIN32 */
 
@@ -96,6 +96,8 @@ public:
 
 
 	class PipelineFactory {
+		PDRAW_DISABLE_COPY(PipelineFactory)
+
 	public:
 		explicit PipelineFactory(Session *session);
 
@@ -259,6 +261,13 @@ public:
 			IPdraw::IMuxer::Listener *listener,
 			IPdraw::IMuxer **retObj) override;
 
+	int createMuxer(const std::string &url,
+			struct mux_ctx *mux,
+			const std::string &remoteHost,
+			const struct pdraw_muxer_params *params,
+			IPdraw::IMuxer::Listener *listener,
+			IPdraw::IMuxer **retObj) override;
+
 	/* Called on the rendering thread */
 	int
 	createVideoRenderer(unsigned int mediaId,
@@ -350,7 +359,12 @@ public:
 
 	struct pomp_loop *getLoop() const
 	{
-		return mLoop;
+		return mLoop ? mLoop->get() : nullptr;
+	}
+
+	pomp::Loop *getPompLoop() const
+	{
+		return mLoop.get();
 	}
 
 	int addMediaToVideoRenderer(unsigned int mediaId,
@@ -416,12 +430,12 @@ private:
 
 	static const char *stateStr(State val);
 
-	int deleteElement(Element *element);
+	int deleteElement(const Element *element);
 
 	PipelineFactory mFactory;
 	IPdraw::Listener *mListener{};
 	State mState{State::STOPPED};
-	struct pomp_loop *mLoop{};
+	std::unique_ptr<pomp::Loop> mLoop;
 	pthread_t mLoopThread{};
 	std::recursive_mutex mMutex{};
 	Settings mSettings{};
@@ -429,20 +443,26 @@ private:
 
 	/* Calls from idle functions */
 	std::mutex mAsyncMutex{};
-	static void idleElementStateChange(void *userdata);
+	void idleElementStateChange();
+	void idleElementDelete();
+	void callStopResponse();
+	void callOnMediaAdded();
+	void callOnMediaRemoved();
+	/* callOnSocketCreated omitted. Function has to be synchronous */
+
 	std::queue<Element *> mElementStateChangeElementArgs{};
 	std::queue<Element::State> mElementStateChangeStateArgs{};
-	static void idleElementDelete(void *userdata);
 	std::queue<Element *> mElementDeleteElementArgs{};
-	static void callStopResponse(void *userdata);
 	std::queue<int> mStopRespStatusArgs{};
-	static void callOnMediaAdded(void *userdata);
 	std::queue<struct pdraw_media_info> mMediaAddedInfoArgs{};
 	std::queue<void *> mMediaAddedElementUserDataArgs{};
-	static void callOnMediaRemoved(void *userdata);
 	std::queue<struct pdraw_media_info> mMediaRemovedInfoArgs{};
 	std::queue<void *> mMediaRemovedElementUserDataArgs{};
-	/* callOnSocketCreated omitted. Function has to be synchronous */
+	pomp::Loop::IdleHandlerFunc mElementStateChangeHandler;
+	pomp::Loop::IdleHandlerFunc mElementDeleteHandler;
+	pomp::Loop::IdleHandlerFunc mStopResponseHandler;
+	pomp::Loop::IdleHandlerFunc mOnMediaAddedHandler;
+	pomp::Loop::IdleHandlerFunc mOnMediaRemovedHandler;
 };
 
 } /* namespace Pdraw */

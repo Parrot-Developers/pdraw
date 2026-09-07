@@ -96,12 +96,11 @@ private:
 
 	static bool inputFilter(struct mbuf_audio_frame *frame, void *userdata);
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	/* Audio source listener calls from idle functions */
-	static void callOnMediaAdded(void *userdata);
-
-	static void callAudioSourceFlushed(void *userdata);
+	void callOnMediaAdded();
+	void callAudioSourceFlushed();
 
 	IPdraw::IAudioSource *mAudioSource = nullptr;
 	IPdraw::IAudioSource::Listener *mAudioSourceListener = nullptr;
@@ -110,6 +109,9 @@ private:
 	std::unique_ptr<mbuf::Queue> mFrameQueue;
 	std::unique_ptr<AudioMedia> mOutputMedia{};
 	uint64_t mLastTimestamp = UINT64_MAX;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
+	pomp::Loop::IdleHandlerFunc mCallOnMediaAddedHandler;
+	pomp::Loop::IdleHandlerFunc mCallAudioSourceFlushedHandler;
 };
 
 
@@ -144,7 +146,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mSource == nullptr);

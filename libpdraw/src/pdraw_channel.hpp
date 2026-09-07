@@ -32,7 +32,7 @@
 
 #include <inttypes.h>
 
-#include <libpomp.h>
+#include <libpomp.hpp>
 #include <media-buffers/mbuf_mem.h>
 #include <media-buffers/mbuf_queue.hpp>
 
@@ -112,7 +112,7 @@ public:
 
 		virtual void
 		onChannelDownstreamEvent(Channel *channel,
-					 const struct pomp_msg *event) = 0;
+					 const pomp::Message &event) = 0;
 	};
 
 	class SourceListener {
@@ -121,16 +121,14 @@ public:
 
 		virtual void
 		onChannelUpstreamEvent(Channel *channel,
-				       const struct pomp_msg *event) = 0;
+				       const pomp::Message &event) = 0;
 	};
 
 	static const char *getDownstreamEventStr(DownstreamEvent val);
 
 	static const char *getUpstreamEventStr(UpstreamEvent val);
 
-	Channel(Sink *owner,
-		SinkListener *sinkListener,
-		struct pomp_loop *loop);
+	Channel(Sink *owner, SinkListener *sinkListener, pomp::Loop *loop);
 
 	virtual ~Channel() = 0;
 
@@ -198,17 +196,19 @@ protected:
 	Sink *mOwner = nullptr;
 
 private:
-	static void idleFlushDone(void *userdata);
+	void idleFlushDone();
 
-	static void idleDrainDone(void *userdata);
+	void idleDrainDone();
 
 	SinkListener *mSinkListener = nullptr;
 	SourceListener *mSourceListener = nullptr;
 	mbuf::Queue *mQueue = nullptr;
 	struct mbuf_pool *mPool = nullptr;
-	struct pomp_loop *mLoop = nullptr;
+	pomp::Loop *mLoop = nullptr;
 	bool mFlushPending = false;
 	bool mDrainPending = false;
+	pomp::Loop::IdleHandlerFunc mFlushDoneHandler;
+	pomp::Loop::IdleHandlerFunc mDrainDoneHandler;
 };
 
 } /* namespace Pdraw */

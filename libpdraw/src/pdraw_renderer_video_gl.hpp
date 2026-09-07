@@ -139,12 +139,11 @@ protected:
 					     struct pdraw_rect *contentPos,
 					     Eigen::Matrix4f &viewProjMat);
 
-	static void timerCb(struct pomp_timer *timer, void *userdata);
+	void onTimer();
 
-	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
+	void onWatchdogTimer();
 
-	static void videoPresStatsTimerCb(struct pomp_timer *timer,
-					  void *userdata);
+	void onVideoPresStatsTimer();
 
 	static void queueEventCb(struct pomp_evt *evt, void *userdata);
 
@@ -166,13 +165,21 @@ protected:
 		};
 		RawVideoMedia::Frame data{};
 		struct vmeta_frame *metadata = nullptr;
+		/* Non-owning pointer to the media that produced this frame,
+		 * captured at dequeue time in scheduleFrame(). Used by
+		 * onNextFrameLoaded() so that mMediaInfo always reflects the
+		 * media of the displayed frame, not the current primary media.
+		 * All accesses are under Sink::lock(). */
+		RawVideoMedia *media = nullptr;
 	} mNextFrame;
 	RawVideoMedia *mPrimaryMedia = nullptr;
+	std::unique_ptr<mbuf::Queue> mInputQueue;
 	struct pdraw_media_info mMediaInfo {
 	};
 	struct vmeta_session mMediaInfoSessionMeta {
 	};
-	struct pomp_timer *mTimer = nullptr;
+	pomp::Timer::HandlerFunc mTimerHandler;
+	std::unique_ptr<pomp::Timer> mTimer;
 	std::unique_ptr<GlVideo> mGlVideo{};
 	unsigned int mGlVideoFirstTexUnit = 0;
 	GLint mDefaultFbo = 0;
@@ -193,13 +200,14 @@ protected:
 	unsigned int mExtVideoTextureHeight = 0;
 	bool mRenderVideoOverlay = false;
 	bool mFirstFrame = false;
-	bool mFrameLoaded = false;
+	std::atomic_bool mFrameLoaded{false};
 	uint64_t mLastLoadTimestamp = UINT64_MAX;
 	uint64_t mLastRenderTimestamp = UINT64_MAX;
 	float mAvgRenderRate = 0.;
 	uint64_t mLastFrameTimestamp = UINT64_MAX;
 	VideoPresStats mVideoPresStats{};
-	struct pomp_timer *mVideoPresStatsTimer = nullptr;
+	pomp::Timer::HandlerFunc mVideoPresStatsTimerHandler;
+	std::unique_ptr<pomp::Timer> mVideoPresStatsTimer;
 	uint64_t mSchedLastInputTimestamp = UINT64_MAX;
 	uint64_t mSchedLastOutputTimestamp = UINT64_MAX;
 	bool mSchedInitialBuffering = false;
@@ -212,13 +220,19 @@ protected:
 	bool mFrameLoadedLogged = false;
 	/* Watchdog timer: triggered if no new frame is received for a given
 	 * amount of time */
-	struct pomp_timer *mWatchdogTimer = nullptr;
+	pomp::Timer::HandlerFunc mWatchdogTimerHandler;
+	std::unique_ptr<pomp::Timer> mWatchdogTimer;
 	std::atomic_bool mWatchdogTriggered{false};
 	std::atomic_bool mEos{false};
 	bool mPendingResize = false;
 	bool mMbStatusOverlay = false;
 
 private:
+	/* Actual implementation of removeInputMedia(), factored out into a
+	 * non-virtual method so the destructor never invokes anything
+	 * virtual (derived class is already destroyed by then). */
+	int removeInputMediaImpl(Media *media);
+
 	int setupExtTexture(const struct vdef_raw_frame *frameInfo);
 
 	void onNextFrameLoaded();
@@ -251,15 +265,16 @@ private:
 	int
 	scheduleFrame(uint64_t curTime, bool *load, int64_t *compensationUs);
 
-	static void idleRenewMedia(void *userdata);
-
-	static void idleStart(void *renderer);
-
+	void idleRenewMedia();
+	void idleStart();
 	void completeDrain();
-
-	static void idleCompleteDrain(void *renderer);
+	void idleCompleteDrain();
 
 	void onChannelSessionMetaUpdate(Channel *channel) override;
+
+	pomp::Loop::IdleHandlerFunc mIdleRenewMediaHandler;
+	pomp::Loop::IdleHandlerFunc mIdleStartHandler;
+	pomp::Loop::IdleHandlerFunc mIdleCompleteDrainHandler;
 };
 
 } /* namespace Pdraw */

@@ -112,8 +112,6 @@ private:
 
 	void completeStop();
 
-	void playResponse();
-
 	void pauseResponse();
 
 	void onChannelFlushed(Channel *channel) override;
@@ -122,18 +120,14 @@ private:
 
 	void onChannelUnlink(Channel *channel) override;
 
-	const char *getSourceName() const;
-
 	/* Alsa source listener calls from idle functions */
-	static void callOnMediaAdded(void *userdata);
+	void callOnMediaAdded();
 
-	static void callPlayResponse(void *userdata);
+	void callPauseResponse();
 
-	static void callPauseResponse(void *userdata);
+	void onTimer();
 
-	static void timerCb(struct pomp_timer *timer, void *userdata);
-
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	IPdraw::IAlsaSource *mAlsaSource = nullptr;
 	IPdraw::IAlsaSource::Listener *mAlsaSourceListener = nullptr;
@@ -151,7 +145,11 @@ private:
 	uint64_t mLastTimestamp = UINT64_MAX;
 	snd_pcm_t *mHandle = nullptr;
 	snd_pcm_hw_params_t *mHwParams = nullptr;
-	struct pomp_timer *mTimer = nullptr;
+	pomp::Timer::HandlerFunc mTimerHandler;
+	std::unique_ptr<pomp::Timer> mTimer;
+	pomp::Loop::IdleHandlerFunc mOnMediaAddedHandler;
+	pomp::Loop::IdleHandlerFunc mPauseResponseHandler;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
 	struct mbuf_pool *mPool = nullptr;
 	size_t mFrameSize = 0;
 	uint64_t mFirstTimestamp = 0;
@@ -177,13 +175,13 @@ public:
 
 	int pause() override;
 
+#ifdef PDRAW_USE_ALSA
 	void clearElement() override
 	{
 		ElementWrapper::clearElement();
-#ifdef PDRAW_USE_ALSA
 		mSource = nullptr;
-#endif
 	}
+#endif
 
 #ifdef PDRAW_USE_ALSA
 	Source *getSource() const
@@ -198,7 +196,7 @@ public:
 #endif
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped()
 #ifdef PDRAW_USE_ALSA

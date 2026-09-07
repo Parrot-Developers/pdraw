@@ -36,6 +36,7 @@
 #include <atomic>
 #include <climits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <pdraw/pdraw_defs.h>
@@ -73,7 +74,7 @@ public:
 
 	const std::string &getPath() const;
 
-	void setPath(const std::string &name);
+	void setPath(std::string_view name);
 
 	void setPath(const char *name);
 
@@ -93,18 +94,53 @@ public:
 
 	static void cleanupMediaInfo(struct pdraw_media_info *minfo);
 
-	Type type = Type::UNKNOWN;
-	unsigned int id = UINT_MAX;
-	enum pdraw_playback_type playbackType = PDRAW_PLAYBACK_TYPE_UNKNOWN;
-	uint64_t duration = 0;
+	Type getType() const
+	{
+		return mType;
+	}
+
+	unsigned int getId() const
+	{
+		return mId;
+	}
+
+	enum pdraw_playback_type getPlaybackType() const
+	{
+		return mPlaybackType;
+	}
+
+	uint64_t getDuration() const
+	{
+		return mDuration;
+	}
+
+	void setPlaybackType(enum pdraw_playback_type pt)
+	{
+		mPlaybackType = pt;
+	}
+
+	void setDuration(uint64_t d)
+	{
+		mDuration = d;
+	}
+
+	void copyPropertiesFrom(const Media *src)
+	{
+		mPlaybackType = src->mPlaybackType;
+		mDuration = src->mDuration;
+	}
 
 protected:
 	void setClassName(const std::string &name);
 
 	void setClassName(const char *name);
 
+	Type mType = Type::UNKNOWN;
+	unsigned int mId = UINT_MAX;
+	enum pdraw_playback_type mPlaybackType = PDRAW_PLAYBACK_TYPE_UNKNOWN;
+	uint64_t mDuration = 0;
+
 private:
-	Session *mSession = nullptr;
 	bool mTearingDown = false;
 	std::string mName{};
 	std::string mPath{};

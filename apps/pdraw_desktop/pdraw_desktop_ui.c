@@ -101,7 +101,7 @@ static void user_event(struct pdraw_desktop *self, SDL_UserEvent *event)
 }
 
 
-static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
+static void sdl_event(struct pdraw_desktop *self, const SDL_Event *event)
 {
 	int res;
 
@@ -202,6 +202,8 @@ static void sdl_event(struct pdraw_desktop *self, SDL_Event *event)
 			break;
 		case SDLK_t:
 			pdraw_desktop_toggle_demuxer_media(self);
+			break;
+		default:
 			break;
 		}
 		break;
@@ -369,7 +371,7 @@ void pdraw_desktop_ui_send_quit_event(void)
 }
 
 
-void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
+void pdraw_desktop_ui_send_user_event(const struct pdraw_desktop *self,
 				      enum pdraw_desktop_event evt,
 				      void *data1,
 				      void *data2)
@@ -384,10 +386,11 @@ void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
 }
 
 
-static void
-get_rect(struct pdraw_desktop *self, struct pdraw_rect *rect, unsigned int idx)
+static void get_rect(const struct pdraw_desktop *self,
+		     struct pdraw_rect *rect,
+		     unsigned int idx)
 {
-	unsigned int layout_idx = self->video_media_count - 1;
+	size_t layout_idx = self->video_media_count - 1;
 	unsigned int h = layout[layout_idx].h;
 	unsigned int v = layout[layout_idx].v;
 	unsigned int x = idx % h;
@@ -395,7 +398,8 @@ get_rect(struct pdraw_desktop *self, struct pdraw_rect *rect, unsigned int idx)
 	if (idx / h == v - 1) {
 		/* Last line */
 		idx -= (self->video_media_count / h) * h;
-		h = self->video_media_count - (self->video_media_count / h) * h;
+		h = (unsigned int)self->video_media_count -
+		    ((unsigned int)self->video_media_count / h) * h;
 		if (h == 0)
 			h = layout[layout_idx].h;
 		x = idx % h;
@@ -462,7 +466,7 @@ static void pdraw_desktop_ui_add_video_media(struct pdraw_desktop *self,
 	}
 	if (self->video_renderer_count >= self->video_media_count) {
 		ULOGW("no video renderer available for the new media "
-		      "(%d video renderer(s) >= %d media(s))",
+		      "(%zu video renderer(s) >= %zu media(s))",
 		      self->video_renderer_count,
 		      self->video_media_count);
 		self->video_renderer_pending_media_id = media_id;

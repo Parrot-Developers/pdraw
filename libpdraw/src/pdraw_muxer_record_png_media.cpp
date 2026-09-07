@@ -30,12 +30,14 @@
 
 #define ULOG_TAG pdraw_recmux_png_media
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_png.hpp"
 #include "pdraw_muxer_record_png_media.hpp"
 
 #include <media-buffers/mbuf_coded_video_frame.h>
+#include <video-metadata/vmeta.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -65,49 +67,16 @@ int PngRecordMuxer::PngMuxerMedia::setup(
 }
 
 
-/* Called on the writer thread */
-int PngRecordMuxer::PngMuxerMedia::processFrame(
-	struct mbuf_coded_video_frame *frame)
+int PngRecordMuxer::PngMuxerMedia::internalSerialize(
+	const uint8_t *buf,
+	size_t len,
+	std::vector<struct iovec> &iov,
+	uint8_t **headerBuf)
 {
-	int res = 0;
-	const void *buf = nullptr;
-	size_t len;
-	struct vdef_coded_frame info = {};
-	int naluCount;
-
-	PDRAW_CHECK_MUXER_WRITER_THREAD(true);
-
-	naluCount = mbuf_coded_video_frame_get_nalu_count(frame);
-	if (naluCount <= 0) {
-		PDRAW_LOGE("Invalid NALU count: %d", naluCount);
-		return -EINVAL;
-	}
-
-	res = mbuf_coded_video_frame_get_frame_info(frame, &info);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_frame_info", -res);
-		return res;
-	}
-
-	res = mbuf_coded_video_frame_get_packed_buffer(frame, &buf, &len);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_packed_buffer",
-				-res);
-		return res;
-	}
-
-	struct iovec iov[1];
-	iov[0].iov_base = const_cast<void *>(buf);
-	iov[0].iov_len = len;
-	int iovcnt = 1;
-
-	res = mPngMuxer->saveToDiskIov(
-		iov, iovcnt, mPngMuxer->mStats.record.coded_video_frames);
-
-	if (buf)
-		mbuf_coded_video_frame_release_packed_buffer(frame, buf);
-
-	return res;
+	iov.clear();
+	appendIovec(iov, buf, len);
+	*headerBuf = nullptr;
+	return 0;
 }
 
 } /* namespace Pdraw */

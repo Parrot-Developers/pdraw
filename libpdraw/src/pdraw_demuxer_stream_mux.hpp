@@ -70,7 +70,7 @@ private:
 
 		int startRtpAvp() override;
 
-		int stopRtpAvp() override;
+		int stopRtpAvp() final;
 
 		int sendCtrl(struct vstrm_receiver *stream,
 			     struct tpkt_packet *pkt) override;
@@ -126,8 +126,6 @@ private:
 
 		static void ctrlCb(int fd, uint32_t events, void *userdata);
 
-		static void callFinishSetup(void *userdata);
-
 		static void proxyOpenCb(struct mux_ip_proxy *proxy,
 					uint16_t localPort,
 					void *userdata);
@@ -151,6 +149,7 @@ private:
 		bool mControlProxyOpened = false;
 		struct tpkt_packet *mRxPkt = nullptr;
 		size_t mRxBufLen = 0;
+		pomp::Loop::IdleHandlerFunc mCallFinishSetupHandler;
 		static const struct rtsp_header_ext mHeaderExt;
 		static const size_t mHeaderExtCount;
 	};

@@ -93,7 +93,7 @@ private:
 
 	static void stopCb(struct adec_decoder *dec, void *userdata);
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	AudioMedia *mInputMedia = nullptr;
 	std::unique_ptr<AudioMedia> mOutputMedia{};
@@ -104,6 +104,8 @@ private:
 	bool mOutputChannelDrainRequired = false;
 	bool mAdecFlushPending = false;
 	bool mAdecStopPending = false;
+	bool mAdecStopIssued = false;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
 	static const struct adec_cbs mDecoderCbs;
 };
 

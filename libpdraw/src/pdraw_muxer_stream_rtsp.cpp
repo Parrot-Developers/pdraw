@@ -30,17 +30,17 @@
 
 #define ULOG_TAG pdraw_rtspmuxer
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_stream_rtsp.hpp"
 #include "pdraw_muxer_stream_rtsp_video_media.hpp"
 #include "pdraw_session.hpp"
 
+#include <array>
 #include <time.h>
 
-#include <array>
 #include <media-buffers/mbuf_mem_generic.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #define LOG_STREAM_EVT(event_var, self, res, fmt, ...)                         \
 	ULOG_EVT("STREAM",                                                     \
@@ -54,17 +54,18 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 
 constexpr const char *CONTROL_URL = "streamid=0";
+constexpr const char *DEFAULT_HOST_ADDRESS = "0.0.0.0";
 
 
 namespace Pdraw {
 
 
-constexpr size_t NB_SUPPORTED_FORMATS = 1;
-static std::array<vdef_coded_format, NB_SUPPORTED_FORMATS> supportedFormats;
-static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
-static void initializeSupportedFormats()
+static const std::array<vdef_coded_format, 1> &getSupportedFormats()
 {
-	supportedFormats[0] = vdef_h264_avcc;
+	static const std::array<vdef_coded_format, 1> formats = {{
+		vdef_h264_avcc,
+	}};
+	return formats;
 }
 
 
@@ -102,13 +103,15 @@ RtspStreamMuxer::RtspStreamMuxer(Session *session,
 		Muxer(session, elementListener, listener, wrapper, params),
 		mUrl(RtspUrl::create(url))
 {
-	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
-
 	Element::setClassName(__func__);
-	setCodedVideoMediaFormatCaps(supportedFormats.data(),
-				     supportedFormats.size());
+	setCodedVideoMediaFormatCaps(
+		getSupportedFormats().data(),
+		static_cast<int>(getSupportedFormats().size()));
 
 	mStats.type = PDRAW_MUXER_TYPE_RTSP;
+
+	mRtspDisconnectHandler.set([this] { idleRtspDisconnect(); });
+	mCompleteTeardownHandler.set([this] { idleCompleteTeardown(); });
 }
 
 
@@ -145,7 +148,7 @@ int RtspStreamMuxer::addInputMedia(
 		return -ENOSYS;
 	}
 
-	auto videoMedia = make_unique<VideoMedia>(this, mParams.rtsp_transport);
+	auto videoMedia = createVideoMedia(mParams.rtsp_transport);
 	res = videoMedia->setup(CONTROL_URL, media);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("VideoMedia::setup", -res);
@@ -161,13 +164,22 @@ int RtspStreamMuxer::addInputMedia(
 		return res;
 
 	mVideoMedias.push_back(std::move(videoMedia));
+
+	/* If OPTIONS completed before this media was available, send ANNOUNCE
+	 * now */
+	if (mRtspState == RtspState::OPTIONS_DONE) {
+		res = sendAnnounce();
+		if (res < 0)
+			PDRAW_LOG_ERRNO("sendAnnounce", -res);
+	}
+
 	return 0;
 }
 
 
 int RtspStreamMuxer::removeInputMedia(Media *media)
 {
-	for (auto &m : mVideoMedias) {
+	for (const auto &m : mVideoMedias) {
 		if (m->hasMedia(media)) {
 			teardownVideoMedia(m.get());
 			m->clearMedia();
@@ -183,11 +195,11 @@ int RtspStreamMuxer::setDynParams(
 {
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(dyn_params == nullptr, EINVAL);
 
-	uint32_t newSize = dyn_params->socket_tx_buffer_size;
+	size_t newSize = dyn_params->socket_tx_buffer_size;
 
 	if (newSize != 0 && mRtspClient != nullptr) {
-		int ret =
-			rtsp_client_set_socket_txbuf_size(mRtspClient, newSize);
+		int ret = rtsp_client_set_socket_txbuf_size(
+			mRtspClient, static_cast<uint32_t>(newSize));
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("rtsp_client_set_socket_txbuf_size",
 					-ret);
@@ -270,7 +282,7 @@ int RtspStreamMuxer::internalStart()
 	mSdpSession->session_id = futils_randomr64();
 	mSdpSession->session_version = 1;
 	/* Will be overriden once the client is connected */
-	mSdpSession->server_addr = strdup("0.0.0.0");
+	mSdpSession->server_addr = strdup(DEFAULT_HOST_ADDRESS);
 	/* Will be overriden once when media is added */
 	mSdpSession->session_name = strdup("Empty session");
 	mSdpSession->connection_addr = strdup(mLocalHost.c_str());
@@ -320,18 +332,16 @@ int RtspStreamMuxer::internalStart()
 
 void RtspStreamMuxer::asyncCompleteTeardown()
 {
-	int err = pomp_loop_idle_add_with_cookie(
-		this->mSession->getLoop(), idleCompleteTeardown, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCompleteTeardownHandler,
+						   this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
-void RtspStreamMuxer::idleCompleteTeardown(void *userdata)
+void RtspStreamMuxer::idleCompleteTeardown()
 {
-	auto *self = static_cast<RtspStreamMuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	self->completeTeardown();
+	completeTeardown();
 }
 
 
@@ -360,7 +370,7 @@ void RtspStreamMuxer::teardownAllVideoMedias()
 
 
 void RtspStreamMuxer::notifyVideoMediaStatsUpdate(
-	const RtspStreamMuxer::VideoMedia *media)
+	[[maybe_unused]] const RtspStreamMuxer::VideoMedia *media)
 {
 	/* Reset stats before aggregation */
 	mStats.rtsp.receiver_report_count = 0;
@@ -470,10 +480,15 @@ int RtspStreamMuxer::internalStop()
 				break;
 			}
 		}
-	} else if (mRtspState != RtspState::DISCONNECTED) {
-		disconnect = true;
 	} else {
-		mNetworkReadyForStop = true;
+		mChannelsReadyForStop = true;
+		if (mRtspState != RtspState::DISCONNECTED ||
+		    mRtspConnectionState !=
+			    RTSP_CLIENT_CONN_STATE_DISCONNECTED) {
+			disconnect = true;
+		} else {
+			mNetworkReadyForStop = true;
+		}
 	}
 	if (disconnect) {
 		ret = rtsp_client_disconnect(mRtspClient);
@@ -486,8 +501,6 @@ int RtspStreamMuxer::internalStop()
 	ret = flush();
 	if ((ret < 0) && (ret != -EALREADY))
 		PDRAW_LOG_ERRNO("flush", -ret);
-	else
-		ret = 0;
 
 	/* Stop will be async */
 	mReadyToStop = false;
@@ -499,7 +512,7 @@ int RtspStreamMuxer::internalStop()
 }
 
 
-int RtspStreamMuxer::flush(bool discard)
+int RtspStreamMuxer::flush(bool discard) const
 {
 	for (const auto &m : mVideoMedias)
 		m->flush(discard);
@@ -514,17 +527,11 @@ int RtspStreamMuxer::process()
 		return 0;
 
 	Sink::lock();
-	for (auto &media : mVideoMedias)
+	for (const auto &media : mVideoMedias)
 		media->process();
 	Sink::unlock();
 
 	return 0;
-}
-
-
-void RtspStreamMuxer::onChannelFlush(Channel *channel)
-{
-	Muxer::onChannelFlush(channel);
 }
 
 
@@ -541,21 +548,34 @@ void RtspStreamMuxer::onChannelDrain(Channel *channel)
 }
 
 
-void RtspStreamMuxer::setRtspState(RtspStreamMuxer::RtspState state)
+void RtspStreamMuxer::setRtspState(RtspStreamMuxer::RtspState state,
+				   enum rtsp_client_conn_state connState)
 {
-	if (state == mRtspState)
+	if (state == mRtspState && connState == mRtspConnectionState)
 		return;
 
+	if (state != mRtspState)
+		PDRAW_LOGI("RTSP state change to %s", getRtspStateStr(state));
+
 	mRtspState = state;
-	PDRAW_LOGI("RTSP state change to %s", getRtspStateStr(mRtspState));
+	mRtspConnectionState = connState;
 
 	mStats.rtsp.is_connected = (mRtspState == RtspState::SETUP_DONE);
 	mHasBeenConnected |= (mRtspState == RtspState::CONNECTED);
 
 	/* Notify connection state changed */
-	onConnectionStateChanged(
-		rtspStateToMuxerConnectionState(mRtspState),
-		PDRAW_MUXER_DISCONNECTION_REASON_UNKNOWN); /* TODO */
+
+	enum pdraw_muxer_connection_state muxerConnState =
+		rtspStateToMuxerConnectionState(mRtspState);
+	if (connState == RTSP_CLIENT_CONN_STATE_CONNECTING)
+		muxerConnState = PDRAW_MUXER_CONNECTION_STATE_CONNECTING;
+	onConnectionStateChanged(muxerConnState, computeDisconnectionReason());
+}
+
+
+void RtspStreamMuxer::setRtspState(RtspStreamMuxer::RtspState state)
+{
+	return setRtspState(state, mRtspConnectionState);
 }
 
 
@@ -819,6 +839,14 @@ void RtspStreamMuxer::onRtspSocketCreated(int fd, void *userdata)
 			free(self->mSdpSession->server_addr);
 			self->mSdpSession->server_addr =
 				strdup(self->mUrl->getResolvedHost().c_str());
+			if (self->mUrl->getResolvedHost() ==
+			    DEFAULT_HOST_ADDRESS) {
+				/* Some servers have been observed to return
+				 * 0.0.0.0 when the destination address is
+				 * unavailable; treat it as an error. */
+				self->asyncRtspDisconnect();
+				return;
+			}
 		}
 	}
 
@@ -826,24 +854,26 @@ void RtspStreamMuxer::onRtspSocketCreated(int fd, void *userdata)
 }
 
 
-void RtspStreamMuxer::onReadyToSendCb(struct rtsp_client *client,
-				      void *userdata)
+void RtspStreamMuxer::onReadyToSendCb(
+	[[maybe_unused]] struct rtsp_client *client,
+	void *userdata)
 {
-	auto *self = static_cast<RtspStreamMuxer *>(userdata);
+	const auto *self = static_cast<RtspStreamMuxer *>(userdata);
 
 	for (const auto &m : self->mVideoMedias)
 		m->notifyReadyToSend();
 }
 
 
-void RtspStreamMuxer::onRtspInterleavedDataCb(struct rtsp_client *client,
-					      uint8_t channel,
-					      const uint8_t *data,
-					      size_t len,
-					      void *userdata)
+void RtspStreamMuxer::onRtspInterleavedDataCb(
+	[[maybe_unused]] struct rtsp_client *client,
+	uint8_t channel,
+	const uint8_t *data,
+	size_t len,
+	void *userdata)
 {
 	int res;
-	auto *self = static_cast<RtspStreamMuxer *>(userdata);
+	const auto *self = static_cast<RtspStreamMuxer *>(userdata);
 	struct pomp_buffer *buf = nullptr;
 	struct tpkt_packet *pkt = nullptr;
 	bool found = false;
@@ -912,22 +942,22 @@ void RtspStreamMuxer::onRtspInterleavedDataCb(struct rtsp_client *client,
 
 void RtspStreamMuxer::asyncRtspDisconnect()
 {
-	int err = pomp_loop_idle_add_with_cookie(
-		this->mSession->getLoop(), idleRtspDisconnect, this, this);
+	int err =
+		mSession->getPompLoop()->idleAdd(&mRtspDisconnectHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
-void RtspStreamMuxer::idleRtspDisconnect(void *userdata)
+void RtspStreamMuxer::idleRtspDisconnect()
 {
-	auto *self = static_cast<RtspStreamMuxer *>(userdata);
 	int res;
 
-	if (self->mRtspState == RtspState::DISCONNECTED)
+	if (mRtspConnectionState == RTSP_CLIENT_CONN_STATE_DISCONNECTED ||
+	    mRtspConnectionState == RTSP_CLIENT_CONN_STATE_DISCONNECTING)
 		return;
 
-	res = rtsp_client_disconnect(self->mRtspClient);
+	res = rtsp_client_disconnect(mRtspClient);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("rtsp_client_disconnect", -res);
 		return;
@@ -935,25 +965,25 @@ void RtspStreamMuxer::idleRtspDisconnect(void *userdata)
 }
 
 
-void RtspStreamMuxer::onRtspConnectionState(struct rtsp_client *client,
-					    enum rtsp_client_conn_state state,
-					    void *userdata)
+void RtspStreamMuxer::onRtspConnectionState(
+	[[maybe_unused]] struct rtsp_client *client,
+	enum rtsp_client_conn_state state,
+	void *userdata)
 {
-	PDRAW_UNUSED(client);
 
 	int err = 0;
 	auto *self = static_cast<RtspStreamMuxer *>(userdata);
 
 	/* Reset flag */
 	self->mAnnounceRetried = false;
-	self->mRtspConnectionState = state;
 
 	PDRAW_LOGI("RTSP client %s", rtsp_client_conn_state_str(state));
 
 	switch (state) {
 	case RTSP_CLIENT_CONN_STATE_DISCONNECTED:
-		self->setRtspState(RtspState::DISCONNECTED);
+		self->setRtspState(RtspState::DISCONNECTED, state);
 		self->mNetworkReadyForStop = true;
+		self->mChannelsReadyForStop = true;
 
 		if (self->mState == State::STOPPING)
 			self->tryCompleteStop();
@@ -963,13 +993,19 @@ void RtspStreamMuxer::onRtspConnectionState(struct rtsp_client *client,
 		 * send OPTIONS request */
 		if (self->mRtspState != RtspState::DISCONNECTED)
 			break;
-		self->setRtspState(RtspState::CONNECTED);
+		self->setRtspState(RtspState::CONNECTED, state);
 
 		err = self->sendOptions();
 		if (err < 0)
 			PDRAW_LOG_ERRNO("sendOptions", -err);
 		break;
 	case RTSP_CLIENT_CONN_STATE_CONNECTING:
+		if (self->mState == State::STOPPING) {
+			self->asyncRtspDisconnect();
+			break;
+		}
+		self->setRtspState(RtspState::DISCONNECTED, state);
+		break;
 	case RTSP_CLIENT_CONN_STATE_DISCONNECTING:
 		if (self->mState == State::STOPPING)
 			self->asyncRtspDisconnect();
@@ -980,20 +1016,28 @@ void RtspStreamMuxer::onRtspConnectionState(struct rtsp_client *client,
 			   rtsp_client_conn_state_str(state));
 		break;
 	}
+
+	self->mRtspConnectionState = state;
 }
 
 
-void RtspStreamMuxer::onRtspSessionRemoved(struct rtsp_client *client,
-					   const char *session_id,
-					   int status,
-					   void *userdata)
+void RtspStreamMuxer::onRtspSessionRemoved(
+	[[maybe_unused]] struct rtsp_client *client,
+	const char *session_id,
+	int status,
+	void *userdata)
 {
-	PDRAW_UNUSED(client);
 
 	constexpr const char *OP = "session remove";
 	constexpr const char *OP_EVT = "client_session_removed";
 
 	auto *self = static_cast<RtspStreamMuxer *>(userdata);
+	int derivedStatus = (status != 0) ? status : -EPROTO;
+
+	self->registerLastRequest(status,
+				  derivedStatus,
+				  RTSP_CLIENT_REQ_STATUS_OK,
+				  self->mRtspState);
 
 	if (!self->checkSessionId(session_id, OP))
 		return;
@@ -1018,7 +1062,7 @@ void RtspStreamMuxer::onRtspSessionRemoved(struct rtsp_client *client,
 		 * call unrecoverableError instead, and it is the
 		 * application's responsibility to stop and destroy the
 		 * demuxer and create a new one. */
-		self->onUnrecoverableError(-EPROTO);
+		self->onUnrecoverableError(derivedStatus);
 	}
 }
 
@@ -1041,12 +1085,16 @@ int RtspStreamMuxer::sendAnnounce()
 	int res;
 	char *rawSdp = nullptr;
 
+	/* Defer until at least one media track has been added */
+	if (mVideoMedias.empty())
+		return 0;
+
 	res = sdp_description_write(mSdpSession, &rawSdp);
 	if (res < 0) {
 		PDRAW_LOG_ERRNO("sdp_description_write", -res);
 		return res;
 	}
-	std::unique_ptr<char, decltype(&free)> sdp(rawSdp, &free);
+	unique_c_ptr<char> sdp(rawSdp);
 
 	res = rtsp_client_announce(mRtspClient,
 				   mUrl->getStreamName().c_str(),
@@ -1061,7 +1109,8 @@ int RtspStreamMuxer::sendAnnounce()
 }
 
 
-bool RtspStreamMuxer::checkSessionId(const char *sessionId, const char *op)
+bool RtspStreamMuxer::checkSessionId(const char *sessionId,
+				     const char *op) const
 {
 	if (sessionId == nullptr) {
 		PDRAW_LOGE("empty session id");
@@ -1080,9 +1129,80 @@ bool RtspStreamMuxer::checkSessionId(const char *sessionId, const char *op)
 }
 
 
+void RtspStreamMuxer::registerLastRequest(
+	int status,
+	int derivedStatus,
+	enum rtsp_client_req_status req_status,
+	RtspState state)
+{
+	mDisconnection.lastStatus = derivedStatus;
+	mDisconnection.lastReqSucceeded =
+		(req_status == RTSP_CLIENT_REQ_STATUS_OK) && (status == 0);
+	mDisconnection.lastState = state;
+}
+
+
+enum pdraw_muxer_disconnection_reason
+RtspStreamMuxer::computeDisconnectionReason()
+{
+	if (mHasBeenConnected && mDisconnection.lastReqSucceeded) {
+		mDisconnection.reason =
+			PDRAW_MUXER_DISCONNECTION_REASON_CLIENT_REQUEST;
+		return mDisconnection.reason;
+	} else if (!mHasBeenConnected) {
+		mDisconnection.reason =
+			PDRAW_MUXER_DISCONNECTION_REASON_NETWORK_ERROR;
+		if (mUrl->getResolvedHost() == DEFAULT_HOST_ADDRESS) {
+			/* Some servers have been observed to return 0.0.0.0
+			 * when the
+			 * destination address is unavailable; treat it as an
+			 * error. */
+			mDisconnection.reason =
+				PDRAW_MUXER_DISCONNECTION_REASON_REFUSED;
+		}
+		return mDisconnection.reason;
+	}
+
+	switch (mDisconnection.lastStatus) {
+	case -EACCES:
+		mDisconnection.reason =
+			PDRAW_MUXER_DISCONNECTION_REASON_REFUSED;
+		break;
+	case -ETIMEDOUT:
+		mDisconnection.reason =
+			PDRAW_MUXER_DISCONNECTION_REASON_TIMEOUT;
+		break;
+	case -EPROTO:
+		/* Request aborted mid-flight, typically because the
+		 * underlying transport channel (e.g. a mux channel) failed
+		 * or was closed before a response could be received */
+		mDisconnection.reason =
+			PDRAW_MUXER_DISCONNECTION_REASON_NETWORK_ERROR;
+		break;
+	default:
+		mDisconnection.reason =
+			PDRAW_MUXER_DISCONNECTION_REASON_UNKNOWN;
+		break;
+	}
+
+	if (mUnrecoverableError.load()) {
+		switch (mUnrecoverableErrorStatus.load()) {
+		case -EPIPE:
+			mDisconnection.reason =
+				PDRAW_MUXER_DISCONNECTION_REASON_NETWORK_ERROR;
+			break;
+		default:
+			break;
+		}
+	}
+
+	return mDisconnection.reason;
+}
+
+
 int RtspStreamMuxer::checkReqStatus(int status,
 				    enum rtsp_client_req_status req_status,
-				    const char *op)
+				    const char *op) const
 {
 	int ret;
 
@@ -1121,20 +1241,16 @@ int RtspStreamMuxer::checkReqStatus(int status,
 }
 
 
-void RtspStreamMuxer::onRtspOptionsResp(struct rtsp_client *client,
-					enum rtsp_client_req_status req_status,
-					int status,
-					uint32_t methods,
-					const struct rtsp_header_ext *ext,
-					size_t ext_count,
-					void *userdata,
-					void *req_userdata)
+void RtspStreamMuxer::onRtspOptionsResp(
+	[[maybe_unused]] struct rtsp_client *client,
+	enum rtsp_client_req_status req_status,
+	int status,
+	[[maybe_unused]] uint32_t methods,
+	[[maybe_unused]] const struct rtsp_header_ext *ext,
+	[[maybe_unused]] size_t ext_count,
+	void *userdata,
+	[[maybe_unused]] void *req_userdata)
 {
-	PDRAW_UNUSED(client);
-	PDRAW_UNUSED(methods);
-	PDRAW_UNUSED(ext);
-	PDRAW_UNUSED(ext_count);
-	PDRAW_UNUSED(req_userdata);
 
 	constexpr const char *OP = "options";
 	constexpr const char *OP_EVT = "client_options_resp";
@@ -1143,6 +1259,7 @@ void RtspStreamMuxer::onRtspOptionsResp(struct rtsp_client *client,
 	int res = 0;
 
 	res = self->checkReqStatus(status, req_status, OP);
+	self->registerLastRequest(status, res, req_status, self->mRtspState);
 	if (res < 0) {
 		self->logEvent(OP_EVT, res);
 		self->onUnrecoverableError(res);
@@ -1158,18 +1275,15 @@ void RtspStreamMuxer::onRtspOptionsResp(struct rtsp_client *client,
 }
 
 
-void RtspStreamMuxer::onRtspAnnounceResp(struct rtsp_client *client,
-					 enum rtsp_client_req_status req_status,
-					 int status,
-					 const struct rtsp_header_ext *ext,
-					 size_t ext_count,
-					 void *userdata,
-					 void *req_userdata)
+void RtspStreamMuxer::onRtspAnnounceResp(
+	[[maybe_unused]] struct rtsp_client *client,
+	enum rtsp_client_req_status req_status,
+	int status,
+	[[maybe_unused]] const struct rtsp_header_ext *ext,
+	[[maybe_unused]] size_t ext_count,
+	void *userdata,
+	[[maybe_unused]] void *req_userdata)
 {
-	PDRAW_UNUSED(client);
-	PDRAW_UNUSED(ext);
-	PDRAW_UNUSED(ext_count);
-	PDRAW_UNUSED(req_userdata);
 
 	constexpr const char *OP = "announce";
 	constexpr const char *OP_EVT = "client_announce_resp";
@@ -1178,6 +1292,7 @@ void RtspStreamMuxer::onRtspAnnounceResp(struct rtsp_client *client,
 	int res = 0;
 
 	res = self->checkReqStatus(status, req_status, OP);
+	self->registerLastRequest(status, res, req_status, self->mRtspState);
 	if (res < 0) {
 		self->logEvent(OP_EVT, res);
 		if ((status == -EPERM) && !self->mAnnounceRetried) {
@@ -1197,23 +1312,20 @@ void RtspStreamMuxer::onRtspAnnounceResp(struct rtsp_client *client,
 }
 
 
-void RtspStreamMuxer::onRtspSetupResp(struct rtsp_client *client,
-				      const char *session_id,
-				      enum rtsp_client_req_status req_status,
-				      int status,
-				      uint16_t server_stream_port,
-				      uint16_t server_control_port,
-				      int ssrc_valid,
-				      uint32_t ssrc,
-				      const struct rtsp_header_ext *ext,
-				      size_t ext_count,
-				      void *userdata,
-				      void *req_userdata)
+void RtspStreamMuxer::onRtspSetupResp(
+	[[maybe_unused]] struct rtsp_client *client,
+	const char *session_id,
+	enum rtsp_client_req_status req_status,
+	int status,
+	uint16_t server_stream_port,
+	uint16_t server_control_port,
+	int ssrc_valid,
+	uint32_t ssrc,
+	[[maybe_unused]] const struct rtsp_header_ext *ext,
+	[[maybe_unused]] size_t ext_count,
+	void *userdata,
+	void *req_userdata)
 {
-	PDRAW_UNUSED(client);
-	PDRAW_UNUSED(ext);
-	PDRAW_UNUSED(ext_count);
-	PDRAW_UNUSED(req_userdata);
 
 	constexpr const char *OP = "setup";
 	constexpr const char *OP_EVT = "client_setup_resp";
@@ -1223,6 +1335,7 @@ void RtspStreamMuxer::onRtspSetupResp(struct rtsp_client *client,
 	int res = 0;
 
 	res = self->checkReqStatus(status, req_status, OP);
+	self->registerLastRequest(status, res, req_status, self->mRtspState);
 	if (res < 0) {
 		self->logEventSetupResp(
 			OP_EVT, status, session_id, media, 0, 0, false);
@@ -1262,14 +1375,15 @@ void RtspStreamMuxer::onRtspSetupResp(struct rtsp_client *client,
 }
 
 
-void RtspStreamMuxer::onRtspRecordResp(struct rtsp_client *client,
-				       const char *session_id,
-				       enum rtsp_client_req_status req_status,
-				       int status,
-				       const struct rtsp_header_ext *ext,
-				       size_t ext_count,
-				       void *userdata,
-				       void *req_userdata)
+void RtspStreamMuxer::onRtspRecordResp(
+	[[maybe_unused]] struct rtsp_client *client,
+	const char *session_id,
+	enum rtsp_client_req_status req_status,
+	int status,
+	[[maybe_unused]] const struct rtsp_header_ext *ext,
+	[[maybe_unused]] size_t ext_count,
+	void *userdata,
+	[[maybe_unused]] void *req_userdata)
 {
 	constexpr const char *OP = "record";
 	constexpr const char *OP_EVT = "client_record_resp";
@@ -1278,6 +1392,7 @@ void RtspStreamMuxer::onRtspRecordResp(struct rtsp_client *client,
 	auto *self = static_cast<RtspStreamMuxer *>(userdata);
 
 	res = self->checkReqStatus(status, req_status, OP);
+	self->registerLastRequest(status, res, req_status, self->mRtspState);
 	if (res < 0) {
 		self->logEventSession(OP_EVT, res, session_id);
 		self->onUnrecoverableError(res);
@@ -1293,14 +1408,15 @@ void RtspStreamMuxer::onRtspRecordResp(struct rtsp_client *client,
 }
 
 
-void RtspStreamMuxer::onRtspTeardownResp(struct rtsp_client *client,
-					 const char *session_id,
-					 enum rtsp_client_req_status req_status,
-					 int status,
-					 const struct rtsp_header_ext *ext,
-					 size_t ext_count,
-					 void *userdata,
-					 void *req_userdata)
+void RtspStreamMuxer::onRtspTeardownResp(
+	[[maybe_unused]] struct rtsp_client *client,
+	const char *session_id,
+	enum rtsp_client_req_status req_status,
+	int status,
+	[[maybe_unused]] const struct rtsp_header_ext *ext,
+	[[maybe_unused]] size_t ext_count,
+	void *userdata,
+	void *req_userdata)
 {
 	constexpr const char *OP = "teardown";
 	constexpr const char *OP_EVT = "client_teardown_resp";
@@ -1319,6 +1435,7 @@ void RtspStreamMuxer::onRtspTeardownResp(struct rtsp_client *client,
 		media = nullptr;
 
 	res = self->checkReqStatus(status, req_status, OP);
+	self->registerLastRequest(status, res, req_status, self->mRtspState);
 
 	if (!self->checkSessionId(session_id, OP))
 		return;
@@ -1330,18 +1447,14 @@ void RtspStreamMuxer::onRtspTeardownResp(struct rtsp_client *client,
 }
 
 
-void RtspStreamMuxer::onRtspAnnounce(struct rtsp_client *client,
-				     const char *content_base,
-				     const struct rtsp_header_ext *ext,
-				     size_t ext_count,
-				     const char *sdp,
-				     void *userdata)
+void RtspStreamMuxer::onRtspAnnounce(
+	[[maybe_unused]] struct rtsp_client *client,
+	[[maybe_unused]] const char *content_base,
+	[[maybe_unused]] const struct rtsp_header_ext *ext,
+	[[maybe_unused]] size_t ext_count,
+	[[maybe_unused]] const char *sdp,
+	void *userdata)
 {
-	PDRAW_UNUSED(client);
-	PDRAW_UNUSED(content_base);
-	PDRAW_UNUSED(ext);
-	PDRAW_UNUSED(ext_count);
-	PDRAW_UNUSED(sdp);
 
 	constexpr const char *OP_EVT = "client_announce";
 
@@ -1351,16 +1464,14 @@ void RtspStreamMuxer::onRtspAnnounce(struct rtsp_client *client,
 }
 
 
-void RtspStreamMuxer::onRtspForcedTeardown(struct rtsp_client *client,
-					   const char *path,
-					   const char *session_id,
-					   const struct rtsp_header_ext *ext,
-					   size_t ext_count,
-					   void *userdata)
+void RtspStreamMuxer::onRtspForcedTeardown(
+	[[maybe_unused]] struct rtsp_client *client,
+	const char *path,
+	const char *session_id,
+	[[maybe_unused]] const struct rtsp_header_ext *ext,
+	[[maybe_unused]] size_t ext_count,
+	void *userdata)
 {
-	PDRAW_UNUSED(client);
-	PDRAW_UNUSED(ext);
-	PDRAW_UNUSED(ext_count);
 
 	constexpr const char *OP = "forced teardown";
 	constexpr const char *OP_EVT = "forced_teardown";
@@ -1432,7 +1543,7 @@ void RtspStreamMuxer::logEventSession(const char *eventName,
 void RtspStreamMuxer::logEventMedia(const char *eventName,
 				    int res,
 				    const char *sessionId,
-				    RtspStreamMuxer::VideoMedia *media,
+				    const RtspStreamMuxer::VideoMedia *media,
 				    bool pathIsContentBase) const
 {
 	LOG_STREAM_EVT(eventName,
@@ -1446,13 +1557,14 @@ void RtspStreamMuxer::logEventMedia(const char *eventName,
 }
 
 
-void RtspStreamMuxer::logEventSetupResp(const char *eventName,
-					int res,
-					const char *sessionId,
-					RtspStreamMuxer::VideoMedia *media,
-					uint16_t srcStrmPort,
-					uint16_t srcCtrlPort,
-					bool success) const
+void RtspStreamMuxer::logEventSetupResp(
+	const char *eventName,
+	int res,
+	const char *sessionId,
+	const RtspStreamMuxer::VideoMedia *media,
+	uint16_t srcStrmPort,
+	uint16_t srcCtrlPort,
+	bool success) const
 {
 	uint16_t _srcStrmPort = success ? srcStrmPort : (uint16_t)0;
 	uint16_t _srcCtrlPort = success ? srcCtrlPort : (uint16_t)0;

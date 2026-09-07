@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_rndvid
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_renderer_video.hpp"
 #include "pdraw_renderer_video_gl.hpp"
@@ -38,25 +37,32 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <errno.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
 
-VideoRenderer *
-VideoRenderer::create(Session *session,
-		      Element::Listener *listener,
-		      VideoRendererWrapper *wrapper,
-		      IPdraw::IVideoRenderer::Listener *rndListener,
-		      unsigned int mediaId,
-		      const struct pdraw_rect *renderPos,
-		      const struct pdraw_video_renderer_params *params)
+std::unique_ptr<VideoRenderer> VideoRenderer::create(
+	[[maybe_unused]] Session *session,
+	[[maybe_unused]] Element::Listener *listener,
+	[[maybe_unused]] VideoRendererWrapper *wrapper,
+	[[maybe_unused]] IPdraw::IVideoRenderer::Listener *rndListener,
+	[[maybe_unused]] unsigned int mediaId,
+	[[maybe_unused]] const struct pdraw_rect *renderPos,
+	[[maybe_unused]] const struct pdraw_video_renderer_params *params)
 {
 #if defined(PDRAW_USE_GL)
-	return new GlVideoRenderer(session,
-				   listener,
-				   wrapper,
-				   rndListener,
-				   mediaId,
-				   renderPos,
-				   params);
+	try {
+		return std::make_unique<GlVideoRenderer>(session,
+							 listener,
+							 wrapper,
+							 rndListener,
+							 mediaId,
+							 renderPos,
+							 params);
+	} catch (const std::bad_alloc &) {
+		ULOGE("%s: failed to allocate renderer", __func__);
+		return nullptr;
+	}
 #else
 	ULOGE("no video renderer implementation found");
 	return nullptr;
@@ -69,12 +75,12 @@ VideoRenderer::VideoRenderer(
 	Element::Listener *listener,
 	VideoRendererWrapper *wrapper,
 	IPdraw::IVideoRenderer::Listener *rndListener,
-	uint32_t mediaTypeCaps,
+	[[maybe_unused]] uint32_t mediaTypeCaps,
 	const struct vdef_raw_format *rawVideoMediaFormatCaps,
 	int rawVideoMediaFormatCapsCount,
-	unsigned int mediaId,
-	const struct pdraw_rect *renderPos,
-	const struct pdraw_video_renderer_params *params) :
+	[[maybe_unused]] unsigned int mediaId,
+	[[maybe_unused]] const struct pdraw_rect *renderPos,
+	[[maybe_unused]] const struct pdraw_video_renderer_params *params) :
 		SinkElement(session,
 			    listener,
 			    wrapper,
@@ -87,10 +93,8 @@ VideoRenderer::VideoRenderer(
 			    0),
 		mRenderer(wrapper), mRendererListener(rndListener)
 {
-	PDRAW_UNUSED(mediaTypeCaps);
-	PDRAW_UNUSED(mediaId);
-	PDRAW_UNUSED(renderPos);
-	PDRAW_UNUSED(params);
+
+	mCompleteStopHandler.set([this] { idleCompleteStop(); });
 }
 
 
@@ -100,34 +104,29 @@ VideoRenderer::~VideoRenderer()
 	removeRendererListener();
 
 	/* Remove any leftover idle callbacks */
-	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+	mSession->getPompLoop()->idleRemove(this);
 }
 
 
 void VideoRenderer::removeRendererListener()
 {
-	std::unique_lock<std::mutex> lock(mListenerMutex);
+	std::scoped_lock lock(mListenerMutex);
 	mRendererListener = nullptr;
 }
 
 
 void VideoRenderer::asyncCompleteStop()
 {
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleCompleteStop, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCompleteStopHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("Loop::idleAdd", -err);
 }
 
 
 /* Call from an idle function on the loop thread */
-void VideoRenderer::idleCompleteStop(void *userdata)
+void VideoRenderer::idleCompleteStop()
 {
-	auto *self = static_cast<VideoRenderer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	self->completeStop();
+	completeStop();
 }
 
 
@@ -137,16 +136,12 @@ VideoRendererWrapper::VideoRendererWrapper(
 	unsigned int mediaId,
 	const struct pdraw_rect *renderPos,
 	const struct pdraw_video_renderer_params *params,
-	IPdraw::IVideoRenderer::Listener *listener) :
-		ElementWrapper(Pdraw::VideoRenderer::create(session,
-							    session,
-							    this,
-							    listener,
-							    mediaId,
-							    renderPos,
-							    params)),
-		mRenderer(static_cast<Pdraw::VideoRenderer *>(mElement))
+	IPdraw::IVideoRenderer::Listener *listener)
 {
+	auto impl = Pdraw::VideoRenderer::create(
+		session, session, this, listener, mediaId, renderPos, params);
+	mRenderer = impl.get();
+	mElement = impl.release();
 }
 
 

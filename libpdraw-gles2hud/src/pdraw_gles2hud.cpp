@@ -28,8 +28,9 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_gles2hud_priv.h"
-ULOG_DECLARE_TAG(pdraw_gles2hud);
+#include "pdraw_gles2hud_priv.hpp"
+#include <array>
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 /* used to test the radar on records */
 #if 0
@@ -37,49 +38,46 @@ ULOG_DECLARE_TAG(pdraw_gles2hud);
 #endif
 
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
-
-
-enum drone_model {
+enum class DroneModel {
 	/* Unknown drone model */
-	DRONE_MODEL_UNKNOWN = 0,
+	UNKNOWN = 0,
 
 	/* Parrot Bebop */
-	DRONE_MODEL_BEBOP,
+	BEBOP,
 
 	/* Parrot Bebop 2 */
-	DRONE_MODEL_BEBOP2,
+	BEBOP2,
 
 	/* Parrot Disco */
-	DRONE_MODEL_DISCO,
+	DISCO,
 
 	/* Parrot Bluegrass */
-	DRONE_MODEL_BLUEGRASS,
+	BLUEGRASS,
 
 	/* Parrot ANAFI 4K */
-	DRONE_MODEL_ANAFI_4K,
+	ANAFI_4K,
 
 	/* Parrot ANAFI Thermal */
-	DRONE_MODEL_ANAFI_THERMAL,
+	ANAFI_THERMAL,
 
 	/* Parrot ANAFI UA */
-	DRONE_MODEL_ANAFI_UA,
+	ANAFI_UA,
 
 	/* Parrot ANAFI USA */
-	DRONE_MODEL_ANAFI_USA,
+	ANAFI_USA,
 
 	/* Parrot ANAFI Ai */
-	DRONE_MODEL_ANAFI_AI,
+	ANAFI_AI,
 
 	/* Parrot ANAFI3 MIL */
-	DRONE_MODEL_ANAFI3_MIL,
+	ANAFI3_MIL,
 
 	/* Parrot ANAFI3 GOV */
-	DRONE_MODEL_ANAFI3_GOV,
+	ANAFI3_GOV,
 };
 
 
-static const char *const heading_str[] = {
+static constexpr std::array<const char *, 8> heading_str = {{
 	".N.",
 	"NW",
 	"W",
@@ -88,71 +86,81 @@ static const char *const heading_str[] = {
 	"SE",
 	"E",
 	"NE",
-};
+}};
 
-static const char *const flying_state_str[] = {
+static constexpr std::array<const char *, 6> flying_state_str = {{
 	"LANDED",
 	"TAKING OFF",
 	"HOVERING",
 	"FLYING",
 	"LANDING",
 	"EMERGENCY",
-};
+}};
 
-static const char *const piloting_mode_str[] = {
+static constexpr std::array<const char *, 4> piloting_mode_str = {{
 	"MANUAL",
 	"RETURN HOME",
 	"FLIGHT PLAN",
 	"FOLLOW ME",
-};
+}};
 
-static const char *const link_type_str[] = {
+static constexpr std::array<const char *, 5> link_type_str = {{
 	"",
 	"LO",
 	"LAN",
 	"WLAN",
 	"CELL",
-};
+}};
 
-static const float color_green[4] = {0.0f, 0.9f, 0.0f, 1.0f};
+static constexpr std::array<float, 4> color_green = {0.0f, 0.9f, 0.0f, 1.0f};
 
-static const float color_dark_green[4] = {0.0f, 0.5f, 0.0f, 1.0f};
+static constexpr std::array<float, 4> color_dark_green = {0.0f,
+							  0.5f,
+							  0.0f,
+							  1.0f};
 
-static const float color_black_alpha[4] = {0.0f, 0.0f, 0.0f, 0.66f};
+static constexpr std::array<float, 4> color_black_alpha = {0.0f,
+							   0.0f,
+							   0.0f,
+							   0.66f};
 
-static const float color_dark_blue[4] = {0.0f, 0.0f, 0.54f, 1.0f};
+static constexpr std::array<float, 4> color_dark_blue = {0.0f,
+							 0.0f,
+							 0.54f,
+							 1.0f};
 
 
-static const struct {
+struct DroneModelInfo {
 	const char *model_id;
 	const char *model_str;
 	const char *friendly_name;
 	int icon_index;
-} drone_model_info[] = {
-	{"", "", "", -1}, /* DRONE_MODEL_UNKNOWN */
-	{"0901", "Bebop", "Parrot Bebop", 0}, /* DRONE_MODEL_BEBOP */
-	{"090c", "Bebop 2", "Parrot Bebop 2", 2}, /* DRONE_MODEL_BEBOP2 */
-	{"090e", "Disco", "Parrot Disco", 1}, /* DRONE_MODEL_DISCO */
-	{"0916", "Bluegrass", nullptr, 2}, /* DRONE_MODEL_BLUEGRASS */
-	{"0914", "Anafi", nullptr, 2}, /* DRONE_MODEL_ANAFI_4K */
-	{"0919", "AnafiThermal", nullptr, 2}, /* DRONE_MODEL_ANAFI_THERMAL */
-	{"091b", "AnafiUA", nullptr, 2}, /* DRONE_MODEL_ANAFI_UA */
-	{"091e", "AnafiUSA", nullptr, 2}, /* DRONE_MODEL_ANAFI_USA */
-	{"091a", "ANAFI Ai", nullptr, 2}, /* DRONE_MODEL_ANAFI_AI */
-	{"0920", "ANAFI3-MIL", nullptr, 2}, /* DRONE_MODEL_ANAFI3_MIL */
-	{"0920", "ANAFI3-GOV", nullptr, 2}, /* DRONE_MODEL_ANAFI3_GOV
-					       TODO: model_id not
-					       available yet */
 };
 
+static constexpr std::array<DroneModelInfo, 12> drone_model_info = {{
+	{"", "", "", -1}, /* DroneModel::UNKNOWN */
+	{"0901", "Bebop", "Parrot Bebop", 0}, /* DroneModel::BEBOP */
+	{"090c", "Bebop 2", "Parrot Bebop 2", 2}, /* DroneModel::BEBOP2 */
+	{"090e", "Disco", "Parrot Disco", 1}, /* DroneModel::DISCO */
+	{"0916", "Bluegrass", nullptr, 2}, /* DroneModel::BLUEGRASS */
+	{"0914", "Anafi", nullptr, 2}, /* DroneModel::ANAFI_4K */
+	{"0919", "AnafiThermal", nullptr, 2}, /* DroneModel::ANAFI_THERMAL */
+	{"091b", "AnafiUA", nullptr, 2}, /* DroneModel::ANAFI_UA */
+	{"091e", "AnafiUSA", nullptr, 2}, /* DroneModel::ANAFI_USA */
+	{"091a", "ANAFI Ai", nullptr, 2}, /* DroneModel::ANAFI_AI */
+	{"0920", "ANAFI3-MIL", nullptr, 2}, /* DroneModel::ANAFI3_MIL */
+	{"0920", "ANAFI3-GOV", nullptr, 2}, /* DroneModel::ANAFI3_GOV
+					       TODO: model_id not
+					       available yet */
+}};
 
-static enum drone_model
-get_drone_model(const struct vmeta_session *session_meta)
+
+static DroneModel get_drone_model(const struct vmeta_session *session_meta)
 {
 	ULOG_ERRNO_RETURN_VAL_IF(
-		session_meta == nullptr, EINVAL, DRONE_MODEL_UNKNOWN);
+		session_meta == nullptr, EINVAL, DroneModel::UNKNOWN);
 
-	for (size_t i = 0; i < ARRAY_SIZE(drone_model_info); i++) {
+	for (size_t i = 0; i < drone_model_info.size(); i++) {
 		bool found = strcasecmp(drone_model_info[i].model_id,
 					session_meta->model_id) == 0;
 		found |= strcasecmp(drone_model_info[i].model_str,
@@ -161,9 +169,9 @@ get_drone_model(const struct vmeta_session *session_meta)
 			 strcasecmp(drone_model_info[i].friendly_name,
 				    session_meta->friendly_name) == 0;
 		if (found)
-			return (enum drone_model)i;
+			return static_cast<DroneModel>(i);
 	}
-	return DRONE_MODEL_UNKNOWN;
+	return DroneModel::UNKNOWN;
 }
 
 
@@ -174,7 +182,6 @@ static const char *get_active_link(struct vmeta_frame *meta)
 	const char *ret = "";
 	const Vmeta__TimedMetadata *tm;
 	const Vmeta__LinkMetadata *link;
-	size_t i;
 
 	if (meta->type != VMETA_FRAME_TYPE_PROTO)
 		return link_type_str[VMETA__LINK_TYPE__LINK_TYPE_WLAN];
@@ -192,11 +199,18 @@ static const char *get_active_link(struct vmeta_frame *meta)
 		goto out;
 	}
 
-	for (i = 0; i < link->starfish->n_links; i++) {
+	for (size_t i = 0; i < link->starfish->n_links; i++) {
 		if (!link->starfish->links[i]->active)
 			continue;
 		count++;
-		ret = link_type_str[link->starfish->links[i]->type];
+		auto type = static_cast<size_t>(link->starfish->links[i]->type);
+		if (type >= link_type_str.size()) {
+			ULOGW("unsupported link type: %d",
+			      link->starfish->links[i]->type);
+			ret = "";
+			continue;
+		}
+		ret = link_type_str[type];
 	}
 
 	if (count > 1)
@@ -207,10 +221,12 @@ out:
 	return ret;
 }
 
-static const struct {
+struct TrackingObjectEntry {
 	const char *object_name;
 	enum _Vmeta__TrackingClass object_class;
-} tracking_object_map[] = {
+};
+
+static constexpr std::array<TrackingObjectEntry, 8> tracking_object_map = {{
 	{"Undefined", VMETA__TRACKING_CLASS__TC_UNDEFINED},
 	{"Person", VMETA__TRACKING_CLASS__TC_PERSON},
 	{"Animal", VMETA__TRACKING_CLASS__TC_ANIMAL},
@@ -219,15 +235,15 @@ static const struct {
 	{"Car", VMETA__TRACKING_CLASS__TC_CAR},
 	{"Horse", VMETA__TRACKING_CLASS__TC_HORSE},
 	{"Motorbike", VMETA__TRACKING_CLASS__TC_MOTORBIKE},
-};
+}};
 
 
 static const char *
 get_tracking_object(const enum _Vmeta__TrackingClass object_class)
 {
-	for (size_t i = 0; i < ARRAY_SIZE(tracking_object_map); i++) {
-		if (object_class == tracking_object_map[i].object_class)
-			return tracking_object_map[i].object_name;
+	for (const auto &entry : tracking_object_map) {
+		if (object_class == entry.object_class)
+			return entry.object_name;
 	}
 	return tracking_object_map[0].object_name;
 }
@@ -238,16 +254,18 @@ int pdraw_gles2hud_new(const struct pdraw_gles2hud_config *config,
 {
 	int res;
 	int err;
-	struct pdraw_gles2hud *self;
+	std::unique_ptr<struct pdraw_gles2hud> self;
 
 	if (config == nullptr)
 		return -EINVAL;
 	if (hud == nullptr)
 		return -EINVAL;
 
-	self = (struct pdraw_gles2hud *)calloc(1, sizeof(*self));
-	if (self == nullptr)
+	try {
+		self = std::make_unique<struct pdraw_gles2hud>();
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
+	}
 
 	self->config = *config;
 	if (self->config.central_zone_size <= 0.) {
@@ -305,23 +323,23 @@ int pdraw_gles2hud_new(const struct pdraw_gles2hud_config *config,
 		self->config.scale = PDRAW_GLES2HUD_DEFAULT_SCALE;
 	}
 
-	self->ratio_w = 1.;
-	self->ratio_h = 1.;
-	self->aspect_ratio = 1.;
-	self->h_fov = 0.;
-	self->v_fov = 0.;
+	self->ratio_w = 1.f;
+	self->ratio_h = 1.f;
+	self->aspect_ratio = 1.f;
+	self->h_fov = 0.f;
+	self->v_fov = 0.f;
 
-	res = pdraw_gles2hud_create_programs(self);
+	res = pdraw_gles2hud_create_programs(self.get());
 	if (res < 0) {
 		ULOG_ERRNO("pdraw_gles2hud_create_programs", -res);
 		goto error;
 	}
 
-	*hud = self;
+	*hud = self.release();
 	return 0;
 
 error:
-	err = pdraw_gles2hud_destroy(self);
+	err = pdraw_gles2hud_destroy(self.release());
 	if (err < 0)
 		ULOG_ERRNO("pdraw_gles2hud_destroy", -err);
 	return res;
@@ -333,30 +351,30 @@ int pdraw_gles2hud_destroy(struct pdraw_gles2hud *self)
 	if (self == nullptr)
 		return 0;
 
-	if (self->program > 0) {
-		glDeleteProgram(self->program);
-		self->program = 0;
-	}
-	if (self->tex_program > 0) {
-		glDeleteProgram(self->tex_program);
-		self->tex_program = 0;
-	}
-	if (self->icons_texture > 0) {
-		glDeleteTextures(1, &self->icons_texture);
-		self->icons_texture = 0;
-	}
-	if (self->text_texture > 0) {
-		glDeleteTextures(1, &self->text_texture);
-		self->text_texture = 0;
-	}
+	std::unique_ptr<struct pdraw_gles2hud> self_ptr(self);
 
-	free(self);
+	if (self_ptr->program > 0) {
+		glDeleteProgram(self_ptr->program);
+		self_ptr->program = 0;
+	}
+	if (self_ptr->tex_program > 0) {
+		glDeleteProgram(self_ptr->tex_program);
+		self_ptr->tex_program = 0;
+	}
+	if (self_ptr->icons_texture > 0) {
+		glDeleteTextures(1, &self_ptr->icons_texture);
+		self_ptr->icons_texture = 0;
+	}
+	if (self_ptr->text_texture > 0) {
+		glDeleteTextures(1, &self_ptr->text_texture);
+		self_ptr->text_texture = 0;
+	}
 
 	return 0;
 }
 
 
-int pdraw_gles2hud_get_config(struct pdraw_gles2hud *self,
+int pdraw_gles2hud_get_config(const struct pdraw_gles2hud *self,
 			      struct pdraw_gles2hud_config *config)
 {
 	if (self == nullptr)
@@ -442,11 +460,11 @@ static void pdraw_gles2hud_get_fov(struct pdraw_gles2hud *self,
 		self->h_fov = session_meta->picture_fov.horz;
 		self->v_fov = session_meta->picture_fov.vert;
 	} else {
-		self->h_fov = PDRAW_GLES2HUD_DEFAULT_HFOV;
-		self->v_fov = PDRAW_GLES2HUD_DEFAULT_VFOV;
+		self->h_fov = static_cast<float>(PDRAW_GLES2HUD_DEFAULT_HFOV);
+		self->v_fov = static_cast<float>(PDRAW_GLES2HUD_DEFAULT_VFOV);
 	}
-	self->h_fov *= M_PI / 180.;
-	self->v_fov *= M_PI / 180.;
+	self->h_fov *= static_cast<float>(M_PI / 180.);
+	self->v_fov *= static_cast<float>(M_PI / 180.);
 }
 
 
@@ -461,7 +479,6 @@ static int pdraw_gles2hud_render_piloting(
 	const struct pdraw_gles2hud_controller_meta *ctrl_meta)
 {
 	int i;
-	int j;
 	int steps;
 	int angle_deg;
 	float cy;
@@ -472,7 +489,7 @@ static int pdraw_gles2hud_render_piloting(
 	Eigen::Matrix4f model_mat;
 	Eigen::Matrix4f view_proj;
 	for (i = 0; i < 4; i++) {
-		for (j = 0; j < 4; j++)
+		for (int j = 0; j < 4; j++)
 			view_proj(i, j) = view_proj_mat[i * 4 + j];
 	}
 
@@ -487,16 +504,17 @@ static int pdraw_gles2hud_render_piloting(
 	vmeta_frame_get_flying_state(frame_meta, &flying_state);
 	enum vmeta_piloting_mode piloting_mode;
 	vmeta_frame_get_piloting_mode(frame_meta, &piloting_mode);
-	enum drone_model drone_model =
+	DroneModel drone_model =
 		get_drone_model(media_info->video.session_meta);
-	int drone_model_icon = drone_model_info[drone_model].icon_index;
+	int drone_model_icon =
+		drone_model_info[static_cast<size_t>(drone_model)].icon_index;
 
 	/* Drone location and ground distance */
 	struct vmeta_location location;
 	vmeta_frame_get_location(frame_meta, &location);
 	double ground_distance;
 	vmeta_frame_get_ground_distance(frame_meta, &ground_distance);
-	if ((drone_model == DRONE_MODEL_DISCO) && (location.valid) &&
+	if ((drone_model == DroneModel::DISCO) && (location.valid) &&
 	    (media_info->video.session_meta->takeoff_loc.valid)) {
 		ground_distance = location.altitude_egm96amsl -
 				  media_info->video.session_meta->takeoff_loc
@@ -511,11 +529,6 @@ static int pdraw_gles2hud_render_piloting(
 	float horizontal_speed =
 		sqrtf(speed.north * speed.north + speed.east * speed.east);
 	float speed_psi = atan2f(speed.east, speed.north);
-	/* UNUSED
-	 * float speed_rho = sqrtf(speed.north * speed.north +
-	 * 			speed.east * speed.east +
-	 * 			speed.down * speed.down);
-	 * float speed_theta = M_PI / 2 - acosf(speed.down / speed_rho); */
 
 	/* Drone attitude and frame orientation */
 	struct vmeta_euler drone_attitude;
@@ -531,7 +544,6 @@ static int pdraw_gles2hud_render_piloting(
 	/* Distace to take-off */
 	double takeoff_distance = 0.;
 	double takeoff_bearing = 0.;
-	double takeoff_elevation = 0.;
 	if ((location.valid) &&
 	    (media_info->video.session_meta->takeoff_loc.valid)) {
 		pdraw_gles2hud_coords_distance_and_bearing(
@@ -541,28 +553,11 @@ static int pdraw_gles2hud_render_piloting(
 			media_info->video.session_meta->takeoff_loc.longitude,
 			&takeoff_distance,
 			&takeoff_bearing);
-		double alt_diff = 0.;
-		if (!std::isnan(media_info->video.session_meta->takeoff_loc
-					.altitude_wgs84ellipsoid) &&
-		    !std::isnan(location.altitude_wgs84ellipsoid)) {
-			alt_diff = media_info->video.session_meta->takeoff_loc
-					   .altitude_wgs84ellipsoid -
-				   location.altitude_wgs84ellipsoid;
-		} else if (!std::isnan(
-				   media_info->video.session_meta->takeoff_loc
-					   .altitude_egm96amsl) &&
-			   !std::isnan(location.altitude_egm96amsl)) {
-			alt_diff = media_info->video.session_meta->takeoff_loc
-					   .altitude_egm96amsl -
-				   location.altitude_egm96amsl;
-		}
-		takeoff_elevation = atan2(alt_diff, takeoff_distance);
 	}
 
 	/* Distace to pilot */
 	double self_distance = 0.;
 	double self_bearing = 0.;
-	double self_elevation = 0.;
 	if ((location.valid) && (ctrl_meta->location.valid)) {
 		pdraw_gles2hud_coords_distance_and_bearing(
 			location.latitude,
@@ -571,18 +566,6 @@ static int pdraw_gles2hud_render_piloting(
 			ctrl_meta->location.longitude,
 			&self_distance,
 			&self_bearing);
-		double alt_diff = 0.;
-		if (!std::isnan(ctrl_meta->location.altitude_wgs84ellipsoid) &&
-		    !std::isnan(location.altitude_wgs84ellipsoid)) {
-			alt_diff = ctrl_meta->location.altitude_wgs84ellipsoid -
-				   location.altitude_wgs84ellipsoid;
-		} else if (!std::isnan(
-				   ctrl_meta->location.altitude_egm96amsl) &&
-			   !std::isnan(location.altitude_egm96amsl)) {
-			alt_diff = ctrl_meta->location.altitude_egm96amsl -
-				   location.altitude_egm96amsl;
-		}
-		self_elevation = atan2(alt_diff, self_distance);
 	}
 
 	/* Cursor on Target */
@@ -610,11 +593,14 @@ static int pdraw_gles2hud_render_piloting(
 	}
 #endif /* DEBUG_RADAR */
 
-	self->ratio_w = (float)content_pos->width / render_pos->width *
+	self->ratio_w = static_cast<float>(content_pos->width) /
+			static_cast<float>(render_pos->width) *
 			self->config.scale;
-	self->ratio_h = (float)content_pos->height / render_pos->height *
+	self->ratio_h = static_cast<float>(content_pos->height) /
+			static_cast<float>(render_pos->height) *
 			self->config.scale;
-	self->aspect_ratio = (float)render_pos->width / render_pos->height;
+	self->aspect_ratio = static_cast<float>(render_pos->width) /
+			     static_cast<float>(render_pos->height);
 
 	GLCHK(glUseProgram(self->program));
 
@@ -651,26 +637,31 @@ static int pdraw_gles2hud_render_piloting(
 			altitude_ref = " (WGS84)";
 		}
 	}
-	pdraw_gles2hud_draw_altitude(
-		self, altitude, ground_distance, speed.down, color_green);
+	pdraw_gles2hud_draw_altitude(self,
+				     altitude,
+				     static_cast<float>(ground_distance),
+				     speed.down,
+				     color_green);
 	pdraw_gles2hud_draw_speed(self, horizontal_speed, color_green);
 #ifdef DEBUG_RADAR /* used to test the radar on records */
 	if ((location.valid) && (session_meta->takeoff_loc.valid) &&
 	    (ctrl_orientation_valid) && (ctrl_meta->radar_angle > 0.)) {
-		pdraw_gles2hud_draw_controller_radar(self,
-						     takeoff_distance,
-						     ctrl_meta->radar_angle *
-							     M_PI / 180.,
-						     color_green);
+		pdraw_gles2hud_draw_controller_radar(
+			self,
+			takeoff_distance,
+			static_cast<float>(ctrl_meta->radar_angle * M_PI /
+					   180.),
+			color_green);
 	}
 #else /* DEBUG_RADAR */
 	if ((location.valid) && (ctrl_meta->location.valid) &&
 	    ctrl_orientation_valid && (ctrl_meta->radar_angle > 0.)) {
-		pdraw_gles2hud_draw_controller_radar(self,
-						     self_distance,
-						     ctrl_meta->radar_angle *
-							     M_PI / 180.,
-						     color_green);
+		pdraw_gles2hud_draw_controller_radar(
+			self,
+			self_distance,
+			static_cast<float>(ctrl_meta->radar_angle * M_PI /
+					   180.),
+			color_green);
 	}
 #endif /* DEBUG_RADAR */
 	if ((media_info->duration > 0) &&
@@ -683,61 +674,61 @@ static int pdraw_gles2hud_render_piloting(
 	pdraw_gles2hud_draw_vumeter(self,
 				    self->config.vu_meter_zone_h_offset,
 				    -self->config.vu_meter_v_interval,
-				    0.05,
+				    0.05f,
 				    battery_percentage,
-				    0.,
-				    100.,
-				    0.,
-				    20.,
+				    0.f,
+				    100.f,
+				    0.f,
+				    20.f,
 				    color_green,
 				    color_dark_green);
 	pdraw_gles2hud_draw_vumeter(self,
 				    self->config.vu_meter_zone_h_offset,
-				    0.0,
-				    0.05,
+				    0.0f,
+				    0.05f,
 				    wifi_rssi,
-				    -100.,
-				    -20.,
-				    -100.,
-				    -70.,
+				    -100.f,
+				    -20.f,
+				    -100.f,
+				    -70.f,
 				    color_green,
 				    color_dark_green);
 	for (i = 0; i < link_quality; i++) {
 		pdraw_gles2hud_draw_filled_rect(
 			self,
-			(self->config.vu_meter_zone_h_offset + i * 0.015 -
-			 0.035) *
+			(self->config.vu_meter_zone_h_offset +
+			 static_cast<float>(i) * 0.015f - 0.035f) *
 				self->ratio_w,
-			(0.0 - 0.025) * self->ratio_w * self->aspect_ratio,
-			(self->config.vu_meter_zone_h_offset + i * 0.015 -
-			 0.025) *
+			(0.0f - 0.025f) * self->ratio_w * self->aspect_ratio,
+			(self->config.vu_meter_zone_h_offset +
+			 static_cast<float>(i) * 0.015f - 0.025f) *
 				self->ratio_w,
-			(0.0 - 0.035) * self->ratio_w * self->aspect_ratio,
+			(0.0f - 0.035f) * self->ratio_w * self->aspect_ratio,
 			color_green);
 	}
 	for (; link_quality > 0 && i < 5; i++) {
 		pdraw_gles2hud_draw_rect(
 			self,
-			(self->config.vu_meter_zone_h_offset + i * 0.015 -
-			 0.035) *
+			(self->config.vu_meter_zone_h_offset +
+			 static_cast<float>(i) * 0.015f - 0.035f) *
 				self->ratio_w,
-			(0.0 - 0.025) * self->ratio_w * self->aspect_ratio,
-			(self->config.vu_meter_zone_h_offset + i * 0.015 -
-			 0.025) *
+			(0.0f - 0.025f) * self->ratio_w * self->aspect_ratio,
+			(self->config.vu_meter_zone_h_offset +
+			 static_cast<float>(i) * 0.015f - 0.025f) *
 				self->ratio_w,
-			(0.0 - 0.035) * self->ratio_w * self->aspect_ratio,
+			(0.0f - 0.035f) * self->ratio_w * self->aspect_ratio,
 			color_green,
-			2.);
+			2.f);
 	}
 	pdraw_gles2hud_draw_vumeter(self,
 				    self->config.vu_meter_zone_h_offset,
 				    self->config.vu_meter_v_interval,
-				    0.05,
+				    0.05f,
 				    location.sv_count,
-				    0.,
-				    30.,
-				    0.,
-				    5.,
+				    0.f,
+				    30.f,
+				    0.f,
+				    5.f,
 				    color_green,
 				    color_dark_green);
 
@@ -766,7 +757,7 @@ static int pdraw_gles2hud_render_piloting(
 		self,
 		3,
 		self->config.vu_meter_zone_h_offset * self->ratio_w,
-		(-self->config.vu_meter_v_interval - 0.01) * self->ratio_h,
+		(-self->config.vu_meter_v_interval - 0.01f) * self->ratio_h,
 		self->config.small_icon_size,
 		self->ratio_w,
 		self->ratio_w * self->aspect_ratio,
@@ -775,7 +766,7 @@ static int pdraw_gles2hud_render_piloting(
 				 4,
 				 self->config.vu_meter_zone_h_offset *
 					 self->ratio_w,
-				 (0.0 - 0.01) * self->ratio_h,
+				 (0.0f - 0.01f) * self->ratio_h,
 				 self->config.small_icon_size,
 				 self->ratio_w,
 				 self->ratio_w * self->aspect_ratio,
@@ -784,15 +775,15 @@ static int pdraw_gles2hud_render_piloting(
 		self,
 		5,
 		self->config.vu_meter_zone_h_offset * self->ratio_w,
-		(self->config.vu_meter_v_interval - 0.01) * self->ratio_h,
+		(self->config.vu_meter_v_interval - 0.01f) * self->ratio_h,
 		self->config.small_icon_size,
 		self->ratio_w,
 		self->ratio_w * self->aspect_ratio,
 		color_green);
-	if (drone_model != DRONE_MODEL_UNKNOWN) {
+	if (drone_model != DroneModel::UNKNOWN) {
 		pdraw_gles2hud_draw_icon(self,
 					 drone_model_icon,
-					 0.0,
+					 0.0f,
 					 self->config.heading_zone_v_offset *
 						 self->ratio_h,
 					 self->config.small_icon_size,
@@ -801,20 +792,22 @@ static int pdraw_gles2hud_render_piloting(
 					 color_green);
 	}
 	float friendly_name_x_offset =
-		(self->config.vu_meter_zone_h_offset - 0.05) * self->ratio_w;
-	if ((strlen(media_info->video.session_meta->friendly_name) > 0) &&
-	    (drone_model != DRONE_MODEL_UNKNOWN)) {
+		(self->config.vu_meter_zone_h_offset - 0.05f) * self->ratio_w;
+	if ((strnlen(media_info->video.session_meta->friendly_name,
+		     sizeof(media_info->video.session_meta->friendly_name)) >
+	     0) &&
+	    (drone_model != DroneModel::UNKNOWN)) {
 		pdraw_gles2hud_draw_icon(
 			self,
 			drone_model_icon,
-			friendly_name_x_offset + 0.025 * self->ratio_w,
+			friendly_name_x_offset + 0.025f * self->ratio_w,
 			self->config.roll_zone_v_offset * self->ratio_h +
-				0.12 * self->ratio_w * self->aspect_ratio,
+				0.12f * self->ratio_w * self->aspect_ratio,
 			self->config.medium_icon_size,
 			self->ratio_w,
 			self->ratio_w * self->aspect_ratio,
 			color_green);
-		friendly_name_x_offset += 0.06 * self->ratio_w;
+		friendly_name_x_offset += 0.06f * self->ratio_w;
 	}
 
 #ifdef DEBUG_RADAR /* used to test the radar on records */
@@ -834,23 +827,25 @@ static int pdraw_gles2hud_render_piloting(
 					 self->ratio_w,
 					 self->ratio_w * self->aspect_ratio,
 					 color_green);
-		if ((drone_model != DRONE_MODEL_UNKNOWN) &&
+		if ((drone_model != DroneModel::UNKNOWN) &&
 		    (takeoff_distance > 50.)) {
 #ifdef DEBUG_RADAR /* used to test the radar on records */
-			angle = M_PI / 2. + ctrl_orientation.psi -
-				(takeoff_bearing + M_PI);
+			angle = static_cast<float>(M_PI / 2.) +
+				ctrl_orientation.psi -
+				static_cast<float>(takeoff_bearing + M_PI);
 #else /* DEBUG_RADAR */
-			angle = M_PI / 2. + ctrl_orientation.psi -
-				(self_bearing + M_PI);
+			angle = static_cast<float>(M_PI / 2.) +
+				ctrl_orientation.psi -
+				static_cast<float>(self_bearing + M_PI);
 #endif /* DEBUG_RADAR */
-			delta_x = x + 0.06 * cosf(angle) * self->ratio_w;
-			delta_y = y + 0.06 * sinf(angle) * self->ratio_w *
+			delta_x = x + 0.06f * cosf(angle) * self->ratio_w;
+			delta_y = y + 0.06f * sinf(angle) * self->ratio_w *
 					      self->aspect_ratio;
 			angle = ctrl_orientation.psi - drone_attitude.psi;
-			model_mat << cosf(angle), -sinf(angle), 0., delta_x,
+			model_mat << cosf(angle), -sinf(angle), 0.f, delta_x,
 				sinf(angle) * self->aspect_ratio,
-				cosf(angle) * self->aspect_ratio, 0., delta_y,
-				0., 0., 1., 0., 0., 0., 0., 1.;
+				cosf(angle) * self->aspect_ratio, 0.f, delta_y,
+				0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f;
 			xform_mat = model_mat * view_proj;
 			GLCHK(glUniformMatrix4fv(
 				self->tex_transform_matrix_handle,
@@ -859,8 +854,8 @@ static int pdraw_gles2hud_render_piloting(
 				xform_mat.data()));
 			pdraw_gles2hud_draw_icon(self,
 						 drone_model_icon,
-						 0.,
-						 0.,
+						 0.f,
+						 0.f,
 						 self->config.small_icon_size,
 						 self->ratio_w,
 						 self->ratio_w,
@@ -871,16 +866,17 @@ static int pdraw_gles2hud_render_piloting(
 	/* Heading controller icon */
 	if (takeoff_distance > 50.) {
 		/* TODO: pilot */
-		cy = 0.15 * self->ratio_w;
-		delta_x = 0.;
+		cy = 0.15f * self->ratio_w;
+		delta_x = 0.f;
 		delta_y = self->config.heading_zone_v_offset * self->ratio_h;
-		angle = drone_attitude.psi - takeoff_bearing;
+		angle = drone_attitude.psi -
+			static_cast<float>(takeoff_bearing);
 		angle_deg = ((int)(angle * 180. / M_PI + 70. + 360.)) % 360;
 		if (angle_deg <= 140) {
-			model_mat << cosf(angle), -sinf(angle), 0., delta_x,
+			model_mat << cosf(angle), -sinf(angle), 0.f, delta_x,
 				sinf(angle) * self->aspect_ratio,
-				cosf(angle) * self->aspect_ratio, 0., delta_y,
-				0., 0., 1., 0., 0., 0., 0., 1.;
+				cosf(angle) * self->aspect_ratio, 0.f, delta_y,
+				0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f;
 			xform_mat = model_mat * view_proj;
 			GLCHK(glUniformMatrix4fv(
 				self->tex_transform_matrix_handle,
@@ -889,7 +885,7 @@ static int pdraw_gles2hud_render_piloting(
 				xform_mat.data()));
 			pdraw_gles2hud_draw_icon(self,
 						 8,
-						 0.,
+						 0.f,
 						 cy,
 						 self->config.small_icon_size,
 						 self->ratio_w,
@@ -905,88 +901,81 @@ static int pdraw_gles2hud_render_piloting(
 	GLCHK(glUniformMatrix4fv(
 		self->tex_transform_matrix_handle, 1, false, view_proj_mat));
 
-	char str[20];
-	snprintf(str, sizeof(str), "BAT: %d%%", battery_percentage);
+	std::string str = fmtstr("BAT: %d%%", battery_percentage);
 	pdraw_gles2hud_draw_text(
 		self,
 		str,
 		self->config.vu_meter_zone_h_offset * self->ratio_w,
-		(-self->config.vu_meter_v_interval - 0.07) * self->ratio_h,
+		(-self->config.vu_meter_v_interval - 0.07f) * self->ratio_h,
 		self->config.text_size * self->ratio_w,
-		1.,
+		1.f,
 		self->aspect_ratio,
-		PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-		PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+		TextAlign::CENTER,
+		TextAlign::TOP,
 		color_green);
-	str[0] = '\0';
 	if (strlen(active_link)) {
-		char str_rssi[20] = "";
-		if (wifi_rssi != 0) {
-			snprintf(str_rssi,
-				 sizeof(str_rssi),
-				 " %ddBm",
-				 wifi_rssi);
-		}
-		snprintf(str, sizeof(str), "%s%s", active_link, str_rssi);
+		str = active_link;
+		if (wifi_rssi != 0)
+			str += fmtstr(" %ddBm", wifi_rssi);
 	} else if (wifi_rssi != 0) {
-		snprintf(str, sizeof(str), "%ddBm", wifi_rssi);
+		str = fmtstr("%ddBm", wifi_rssi);
 	} else {
-		snprintf(str, sizeof(str), "N/A");
+		str = "N/A";
 	}
 	pdraw_gles2hud_draw_text(self,
 				 str,
 				 self->config.vu_meter_zone_h_offset *
 					 self->ratio_w,
-				 (0.0 - 0.08) * self->ratio_h,
+				 (0.0f - 0.08f) * self->ratio_h,
 				 self->config.text_size * self->ratio_w,
-				 1.,
+				 1.f,
 				 self->aspect_ratio,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+				 TextAlign::CENTER,
+				 TextAlign::TOP,
 				 color_green);
 	if (location.valid)
-		snprintf(str, sizeof(str), "SAT: %d", location.sv_count);
+		str = fmtstr("SAT: %d", location.sv_count);
 	else
-		snprintf(str, sizeof(str), "SAT: N/A");
+		str = "SAT: N/A";
 	pdraw_gles2hud_draw_text(
 		self,
 		str,
 		self->config.vu_meter_zone_h_offset * self->ratio_w,
-		(self->config.vu_meter_v_interval - 0.07) * self->ratio_h,
+		(self->config.vu_meter_v_interval - 0.07f) * self->ratio_h,
 		self->config.text_size * self->ratio_w,
-		1.,
+		1.f,
 		self->aspect_ratio,
-		PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-		PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+		TextAlign::CENTER,
+		TextAlign::TOP,
 		color_green);
-	snprintf(str, sizeof(str), "ALT%s", altitude_ref);
+	str = fmtstr("ALT%s", altitude_ref);
 	pdraw_gles2hud_draw_text(self,
 				 str,
 				 self->config.central_zone_size * self->ratio_w,
-				 (self->config.central_zone_size - 0.01) *
+				 (self->config.central_zone_size - 0.01f) *
 					 self->ratio_h,
 				 self->config.text_size * self->ratio_w,
-				 1.,
+				 1.f,
 				 self->aspect_ratio,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM,
+				 TextAlign::LEFT,
+				 TextAlign::BOTTOM,
 				 color_green);
 	if (!std::isnan(altitude))
-		snprintf(str, sizeof(str), "%.1fm", altitude);
+		str = fmtstr("%.1fm", altitude);
 	else
-		snprintf(str, sizeof(str), "N/A");
+		str = "N/A";
 	pdraw_gles2hud_draw_text(self,
 				 str,
-				 (self->config.central_zone_size + 0.04) *
+				 (self->config.central_zone_size + 0.04f) *
 					 self->ratio_w,
-				 0.0 * self->ratio_h,
+				 0.0f * self->ratio_h,
 				 self->config.text_size * self->ratio_w,
-				 1.,
+				 1.f,
 				 self->aspect_ratio,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+				 TextAlign::LEFT,
+				 TextAlign::MIDDLE,
 				 color_green);
-	if (drone_model == DRONE_MODEL_DISCO) {
+	if (drone_model == DroneModel::DISCO) {
 		if ((location.valid) &&
 		    (media_info->video.session_meta->takeoff_loc.valid)) {
 			double alt_diff = 0.;
@@ -1007,88 +996,88 @@ static int pdraw_gles2hud_render_piloting(
 						   ->takeoff_loc
 						   .altitude_egm96amsl;
 			}
-			snprintf(str, sizeof(str), "DELTA: %+.1fm", alt_diff);
+			str = fmtstr("DELTA: %+.1fm", alt_diff);
 			pdraw_gles2hud_draw_text(
 				self,
 				str,
 				self->config.central_zone_size * self->ratio_w,
-				(-self->config.central_zone_size + 0.01) *
+				(-self->config.central_zone_size + 0.01f) *
 					self->ratio_h,
 				self->config.text_size * self->ratio_w,
-				1.,
+				1.f,
 				self->aspect_ratio,
-				PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-				PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+				TextAlign::LEFT,
+				TextAlign::TOP,
 				color_green);
 		}
 	} else {
-		snprintf(str, sizeof(str), "GND: %.1fm", ground_distance);
+		str = fmtstr("GND: %.1fm", ground_distance);
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			self->config.central_zone_size * self->ratio_w,
-			(-self->config.central_zone_size + 0.01) *
+			(-self->config.central_zone_size + 0.01f) *
 				self->ratio_h,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+			TextAlign::LEFT,
+			TextAlign::TOP,
 			color_green);
 	}
-	snprintf(str, sizeof(str), "SPD");
+	str = "SPD";
 	pdraw_gles2hud_draw_text(
 		self,
 		str,
 		-self->config.central_zone_size * self->ratio_w,
-		(self->config.central_zone_size - 0.01) * self->ratio_h,
+		(self->config.central_zone_size - 0.01f) * self->ratio_h,
 		self->config.text_size * self->ratio_w,
-		1.,
+		1.f,
 		self->aspect_ratio,
-		PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-		PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM,
+		TextAlign::RIGHT,
+		TextAlign::BOTTOM,
 		color_green);
-	snprintf(str, sizeof(str), "%.1fm/s", horizontal_speed);
+	str = fmtstr("%.1fm/s", horizontal_speed);
 	pdraw_gles2hud_draw_text(self,
 				 str,
-				 -(self->config.central_zone_size + 0.04) *
+				 -(self->config.central_zone_size + 0.04f) *
 					 self->ratio_w,
-				 0.0 * self->ratio_h,
+				 0.0f * self->ratio_h,
 				 self->config.text_size * self->ratio_w,
-				 1.,
+				 1.f,
 				 self->aspect_ratio,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+				 TextAlign::RIGHT,
+				 TextAlign::MIDDLE,
 				 color_green);
-	if (air_speed != -1.) {
-		snprintf(str, sizeof(str), "AIR: %4.1fm/s", air_speed);
+	if (air_speed != -1.f) {
+		str = fmtstr("AIR: %4.1fm/s", air_speed);
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			-self->config.central_zone_size * self->ratio_w,
-			(-self->config.central_zone_size + 0.01) *
+			(-self->config.central_zone_size + 0.01f) *
 				self->ratio_h,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+			TextAlign::RIGHT,
+			TextAlign::TOP,
 			color_green);
 	}
 	if (takeoff_distance != 0.) {
 		/* TODO: pilot */
-		snprintf(str, sizeof(str), "DIST: %.0fm", takeoff_distance);
+		str = fmtstr("DIST: %.0fm", takeoff_distance);
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
-			0.0,
-			(-self->config.central_zone_size / 2. - 0.10) *
+			0.0f,
+			(-self->config.central_zone_size / 2.f - 0.10f) *
 				self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::CENTER,
+			TextAlign::MIDDLE,
 			color_green);
 	}
 	if ((flying_state == VMETA_FLYING_STATE_TAKINGOFF) ||
@@ -1097,122 +1086,120 @@ static int pdraw_gles2hud_render_piloting(
 		pdraw_gles2hud_draw_text(
 			self,
 			flying_state_str[flying_state],
-			0.0,
-			(self->config.central_zone_size / 2. + 0.10) *
+			0.0f,
+			(self->config.central_zone_size / 2.f + 0.10f) *
 				self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::CENTER,
+			TextAlign::MIDDLE,
 			color_green);
 	} else if ((piloting_mode == VMETA_PILOTING_MODE_RETURN_HOME) ||
 		   (piloting_mode == VMETA_PILOTING_MODE_FLIGHT_PLAN)) {
 		pdraw_gles2hud_draw_text(
 			self,
 			piloting_mode_str[piloting_mode],
-			0.0,
-			(self->config.central_zone_size / 2. + 0.10) *
+			0.0f,
+			(self->config.central_zone_size / 2.f + 0.10f) *
 				self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::CENTER,
+			TextAlign::MIDDLE,
 			color_green);
 	}
 	if (ctrl_meta->battery_percentage < 255) {
 		if (ctrl_meta->battery_percentage <= 100) {
-			snprintf(str,
-				 sizeof(str),
-				 "CTRL BAT: %d%%",
-				 ctrl_meta->battery_percentage);
+			str = fmtstr("CTRL BAT: %d%%",
+				     ctrl_meta->battery_percentage);
 		} else {
-			snprintf(str, sizeof(str), "CTRL BAT: --%%");
+			str = "CTRL BAT: --%";
 		}
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			self->config.right_zone_h_offset * self->ratio_w,
-			0. * self->ratio_w * self->aspect_ratio,
+			0.f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::RIGHT,
+			TextAlign::MIDDLE,
 			color_green);
 	}
 	if (media_info->playback_type == PDRAW_PLAYBACK_TYPE_LIVE) {
-		snprintf(str,
-			 sizeof(str),
-			 "CTRL LOC: %s",
-			 (ctrl_meta->location.valid) ? "OK" : "N/A");
+		str = fmtstr("CTRL LOC: %s",
+			     (ctrl_meta->location.valid) ? "OK" : "N/A");
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			self->config.right_zone_h_offset * self->ratio_w,
-			0.05 * self->ratio_w * self->aspect_ratio,
+			0.05f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::RIGHT,
+			TextAlign::MIDDLE,
 			color_green);
 	}
-	if (strlen(media_info->video.session_meta->friendly_name) > 0) {
+	if (strnlen(media_info->video.session_meta->friendly_name,
+		    sizeof(media_info->video.session_meta->friendly_name)) >
+	    0) {
 		pdraw_gles2hud_draw_text(
 			self,
 			media_info->video.session_meta->friendly_name,
 			friendly_name_x_offset,
 			self->config.roll_zone_v_offset * self->ratio_h +
-				0.12 * self->ratio_w * self->aspect_ratio,
+				0.12f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::LEFT,
+			TextAlign::MIDDLE,
 			color_green);
 	}
 
 	/* Cursor on Target text */
 	if (lfic_loc.valid) {
-		snprintf(str, sizeof(str), "COT:");
+		str = "COT:";
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			self->config.right_zone_h_offset * self->ratio_w,
 			self->config.heading_zone_v_offset * self->ratio_h +
-				0.04 * self->ratio_w * self->aspect_ratio,
+				0.04f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::RIGHT,
+			TextAlign::MIDDLE,
 			color_green);
-		snprintf(str, sizeof(str), "%+.8f", lfic_loc.latitude);
+		str = fmtstr("%+.8f", lfic_loc.latitude);
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			self->config.right_zone_h_offset * self->ratio_w,
 			self->config.heading_zone_v_offset * self->ratio_h +
-				0.02 * self->ratio_w * self->aspect_ratio,
+				0.02f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::RIGHT,
+			TextAlign::MIDDLE,
 			color_green);
-		snprintf(str, sizeof(str), "%+.8f", lfic_loc.longitude);
+		str = fmtstr("%+.8f", lfic_loc.longitude);
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			self->config.right_zone_h_offset * self->ratio_w,
 			self->config.heading_zone_v_offset * self->ratio_h,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::RIGHT,
+			TextAlign::MIDDLE,
 			color_green);
 	}
 
@@ -1245,101 +1232,79 @@ static int pdraw_gles2hud_render_piloting(
 		pdraw_gles2hud_friendly_time_from_us(
 			media_info->duration, &d_hrs, &d_min, &d_sec, &d_msec);
 		if (d_hrs) {
-			snprintf(str,
-				 sizeof(str),
-				 "+%02d:%02d:%02d.%03d",
-				 c_hrs,
-				 c_min,
-				 c_sec,
-				 c_msec);
+			str = fmtstr("+%02d:%02d:%02d.%03d",
+				     c_hrs,
+				     c_min,
+				     c_sec,
+				     c_msec);
 		} else {
-			snprintf(str,
-				 sizeof(str),
-				 "+%02d:%02d.%03d",
-				 c_min,
-				 c_sec,
-				 c_msec);
+			str = fmtstr("+%02d:%02d.%03d", c_min, c_sec, c_msec);
 		}
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
-			(self->config.right_zone_h_offset - 0.4) *
+			(self->config.right_zone_h_offset - 0.4f) *
 				self->ratio_w,
 			self->config.roll_zone_v_offset * self->ratio_h +
-				0.12 * self->ratio_w * self->aspect_ratio,
+				0.12f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::LEFT,
+			TextAlign::MIDDLE,
 			color_green);
 		if (d_hrs) {
-			snprintf(str,
-				 sizeof(str),
-				 "-%02d:%02d:%02d.%03d",
-				 r_hrs,
-				 r_min,
-				 r_sec,
-				 r_msec);
+			str = fmtstr("-%02d:%02d:%02d.%03d",
+				     r_hrs,
+				     r_min,
+				     r_sec,
+				     r_msec);
 		} else {
-			snprintf(str,
-				 sizeof(str),
-				 "-%02d:%02d.%03d",
-				 r_min,
-				 r_sec,
-				 r_msec);
+			str = fmtstr("-%02d:%02d.%03d", r_min, r_sec, r_msec);
 		}
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
 			self->config.right_zone_h_offset * self->ratio_w,
 			self->config.roll_zone_v_offset * self->ratio_h +
-				0.12 * self->ratio_w * self->aspect_ratio,
+				0.12f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+			TextAlign::RIGHT,
+			TextAlign::MIDDLE,
 			color_green);
 		if (d_hrs) {
-			snprintf(str,
-				 sizeof(str),
-				 "DUR: %02d:%02d:%02d",
-				 d_hrs,
-				 d_min,
-				 d_sec);
+			str = fmtstr(
+				"DUR: %02d:%02d:%02d", d_hrs, d_min, d_sec);
 		} else {
-			snprintf(str,
-				 sizeof(str),
-				 "DUR: %02d:%02d",
-				 d_min,
-				 d_sec);
+			str = fmtstr("DUR: %02d:%02d", d_min, d_sec);
 		}
 		pdraw_gles2hud_draw_text(
 			self,
 			str,
-			(self->config.right_zone_h_offset - 0.2) *
+			(self->config.right_zone_h_offset - 0.2f) *
 				self->ratio_w,
 			self->config.roll_zone_v_offset * self->ratio_h +
-				0.10 * self->ratio_w * self->aspect_ratio,
+				0.10f * self->ratio_w * self->aspect_ratio,
 			self->config.text_size * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-			PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+			TextAlign::CENTER,
+			TextAlign::TOP,
 			color_green);
 	}
-	snprintf(str, sizeof(str), "%03d", heading_int);
+	str = fmtstr("%03d", heading_int);
 	pdraw_gles2hud_draw_text(self,
 				 str,
-				 0. * self->ratio_w,
-				 (self->config.heading_zone_v_offset + 0.10) *
+				 0.f * self->ratio_w,
+				 (self->config.heading_zone_v_offset + 0.10f) *
 					 self->ratio_h,
 				 self->config.text_size * self->ratio_w,
-				 1.,
+				 1.f,
 				 self->aspect_ratio,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-				 PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM,
+				 TextAlign::CENTER,
+				 TextAlign::BOTTOM,
 				 color_green);
 
 	float height = self->config.central_zone_size * self->ratio_w *
@@ -1347,30 +1312,33 @@ static int pdraw_gles2hud_render_piloting(
 	steps = 6;
 	for (i = -steps; i <= steps; i++) {
 		if ((i != 0) && (!(i & 1))) {
-			snprintf(str, sizeof(str), "%+2d ", i * 10);
+			str = fmtstr("%+2d ", i * 10);
 			pdraw_gles2hud_draw_text(
 				self,
 				str,
-				0. * self->ratio_w,
-				i * height / 2 / steps,
+				0.f * self->ratio_w,
+				static_cast<float>(i) * height / 2 /
+					static_cast<float>(steps),
 				self->config.text_size * self->ratio_w,
-				1.,
+				1.f,
 				self->aspect_ratio,
-				PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-				PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE,
+				TextAlign::CENTER,
+				TextAlign::MIDDLE,
 				color_green);
 		}
 	}
 
 	/* Roll text */
-	cy = 0.10 * self->ratio_w;
-	delta_x = 0.;
+	cy = 0.10f * self->ratio_w;
+	delta_x = 0.f;
 	delta_y = self->config.roll_zone_v_offset * self->ratio_h;
 	steps = 2;
-	model_mat << 1., 0., 0., delta_x, 0., 1., 0., delta_y, 0., 0., 1., 0.,
-		0., 0., 0., 1.;
-	for (i = -steps, angle = M_PI * (-30. * steps) / 180.; i <= steps;
-	     i++, angle += M_PI * 30. / 180.) {
+	model_mat << 1.f, 0.f, 0.f, delta_x, 0.f, 1.f, 0.f, delta_y, 0.f, 0.f,
+		1.f, 0.f, 0.f, 0.f, 0.f, 1.f;
+	for (i = -steps,
+	    angle = static_cast<float>(M_PI * (-30. * steps) / 180.);
+	     i <= steps;
+	     i++, angle += static_cast<float>(M_PI * 30. / 180.)) {
 		angle_deg = (i * 30 + 60 + 360) % 360;
 		if (angle_deg <= 120) {
 			model_mat(0, 0) = cosf(angle);
@@ -1384,31 +1352,31 @@ static int pdraw_gles2hud_render_piloting(
 				false,
 				xform_mat.data()));
 			if (i == 0)
-				snprintf(str, sizeof(str), "0");
+				str = "0";
 			else
-				snprintf(str, sizeof(str), "%+2d ", -i * 30);
-			pdraw_gles2hud_draw_text(
-				self,
-				str,
-				0.,
-				cy,
-				self->config.text_size * self->ratio_w,
-				1.,
-				1.,
-				PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-				PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
-				color_green);
+				str = fmtstr("%+2d ", -i * 30);
+			pdraw_gles2hud_draw_text(self,
+						 str,
+						 0.f,
+						 cy,
+						 self->config.text_size *
+							 self->ratio_w,
+						 1.f,
+						 1.f,
+						 TextAlign::CENTER,
+						 TextAlign::TOP,
+						 color_green);
 		}
 	}
 
 	/* Heading text */
-	cy = 0.10 * self->ratio_w;
-	delta_x = 0.;
+	cy = 0.10f * self->ratio_w;
+	delta_x = 0.f;
 	delta_y = self->config.heading_zone_v_offset * self->ratio_h;
-	model_mat << 1., 0., 0., delta_x, 0., 1., 0., delta_y, 0., 0., 1., 0.,
-		0., 0., 0., 1.;
+	model_mat << 1.f, 0.f, 0.f, delta_x, 0.f, 1.f, 0.f, delta_y, 0.f, 0.f,
+		1.f, 0.f, 0.f, 0.f, 0.f, 1.f;
 	for (i = 0, angle = drone_attitude.psi; i < 8;
-	     i++, angle += M_PI / 4.) {
+	     i++, angle += static_cast<float>(M_PI / 4.)) {
 		angle_deg = (heading_int + i * 45 + 70 + 360) % 360;
 		if (angle_deg <= 140) {
 			model_mat(0, 0) = cosf(angle);
@@ -1421,17 +1389,17 @@ static int pdraw_gles2hud_render_piloting(
 				1,
 				false,
 				xform_mat.data()));
-			pdraw_gles2hud_draw_text(
-				self,
-				heading_str[i],
-				0.,
-				cy,
-				self->config.text_size * self->ratio_w,
-				1.,
-				1.,
-				PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-				PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
-				color_green);
+			pdraw_gles2hud_draw_text(self,
+						 heading_str[i],
+						 0.f,
+						 cy,
+						 self->config.text_size *
+							 self->ratio_w,
+						 1.f,
+						 1.f,
+						 TextAlign::CENTER,
+						 TextAlign::TOP,
+						 color_green);
 		}
 	}
 
@@ -1443,13 +1411,13 @@ static int pdraw_gles2hud_render_piloting(
 	if (location.valid && ctrl_meta->location.valid &&
 	    ctrl_orientation_valid) {
 #endif /* DEBUG_RADAR */
-		cy = 0.09 * self->ratio_w;
+		cy = 0.09f * self->ratio_w;
 		delta_x = self->config.radar_zone_h_offset * self->ratio_w;
 		delta_y = self->config.radar_zone_v_offset * self->ratio_h;
-		model_mat << 1., 0., 0., delta_x, 0., 1., 0., delta_y, 0., 0.,
-			1., 0., 0., 0., 0., 1.;
+		model_mat << 1.f, 0.f, 0.f, delta_x, 0.f, 1.f, 0.f, delta_y,
+			0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f;
 		for (i = 0, angle = ctrl_orientation.psi; i < 8;
-		     i += 2, angle += M_PI / 2.) {
+		     i += 2, angle += static_cast<float>(M_PI / 2.)) {
 			model_mat(0, 0) = cosf(angle);
 			model_mat(1, 0) = sinf(angle) * self->aspect_ratio;
 			model_mat(0, 1) = -sinf(angle);
@@ -1460,17 +1428,16 @@ static int pdraw_gles2hud_render_piloting(
 				1,
 				false,
 				xform_mat.data()));
-			pdraw_gles2hud_draw_text(
-				self,
-				heading_str[i],
-				0.,
-				cy,
-				self->config.text_size,
-				1.,
-				1.,
-				PDRAW_GLES2HUD_TEXT_ALIGN_CENTER,
-				PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM,
-				color_green);
+			pdraw_gles2hud_draw_text(self,
+						 heading_str[i],
+						 0.f,
+						 cy,
+						 self->config.text_size,
+						 1.f,
+						 1.f,
+						 TextAlign::CENTER,
+						 TextAlign::BOTTOM,
+						 color_green);
 		}
 	}
 
@@ -1498,11 +1465,14 @@ pdraw_gles2hud_render_imaging(struct pdraw_gles2hud *self,
 	pdraw_gles2hud_get_fov(
 		self, media_info->video.session_meta, frame_meta);
 
-	self->ratio_w = (float)content_pos->width / render_pos->width *
+	self->ratio_w = static_cast<float>(content_pos->width) /
+			static_cast<float>(render_pos->width) *
 			self->config.scale;
-	self->ratio_h = (float)content_pos->height / render_pos->height *
+	self->ratio_h = static_cast<float>(content_pos->height) /
+			static_cast<float>(render_pos->height) *
 			self->config.scale;
-	self->aspect_ratio = (float)render_pos->width / render_pos->height;
+	self->aspect_ratio = static_cast<float>(render_pos->width) /
+			     static_cast<float>(render_pos->height);
 
 	GLCHK(glEnable(GL_BLEND));
 	GLCHK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
@@ -1519,8 +1489,8 @@ pdraw_gles2hud_render_imaging(struct pdraw_gles2hud *self,
 
 	err = vmeta_frame_get_thermal_mask(frame_meta, &mask);
 	if (err == 0) {
-		float x1 = (mask.left - 0.5) * 2;
-		float y1 = -(mask.top - 0.5) * 2;
+		float x1 = (mask.left - 0.5f) * 2;
+		float y1 = -(mask.top - 0.5f) * 2;
 		float x2 = x1 + mask.width * 2;
 		float y2 = y1 - mask.height * 2;
 		pdraw_gles2hud_draw_rect(self,
@@ -1529,7 +1499,7 @@ pdraw_gles2hud_render_imaging(struct pdraw_gles2hud *self,
 					 x2 * self->ratio_w,
 					 y2 * self->ratio_h,
 					 color_black_alpha,
-					 5.0);
+					 5.0f);
 	}
 
 	pdraw_gles2hud_draw_histograms(self, frame_extra);
@@ -1554,18 +1524,21 @@ pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
 	float y1;
 	float x2;
 	float y2;
-	char str[20];
+	std::string str;
 	const Vmeta__TimedMetadata *tm;
 
 	/* Picture field of view */
 	pdraw_gles2hud_get_fov(
 		self, media_info->video.session_meta, frame_meta);
 
-	self->ratio_w = (float)content_pos->width / render_pos->width *
+	self->ratio_w = static_cast<float>(content_pos->width) /
+			static_cast<float>(render_pos->width) *
 			self->config.scale;
-	self->ratio_h = (float)content_pos->height / render_pos->height *
+	self->ratio_h = static_cast<float>(content_pos->height) /
+			static_cast<float>(render_pos->height) *
 			self->config.scale;
-	self->aspect_ratio = (float)render_pos->width / render_pos->height;
+	self->aspect_ratio = static_cast<float>(render_pos->width) /
+			     static_cast<float>(render_pos->height);
 
 	res = vmeta_frame_proto_get_unpacked(frame_meta, &tm);
 	if (res < 0)
@@ -1584,8 +1557,8 @@ pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
 
 	if (tm->proposal) {
 		for (i = 0; i < tm->proposal->n_proposals; i++) {
-			x1 = (tm->proposal->proposals[i]->x - 0.5) * 2;
-			y1 = -(tm->proposal->proposals[i]->y - 0.5) * 2;
+			x1 = (tm->proposal->proposals[i]->x - 0.5f) * 2;
+			y1 = -(tm->proposal->proposals[i]->y - 0.5f) * 2;
 			x2 = x1 + tm->proposal->proposals[i]->width * 2;
 			y2 = y1 - tm->proposal->proposals[i]->height * 2;
 
@@ -1595,14 +1568,14 @@ pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
 						 x2 * self->ratio_w,
 						 y2 * self->ratio_h,
 						 color_dark_green,
-						 5.0);
+						 5.0f);
 		}
 	}
 
 	if (tm->tracking &&
 	    tm->tracking->state == VMETA__TRACKING_STATE__TS_TRACKING) {
-		x1 = (tm->tracking->target->x - 0.5) * 2;
-		y1 = -(tm->tracking->target->y - 0.5) * 2;
+		x1 = (tm->tracking->target->x - 0.5f) * 2;
+		y1 = -(tm->tracking->target->y - 0.5f) * 2;
 		x2 = x1 + tm->tracking->target->width * 2;
 		y2 = y1 - tm->tracking->target->height * 2;
 
@@ -1612,7 +1585,7 @@ pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
 					 x2 * self->ratio_w,
 					 y2 * self->ratio_h,
 					 color_dark_blue,
-					 5.0);
+					 5.0f);
 	}
 
 	GLCHK(glDisableVertexAttribArray(self->position_handle));
@@ -1637,16 +1610,15 @@ pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
 
 	if (tm->proposal) {
 		for (i = 0; i < tm->proposal->n_proposals; i++) {
-			x1 = (tm->proposal->proposals[i]->x - 0.5) * 2;
-			y1 = -(tm->proposal->proposals[i]->y - 0.5) * 2;
+			x1 = (tm->proposal->proposals[i]->x - 0.5f) * 2;
+			y1 = -(tm->proposal->proposals[i]->y - 0.5f) * 2;
 
-			snprintf(str,
-				 sizeof(str),
-				 "[%d]%s %.2f",
-				 tm->proposal->proposals[i]->uid,
-				 get_tracking_object(tm->proposal->proposals[i]
-							     ->object_class),
-				 tm->proposal->proposals[i]->confidence);
+			str = fmtstr(
+				"[%d]%s %.2f",
+				tm->proposal->proposals[i]->uid,
+				get_tracking_object(tm->proposal->proposals[i]
+							    ->object_class),
+				tm->proposal->proposals[i]->confidence);
 
 			pdraw_gles2hud_draw_text(
 				self,
@@ -1655,22 +1627,20 @@ pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
 				(y1 + self->config.text_tracking_v_offset) *
 					self->ratio_h,
 				self->config.text_size_tracking * self->ratio_w,
-				1.,
+				1.f,
 				self->aspect_ratio,
-				PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-				PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+				TextAlign::LEFT,
+				TextAlign::TOP,
 				color_black_alpha);
 		}
 	}
 
 	if (tm->tracking &&
 	    tm->tracking->state == VMETA__TRACKING_STATE__TS_TRACKING) {
-		x1 = (tm->tracking->target->x - 0.5) * 2;
-		y1 = -(tm->tracking->target->y - 0.5) * 2;
+		x1 = (tm->tracking->target->x - 0.5f) * 2;
+		y1 = -(tm->tracking->target->y - 0.5f) * 2;
 
-		snprintf(
-			str,
-			sizeof(str),
+		str = fmtstr(
 			"[%d]%s %.2f",
 			tm->tracking->target->uid,
 			get_tracking_object(tm->tracking->target->object_class),
@@ -1682,10 +1652,10 @@ pdraw_gles2hud_render_tracking(struct pdraw_gles2hud *self,
 			(y1 + self->config.text_tracking_v_offset) *
 				self->ratio_h,
 			self->config.text_size_tracking * self->ratio_w,
-			1.,
+			1.f,
 			self->aspect_ratio,
-			PDRAW_GLES2HUD_TEXT_ALIGN_LEFT,
-			PDRAW_GLES2HUD_TEXT_ALIGN_TOP,
+			TextAlign::LEFT,
+			TextAlign::TOP,
 			color_dark_blue);
 	}
 

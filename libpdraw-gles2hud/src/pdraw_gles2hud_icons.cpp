@@ -28,7 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_gles2hud_priv.h"
+#include "pdraw_gles2hud_priv.hpp"
 
 
 void pdraw_gles2hud_draw_icon(const struct pdraw_gles2hud *self,
@@ -38,39 +38,47 @@ void pdraw_gles2hud_draw_icon(const struct pdraw_gles2hud *self,
 			      float size,
 			      float scalew,
 			      float scaleh,
-			      const float color[4])
+			      const std::array<float, 4> &color)
 {
-	float vertices[8];
-	float texcoords[8];
+	const int ix = index % 3;
+	const int iy = index / 3;
 
-	vertices[0] = x - size * scalew / 2.;
-	vertices[1] = y - size * scaleh / 2.;
-	vertices[2] = x + size * scalew / 2.;
-	vertices[3] = y - size * scaleh / 2.;
-	vertices[4] = x - size * scalew / 2.;
-	vertices[5] = y + size * scaleh / 2.;
-	vertices[6] = x + size * scalew / 2.;
-	vertices[7] = y + size * scaleh / 2.;
+	const std::array<float, 8> vertices = {
+		x - size * scalew / 2.f,
+		y - size * scaleh / 2.f,
+		x + size * scalew / 2.f,
+		y - size * scaleh / 2.f,
+		x - size * scalew / 2.f,
+		y + size * scaleh / 2.f,
+		x + size * scalew / 2.f,
+		y + size * scaleh / 2.f,
+	};
+	const std::array<float, 8> texcoords = {
+		static_cast<float>(ix) / 3.f,
+		(static_cast<float>(iy) + 0.99f) / 3.f,
+		(static_cast<float>(ix) + 0.99f) / 3.f,
+		(static_cast<float>(iy) + 0.99f) / 3.f,
+		static_cast<float>(ix) / 3.f,
+		static_cast<float>(iy) / 3.f,
+		(static_cast<float>(ix) + 0.99f) / 3.f,
+		static_cast<float>(iy) / 3.f,
+	};
 
-	GLCHK(glVertexAttribPointer(
-		self->tex_position_handle, 2, GL_FLOAT, false, 0, vertices));
+	GLCHK(glVertexAttribPointer(self->tex_position_handle,
+				    2,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    vertices.data()));
 
-	int ix = index % 3;
-	int iy = index / 3;
+	GLCHK(glVertexAttribPointer(self->tex_texcoord_handle,
+				    2,
+				    GL_FLOAT,
+				    false,
+				    0,
+				    texcoords.data()));
 
-	texcoords[0] = ((float)ix + 0.) / 3.;
-	texcoords[1] = ((float)iy + 0.99) / 3.;
-	texcoords[2] = ((float)ix + 0.99) / 3.;
-	texcoords[3] = ((float)iy + 0.99) / 3.;
-	texcoords[4] = ((float)ix + 0.) / 3.;
-	texcoords[5] = ((float)iy + 0.) / 3.;
-	texcoords[6] = ((float)ix + 0.99) / 3.;
-	texcoords[7] = ((float)iy + 0.) / 3.;
-
-	GLCHK(glVertexAttribPointer(
-		self->tex_texcoord_handle, 2, GL_FLOAT, false, 0, texcoords));
-
-	GLCHK(glUniform4fv(self->tex_color_handle, 1, color));
+	GLCHK(glUniform4fv(self->tex_color_handle, 1, color.data()));
 
 	GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 }

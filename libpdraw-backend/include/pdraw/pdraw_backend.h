@@ -1174,8 +1174,9 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_new_from_url_on_mux(
  * @param demuxer: demuxer handle
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_destroy(struct pdraw_backend *self,
-					       struct pdraw_demuxer *demuxer);
+PDRAW_BACKEND_API int
+pdraw_be_demuxer_destroy(struct pdraw_backend *self,
+			 const struct pdraw_demuxer *demuxer);
 
 
 /**
@@ -1191,7 +1192,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_destroy(struct pdraw_backend *self,
  * @param demuxer: demuxer handle
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_close(struct pdraw_backend *self,
+PDRAW_BACKEND_API int pdraw_be_demuxer_close(const struct pdraw_backend *self,
 					     struct pdraw_demuxer *demuxer);
 
 
@@ -1210,7 +1211,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_close(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_get_media_list(struct pdraw_backend *self,
+pdraw_be_demuxer_get_media_list(const struct pdraw_backend *self,
 				struct pdraw_demuxer *demuxer,
 				struct pdraw_demuxer_media **media_list,
 				size_t *media_count,
@@ -1231,7 +1232,7 @@ pdraw_be_demuxer_get_media_list(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_select_media(struct pdraw_backend *self,
+pdraw_be_demuxer_select_media(const struct pdraw_backend *self,
 			      struct pdraw_demuxer *demuxer,
 			      uint32_t selected_medias);
 
@@ -1249,7 +1250,7 @@ pdraw_be_demuxer_select_media(struct pdraw_backend *self,
  * @return the stream port on success, 0 in case of error
  */
 PDRAW_BACKEND_API uint16_t pdraw_be_demuxer_get_single_stream_local_stream_port(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_demuxer *demuxer);
 
 
@@ -1267,7 +1268,7 @@ PDRAW_BACKEND_API uint16_t pdraw_be_demuxer_get_single_stream_local_stream_port(
  */
 PDRAW_BACKEND_API uint16_t
 pdraw_be_demuxer_get_single_stream_local_control_port(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_demuxer *demuxer);
 
 
@@ -1285,7 +1286,7 @@ pdraw_be_demuxer_get_single_stream_local_control_port(
  * @return the ready to play status on success, 0 in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_is_ready_to_play(struct pdraw_backend *self,
+pdraw_be_demuxer_is_ready_to_play(const struct pdraw_backend *self,
 				  struct pdraw_demuxer *demuxer);
 
 
@@ -1296,8 +1297,9 @@ pdraw_be_demuxer_is_ready_to_play(struct pdraw_backend *self,
  * @param demuxer: demuxer handle
  * @return the pause status on success, 0 in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_is_paused(struct pdraw_backend *self,
-						 struct pdraw_demuxer *demuxer);
+PDRAW_BACKEND_API int
+pdraw_be_demuxer_is_paused(const struct pdraw_backend *self,
+			   struct pdraw_demuxer *demuxer);
 
 
 /**
@@ -1312,7 +1314,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_is_paused(struct pdraw_backend *self,
  * @param demuxer: demuxer handle
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_play(struct pdraw_backend *self,
+PDRAW_BACKEND_API int pdraw_be_demuxer_play(const struct pdraw_backend *self,
 					    struct pdraw_demuxer *demuxer);
 
 
@@ -1338,7 +1340,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_play(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_play_with_speed(struct pdraw_backend *self,
+pdraw_be_demuxer_play_with_speed(const struct pdraw_backend *self,
 				 struct pdraw_demuxer *demuxer,
 				 float speed);
 
@@ -1356,7 +1358,7 @@ pdraw_be_demuxer_play_with_speed(struct pdraw_backend *self,
  * @param demuxer: demuxer handle
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_pause(struct pdraw_backend *self,
+PDRAW_BACKEND_API int pdraw_be_demuxer_pause(const struct pdraw_backend *self,
 					     struct pdraw_demuxer *demuxer);
 
 
@@ -1375,7 +1377,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_pause(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_previous_frame(struct pdraw_backend *self,
+pdraw_be_demuxer_previous_frame(const struct pdraw_backend *self,
 				struct pdraw_demuxer *demuxer);
 
 
@@ -1394,7 +1396,7 @@ pdraw_be_demuxer_previous_frame(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_next_frame(struct pdraw_backend *self,
+pdraw_be_demuxer_next_frame(const struct pdraw_backend *self,
 			    struct pdraw_demuxer *demuxer);
 
 
@@ -1418,7 +1420,7 @@ pdraw_be_demuxer_next_frame(struct pdraw_backend *self,
  *               to the nearest synchronization sample preceeding the delta
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_seek(struct pdraw_backend *self,
+PDRAW_BACKEND_API int pdraw_be_demuxer_seek(const struct pdraw_backend *self,
 					    struct pdraw_demuxer *demuxer,
 					    int64_t delta,
 					    int exact);
@@ -1445,7 +1447,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_seek(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_seek_forward(struct pdraw_backend *self,
+pdraw_be_demuxer_seek_forward(const struct pdraw_backend *self,
 			      struct pdraw_demuxer *demuxer,
 			      uint64_t delta,
 			      int exact);
@@ -1471,10 +1473,11 @@ pdraw_be_demuxer_seek_forward(struct pdraw_backend *self,
  *               to the nearest synchronization sample preceeding the delta
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_seek_back(struct pdraw_backend *self,
-						 struct pdraw_demuxer *demuxer,
-						 uint64_t delta,
-						 int exact);
+PDRAW_BACKEND_API int
+pdraw_be_demuxer_seek_back(const struct pdraw_backend *self,
+			   struct pdraw_demuxer *demuxer,
+			   uint64_t delta,
+			   int exact);
 
 
 /**
@@ -1497,7 +1500,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_seek_back(struct pdraw_backend *self,
  *               preceeding the timestamp
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_demuxer_seek_to(struct pdraw_backend *self,
+PDRAW_BACKEND_API int pdraw_be_demuxer_seek_to(const struct pdraw_backend *self,
 					       struct pdraw_demuxer *demuxer,
 					       uint64_t timestamp,
 					       int exact);
@@ -1519,7 +1522,7 @@ PDRAW_BACKEND_API int pdraw_be_demuxer_seek_to(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_demuxer_get_chapter_list(struct pdraw_backend *self,
+pdraw_be_demuxer_get_chapter_list(const struct pdraw_backend *self,
 				  struct pdraw_demuxer *demuxer,
 				  struct pdraw_chapter **chapter_list,
 				  size_t *chapter_count);
@@ -1534,7 +1537,7 @@ pdraw_be_demuxer_get_chapter_list(struct pdraw_backend *self,
  * @return the duration in microseconds on success, 0 in case of error
  */
 PDRAW_BACKEND_API uint64_t
-pdraw_be_demuxer_get_duration(struct pdraw_backend *self,
+pdraw_be_demuxer_get_duration(const struct pdraw_backend *self,
 			      struct pdraw_demuxer *demuxer);
 
 
@@ -1549,7 +1552,7 @@ pdraw_be_demuxer_get_duration(struct pdraw_backend *self,
  * @return the current time in microseconds on success, 0 in case of error
  */
 PDRAW_BACKEND_API uint64_t
-pdraw_be_demuxer_get_current_time(struct pdraw_backend *self,
+pdraw_be_demuxer_get_current_time(const struct pdraw_backend *self,
 				  struct pdraw_demuxer *demuxer);
 
 
@@ -1586,6 +1589,36 @@ pdraw_be_muxer_new(struct pdraw_backend *self,
 
 
 /**
+ * Create a muxer on a mux channel.
+ * Identical to pdraw_be_muxer_new() but tunnels the RTSP stream over a mux
+ * connection (SkyController link). Only supported for RTSP URLs (rtsp://).
+ * The mux_ctx handle must remain valid for the lifetime of the muxer.
+ * @param self: PDrAW back-end instance handle
+ * @param url: destination RTSP URL (rtsp://); for the mux transport this is
+ * expected to be the loopback URL of the TCP control-channel tunnel, NOT the
+ * real destination
+ * @param mux: mux instance handle
+ * @param remote_host: real destination host (hostname or IP, no
+ * scheme/port/credentials) that the UDP RTP/RTCP mux_ip_proxy instances must
+ * relay to; mandatory (must not be null or empty)
+ * @param params: muxer parameters
+ * @param cbs: muxer callback functions
+ * @param userdata: callback functions user data (optional, can be null)
+ * @param ret_obj: muxer handle (output)
+ * @return 0 on success, negative errno value in case of error
+ */
+PDRAW_BACKEND_API int
+pdraw_be_muxer_new_on_mux(struct pdraw_backend *self,
+			  const char *url,
+			  struct mux_ctx *mux,
+			  const char *remote_host,
+			  const struct pdraw_muxer_params *params,
+			  const struct pdraw_backend_muxer_cbs *cbs,
+			  void *userdata,
+			  struct pdraw_muxer **ret_obj);
+
+
+/**
  * Destroy a muxer.
  * This function stops a running muxer and frees the associated resources.
  * @param pdraw: PDrAW back-end instance handle
@@ -1593,7 +1626,7 @@ pdraw_be_muxer_new(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_muxer_destroy(struct pdraw_backend *self,
-					     struct pdraw_muxer *muxer);
+					     const struct pdraw_muxer *muxer);
 
 
 /**
@@ -1609,7 +1642,7 @@ PDRAW_BACKEND_API int pdraw_be_muxer_destroy(struct pdraw_backend *self,
  * @param muxer: muxer handle
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_muxer_close(struct pdraw_backend *self,
+PDRAW_BACKEND_API int pdraw_be_muxer_close(const struct pdraw_backend *self,
 					   struct pdraw_muxer *muxer);
 
 
@@ -1625,7 +1658,7 @@ PDRAW_BACKEND_API int pdraw_be_muxer_close(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_muxer_add_media(struct pdraw_backend *self,
+pdraw_be_muxer_add_media(const struct pdraw_backend *self,
 			 struct pdraw_muxer *muxer,
 			 unsigned int media_id,
 			 const struct pdraw_muxer_media_params *params);
@@ -1643,7 +1676,7 @@ pdraw_be_muxer_add_media(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API
-int pdraw_be_muxer_set_thumbnail(struct pdraw_backend *pdraw,
+int pdraw_be_muxer_set_thumbnail(const struct pdraw_backend *pdraw,
 				 struct pdraw_muxer *muxer,
 				 enum pdraw_muxer_thumbnail_type type,
 				 const uint8_t *data,
@@ -1658,21 +1691,17 @@ int pdraw_be_muxer_set_thumbnail(struct pdraw_backend *pdraw,
  * params structure.
  * @param pdraw: PDrAW back-end instance handle
  * @param muxer: muxer handle
- * @param type: type of the metadata
+ * @param params: metadata parameters (type + type-specific fields)
  * @param data: metadata data, must be of length size
  * @param size: size of data
- * @param params: extra parameters specific to the metadata type (optional)
- * @param params_size: size of params
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int
-pdraw_be_muxer_set_file_metadata(struct pdraw_backend *pdraw,
-				 struct pdraw_muxer *muxer,
-				 enum pdraw_muxer_metadata_type type,
-				 const uint8_t *data,
-				 size_t size,
-				 const void *params,
-				 size_t params_size);
+PDRAW_BACKEND_API int pdraw_be_muxer_set_file_metadata(
+	const struct pdraw_backend *pdraw,
+	struct pdraw_muxer *muxer,
+	const struct pdraw_muxer_metadata_params *params,
+	const uint8_t *data,
+	size_t size);
 
 
 /**
@@ -1689,7 +1718,7 @@ pdraw_be_muxer_set_file_metadata(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API
-int pdraw_be_muxer_add_chapter(struct pdraw_backend *pdraw,
+int pdraw_be_muxer_add_chapter(const struct pdraw_backend *pdraw,
 			       struct pdraw_muxer *muxer,
 			       uint64_t timestamp,
 			       const char *name);
@@ -1704,7 +1733,7 @@ int pdraw_be_muxer_add_chapter(struct pdraw_backend *pdraw,
  * @param stats: muxer statistics structure to fill
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int pdraw_be_muxer_get_stats(struct pdraw_backend *self,
+PDRAW_BACKEND_API int pdraw_be_muxer_get_stats(const struct pdraw_backend *self,
 					       struct pdraw_muxer *muxer,
 					       struct pdraw_muxer_stats *stats);
 
@@ -1764,7 +1793,7 @@ pdraw_be_video_renderer_new(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int
 pdraw_be_video_renderer_destroy(struct pdraw_backend *self,
-				struct pdraw_video_renderer *renderer);
+				const struct pdraw_video_renderer *renderer);
 
 
 /**
@@ -1781,7 +1810,7 @@ pdraw_be_video_renderer_destroy(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_renderer_resize(struct pdraw_backend *self,
+pdraw_be_video_renderer_resize(const struct pdraw_backend *self,
 			       struct pdraw_video_renderer *renderer,
 			       const struct pdraw_rect *render_pos);
 
@@ -1800,7 +1829,7 @@ pdraw_be_video_renderer_resize(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_renderer_set_media_id(struct pdraw_backend *self,
+pdraw_be_video_renderer_set_media_id(const struct pdraw_backend *self,
 				     struct pdraw_video_renderer *renderer,
 				     unsigned int media_id);
 
@@ -1817,7 +1846,7 @@ pdraw_be_video_renderer_set_media_id(struct pdraw_backend *self,
  *         renderered or in case of error
  */
 PDRAW_BACKEND_API unsigned int
-pdraw_be_video_renderer_get_media_id(struct pdraw_backend *self,
+pdraw_be_video_renderer_get_media_id(const struct pdraw_backend *self,
 				     struct pdraw_video_renderer *renderer);
 
 
@@ -1834,7 +1863,7 @@ pdraw_be_video_renderer_get_media_id(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_video_renderer_set_params(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_video_renderer *renderer,
 	const struct pdraw_video_renderer_params *params);
 
@@ -1851,7 +1880,7 @@ PDRAW_BACKEND_API int pdraw_be_video_renderer_set_params(
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_renderer_get_params(struct pdraw_backend *self,
+pdraw_be_video_renderer_get_params(const struct pdraw_backend *self,
 				   struct pdraw_video_renderer *renderer,
 				   struct pdraw_video_renderer_params *params);
 
@@ -1876,7 +1905,7 @@ pdraw_be_video_renderer_get_params(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_renderer_render(struct pdraw_backend *self,
+pdraw_be_video_renderer_render(const struct pdraw_backend *self,
 			       struct pdraw_video_renderer *renderer,
 			       struct pdraw_rect *content_pos);
 
@@ -1904,7 +1933,7 @@ pdraw_be_video_renderer_render(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_renderer_render_mat(struct pdraw_backend *self,
+pdraw_be_video_renderer_render_mat(const struct pdraw_backend *self,
 				   struct pdraw_video_renderer *renderer,
 				   struct pdraw_rect *content_pos,
 				   const float *view_mat,
@@ -1954,7 +1983,7 @@ pdraw_be_audio_renderer_new(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int
 pdraw_be_audio_renderer_destroy(struct pdraw_backend *self,
-				struct pdraw_audio_renderer *renderer);
+				const struct pdraw_audio_renderer *renderer);
 
 
 /**
@@ -1969,7 +1998,7 @@ pdraw_be_audio_renderer_destroy(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_audio_renderer_set_media_id(struct pdraw_backend *self,
+pdraw_be_audio_renderer_set_media_id(const struct pdraw_backend *self,
 				     struct pdraw_audio_renderer *renderer,
 				     unsigned int media_id);
 
@@ -1984,7 +2013,7 @@ pdraw_be_audio_renderer_set_media_id(struct pdraw_backend *self,
  *         renderered or in case of error
  */
 PDRAW_BACKEND_API unsigned int
-pdraw_be_audio_renderer_get_media_id(struct pdraw_backend *self,
+pdraw_be_audio_renderer_get_media_id(const struct pdraw_backend *self,
 				     struct pdraw_audio_renderer *renderer);
 
 
@@ -1999,7 +2028,7 @@ pdraw_be_audio_renderer_get_media_id(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_audio_renderer_set_params(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_audio_renderer *renderer,
 	const struct pdraw_backend_audio_renderer_cbs *params);
 
@@ -2014,7 +2043,7 @@ PDRAW_BACKEND_API int pdraw_be_audio_renderer_set_params(
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_audio_renderer_get_params(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_audio_renderer *renderer,
 	struct pdraw_backend_audio_renderer_cbs *params);
 
@@ -2055,7 +2084,7 @@ pdraw_be_vipc_source_new(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int
 pdraw_be_vipc_source_destroy(struct pdraw_backend *self,
-			     struct pdraw_vipc_source *source);
+			     const struct pdraw_vipc_source *source);
 
 
 /**
@@ -2069,7 +2098,7 @@ pdraw_be_vipc_source_destroy(struct pdraw_backend *self,
  * @return the ready to play status on success, 0 in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_is_ready_to_play(struct pdraw_backend *self,
+pdraw_be_vipc_source_is_ready_to_play(const struct pdraw_backend *self,
 				      struct pdraw_vipc_source *source);
 
 
@@ -2081,7 +2110,7 @@ pdraw_be_vipc_source_is_ready_to_play(struct pdraw_backend *self,
  * @return the pause status on success, 0 in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_is_paused(struct pdraw_backend *self,
+pdraw_be_vipc_source_is_paused(const struct pdraw_backend *self,
 			       struct pdraw_vipc_source *source);
 
 
@@ -2099,7 +2128,7 @@ pdraw_be_vipc_source_is_paused(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_play(struct pdraw_backend *self,
+pdraw_be_vipc_source_play(const struct pdraw_backend *self,
 			  struct pdraw_vipc_source *source);
 
 
@@ -2117,7 +2146,7 @@ pdraw_be_vipc_source_play(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_pause(struct pdraw_backend *self,
+pdraw_be_vipc_source_pause(const struct pdraw_backend *self,
 			   struct pdraw_vipc_source *source);
 
 
@@ -2138,7 +2167,7 @@ pdraw_be_vipc_source_pause(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_configure(struct pdraw_backend *self,
+pdraw_be_vipc_source_configure(const struct pdraw_backend *self,
 			       struct pdraw_vipc_source *source,
 			       const struct vdef_dim *resolution,
 			       const struct vdef_rectf *crop);
@@ -2155,7 +2184,7 @@ pdraw_be_vipc_source_configure(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_insert_grey_frame(struct pdraw_backend *self,
+pdraw_be_vipc_source_insert_grey_frame(const struct pdraw_backend *self,
 				       struct pdraw_vipc_source *source,
 				       uint64_t ts_us);
 
@@ -2171,7 +2200,7 @@ pdraw_be_vipc_source_insert_grey_frame(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_set_session_metadata(struct pdraw_backend *self,
+pdraw_be_vipc_source_set_session_metadata(const struct pdraw_backend *self,
 					  struct pdraw_vipc_source *source,
 					  const struct vmeta_session *meta);
 
@@ -2186,7 +2215,7 @@ pdraw_be_vipc_source_set_session_metadata(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_vipc_source_get_session_metadata(struct pdraw_backend *self,
+pdraw_be_vipc_source_get_session_metadata(const struct pdraw_backend *self,
 					  struct pdraw_vipc_source *source,
 					  struct vmeta_session *meta);
 
@@ -2230,9 +2259,9 @@ PDRAW_BACKEND_API int pdraw_be_coded_video_source_new(
  * @param source: video source handle
  * @return 0 on success, negative errno value in case of error
  */
-PDRAW_BACKEND_API int
-pdraw_be_coded_video_source_destroy(struct pdraw_backend *self,
-				    struct pdraw_coded_video_source *source);
+PDRAW_BACKEND_API int pdraw_be_coded_video_source_destroy(
+	struct pdraw_backend *self,
+	const struct pdraw_coded_video_source *source);
 
 
 /**
@@ -2246,7 +2275,7 @@ pdraw_be_coded_video_source_destroy(struct pdraw_backend *self,
  * in case of error
  */
 PDRAW_BACKEND_API struct mbuf_coded_video_frame_queue *
-pdraw_be_coded_video_source_get_queue(struct pdraw_backend *self,
+pdraw_be_coded_video_source_get_queue(const struct pdraw_backend *self,
 				      struct pdraw_coded_video_source *source);
 
 
@@ -2261,7 +2290,7 @@ pdraw_be_coded_video_source_get_queue(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_coded_video_source_flush(struct pdraw_backend *self,
+pdraw_be_coded_video_source_flush(const struct pdraw_backend *self,
 				  struct pdraw_coded_video_source *source);
 
 
@@ -2276,7 +2305,7 @@ pdraw_be_coded_video_source_flush(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_coded_video_source_drain(struct pdraw_backend *self,
+pdraw_be_coded_video_source_drain(const struct pdraw_backend *self,
 				  struct pdraw_coded_video_source *source);
 
 
@@ -2291,7 +2320,7 @@ pdraw_be_coded_video_source_drain(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_coded_video_source_set_session_metadata(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_coded_video_source *source,
 	const struct vmeta_session *meta);
 
@@ -2306,7 +2335,7 @@ PDRAW_BACKEND_API int pdraw_be_coded_video_source_set_session_metadata(
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_coded_video_source_get_session_metadata(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_coded_video_source *source,
 	struct vmeta_session *meta);
 
@@ -2348,7 +2377,7 @@ PDRAW_BACKEND_API int pdraw_be_raw_video_source_new(
  */
 PDRAW_BACKEND_API int
 pdraw_be_raw_video_source_destroy(struct pdraw_backend *self,
-				  struct pdraw_raw_video_source *source);
+				  const struct pdraw_raw_video_source *source);
 
 
 /**
@@ -2362,7 +2391,7 @@ pdraw_be_raw_video_source_destroy(struct pdraw_backend *self,
  * in case of error
  */
 PDRAW_BACKEND_API struct mbuf_raw_video_frame_queue *
-pdraw_be_raw_video_source_get_queue(struct pdraw_backend *self,
+pdraw_be_raw_video_source_get_queue(const struct pdraw_backend *self,
 				    struct pdraw_raw_video_source *source);
 
 
@@ -2377,7 +2406,7 @@ pdraw_be_raw_video_source_get_queue(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_raw_video_source_flush(struct pdraw_backend *self,
+pdraw_be_raw_video_source_flush(const struct pdraw_backend *self,
 				struct pdraw_raw_video_source *source);
 
 
@@ -2392,7 +2421,7 @@ pdraw_be_raw_video_source_flush(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_raw_video_source_drain(struct pdraw_backend *self,
+pdraw_be_raw_video_source_drain(const struct pdraw_backend *self,
 				struct pdraw_raw_video_source *source);
 
 
@@ -2407,7 +2436,7 @@ pdraw_be_raw_video_source_drain(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_raw_video_source_set_session_metadata(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_raw_video_source *source,
 	const struct vmeta_session *meta);
 
@@ -2422,7 +2451,7 @@ PDRAW_BACKEND_API int pdraw_be_raw_video_source_set_session_metadata(
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int pdraw_be_raw_video_source_get_session_metadata(
-	struct pdraw_backend *self,
+	const struct pdraw_backend *self,
 	struct pdraw_raw_video_source *source,
 	struct vmeta_session *meta);
 
@@ -2482,7 +2511,7 @@ PDRAW_BACKEND_API int pdraw_be_coded_video_sink_new(
  */
 PDRAW_BACKEND_API int
 pdraw_be_coded_video_sink_destroy(struct pdraw_backend *self,
-				  struct pdraw_coded_video_sink *sink);
+				  const struct pdraw_coded_video_sink *sink);
 
 
 /**
@@ -2497,7 +2526,7 @@ pdraw_be_coded_video_sink_destroy(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_coded_video_sink_set_media_id(struct pdraw_backend *self,
+pdraw_be_coded_video_sink_set_media_id(const struct pdraw_backend *self,
 				       struct pdraw_coded_video_sink *sink,
 				       unsigned int media_id);
 
@@ -2512,7 +2541,7 @@ pdraw_be_coded_video_sink_set_media_id(struct pdraw_backend *self,
  *         connected or in case of error
  */
 PDRAW_API unsigned int
-pdraw_be_coded_video_sink_get_media_id(struct pdraw_backend *pdraw,
+pdraw_be_coded_video_sink_get_media_id(const struct pdraw_backend *pdraw,
 				       struct pdraw_coded_video_sink *sink);
 
 
@@ -2544,7 +2573,7 @@ pdraw_be_coded_video_sink_resync(struct pdraw_backend *self,
  * in case of error
  */
 PDRAW_BACKEND_API struct mbuf_coded_video_frame_queue *
-pdraw_be_coded_video_sink_get_queue(struct pdraw_backend *self,
+pdraw_be_coded_video_sink_get_queue(const struct pdraw_backend *self,
 				    struct pdraw_coded_video_sink *sink);
 
 
@@ -2560,7 +2589,7 @@ pdraw_be_coded_video_sink_get_queue(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_coded_video_sink_queue_flushed(struct pdraw_backend *self,
+pdraw_be_coded_video_sink_queue_flushed(const struct pdraw_backend *self,
 					struct pdraw_coded_video_sink *sink);
 
 
@@ -2576,7 +2605,7 @@ pdraw_be_coded_video_sink_queue_flushed(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_coded_video_sink_queue_drained(struct pdraw_backend *self,
+pdraw_be_coded_video_sink_queue_drained(const struct pdraw_backend *self,
 					struct pdraw_coded_video_sink *sink);
 
 
@@ -2631,7 +2660,7 @@ pdraw_be_raw_video_sink_new(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int
 pdraw_be_raw_video_sink_destroy(struct pdraw_backend *self,
-				struct pdraw_raw_video_sink *sink);
+				const struct pdraw_raw_video_sink *sink);
 
 
 /**
@@ -2646,7 +2675,7 @@ pdraw_be_raw_video_sink_destroy(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_raw_video_sink_set_media_id(struct pdraw_backend *self,
+pdraw_be_raw_video_sink_set_media_id(const struct pdraw_backend *self,
 				     struct pdraw_raw_video_sink *sink,
 				     unsigned int media_id);
 
@@ -2661,7 +2690,7 @@ pdraw_be_raw_video_sink_set_media_id(struct pdraw_backend *self,
  *         connected or in case of error
  */
 PDRAW_API unsigned int
-pdraw_be_raw_video_sink_get_media_id(struct pdraw_backend *pdraw,
+pdraw_be_raw_video_sink_get_media_id(const struct pdraw_backend *pdraw,
 				     struct pdraw_raw_video_sink *sink);
 
 
@@ -2676,7 +2705,7 @@ pdraw_be_raw_video_sink_get_media_id(struct pdraw_backend *pdraw,
  * in case of error
  */
 PDRAW_BACKEND_API struct mbuf_raw_video_frame_queue *
-pdraw_be_raw_video_sink_get_queue(struct pdraw_backend *self,
+pdraw_be_raw_video_sink_get_queue(const struct pdraw_backend *self,
 				  struct pdraw_raw_video_sink *sink);
 
 
@@ -2692,7 +2721,7 @@ pdraw_be_raw_video_sink_get_queue(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_raw_video_sink_queue_flushed(struct pdraw_backend *self,
+pdraw_be_raw_video_sink_queue_flushed(const struct pdraw_backend *self,
 				      struct pdraw_raw_video_sink *sink);
 
 
@@ -2708,7 +2737,7 @@ pdraw_be_raw_video_sink_queue_flushed(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_raw_video_sink_queue_drained(struct pdraw_backend *self,
+pdraw_be_raw_video_sink_queue_drained(const struct pdraw_backend *self,
 				      struct pdraw_raw_video_sink *sink);
 
 
@@ -2746,7 +2775,7 @@ pdraw_be_alsa_source_new(struct pdraw_backend *pdraw,
  */
 PDRAW_BACKEND_API int
 pdraw_be_alsa_source_destroy(struct pdraw_backend *pdraw,
-			     struct pdraw_alsa_source *source);
+			     const struct pdraw_alsa_source *source);
 
 
 /**
@@ -2760,7 +2789,7 @@ pdraw_be_alsa_source_destroy(struct pdraw_backend *pdraw,
  * @return the ready to play status on success, 0 in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_alsa_source_is_ready_to_play(struct pdraw_backend *pdraw,
+pdraw_be_alsa_source_is_ready_to_play(const struct pdraw_backend *pdraw,
 				      struct pdraw_alsa_source *source);
 
 
@@ -2772,7 +2801,7 @@ pdraw_be_alsa_source_is_ready_to_play(struct pdraw_backend *pdraw,
  * @return the pause status on success, 0 in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_alsa_source_is_paused(struct pdraw_backend *pdraw,
+pdraw_be_alsa_source_is_paused(const struct pdraw_backend *pdraw,
 			       struct pdraw_alsa_source *source);
 
 
@@ -2790,7 +2819,7 @@ pdraw_be_alsa_source_is_paused(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_alsa_source_play(struct pdraw_backend *pdraw,
+pdraw_be_alsa_source_play(const struct pdraw_backend *pdraw,
 			  struct pdraw_alsa_source *source);
 
 
@@ -2808,7 +2837,7 @@ pdraw_be_alsa_source_play(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_alsa_source_pause(struct pdraw_backend *pdraw,
+pdraw_be_alsa_source_pause(const struct pdraw_backend *pdraw,
 			   struct pdraw_alsa_source *source);
 
 
@@ -2853,7 +2882,7 @@ pdraw_be_audio_source_new(struct pdraw_backend *pdraw,
  */
 PDRAW_BACKEND_API int
 pdraw_be_audio_source_destroy(struct pdraw_backend *pdraw,
-			      struct pdraw_audio_source *source);
+			      const struct pdraw_audio_source *source);
 
 
 /**
@@ -2867,7 +2896,7 @@ pdraw_be_audio_source_destroy(struct pdraw_backend *pdraw,
  * in case of error
  */
 PDRAW_BACKEND_API struct mbuf_audio_frame_queue *
-pdraw_be_audio_source_get_queue(struct pdraw_backend *pdraw,
+pdraw_be_audio_source_get_queue(const struct pdraw_backend *pdraw,
 				struct pdraw_audio_source *source);
 
 
@@ -2882,7 +2911,7 @@ pdraw_be_audio_source_get_queue(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_audio_source_flush(struct pdraw_backend *pdraw,
+pdraw_be_audio_source_flush(const struct pdraw_backend *pdraw,
 			    struct pdraw_audio_source *source);
 
 
@@ -2897,7 +2926,7 @@ pdraw_be_audio_source_flush(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_audio_source_drain(struct pdraw_backend *pdraw,
+pdraw_be_audio_source_drain(const struct pdraw_backend *pdraw,
 			    struct pdraw_audio_source *source);
 
 
@@ -2951,7 +2980,7 @@ pdraw_be_audio_sink_new(struct pdraw_backend *pdraw,
  */
 PDRAW_BACKEND_API int
 pdraw_be_audio_sink_destroy(struct pdraw_backend *pdraw,
-			    struct pdraw_audio_sink *sink);
+			    const struct pdraw_audio_sink *sink);
 
 
 /**
@@ -2966,7 +2995,7 @@ pdraw_be_audio_sink_destroy(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_audio_sink_set_media_id(struct pdraw_backend *self,
+pdraw_be_audio_sink_set_media_id(const struct pdraw_backend *self,
 				 struct pdraw_audio_sink *sink,
 				 unsigned int media_id);
 
@@ -2981,7 +3010,7 @@ pdraw_be_audio_sink_set_media_id(struct pdraw_backend *self,
  *         connected or in case of error
  */
 PDRAW_API unsigned int
-pdraw_be_audio_sink_get_media_id(struct pdraw_backend *pdraw,
+pdraw_be_audio_sink_get_media_id(const struct pdraw_backend *pdraw,
 				 struct pdraw_audio_sink *sink);
 
 
@@ -2996,7 +3025,7 @@ pdraw_be_audio_sink_get_media_id(struct pdraw_backend *pdraw,
  * in case of error
  */
 PDRAW_BACKEND_API struct mbuf_audio_frame_queue *
-pdraw_be_audio_sink_get_queue(struct pdraw_backend *pdraw,
+pdraw_be_audio_sink_get_queue(const struct pdraw_backend *pdraw,
 			      struct pdraw_audio_sink *sink);
 
 
@@ -3012,7 +3041,7 @@ pdraw_be_audio_sink_get_queue(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_audio_sink_queue_flushed(struct pdraw_backend *pdraw,
+pdraw_be_audio_sink_queue_flushed(const struct pdraw_backend *pdraw,
 				  struct pdraw_audio_sink *sink);
 
 
@@ -3028,7 +3057,7 @@ pdraw_be_audio_sink_queue_flushed(struct pdraw_backend *pdraw,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_audio_sink_queue_drained(struct pdraw_backend *pdraw,
+pdraw_be_audio_sink_queue_drained(const struct pdraw_backend *pdraw,
 				  struct pdraw_audio_sink *sink);
 
 
@@ -3077,7 +3106,7 @@ pdraw_be_video_encoder_new(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int
 pdraw_be_video_encoder_destroy(struct pdraw_backend *self,
-			       struct pdraw_video_encoder *encoder);
+			       const struct pdraw_video_encoder *encoder);
 
 
 /**
@@ -3089,7 +3118,7 @@ pdraw_be_video_encoder_destroy(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_encoder_configure(struct pdraw_backend *self,
+pdraw_be_video_encoder_configure(const struct pdraw_backend *self,
 				 struct pdraw_video_encoder *encoder,
 				 const struct venc_dyn_config *config);
 
@@ -3103,7 +3132,7 @@ pdraw_be_video_encoder_configure(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_encoder_request_key_frame(struct pdraw_backend *self,
+pdraw_be_video_encoder_request_key_frame(const struct pdraw_backend *self,
 					 struct pdraw_video_encoder *encoder);
 
 
@@ -3117,7 +3146,7 @@ pdraw_be_video_encoder_request_key_frame(struct pdraw_backend *self,
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_BACKEND_API int
-pdraw_be_video_encoder_get_config(struct pdraw_backend *self,
+pdraw_be_video_encoder_get_config(const struct pdraw_backend *self,
 				  struct pdraw_video_encoder *encoder,
 				  struct venc_dyn_config *config);
 
@@ -3166,7 +3195,7 @@ pdraw_be_video_scaler_new(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int
 pdraw_be_video_scaler_destroy(struct pdraw_backend *self,
-			      struct pdraw_video_scaler *scaler);
+			      const struct pdraw_video_scaler *scaler);
 
 
 /**
@@ -3213,7 +3242,7 @@ pdraw_be_audio_encoder_new(struct pdraw_backend *self,
  */
 PDRAW_BACKEND_API int
 pdraw_be_audio_encoder_destroy(struct pdraw_backend *self,
-			       struct pdraw_audio_encoder *encoder);
+			       const struct pdraw_audio_encoder *encoder);
 
 
 /**

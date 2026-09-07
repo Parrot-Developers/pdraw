@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_venc
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_encoder_video.hpp"
 #include "pdraw_session.hpp"
@@ -40,6 +39,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <unistd.h>
 
 #include <vector>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 constexpr enum vdef_encoding DEFAULT_ENCODING = VDEF_ENCODING_H264;
 
@@ -80,6 +81,8 @@ VideoEncoder::VideoEncoder(Session *session,
 
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+
 	/* Supported input formats */
 	supportedInputFormatsCount = venc_get_supported_input_formats(
 		VENC_ENCODER_IMPLEM_AUTO,
@@ -94,10 +97,12 @@ VideoEncoder::VideoEncoder(Session *session,
 
 	if (params != nullptr) {
 		/* Encoder params deep copy */
-		err = venc_config_copy(params, &mEncoderConfig);
+		venc_config *rawConfig = nullptr;
+		err = venc_config_copy(params, &rawConfig);
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("venc_config_copy", -err);
 		} else {
+			mEncoderConfig.reset(rawConfig);
 			if (mEncoderConfig->name != nullptr)
 				mEncoderName =
 					std::string(mEncoderConfig->name);
@@ -122,9 +127,7 @@ VideoEncoder::~VideoEncoder()
 	removeEncoderListener();
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+	mSession->getPompLoop()->idleRemove(this);
 
 	if (mVenc != nullptr) {
 		err = venc_destroy(mVenc);
@@ -134,10 +137,6 @@ VideoEncoder::~VideoEncoder()
 
 	if (mOutputMedia != nullptr)
 		PDRAW_LOGW("output media was not properly removed");
-
-	err = venc_config_free(mEncoderConfig);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("venc_config_free", -err);
 }
 
 
@@ -146,7 +145,7 @@ int VideoEncoder::start()
 	int ret = 0;
 	int err;
 	Media *media = nullptr;
-	InputPort *port = nullptr;
+	const InputPort *port = nullptr;
 	Channel *c = nullptr;
 	RawVideoChannel *channel = nullptr;
 
@@ -191,7 +190,7 @@ int VideoEncoder::start()
 	}
 
 	/* Initialize the encoder */
-	if (mEncoderConfig != nullptr) {
+	if (mEncoderConfig) {
 		/* The configuration was provided through the constructor;
 		 * simply override the input config */
 		struct vdef_frac framerate =
@@ -218,16 +217,32 @@ int VideoEncoder::start()
 			}
 		}
 	} else {
-		mEncoderConfig = static_cast<struct venc_config *>(
-			calloc(1, sizeof(*mEncoderConfig)));
-		if (mEncoderConfig == nullptr) {
+		mEncoderConfig = make_c_struct<VencConfigPtr>();
+		if (!mEncoderConfig) {
 			Sink::unlock();
 			ret = -ENOMEM;
-			PDRAW_LOG_ERRNO("malloc", -ret);
+			PDRAW_LOG_ERRNO("calloc", -ret);
 			goto error;
 		}
 		mEncoderConfig->implem = VENC_ENCODER_IMPLEM_AUTO;
 		mEncoderConfig->encoding = DEFAULT_ENCODING;
+		if (mEncoderConfig->implem == VENC_ENCODER_IMPLEM_AUTO &&
+		    mEncoderConfig->encoding != VDEF_ENCODING_UNKNOWN) {
+			/* If AUTO implem was provided with an encoding,
+			 * auto select encoder implem by encoding */
+			mEncoderConfig->implem =
+				venc_get_auto_implem_by_encoding(
+					mEncoderConfig->encoding);
+			if (mEncoderConfig->implem ==
+			    VENC_ENCODER_IMPLEM_AUTO) {
+				Sink::unlock();
+				ret = -ENOENT;
+				PDRAW_LOG_ERRNO(
+					"venc_get_auto_implem_by_encoding",
+					-ret);
+				goto error;
+			}
+		}
 		mEncoderConfig->input.format = mInputMedia->format;
 		mEncoderConfig->input.info = mInputMedia->info;
 		if (vdef_frac_is_null(&mEncoderConfig->input.info.framerate)) {
@@ -242,7 +257,7 @@ int VideoEncoder::start()
 			VDEF_CODED_DATA_FORMAT_AVCC;
 	}
 	ret = venc_new(mSession->getLoop(),
-		       mEncoderConfig,
+		       mEncoderConfig.get(),
 		       &mEncoderCbs,
 		       this,
 		       &mVenc);
@@ -298,6 +313,12 @@ int VideoEncoder::stop()
 
 	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
+	if (mState == State::CREATED) {
+		/* Skip flush/drain for unstarted elements to prevent them from
+		 * getting stuck in CREATED and blocking session stop */
+		setState(State::STOPPED);
+		return 0;
+	}
 	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: encoder is not started", __func__);
 		return -EPROTO;
@@ -339,20 +360,22 @@ int VideoEncoder::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
-		ret = mInputBufferQueue->getCount();
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("queue::getCount", -ret);
-			return ret;
-		} else if (ret > 0) {
-			setFlushingState(FlushingState::UNFLUSHED);
-			break;
+		if (mInputBufferQueue != nullptr) {
+			ret = mInputBufferQueue->getCount();
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("queue::getCount", -ret);
+				return ret;
+			} else if (ret > 0) {
+				setFlushingState(FlushingState::UNFLUSHED);
+				break;
+			}
 		}
 		PDRAW_LOGD("encoder is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -498,10 +521,9 @@ void VideoEncoder::completeFlush()
 }
 
 
-void VideoEncoder::idleCompleteFlush(void *userdata)
+void VideoEncoder::idleCompleteFlush()
 {
-	auto *self = static_cast<VideoEncoder *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -554,12 +576,17 @@ int VideoEncoder::tryStop()
 	}
 	Source::unlock();
 
-	/* Stop the encoder */
+	/* Stop the encoder
+	 * tryStop() can be re-entered while STOPPING; guard against issuing
+	 * venc_stop() more than once (see VideoScaler/vscale_libyuv). */
 	if (mVenc != nullptr) {
-		ret = venc_stop(mVenc);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("venc_stop", -ret);
-			return ret;
+		if (!mVencStopIssued) {
+			mVencStopIssued = true;
+			ret = venc_stop(mVenc);
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("venc_stop", -ret);
+				return ret;
+			}
 		}
 	} else {
 		mVencStopPending = false;
@@ -657,17 +684,17 @@ int VideoEncoder::requestKeyFrame()
 }
 
 
-int VideoEncoder::createOutputMedia(const struct vdef_coded_frame *frame_info,
-				    const CodedVideoMedia::Frame &frame)
+int VideoEncoder::createOutputMedia(
+	const struct vdef_coded_frame *frame_info,
+	[[maybe_unused]] const CodedVideoMedia::Frame &frame)
 {
-	PDRAW_UNUSED(frame);
 
 	int ret;
 
 	Source::lock();
 
 	try {
-		mOutputMedia = make_unique<CodedVideoMedia>(mSession);
+		mOutputMedia = std::make_unique<CodedVideoMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -688,8 +715,7 @@ int VideoEncoder::createOutputMedia(const struct vdef_coded_frame *frame_info,
 	vdef_frame_to_format_info(&frame_info->info, &mOutputMedia->info);
 	mOutputMedia->info.framerate = mInputMedia->info.framerate;
 	mOutputMedia->sessionMeta = mInputMedia->sessionMeta;
-	mOutputMedia->playbackType = mInputMedia->playbackType;
-	mOutputMedia->duration = mInputMedia->duration;
+	mOutputMedia->copyPropertiesFrom(mInputMedia);
 
 	switch (mOutputMedia->format.encoding) {
 	case VDEF_ENCODING_H264: {
@@ -810,7 +836,7 @@ int VideoEncoder::createOutputMedia(const struct vdef_coded_frame *frame_info,
 
 void VideoEncoder::removeEncoderListener()
 {
-	std::unique_lock<std::mutex> lock(mListenerMutex);
+	std::scoped_lock lock(mListenerMutex);
 	mEncoderListener = nullptr;
 }
 
@@ -818,14 +844,9 @@ void VideoEncoder::removeEncoderListener()
 void VideoEncoder::onRawVideoChannelQueue(RawVideoChannel *channel,
 					  struct mbuf_raw_video_frame *frame)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
-	if (frame == nullptr) {
-		PDRAW_LOG_ERRNO("frame", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_IF(frame == nullptr, EINVAL);
+
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("frame input: encoder is not started");
 		return;
@@ -850,10 +871,7 @@ void VideoEncoder::onRawVideoChannelQueue(RawVideoChannel *channel,
 
 void VideoEncoder::onChannelFlush(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("flushing input channel");
 	mInputChannelFlushPending = true;
@@ -866,10 +884,7 @@ void VideoEncoder::onChannelFlush(Channel *channel)
 
 void VideoEncoder::onChannelDrain(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("draining input channel");
 	mInputChannelFlushPending = true;
@@ -882,10 +897,7 @@ void VideoEncoder::onChannelDrain(Channel *channel)
 
 void VideoEncoder::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -903,10 +915,7 @@ void VideoEncoder::onChannelFlushed(Channel *channel)
 
 void VideoEncoder::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -924,10 +933,7 @@ void VideoEncoder::onChannelDrained(Channel *channel)
 
 void VideoEncoder::onChannelTeardown(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("tearing down input channel");
 
@@ -939,10 +945,7 @@ void VideoEncoder::onChannelTeardown(Channel *channel)
 
 void VideoEncoder::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -955,10 +958,7 @@ void VideoEncoder::onChannelSessionMetaUpdate(Channel *channel)
 {
 	struct vmeta_session tmpSessionMeta;
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 	if (mInputMedia == nullptr) {
@@ -984,12 +984,11 @@ void VideoEncoder::onChannelSessionMetaUpdate(Channel *channel)
 }
 
 
-void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
+void VideoEncoder::frameOutputCb([[maybe_unused]] struct venc_encoder *enc,
 				 int status,
 				 struct mbuf_coded_video_frame *out_frame,
 				 void *userdata)
 {
-	PDRAW_UNUSED(enc);
 
 	int ret;
 	auto *self = static_cast<VideoEncoder *>(userdata);
@@ -1004,14 +1003,9 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 		return;
 	}
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
-	if (out_frame == nullptr) {
-		PDRAW_LOG_ERRNO("out_frame", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
+	PDRAW_LOG_ERRNO_RETURN_IF(out_frame == nullptr, EINVAL);
+
 	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("frame output: encoder is not started");
 		return;
@@ -1087,7 +1081,7 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 	}
 
 	{
-		std::unique_lock<std::mutex> lock(self->mListenerMutex);
+		std::scoped_lock lock(self->mListenerMutex);
 		if (self->mEncoderListener != nullptr) {
 			self->mEncoderListener->videoEncoderFrameOutput(
 				self->mSession,
@@ -1132,16 +1126,13 @@ void VideoEncoder::frameOutputCb(struct venc_encoder *enc,
 }
 
 
-void VideoEncoder::flushCb(struct venc_encoder *enc, void *userdata)
+void VideoEncoder::flushCb([[maybe_unused]] struct venc_encoder *enc,
+			   void *userdata)
 {
-	PDRAW_UNUSED(enc);
 
 	auto *self = static_cast<VideoEncoder *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("encoder is flushed");
 	self->mVencFlushPending = false;
@@ -1150,16 +1141,13 @@ void VideoEncoder::flushCb(struct venc_encoder *enc, void *userdata)
 }
 
 
-void VideoEncoder::stopCb(struct venc_encoder *enc, void *userdata)
+void VideoEncoder::stopCb([[maybe_unused]] struct venc_encoder *enc,
+			  void *userdata)
 {
-	PDRAW_UNUSED(enc);
 
 	auto *self = static_cast<VideoEncoder *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("encoder is stopped");
 	self->mVencStopPending = false;
@@ -1173,12 +1161,9 @@ void VideoEncoder::framePreReleaseCb(struct mbuf_coded_video_frame *frame,
 {
 	auto *self = static_cast<VideoEncoder *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
-	std::unique_lock<std::mutex> lock(self->mListenerMutex);
+	std::scoped_lock lock(self->mListenerMutex);
 	if (self->mEncoderListener != nullptr) {
 		self->mEncoderListener->videoEncoderFramePreRelease(
 			self->mSession, self->getVideoEncoder(), frame);

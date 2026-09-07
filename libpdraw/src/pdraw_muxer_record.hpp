@@ -36,9 +36,12 @@
 
 #include <array>
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <queue>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace Pdraw {
@@ -103,11 +106,9 @@ public:
 			 const uint8_t *data,
 			 size_t size) override;
 
-	int setFileMetadata(enum pdraw_muxer_metadata_type type,
+	int setFileMetadata(const struct pdraw_muxer_metadata_params *params,
 			    const uint8_t *data,
-			    size_t size,
-			    const void *params,
-			    size_t paramsSize) override;
+			    size_t size) override;
 
 	int
 	setDynParams(const struct pdraw_muxer_dyn_params *dyn_params) override;
@@ -122,9 +123,16 @@ protected:
 	class MuxerRawVideoMedia;
 	class MuxerAudioMedia;
 
+	void sessionSetMediaDate(struct vmeta_session &session,
+				 bool force) const;
+
+	int updateMediaDate();
+
 	virtual int onWriterLoopInit() = 0;
 
 	virtual int onWriterLoopCleanup() = 0;
+
+	virtual const char *getThreadName() const = 0;
 
 	virtual std::string getDefaultMediaName(Media::Type type) = 0;
 
@@ -145,11 +153,10 @@ protected:
 					 const uint8_t *data,
 					 size_t size) = 0;
 
-	virtual int internalSetFileMetadata(enum pdraw_muxer_metadata_type type,
-					    const uint8_t *data,
-					    size_t size,
-					    const void *params,
-					    size_t paramsSize) = 0;
+	virtual int internalSetFileMetadata(
+		const struct pdraw_muxer_metadata_params *params,
+		const uint8_t *data,
+		size_t size) = 0;
 
 	virtual int internalSetDynParams(
 		const struct pdraw_muxer_dyn_params *dyn_params) = 0;
@@ -167,7 +174,7 @@ protected:
 	void logThreadCheckWarning(const char *funcName,
 				   bool shouldBeWriterThread) const;
 
-	virtual bool canPostTask(bool needsMux) const;
+	virtual bool canPostTask(bool needsMux) const final;
 
 	int postTask(CmdType type, const RecordTask &task);
 
@@ -199,14 +206,15 @@ private:
 			      const struct pdraw_media_info *mediaInfo,
 			      const struct pdraw_muxer_media_params *params);
 
-	int internalAddQueueEvtToLoop(Media::Type type, mbuf::Queue *queue);
+	int internalAddQueueEvtToLoop(Media::Type type,
+				      const mbuf::Queue *queue);
 
-	int internalRemoveQueueEvtFromLoop(Media::Type type,
-					   mbuf::Queue *queue);
+	int internalRemoveQueueEvtFromLoop(Media::Type type, mbuf::Queue *queue)
+		const; /* non-owning */
 
 	int internalStart() override;
 
-	int internalStop() override;
+	int internalStop() final;
 
 	void onChannelFlush(Channel *channel) override;
 
@@ -224,7 +232,7 @@ private:
 
 	int internalStopThread();
 
-	static void callCompleteStop(void *userdata);
+	void callCompleteStop();
 
 	Element::State getThreadState() const;
 
@@ -253,6 +261,7 @@ private:
 	uint64_t mLastCheckFreeSpaceTime = 0;
 	std::atomic_bool mPendingStop{false};
 	std::atomic_bool mStopThreadReceived{false};
+	pomp::Loop::IdleHandlerFunc mCallCompleteStopHandler;
 };
 
 } /* namespace Pdraw */

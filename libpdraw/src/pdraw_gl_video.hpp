@@ -35,6 +35,10 @@
 #	include "pdraw_gl_common.hpp"
 #	include "pdraw_utils.hpp"
 
+#	include <algorithm>
+#	include <array>
+#	include <vector>
+
 
 namespace Pdraw {
 
@@ -66,6 +70,8 @@ class Session;
 
 
 class GlVideo {
+	PDRAW_DISABLE_COPY(GlVideo)
+
 public:
 	GlVideo(Session *session,
 		GLuint defaultFbo,
@@ -127,7 +133,7 @@ public:
 
 	void setSatCoef(float coef)
 	{
-		mBaseSatCoef = coef < 0. ? 0. : (coef > 1. ? 1. : coef);
+		mBaseSatCoef = std::clamp(coef, 0.f, 1.f);
 	}
 
 	float getLightCoef() const
@@ -137,7 +143,7 @@ public:
 
 	void setLightCoef(float coef)
 	{
-		mBaseLightCoef = coef < 0. ? 0. : (coef > 1. ? 1. : coef);
+		mBaseLightCoef = std::clamp(coef, 0.f, 1.f);
 	}
 
 	float getDarkCoef() const
@@ -147,7 +153,7 @@ public:
 
 	void setDarkCoef(float coef)
 	{
-		mBaseDarkCoef = coef < 0. ? 0. : (coef > 1. ? 1. : coef);
+		mBaseDarkCoef = std::clamp(coef, 0.f, 1.f);
 	}
 
 	void startTransition(GlVideoTransition transition,
@@ -204,8 +210,8 @@ private:
 	void fillYuv2RgbMatrix(enum vdef_matrix_coefs matrixCoefs,
 			       bool fullRange,
 			       bool swapUv,
-			       float yuv2RgbMatrix[9],
-			       float yuv2RgbOffset[3]) const;
+			       std::array<float, 9> &yuv2RgbMatrix,
+			       std::array<float, 3> &yuv2RgbOffset) const;
 
 	int setupBlur();
 
@@ -278,24 +284,24 @@ private:
 	uint64_t mTransitionStartTime = 0;
 	uint64_t mTransitionDuration = 0;
 	bool mTransitionHold = false;
-	GLint mProgram[PROGRAM_MAX]{};
-	GLint mProgramTransformMatrix[PROGRAM_MAX]{};
-	GLint mProgramYuv2RgbMatrix[PROGRAM_MAX]{};
-	GLint mProgramYuv2RgbOffset[PROGRAM_MAX]{};
-	GLint mProgramStride[PROGRAM_MAX]{};
-	GLint mProgramMaxCoordsRatio[PROGRAM_MAX]{};
-	GLint mProgramMaxClamp[PROGRAM_MAX]{};
-	GLint mProgramBrightnessCoef[PROGRAM_MAX]{};
-	GLint mProgramContrastCoef[PROGRAM_MAX]{};
-	GLint mProgramGammaCoef[PROGRAM_MAX]{};
-	GLint mProgramSatCoef[PROGRAM_MAX]{};
-	GLint mProgramLightCoef[PROGRAM_MAX]{};
-	GLint mProgramDarkCoef[PROGRAM_MAX]{};
-	GLint mProgramZebraEnable[PROGRAM_MAX]{};
-	GLint mProgramZebraThreshold[PROGRAM_MAX]{};
-	GLint mProgramZebraPhase[PROGRAM_MAX]{};
-	GLint mProgramZebraWeight[PROGRAM_MAX]{};
-	GLint mProgramMbStatusEnable[PROGRAM_MAX]{};
+	std::array<GLint, PROGRAM_MAX> mProgram{};
+	std::array<GLint, PROGRAM_MAX> mProgramTransformMatrix{};
+	std::array<GLint, PROGRAM_MAX> mProgramYuv2RgbMatrix{};
+	std::array<GLint, PROGRAM_MAX> mProgramYuv2RgbOffset{};
+	std::array<GLint, PROGRAM_MAX> mProgramStride{};
+	std::array<GLint, PROGRAM_MAX> mProgramMaxCoordsRatio{};
+	std::array<GLint, PROGRAM_MAX> mProgramMaxClamp{};
+	std::array<GLint, PROGRAM_MAX> mProgramBrightnessCoef{};
+	std::array<GLint, PROGRAM_MAX> mProgramContrastCoef{};
+	std::array<GLint, PROGRAM_MAX> mProgramGammaCoef{};
+	std::array<GLint, PROGRAM_MAX> mProgramSatCoef{};
+	std::array<GLint, PROGRAM_MAX> mProgramLightCoef{};
+	std::array<GLint, PROGRAM_MAX> mProgramDarkCoef{};
+	std::array<GLint, PROGRAM_MAX> mProgramZebraEnable{};
+	std::array<GLint, PROGRAM_MAX> mProgramZebraThreshold{};
+	std::array<GLint, PROGRAM_MAX> mProgramZebraPhase{};
+	std::array<GLint, PROGRAM_MAX> mProgramZebraWeight{};
+	std::array<GLint, PROGRAM_MAX> mProgramMbStatusEnable{};
 	GLint mSimpleProgram = 0;
 	GLint mSimpleProgramTransformMatrix = 0;
 	GLint mSimpleProgramUniformSampler = 0;
@@ -306,54 +312,58 @@ private:
 	GLint mClearProgramPositionHandle = 0;
 	GLint mClearProgramTexcoordHandle = 0;
 	GLint mClearProgramColor = 0;
-	GLuint mTextures[GL_VIDEO_TEX_UNIT_COUNT]{};
+	std::array<GLuint, GL_VIDEO_TEX_UNIT_COUNT> mTextures{};
 	GLuint mMbStatusTexture = 0;
 	GLuint mExtTexture = 0;
-	GLint mUniformSamplers[PROGRAM_MAX][GL_VIDEO_TEX_UNIT_COUNT]{};
-	GLint mPositionHandle[PROGRAM_MAX]{};
-	GLint mTexcoordHandle[PROGRAM_MAX]{};
-	GLint mMbStatusUniformSampler[PROGRAM_MAX]{};
+	std::array<std::array<GLint, GL_VIDEO_TEX_UNIT_COUNT>, PROGRAM_MAX>
+		mUniformSamplers{};
+	std::array<GLint, PROGRAM_MAX> mPositionHandle{};
+	std::array<GLint, PROGRAM_MAX> mTexcoordHandle{};
+	std::array<GLint, PROGRAM_MAX> mMbStatusUniformSampler{};
 	bool mBlurInit = false;
 	bool mApplyBlur = false;
-	float mBlurWeights[GL_VIDEO_BLUR_TAP_COUNT]{};
+	std::array<float, GL_VIDEO_BLUR_TAP_COUNT> mBlurWeights{};
 	unsigned int mBlurFboWidth = 0;
 	unsigned int mBlurFboHeight = 0;
-	GLuint mBlurFbo[2]{};
-	GLuint mBlurFboTexture[2]{};
-	GLint mBlurProgram[2]{};
-	GLint mBlurUniformPixelSize[2]{};
-	GLint mBlurUniformWeights[2]{};
-	GLint mBlurUniformSampler[2]{};
-	GLint mBlurPositionHandle[2]{};
+	std::array<GLuint, 2> mBlurFbo{};
+	std::array<GLuint, 2> mBlurFboTexture{};
+	std::array<GLint, 2> mBlurProgram{};
+	std::array<GLint, 2> mBlurUniformPixelSize{};
+	std::array<GLint, 2> mBlurUniformWeights{};
+	std::array<GLint, 2> mBlurUniformSampler{};
+	std::array<GLint, 2> mBlurPositionHandle{};
 	unsigned int mPaddingPass1Width = 0;
 	unsigned int mPaddingPass1Height = 0;
 	unsigned int mPaddingPass2Width = 0;
 	unsigned int mPaddingPass2Height = 0;
-	float mPaddingBlurWeights[GL_VIDEO_BLUR_TAP_COUNT]{};
-	GLuint mPaddingFbo[4]{};
-	GLuint mPaddingFboTexture[4]{};
+	std::array<float, GL_VIDEO_BLUR_TAP_COUNT> mPaddingBlurWeights{};
+	std::array<GLuint, 4> mPaddingFbo{};
+	std::array<GLuint, 4> mPaddingFboTexture{};
 	bool mHistogramInit = false;
 	uint64_t mHistogramLastComputeTime = 0;
-	GLint mHistogramProgram[PROGRAM_MAX]{};
-	GLint mHistogramYuv2RgbMatrix[PROGRAM_MAX]{};
-	GLint mHistogramYuv2RgbOffset[PROGRAM_MAX]{};
-	GLint mHistogramRgb2LumaMatrix[PROGRAM_MAX]{};
-	GLint mHistogramRgb2LumaOffset[PROGRAM_MAX]{};
-	GLint mHistogramBrightnessCoef[PROGRAM_MAX]{};
-	GLint mHistogramContrastCoef[PROGRAM_MAX]{};
-	GLint mHistogramGammaCoef[PROGRAM_MAX]{};
-	GLint mHistogramStride[PROGRAM_MAX]{};
-	GLint mHistogramMaxCoordsRatio[PROGRAM_MAX]{};
-	GLint mHistogramMaxClamp[PROGRAM_MAX]{};
-	GLint mHistogramUniformSampler[PROGRAM_MAX][GL_VIDEO_TEX_UNIT_COUNT]{};
-	GLint mHistogramPositionHandle[PROGRAM_MAX]{};
-	GLint mHistogramTexcoordHandle[PROGRAM_MAX]{};
+	std::array<GLint, PROGRAM_MAX> mHistogramProgram{};
+	std::array<GLint, PROGRAM_MAX> mHistogramYuv2RgbMatrix{};
+	std::array<GLint, PROGRAM_MAX> mHistogramYuv2RgbOffset{};
+	std::array<GLint, PROGRAM_MAX> mHistogramRgb2LumaMatrix{};
+	std::array<GLint, PROGRAM_MAX> mHistogramRgb2LumaOffset{};
+	std::array<GLint, PROGRAM_MAX> mHistogramBrightnessCoef{};
+	std::array<GLint, PROGRAM_MAX> mHistogramContrastCoef{};
+	std::array<GLint, PROGRAM_MAX> mHistogramGammaCoef{};
+	std::array<GLint, PROGRAM_MAX> mHistogramStride{};
+	std::array<GLint, PROGRAM_MAX> mHistogramMaxCoordsRatio{};
+	std::array<GLint, PROGRAM_MAX> mHistogramMaxClamp{};
+	std::array<std::array<GLint, GL_VIDEO_TEX_UNIT_COUNT>, PROGRAM_MAX>
+		mHistogramUniformSampler{};
+	std::array<GLint, PROGRAM_MAX> mHistogramPositionHandle{};
+	std::array<GLint, PROGRAM_MAX> mHistogramTexcoordHandle{};
 	GLuint mHistogramFbo = 0;
 	GLuint mHistogramFboTexture = 0;
-	uint8_t *mHistogramBuffer = nullptr;
-	bool mHistogramValid[PDRAW_HISTOGRAM_CHANNEL_MAX]{};
-	uint32_t *mHistogram[PDRAW_HISTOGRAM_CHANNEL_MAX]{};
-	float *mHistogramNorm[PDRAW_HISTOGRAM_CHANNEL_MAX]{};
+	std::vector<uint8_t> mHistogramBuffer;
+	std::array<bool, PDRAW_HISTOGRAM_CHANNEL_MAX> mHistogramValid{};
+	std::array<std::array<uint32_t, 256>, PDRAW_HISTOGRAM_CHANNEL_MAX>
+		mHistogram{};
+	std::array<std::array<float, 256>, PDRAW_HISTOGRAM_CHANNEL_MAX>
+		mHistogramNorm{};
 	float mBrightnessCoef = 0.f;
 	float mContrastCoef = 1.f;
 	float mGammaCoef = 1.f;
@@ -365,8 +375,11 @@ private:
 	float mBaseDarkCoef = 1.f;
 	bool mHasMbStatus = false;
 
-	static const GLchar *videoFragmentShaders[2][PROGRAM_MAX][5];
-	static const GLchar *histogramFragmentShaders[PROGRAM_MAX][3];
+	static const std::
+		array<std::array<std::array<const GLchar *, 5>, PROGRAM_MAX>, 2>
+			videoFragmentShaders;
+	static const std::array<std::array<const GLchar *, 3>, PROGRAM_MAX>
+		histogramFragmentShaders;
 };
 
 } /* namespace Pdraw */

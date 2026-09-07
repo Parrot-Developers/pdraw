@@ -33,6 +33,7 @@
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
+#include <memory>
 
 #include <mutex>
 #include <string>
@@ -43,6 +44,8 @@
 #include <pdraw/pdraw.hpp>
 
 namespace Pdraw {
+
+DECLARE_UNIQUE_C_PTR(struct aenc_config, AencConfig, aenc_config_free);
 
 class AudioEncoderWrapper;
 
@@ -114,7 +117,7 @@ private:
 	static void framePreReleaseCb(struct mbuf_audio_frame *frame,
 				      void *userdata);
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	IPdraw::IAudioEncoder *mEncoder = nullptr;
 	IPdraw::IAudioEncoder::Listener *mEncoderListener = nullptr;
@@ -123,7 +126,7 @@ private:
 	std::unique_ptr<AudioMedia> mOutputMedia{};
 	struct mbuf_pool *mInputBufferPool = nullptr;
 	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
-	struct aenc_config *mEncoderConfig = nullptr;
+	AencConfigPtr mEncoderConfig;
 	std::string mEncoderName{};
 	std::string mEncoderDevice{};
 	struct aenc_encoder *mAenc = nullptr;
@@ -131,6 +134,8 @@ private:
 	bool mOutputChannelDrainRequired = false;
 	bool mAencFlushPending = false;
 	bool mAencStopPending = false;
+	bool mAencStopIssued = false;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
 	static const struct aenc_cbs mEncoderCbs;
 };
 
@@ -161,7 +166,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mEncoder == nullptr);

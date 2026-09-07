@@ -30,57 +30,52 @@
 
 #define ULOG_TAG pdraw_video_pres_stats
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <errno.h>
 
 #include "pdraw_video_pres_stats.hpp"
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
 
 
-int VideoPresStats::writeMsg(struct pomp_msg *msg, uint32_t msgid) const
+int VideoPresStats::writeMsg(pomp::Message &msg, uint32_t msgid) const
 {
-	ULOG_ERRNO_RETURN_ERR_IF(msg == nullptr, EINVAL);
-
-	return pomp_msg_write(msg,
-			      msgid,
-			      "%" PRIu64 "%" PRIu32 "%" PRIu64 "%" PRIu64
-			      "%" PRIu64 "%" PRIu64 "%" PRIu64 "%" PRIu64
-			      "%" PRIu64 "%" PRIu64 "%" PRIu64,
-			      timestamp,
-			      presentationFrameCount,
-			      presentationTimestampDeltaIntegral,
-			      presentationTimestampDeltaIntegralSq,
-			      presentationTimingErrorIntegral,
-			      presentationTimingErrorIntegralSq,
-			      presentationEstimatedLatencyIntegral,
-			      presentationEstimatedLatencyIntegralSq,
-			      playerLatencyIntegral,
-			      playerLatencyIntegralSq,
-			      estimatedLatencyPrecisionIntegral);
+	return msg.write(msgid,
+			 "%" PRIu64 "%" PRIu32 "%" PRIu64 "%" PRIu64 "%" PRIu64
+			 "%" PRIu64 "%" PRIu64 "%" PRIu64 "%" PRIu64 "%" PRIu64
+			 "%" PRIu64,
+			 timestamp,
+			 presentationFrameCount,
+			 presentationTimestampDeltaIntegral,
+			 presentationTimestampDeltaIntegralSq,
+			 presentationTimingErrorIntegral,
+			 presentationTimingErrorIntegralSq,
+			 presentationEstimatedLatencyIntegral,
+			 presentationEstimatedLatencyIntegralSq,
+			 playerLatencyIntegral,
+			 playerLatencyIntegralSq,
+			 estimatedLatencyPrecisionIntegral);
 }
 
 
-int VideoPresStats::readMsg(const struct pomp_msg *msg)
+int VideoPresStats::readMsg(const pomp::Message &msg)
 {
-	ULOG_ERRNO_RETURN_ERR_IF(msg == nullptr, EINVAL);
-
-	return pomp_msg_read(msg,
-			     "%" PRIu64 "%" PRIu32 "%" PRIu64 "%" PRIu64
-			     "%" PRIu64 "%" PRIu64 "%" PRIu64 "%" PRIu64
-			     "%" PRIu64 "%" PRIu64 "%" PRIu64,
-			     &timestamp,
-			     &presentationFrameCount,
-			     &presentationTimestampDeltaIntegral,
-			     &presentationTimestampDeltaIntegralSq,
-			     &presentationTimingErrorIntegral,
-			     &presentationTimingErrorIntegralSq,
-			     &presentationEstimatedLatencyIntegral,
-			     &presentationEstimatedLatencyIntegralSq,
-			     &playerLatencyIntegral,
-			     &playerLatencyIntegralSq,
-			     &estimatedLatencyPrecisionIntegral);
+	return msg.read("%" PRIu64 "%" PRIu32 "%" PRIu64 "%" PRIu64 "%" PRIu64
+			"%" PRIu64 "%" PRIu64 "%" PRIu64 "%" PRIu64 "%" PRIu64
+			"%" PRIu64,
+			&timestamp,
+			&presentationFrameCount,
+			&presentationTimestampDeltaIntegral,
+			&presentationTimestampDeltaIntegralSq,
+			&presentationTimingErrorIntegral,
+			&presentationTimingErrorIntegralSq,
+			&presentationEstimatedLatencyIntegral,
+			&presentationEstimatedLatencyIntegralSq,
+			&playerLatencyIntegral,
+			&playerLatencyIntegralSq,
+			&estimatedLatencyPrecisionIntegral);
 }
 
 } /* namespace Pdraw */

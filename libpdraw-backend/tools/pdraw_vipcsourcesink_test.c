@@ -33,10 +33,10 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <time.h>
 
 #define ULOG_TAG pdraw_vipcsourcesink_test
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_vipcsourcesink_test);
 
 #include <media-buffers/mbuf_mem_generic.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
@@ -44,6 +44,7 @@ ULOG_DECLARE_TAG(pdraw_vipcsourcesink_test);
 #include <video-defs/vdefs.h>
 #include <video-raw/vraw.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #define UNUSED(x) (void)(x)
 
@@ -226,12 +227,14 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	if (self->stopping)
 		return;
-	if (element_userdata != self->source_element_userdata)
+	if (element_userdata != self->source)
 		return;
 	if (info->type != PDRAW_MEDIA_TYPE_VIDEO)
 		return;
 	if (info->video.format != VDEF_FRAME_TYPE_RAW)
 		return;
+
+	self->source_element_userdata = element_userdata;
 
 	struct pdraw_video_sink_params sink_params = {0};
 	self->out_info = *info;
@@ -432,10 +435,13 @@ int main(int argc, char **argv)
 	int res;
 	int status = EXIT_SUCCESS;
 	const char *input = NULL;
-	char *output = NULL;
+	const char *output = NULL;
 	struct pdraw_backend_app *self = NULL;
 	struct pdraw_vipc_source_params source_params = {0};
 	struct vraw_writer_config writer_config = {0};
+	const struct timespec sleep_1us = {
+		.tv_sec = 0, .tv_nsec = 1000 * 1000, /* 1ms */
+	};
 
 	welcome(argc, argv);
 
@@ -451,12 +457,10 @@ int main(int argc, char **argv)
 		case 'h':
 			usage(argc, argv);
 			exit(EXIT_SUCCESS);
-			break;
 
 		default:
 			usage(argc, argv);
 			exit(EXIT_FAILURE);
-			break;
 		}
 	}
 
@@ -511,7 +515,6 @@ int main(int argc, char **argv)
 		status = EXIT_FAILURE;
 		goto out;
 	}
-	self->source_element_userdata = self->source;
 	pthread_mutex_lock(&self->mutex);
 	while (!self->media_added)
 		pthread_cond_wait(&self->cond, &self->mutex);
@@ -563,7 +566,7 @@ int main(int argc, char **argv)
 	/* Main loop */
 	while (!self->stopping) {
 		process_output(self);
-		usleep(1000);
+		nanosleep(&sleep_1us, NULL);
 	}
 
 	/* Process the remaining frames */

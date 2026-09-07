@@ -34,7 +34,6 @@
 
 #include <inttypes.h>
 
-#include <libpomp.h>
 #include <media-buffers/mbuf_raw_video_frame.h>
 #include <video-defs/vdefs.h>
 
@@ -54,7 +53,7 @@ public:
 	RawVideoChannel(Sink *owner,
 			SinkListener *sinkListener,
 			RawVideoSinkListener *rawVideoSinkListener,
-			struct pomp_loop *loop);
+			pomp::Loop *loop);
 
 	~RawVideoChannel() override = default;
 

@@ -30,13 +30,13 @@
 
 #define ULOG_TAG pdraw_recmux_isobmff_media
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_isobmff.hpp"
 #include "pdraw_muxer_record_isobmff_media.hpp"
 #include "pdraw_session.hpp"
 
 #include <array>
+#include <memory>
 
 #include <time.h>
 
@@ -44,6 +44,7 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <libmp4.h>
 #include <media-buffers/mbuf_coded_video_frame.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -144,9 +145,9 @@ int IsobmffRecordMuxer::IsobmffMuxerMedia::addMetadata(
 	if ((mLastSampleTs != INT64_MAX) && (mFirstSampleTs != INT64_MAX) &&
 	    (mLastSampleTs > mFirstSampleTs)) {
 		const uint64_t emptyCookie = VMETA_FRAME_PROTO_EMPTY_COOKIE;
+		const void *emptyCookiePtr = &emptyCookie;
 		struct mp4_mux_sample emptyMetaSample = {
-			.buffer =
-				reinterpret_cast<const uint8_t *>(&emptyCookie),
+			.buffer = static_cast<const uint8_t *>(emptyCookiePtr),
 			.len = sizeof(emptyCookie),
 			.sync = 1,
 			.dts = mFirstSampleTs,
@@ -167,7 +168,7 @@ int IsobmffRecordMuxer::IsobmffMuxerMedia::addMetadata(
 
 
 int IsobmffRecordMuxer::IsobmffMuxerMedia::writeRecordingMetadata(
-	struct vmeta_session *session)
+	const struct vmeta_session *session)
 {
 	return vmeta_session_recording_write(
 		session, &IsobmffMuxerMedia::sessionMetaWriteMediaCb, this);
@@ -175,12 +176,11 @@ int IsobmffRecordMuxer::IsobmffMuxerMedia::writeRecordingMetadata(
 
 
 void IsobmffRecordMuxer::IsobmffMuxerMedia::sessionMetaWriteMediaCb(
-	enum vmeta_record_type type,
+	[[maybe_unused]] enum vmeta_record_type type,
 	const char *key,
 	const char *value,
 	void *userdata)
 {
-	PDRAW_UNUSED(type);
 	auto *self =
 		static_cast<IsobmffRecordMuxer::IsobmffMuxerMedia *>(userdata);
 
@@ -292,8 +292,10 @@ int IsobmffRecordMuxer::IsobmffMuxerCodedVideoMedia::processFrame(
 
 	for (int i = 0; i < sample.nbuffers; i++) {
 		struct vdef_nalu nalu;
+		const void *naluRawPtr = nullptr;
 		res = mbuf_coded_video_frame_get_nalu(
-			frame, i, &mNalusPtr[i], &nalu);
+			frame, i, &naluRawPtr, &nalu);
+		mNalusPtr[i] = static_cast<const uint8_t *>(naluRawPtr);
 		if (res < 0) {
 			PDRAW_LOG_ERRNO(
 				"mbuf_coded_video_frame_get_nalu(%d)", -res, i);
@@ -342,8 +344,7 @@ int IsobmffRecordMuxer::IsobmffMuxerCodedVideoMedia::processFrame(
 	}
 
 	/* Add a video sample to the MP4 muxer */
-	sample.buffers =
-		reinterpret_cast<const uint8_t *const *>(mNalusPtr.data());
+	sample.buffers = mNalusPtr.data();
 	sample.len = mNalusSize.data();
 	sample.sync = meta->isSync;
 	sample.dts = mp4_convert_timescale(
@@ -488,37 +489,43 @@ int IsobmffRecordMuxer::IsobmffMuxerRawVideoMedia::setup(
 {
 	PDRAW_CHECK_MUXER_WRITER_THREAD(true);
 
-	char *mime = nullptr;
-	char *format_str = nullptr;
-	char *info_str = nullptr;
+	unique_c_ptr<char> format_str;
+	unique_c_ptr<char> info_str;
+	unique_c_ptr<char> mime;
 	const auto &raw = mediaInfo->video.raw;
+	int res;
 
-	int res = vdef_raw_format_to_csv(&raw.format, &format_str);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("vdef_raw_format_to_csv", -res);
-		return res;
+	{
+		char *p = nullptr;
+		res = vdef_raw_format_to_csv(&raw.format, &p);
+		if (res < 0) {
+			PDRAW_LOG_ERRNO("vdef_raw_format_to_csv", -res);
+			return res;
+		}
+		format_str.reset(p);
+	}
+	{
+		char *p = nullptr;
+		res = vdef_format_info_to_csv(&raw.info, &p);
+		if (res < 0) {
+			PDRAW_LOG_ERRNO("vdef_format_info_to_csv", -res);
+			return res;
+		}
+		info_str.reset(p);
+	}
+	{
+		char *p = nullptr;
+		res = asprintf(&p,
+			       VDEF_RAW_MIME_TYPE ";%s;%s",
+			       format_str.get(),
+			       info_str.get());
+		if (res < 0)
+			return -ENOMEM;
+		mime.reset(p);
 	}
 
-	res = vdef_format_info_to_csv(&raw.info, &info_str);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("vdef_format_info_to_csv", -res);
-		free(format_str);
-		return res;
-	}
-
-	res = asprintf(
-		&mime, VDEF_RAW_MIME_TYPE ";%s;%s", format_str, info_str);
-	free(format_str);
-	free(info_str);
-
-	if (res < 0)
-		return -ENOMEM;
-
-	res = mp4_mux_track_set_metadata_mime_type(
-		mIsoMuxer->mMux, mTrackId, "", mime);
-
-	free(mime);
-	return res;
+	return mp4_mux_track_set_metadata_mime_type(
+		mIsoMuxer->mMux, mTrackId, "", mime.get());
 }
 
 
@@ -547,7 +554,7 @@ int IsobmffRecordMuxer::IsobmffMuxerRawVideoMedia::processFrame(
 	struct mp4_mux_sample sample;
 	struct vmeta_frame *metadata = nullptr;
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
-	const RawVideoMedia::Frame *meta;
+	[[maybe_unused]] const RawVideoMedia::Frame *meta;
 	const void *aData;
 
 	PDRAW_CHECK_MUXER_WRITER_THREAD(true);
@@ -572,11 +579,16 @@ int IsobmffRecordMuxer::IsobmffMuxerRawVideoMedia::processFrame(
 		mFirstCaptureTs = info.info.capture_timestamp;
 	}
 
-	res = mbuf_raw_video_frame_get_packed_buffer(
-		frame, reinterpret_cast<const void **>(&buf), &len);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_packed_buffer", -res);
-		goto out;
+	{
+		const void *rawBuf = nullptr;
+		res = mbuf_raw_video_frame_get_packed_buffer(
+			frame, &rawBuf, &len);
+		if (res < 0) {
+			PDRAW_LOG_ERRNO(
+				"mbuf_raw_video_frame_get_packed_buffer", -res);
+			goto out;
+		}
+		buf = static_cast<const uint8_t *>(rawBuf);
 	}
 
 	res = mbuf_raw_video_frame_get_ancillary_data(
@@ -588,8 +600,6 @@ int IsobmffRecordMuxer::IsobmffMuxerRawVideoMedia::processFrame(
 	}
 	aData = mbuf_ancillary_data_get_buffer(ancillaryData, nullptr);
 	meta = static_cast<const RawVideoMedia::Frame *>(aData);
-
-	PDRAW_UNUSED(meta);
 
 	/* Add a video sample to the MP4 muxer */
 	sample.buffer = buf;
@@ -761,7 +771,7 @@ int IsobmffRecordMuxer::IsobmffMuxerAudioMedia::processFrame(
 	struct adef_frame info;
 	struct mp4_mux_sample sample;
 	struct mbuf_ancillary_data *ancillaryData = nullptr;
-	const AudioMedia::Frame *meta;
+	[[maybe_unused]] const AudioMedia::Frame *meta;
 	const void *aData;
 
 	PDRAW_CHECK_MUXER_WRITER_THREAD(true);
@@ -778,11 +788,14 @@ int IsobmffRecordMuxer::IsobmffMuxerAudioMedia::processFrame(
 		return res;
 	}
 
-	res = mbuf_audio_frame_get_buffer(
-		frame, reinterpret_cast<const void **>(&buf), &len);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_audio_frame_get_buffer", -res);
-		goto out;
+	{
+		const void *rawBuf = nullptr;
+		res = mbuf_audio_frame_get_buffer(frame, &rawBuf, &len);
+		if (res < 0) {
+			PDRAW_LOG_ERRNO("mbuf_audio_frame_get_buffer", -res);
+			goto out;
+		}
+		buf = static_cast<const uint8_t *>(rawBuf);
 	}
 
 	res = mbuf_audio_frame_get_ancillary_data(
@@ -795,8 +808,6 @@ int IsobmffRecordMuxer::IsobmffMuxerAudioMedia::processFrame(
 	}
 	aData = mbuf_ancillary_data_get_buffer(ancillaryData, nullptr);
 	meta = static_cast<const AudioMedia::Frame *>(aData);
-
-	PDRAW_UNUSED(meta);
 
 	/* Add an audio sample to the MP4 muxer */
 	sample.buffer = buf;

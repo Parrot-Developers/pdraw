@@ -30,36 +30,38 @@
 
 #define ULOG_TAG pdraw_recmux_dng
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_dng.hpp"
 #include "pdraw_muxer_record_dng_media.hpp"
 
 #ifdef BUILD_LIBDNG_PARROT
-
 #	include <array>
+#endif
+
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#ifdef BUILD_LIBDNG_PARROT
 
 namespace Pdraw {
 
 
-constexpr size_t NB_SUPPORTED_RAW_FORMATS = 12;
-static std::array<vdef_raw_format, NB_SUPPORTED_RAW_FORMATS>
-	supportedRawFormats;
-static std::once_flag supportedFormatsOnceFlag;
-static void initializeSupportedFormats()
+static const std::array<vdef_raw_format, 12> &getSupportedRawFormats()
 {
-	supportedRawFormats[0] = vdef_bayer_rggb;
-	supportedRawFormats[1] = vdef_bayer_bggr;
-	supportedRawFormats[2] = vdef_bayer_grbg;
-	supportedRawFormats[3] = vdef_bayer_gbrg;
-	supportedRawFormats[4] = vdef_bayer_rggb_10_packed;
-	supportedRawFormats[5] = vdef_bayer_bggr_10_packed;
-	supportedRawFormats[6] = vdef_bayer_grbg_10_packed;
-	supportedRawFormats[7] = vdef_bayer_gbrg_10_packed;
-	supportedRawFormats[8] = vdef_bayer_rggb_10;
-	supportedRawFormats[9] = vdef_bayer_bggr_10;
-	supportedRawFormats[10] = vdef_bayer_grbg_10;
-	supportedRawFormats[11] = vdef_bayer_gbrg_10;
+	static const std::array<vdef_raw_format, 12> formats = {{
+		vdef_bayer_rggb,
+		vdef_bayer_bggr,
+		vdef_bayer_grbg,
+		vdef_bayer_gbrg,
+		vdef_bayer_rggb_10_packed,
+		vdef_bayer_bggr_10_packed,
+		vdef_bayer_grbg_10_packed,
+		vdef_bayer_gbrg_10_packed,
+		vdef_bayer_rggb_10,
+		vdef_bayer_bggr_10,
+		vdef_bayer_grbg_10,
+		vdef_bayer_gbrg_10,
+	}};
+	return formats;
 }
 
 
@@ -93,12 +95,11 @@ DngRecordMuxer::DngRecordMuxer(Session *session,
 				 fileName,
 				 params)
 {
-	std::call_once(supportedFormatsOnceFlag, initializeSupportedFormats);
-
 	Element::setClassName(__func__);
 
-	setRawVideoMediaFormatCaps(supportedRawFormats.data(),
-				   supportedRawFormats.size());
+	setRawVideoMediaFormatCaps(
+		getSupportedRawFormats().data(),
+		static_cast<int>(getSupportedRawFormats().size()));
 }
 
 
@@ -109,7 +110,7 @@ DngRecordMuxer::DngRecordMuxer::createMedia(const MuxerMediaConfig &cfg)
 	try {
 		switch (cfg.type) {
 		case Media::Type::RAW_VIDEO:
-			return make_unique<DngMuxerMedia>(this, cfg);
+			return std::make_unique<DngMuxerMedia>(this, cfg);
 		default:
 			PDRAW_LOGE("unsupported media type: %d",
 				   static_cast<int>(cfg.type));
@@ -140,34 +141,26 @@ int DngRecordMuxer::internalSetThumbnail(enum pdraw_muxer_thumbnail_type type,
 
 
 /* Called on the writer thread */
-int DngRecordMuxer::internalSetFileMetadata(enum pdraw_muxer_metadata_type type,
-					    const uint8_t *data,
-					    size_t size,
-					    const void *params,
-					    size_t paramsSize)
+int DngRecordMuxer::internalSetFileMetadata(
+	const struct pdraw_muxer_metadata_params *params,
+	const uint8_t *data,
+	size_t size)
 {
 	PDRAW_CHECK_WRITER_THREAD(true);
 
 	if (mDngMux == nullptr)
 		return -EPROTO;
 
-	if (type == PDRAW_MUXER_METADATA_TYPE_DNG_LSC) {
-		if (params == nullptr ||
-		    paramsSize < sizeof(struct pdraw_muxer_dng_lsc_params))
-			return -EINVAL;
-
-		const auto *lscParams =
-			static_cast<const struct pdraw_muxer_dng_lsc_params *>(
-				params);
-		int ret = dng_mux_set_lsc(
-			mDngMux,
-			data,
-			size,
-			lscParams->width,
-			lscParams->height,
-			lscParams->count,
-			mapVdefToDngPhase(
-				(vdef_raw_pix_order)lscParams->format));
+	if (params->type == PDRAW_MUXER_METADATA_TYPE_DNG_LSC) {
+		const struct pdraw_muxer_dng_lsc_params *lscParams =
+			&params->dng_lsc;
+		int ret = dng_mux_set_lsc(mDngMux,
+					  data,
+					  size,
+					  lscParams->width,
+					  lscParams->height,
+					  lscParams->count,
+					  mapVdefToDngPhase(lscParams->format));
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("dng_mux_set_lsc", -ret);
 			return ret;
@@ -194,7 +187,7 @@ void DngRecordMuxer::onInternalStopThread()
 int DngRecordMuxer::onBeforeAddMuxerMedias()
 {
 	struct dng_mux_config config = {
-		.filemode = 0644,
+		.filemode = mFileMode,
 		.flags = 0,
 	};
 

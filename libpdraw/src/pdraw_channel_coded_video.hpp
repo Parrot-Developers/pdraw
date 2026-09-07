@@ -34,7 +34,6 @@
 
 #include <inttypes.h>
 
-#include <libpomp.h>
 #include <media-buffers/mbuf_coded_video_frame.h>
 #include <video-defs/vdefs.h>
 
@@ -54,7 +53,7 @@ public:
 	CodedVideoChannel(Sink *owner,
 			  SinkListener *sinkListener,
 			  CodedVideoSinkListener *codedVideoSinkListener,
-			  struct pomp_loop *loop);
+			  pomp::Loop *loop);
 
 	~CodedVideoChannel() override = default;
 

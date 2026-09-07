@@ -44,7 +44,23 @@
 
 namespace Pdraw {
 
+/* Abstract base class for the RTSP stream muxer.
+ * The transport-specific sub-classes are:
+ *   - RtspStreamMuxerNet  (pdraw_muxer_stream_rtsp_net.hpp)  – real UDP/TCP
+ * sockets
+ *   - RtspStreamMuxerMux  (pdraw_muxer_stream_rtsp_mux.hpp)  – libmux tunnel
+ * The concrete class is selected by MuxerWrapper based on whether a non-null
+ * mux_ctx * is supplied (mirrors the StreamDemuxer / StreamDemuxerNet /
+ * StreamDemuxerMux pattern). */
 class RtspStreamMuxer : public Muxer {
+protected:
+	/* Forward-declare VideoMedia BEFORE it is used in the public return
+	 * type below; otherwise the elaborated-type-specifier `class
+	 * VideoMedia` in createVideoMedia() would introduce a new class at
+	 * namespace scope (Pdraw::VideoMedia) instead of the intended nested
+	 * class. */
+	class VideoMedia;
+
 public:
 	RtspStreamMuxer(Session *session,
 			Element::Listener *elementListener,
@@ -54,6 +70,10 @@ public:
 			const struct pdraw_muxer_params *params);
 
 	~RtspStreamMuxer() override;
+
+	/* Factory: must be implemented by Net / Mux subclasses */
+	virtual std::unique_ptr<VideoMedia>
+	createVideoMedia(enum pdraw_muxer_rtsp_transport transport) = 0;
 
 	int
 	addInputMedia(Media *media,
@@ -73,9 +93,7 @@ public:
 
 	int getStats(struct pdraw_muxer_stats *stats) override;
 
-private:
-	class VideoMedia;
-
+protected:
 	struct VideoMediaStats {
 		uint32_t receiverReportCount;
 		uint32_t pktCountTotal;
@@ -109,11 +127,25 @@ private:
 		SETUP_DONE,
 	};
 
+	/* Fields that VideoMediaNet / VideoMediaMux need to read */
+	std::unique_ptr<RtspUrl> mUrl;
+	const std::string mLocalHost{"0.0.0.0"};
+
+	/* Transport conversion helpers - protected so VideoMediaNet constructor
+	 * can call pdrawMuxerRtspTransportToRtspLowerTransport() */
+	static enum pdraw_muxer_rtsp_transport
+	rtspLowerTransportToPdrawMuxerRtspTransport(
+		enum rtsp_lower_transport rtspTransport);
+
+	static enum rtsp_lower_transport
+	pdrawMuxerRtspTransportToRtspLowerTransport(
+		enum pdraw_muxer_rtsp_transport muxerTransport);
+
 	int record();
 
 	int internalStart() override;
 
-	int internalStop() override;
+	int internalStop() final;
 
 	int sendOptions();
 
@@ -121,20 +153,22 @@ private:
 
 	int process() override;
 
-	int flush(bool discard = true);
+	int flush(bool discard = true) const;
 
-	inline int drain()
+	inline int drain() const
 	{
 		return flush(false);
 	}
 
 	void asyncRtspDisconnect();
 
-	void onChannelFlush(Channel *channel) override;
 
 	void onChannelDrain(Channel *channel) override;
 
 	void setRtspState(RtspStreamMuxer::RtspState state);
+
+	void setRtspState(RtspStreamMuxer::RtspState state,
+			  enum rtsp_client_conn_state connState);
 
 	int processRtspRequests();
 
@@ -152,9 +186,9 @@ private:
 
 	void destroyAllVideoMedias();
 
-	static void idleRtspDisconnect(void *userdata);
+	void idleRtspDisconnect();
 
-	static void idleCompleteTeardown(void *userdata);
+	void idleCompleteTeardown();
 
 	void teardownVideoMedia(RtspStreamMuxer::VideoMedia *media);
 
@@ -164,11 +198,18 @@ private:
 	notifyVideoMediaStatsUpdate(const RtspStreamMuxer::VideoMedia *media);
 
 	/* Helpers */
-	bool checkSessionId(const char *sessionId, const char *op);
+	bool checkSessionId(const char *sessionId, const char *op) const;
 
 	int checkReqStatus(int status,
 			   enum rtsp_client_req_status req_status,
-			   const char *op);
+			   const char *op) const;
+
+	void registerLastRequest(int status,
+				 int derivedStatus,
+				 enum rtsp_client_req_status req_status,
+				 RtspState state);
+
+	enum pdraw_muxer_disconnection_reason computeDisconnectionReason();
 
 	static const char *getRtspStateStr(RtspStreamMuxer::RtspState val);
 
@@ -267,26 +308,17 @@ private:
 	void logEventMedia(const char *eventName,
 			   int res,
 			   const char *sessionId,
-			   RtspStreamMuxer::VideoMedia *media,
+			   const RtspStreamMuxer::VideoMedia *media,
 			   bool pathIsContentBase = false) const;
 
 	void logEventSetupResp(const char *eventName,
 			       int res,
 			       const char *sessionId,
-			       RtspStreamMuxer::VideoMedia *media,
+			       const RtspStreamMuxer::VideoMedia *media,
 			       uint16_t _srcStrmPort,
 			       uint16_t _srcCtrlPort,
 			       bool success) const;
 
-	static enum pdraw_muxer_rtsp_transport
-	rtspLowerTransportToPdrawMuxerRtspTransport(
-		enum rtsp_lower_transport rtspTransport);
-
-	static enum rtsp_lower_transport
-	pdrawMuxerRtspTransportToRtspLowerTransport(
-		enum pdraw_muxer_rtsp_transport muxerTransport);
-
-	std::unique_ptr<RtspUrl> mUrl;
 	struct rtsp_client *mRtspClient = nullptr;
 	size_t mSocketTxBufferSize = 0;
 	RtspState mRtspState = RtspState::DISCONNECTED;
@@ -303,13 +335,22 @@ private:
 	bool mAnnounceRetried = false;
 	bool mRecording = false;
 	bool mPendingStop = false;
-	const std::string mLocalHost{"0.0.0.0"};
 	struct pdraw_muxer_stats mStats {
 	};
 	struct sdp_session *mSdpSession = nullptr;
 	bool mHasBeenConnected = false;
 
 	static const struct rtsp_client_cbs mRtspClientCbs;
+	pomp::Loop::IdleHandlerFunc mRtspDisconnectHandler;
+	pomp::Loop::IdleHandlerFunc mCompleteTeardownHandler;
+
+	struct {
+		enum pdraw_muxer_disconnection_reason reason =
+			PDRAW_MUXER_DISCONNECTION_REASON_UNKNOWN;
+		int lastStatus = 0;
+		bool lastReqSucceeded = true;
+		RtspState lastState = RtspState::DISCONNECTED;
+	} mDisconnection;
 };
 
 } /* namespace Pdraw */

@@ -32,6 +32,7 @@
 
 #include "pdraw_element.hpp"
 
+#include <array>
 #include <string>
 
 #include <inttypes.h>
@@ -136,8 +137,6 @@ private:
 
 	void completeFlush();
 
-	int tryStop();
-
 	void completeStop();
 
 	void playResponse();
@@ -158,19 +157,19 @@ private:
 			mPushedFrameCount >= mParams->max_pushed_frame_count);
 	}
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
-	static void idleCompleteStop(void *userdata);
+	void idleCompleteStop();
 
 	/* Vipc source listener calls from idle functions */
-	static void callOnMediaAdded(void *userdata);
+	void callOnMediaAdded();
 
-	static void callPlayResponse(void *userdata);
+	void callPlayResponse();
 
-	static void callPauseResponse(void *userdata);
+	void callPauseResponse();
 
 	struct FrameCtx {
-		VipcSource *self = nullptr;
+		VipcSource *vipcSource = nullptr;
 		struct vipcc_ctx *client = nullptr;
 		const struct vipc_frame *frame = nullptr;
 	};
@@ -215,7 +214,8 @@ private:
 		return static_cast<size_t>(bt);
 	}
 
-	static const struct Backend cBackends[BE_COUNT];
+	static std::array<Backend, BE_COUNT> makeBackends();
+	static const std::array<Backend, BE_COUNT> cBackends;
 
 	static const struct Backend *
 	getBackend(const char *name, bool useDefault, BackendType *type);
@@ -280,7 +280,7 @@ private:
 			  enum vipc_eos_reason reason,
 			  void *userdata);
 
-	static void watchdogTimerCb(struct pomp_timer *timer, void *userdata);
+	void onWatchdogTimer();
 
 #	if PDRAW_VIPC_BACKEND_DMABUF
 	static const struct vipcc_cb cDmabufCbs;
@@ -324,7 +324,13 @@ private:
 	unsigned int mNextFrameIndex = 0;
 	uint32_t mTimescale = VIPC_SOURCE_DEFAULT_TIMESCALE;
 	uint64_t mLastTimestamp = UINT64_MAX;
-	struct pomp_timer *mWatchdogTimer = nullptr;
+	pomp::Timer::HandlerFunc mWatchdogTimerHandler;
+	std::unique_ptr<pomp::Timer> mWatchdogTimer;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
+	pomp::Loop::IdleHandlerFunc mCompleteStopHandler;
+	pomp::Loop::IdleHandlerFunc mOnMediaAddedHandler;
+	pomp::Loop::IdleHandlerFunc mPlayResponseHandler;
+	pomp::Loop::IdleHandlerFunc mPauseResponseHandler;
 	uint32_t mPushedFrameCount = 0;
 };
 
@@ -356,13 +362,13 @@ public:
 
 	int getSessionMetadata(struct vmeta_session *meta) override;
 
+#ifdef BUILD_LIBVIDEO_IPC
 	void clearElement() override
 	{
 		ElementWrapper::clearElement();
-#ifdef BUILD_LIBVIDEO_IPC
 		mSource = nullptr;
-#endif
 	}
+#endif
 
 #ifdef BUILD_LIBVIDEO_IPC
 	Source *getSource() const
@@ -377,7 +383,7 @@ public:
 #endif
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped()
 #ifdef BUILD_LIBVIDEO_IPC

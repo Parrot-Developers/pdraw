@@ -30,58 +30,25 @@
 
 #define ULOG_TAG pdraw_recmux_jfif_media
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_jfif.hpp"
 #include "pdraw_muxer_record_jfif_media.hpp"
 
 #ifdef BUILD_LIBJFIF
-
 #	include <time.h>
-
 #	include <media-buffers/mbuf_coded_video_frame.h>
+#endif
+
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#ifdef BUILD_LIBJFIF
+
 
 namespace Pdraw {
 
 
 #	define PDRAW_CHECK_MUXER_WRITER_THREAD(expectWriter)                  \
 		mJfifMuxer->logThreadCheckWarning(__func__, expectWriter)
-
-
-void JfifRecordMuxer::JfifMuxerMedia::photoMetaWriteFileCb(
-	enum pmeta_defs_dest dest,
-	const struct pmeta_defs_exif_def *exifDef,
-	const struct pmeta_defs_xmp_def *xmpDef,
-	const char *value,
-	void *userdata)
-{
-	auto *mux = static_cast<struct jfif_mux *>(userdata);
-
-	ULOG_ERRNO_RETURN_IF(mux == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_IF(value == nullptr, EINVAL);
-
-	int res = -EINVAL;
-	const char *errKey = "unknown";
-
-	switch (dest) {
-	case PMETA_DEFS_DEST_EXIF:
-		ULOG_ERRNO_RETURN_IF(exifDef == nullptr, EINVAL);
-		res = jfif_mux_add_exif(mux, exifDef, value);
-		errKey = exifDef->tag_name;
-		break;
-	case PMETA_DEFS_DEST_XMP:
-		ULOG_ERRNO_RETURN_IF(xmpDef == nullptr, EINVAL);
-		res = jfif_mux_add_xmp(mux, xmpDef, value);
-		errKey = xmpDef->full_key;
-		break;
-	default:
-		ULOGE("unsupported metadata destination: %d", dest);
-		return;
-	}
-
-	if (res < 0)
-		ULOG_ERRNO("jfif_mux insertion failed for '%s'", -res, errKey);
-}
 
 
 JfifRecordMuxer::JfifMuxerMedia::JfifMuxerMedia(JfifRecordMuxer *muxer,
@@ -105,94 +72,43 @@ int JfifRecordMuxer::JfifMuxerMedia::setup(
 }
 
 
-/* Called on the writer thread */
-int JfifRecordMuxer::JfifMuxerMedia::processFrame(
-	struct mbuf_coded_video_frame *frame)
+int JfifRecordMuxer::JfifMuxerMedia::internalAddExif(
+	const struct pmeta_defs_exif_def *exifDef,
+	const char *value)
 {
-	int res = 0;
-	const void *buf = nullptr;
-	size_t len;
-	struct vdef_coded_frame info = {};
-	struct vmeta_frame *metadata = nullptr;
-	int naluCount;
+	return jfif_mux_add_exif(mJfifMuxer->mJfifMux, exifDef, value);
+}
 
-	PDRAW_CHECK_MUXER_WRITER_THREAD(true);
 
-	if (mJfifMuxer->mJfifMux == nullptr)
-		return -EPROTO;
+int JfifRecordMuxer::JfifMuxerMedia::internalAddXmp(
+	const struct pmeta_defs_xmp_def *xmpDef,
+	const char *value)
+{
+	return jfif_mux_add_xmp(mJfifMuxer->mJfifMux, xmpDef, value);
+}
 
+
+void JfifRecordMuxer::JfifMuxerMedia::internalClearMetadata()
+{
 	jfif_mux_clear_metadata(mJfifMuxer->mJfifMux);
+}
 
-	res = vmeta_session_photo_write(
-		&mSessionMeta,
-		&JfifRecordMuxer::JfifMuxerMedia::photoMetaWriteFileCb,
-		mJfifMuxer->mJfifMux);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("vmeta_session_photo_write", -res);
-	}
 
-	naluCount = mbuf_coded_video_frame_get_nalu_count(frame);
-	if (naluCount <= 0) {
-		PDRAW_LOGE("invalid NALU count: %d", naluCount);
-		return -EINVAL;
-	}
-
-	res = mbuf_coded_video_frame_get_frame_info(frame, &info);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_frame_info", -res);
-		return res;
-	}
-
-	res = mbuf_coded_video_frame_get_packed_buffer(frame, &buf, &len);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_packed_buffer",
-				-res);
-		return res;
-	}
-
-	res = mbuf_coded_video_frame_get_metadata(frame, &metadata);
-	if (res == 0 && metadata != nullptr) {
-		updateMetadata(metadata);
-		res = vmeta_frame_photo_write(
-			metadata,
-			&JfifRecordMuxer::JfifMuxerMedia::photoMetaWriteFileCb,
-			mJfifMuxer->mJfifMux);
-		if (res < 0) {
-			PDRAW_LOG_ERRNO("vmeta_frame_photo_write", -res);
-		}
-	} else if (res < 0 && res != -ENOENT) {
-		PDRAW_LOG_ERRNO("mbuf_coded_video_frame_get_metadata", -res);
-	}
-
-	struct iovec iov[3];
+int JfifRecordMuxer::JfifMuxerMedia::internalSerialize(
+	const uint8_t *buf,
+	size_t len,
+	std::vector<struct iovec> &iov,
+	uint8_t **headerBuf)
+{
 	int iovcnt = 0;
-	uint8_t *headerBuf = nullptr;
-
-	res = jfif_mux_serialize_iov(mJfifMuxer->mJfifMux,
-				     (const uint8_t *)buf,
-				     len,
-				     iov,
-				     &iovcnt,
-				     &headerBuf);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("jfif_mux_serialize_iov", -res);
-	} else {
-		res = mJfifMuxer->saveToDiskIov(
-			iov,
-			iovcnt,
-			mJfifMuxer->mStats.record.coded_video_frames);
-
-		if (headerBuf)
-			free(headerBuf);
-	}
-
-	if (metadata)
-		vmeta_frame_unref(metadata);
-	if (buf)
-		mbuf_coded_video_frame_release_packed_buffer(frame, buf);
-
+	iov.resize(3);
+	int res = jfif_mux_serialize_iov(
+		mJfifMuxer->mJfifMux, buf, len, iov.data(), &iovcnt, headerBuf);
+	if (res >= 0)
+		iov.resize(iovcnt);
 	return res;
 }
+
 
 } /* namespace Pdraw */
 

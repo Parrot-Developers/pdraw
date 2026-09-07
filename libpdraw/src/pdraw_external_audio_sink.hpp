@@ -80,7 +80,7 @@ public:
 
 	int addInputMedia(Media *media) override;
 
-	int removeInputMedia(Media *media) override;
+	int removeInputMedia(Media *media) final;
 
 private:
 	int flush(bool discard = true);
@@ -106,12 +106,16 @@ private:
 	int prepareAudioFrame(const AudioChannel *channel,
 			      struct mbuf_audio_frame *frame);
 
-	static void idleFlushDone(void *userdata);
+	void idleFlushDone();
 
 	/* Audio sink listener calls from idle functions */
-	static void callAudioSinkFlush(void *userdata);
+	void callAudioSinkFlush();
 
-	static void idleRenewMedia(void *userdata);
+	void idleRenewMedia();
+
+	pomp::Loop::IdleHandlerFunc mFlushDoneHandler;
+	pomp::Loop::IdleHandlerFunc mCallAudioSinkFlushHandler;
+	pomp::Loop::IdleHandlerFunc mRenewMediaHandler;
 
 	IPdraw::IAudioSink *mAudioSink = nullptr;
 	IPdraw::IAudioSink::Listener *mAudioSinkListener = nullptr;
@@ -162,7 +166,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() || mSink == nullptr);
 	}

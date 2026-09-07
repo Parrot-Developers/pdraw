@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_elmt
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_element.hpp"
 #include "pdraw_session.hpp"
 
 #include <errno.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -223,10 +224,7 @@ bool ElementWrapper::isElementStopped() const
 
 void FilterElement::onChannelSos(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelSos(channel);
 
@@ -247,10 +245,7 @@ void FilterElement::onChannelSos(Channel *channel)
 
 void FilterElement::onChannelEos(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelEos(channel);
 
@@ -271,10 +266,7 @@ void FilterElement::onChannelEos(Channel *channel)
 
 void FilterElement::onChannelReconfigure(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelReconfigure(channel);
 
@@ -295,10 +287,7 @@ void FilterElement::onChannelReconfigure(Channel *channel)
 
 void FilterElement::onChannelResolutionChange(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelResolutionChange(channel);
 
@@ -319,10 +308,7 @@ void FilterElement::onChannelResolutionChange(Channel *channel)
 
 void FilterElement::onChannelFramerateChange(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelFramerateChange(channel);
 
@@ -343,10 +329,7 @@ void FilterElement::onChannelFramerateChange(Channel *channel)
 
 void FilterElement::onChannelTimeout(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelTimeout(channel);
 
@@ -367,10 +350,7 @@ void FilterElement::onChannelTimeout(Channel *channel)
 
 void FilterElement::onChannelPhotoTrigger(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelPhotoTrigger(channel);
 
@@ -391,10 +371,7 @@ void FilterElement::onChannelPhotoTrigger(Channel *channel)
 
 void FilterElement::onChannelSessionMetaUpdate(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::onChannelSessionMetaUpdate(channel);
 
@@ -416,10 +393,7 @@ void FilterElement::onChannelSessionMetaUpdate(Channel *channel)
 void FilterElement::onChannelVideoPresStats(Channel *channel,
 					    VideoPresStats *stats)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelVideoPresStats(channel, stats);
 

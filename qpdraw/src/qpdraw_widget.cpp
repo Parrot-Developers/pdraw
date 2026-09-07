@@ -33,10 +33,10 @@
 
 #define ULOG_TAG qpdraw_widget
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
-
 
 #include <futils/futils.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 
 /* Minimum interval before the next rendering of the widget (msec) */
@@ -70,7 +70,7 @@ void QPdrawWidgetPriv::start(QPdraw *pdraw,
 	ULOG_ERRNO_RETURN_IF(pdrawInternal == nullptr, EPROTO);
 
 	try {
-		mTimer = make_unique<QTimer>();
+		mTimer = std::make_unique<QTimer>();
 	} catch (const std::bad_alloc &) {
 		ULOG_ERRNO_RETURN_IF(true, ENOMEM);
 	}
@@ -96,7 +96,7 @@ void QPdrawWidgetPriv::update()
 	int res;
 	struct timespec ts = {0, 0};
 	uint64_t curTimeUs;
-	int64_t renderPeriodUs = 1000000. / mFramerate;
+	int64_t renderPeriodUs = static_cast<int64_t>(1000000. / mFramerate);
 
 	ULOG_ERRNO_RETURN_IF(mTimer == nullptr, EINVAL);
 
@@ -115,7 +115,7 @@ void QPdrawWidgetPriv::update()
 	int64_t prevIntervalUs = (int64_t)curTimeUs - (int64_t)mPrevRenderTs;
 	int64_t renderErrorUs =
 		(int64_t)curTimeUs - (int64_t)mNextRenderExpectedTs;
-	int64_t nextIntervalMs = (renderPeriodUs - renderErrorUs) / 1000.;
+	int64_t nextIntervalMs = (renderPeriodUs - renderErrorUs) / 1000;
 
 	/* Filter-out negative and too small interval */
 	if (nextIntervalMs < QPDRAW_WIDGET_MIN_RENDER_INTERVAL_MS)
@@ -133,7 +133,7 @@ void QPdrawWidgetPriv::update()
 	mParent->update();
 
 	/* Schedule next rendering */
-	mTimer->setInterval(nextIntervalMs);
+	mTimer->setInterval(static_cast<int>(nextIntervalMs));
 
 	mNextRenderExpectedTs += renderPeriodUs;
 	mPrevRenderTs = curTimeUs;
@@ -146,7 +146,7 @@ void QPdrawWidgetPriv::stop()
 		return;
 
 	if (mTimer != nullptr) {
-		disconnect(mTimer.get(), SIGNAL(timeout()), 0, 0);
+		disconnect(mTimer.get(), SIGNAL(timeout()), nullptr, nullptr);
 		mTimer->stop();
 		mTimer.reset();
 	}
@@ -207,13 +207,10 @@ bool QPdrawWidgetPriv::paintGL()
 
 
 void QPdrawWidgetPriv::onVideoRendererMediaAdded(
-	IPdraw *pdraw,
-	IPdraw::IVideoRenderer *renderer,
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IVideoRenderer *renderer,
 	const struct pdraw_media_info *info)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(renderer);
-
 	/* Reset values as rendering will start */
 	mPrevRenderTs = UINT64_MAX;
 	mNextRenderExpectedTs = UINT64_MAX;
@@ -224,40 +221,35 @@ void QPdrawWidgetPriv::onVideoRendererMediaAdded(
 
 
 void QPdrawWidgetPriv::onVideoRendererMediaRemoved(
-	IPdraw *pdraw,
-	IPdraw::IVideoRenderer *renderer,
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IVideoRenderer *renderer,
 	const struct pdraw_media_info *info,
 	bool restart)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(renderer);
-
 	struct pdraw_media_info info_copy = *info;
 	emit mParent->mediaRemoved(info_copy, restart);
 }
 
 
-void QPdrawWidgetPriv::onVideoRenderReady(IPdraw *pdraw,
-					  IPdraw::IVideoRenderer *renderer)
+void QPdrawWidgetPriv::onVideoRenderReady(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IVideoRenderer *renderer)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(renderer);
+	/* Intentional no-op. */
 }
 
 
-int QPdrawWidgetPriv::loadVideoTexture(IPdraw *pdraw,
-				       IPdraw::IVideoRenderer *renderer,
-				       unsigned int textureWidth,
-				       unsigned int textureHeight,
-				       const struct pdraw_media_info *mediaInfo,
-				       struct mbuf_raw_video_frame *frame,
-				       const void *frameUserdata,
-				       size_t frameUserdataLen)
+int QPdrawWidgetPriv::loadVideoTexture(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IVideoRenderer *renderer,
+	unsigned int textureWidth,
+	unsigned int textureHeight,
+	const struct pdraw_media_info *mediaInfo,
+	struct mbuf_raw_video_frame *frame,
+	const void *frameUserdata,
+	size_t frameUserdataLen)
 {
 	int ret = -ENOSYS;
-
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(renderer);
 
 	emit mParent->loadVideoTexture(textureWidth,
 				       textureHeight,
@@ -271,8 +263,8 @@ int QPdrawWidgetPriv::loadVideoTexture(IPdraw *pdraw,
 
 
 int QPdrawWidgetPriv::renderVideoOverlay(
-	IPdraw *pdraw,
-	IPdraw::IVideoRenderer *renderer,
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IVideoRenderer *renderer,
 	const struct pdraw_rect *renderPos,
 	const struct pdraw_rect *contentPos,
 	const float *viewMat,
@@ -282,9 +274,6 @@ int QPdrawWidgetPriv::renderVideoOverlay(
 	const struct pdraw_video_frame_extra *frameExtra)
 {
 	int ret = -ENOSYS;
-
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(renderer);
 
 	emit mParent->renderVideoOverlay(renderPos,
 					 contentPos,
@@ -303,7 +292,7 @@ int QPdrawWidgetPriv::renderVideoOverlay(
 
 QPdrawWidget::QPdrawWidget(QWidget *parent) :
 		QOpenGLWidget(parent),
-		mPriv(make_unique<Internal::QPdrawWidgetPriv>(this))
+		mPriv(std::make_unique<Internal::QPdrawWidgetPriv>(this))
 {
 	qRegisterMetaType<pdraw_media_info>("pdraw_media_info");
 
@@ -393,11 +382,8 @@ void QPdrawWidget::initializeGL()
 }
 
 
-void QPdrawWidget::resizeGL(int w, int h)
+void QPdrawWidget::resizeGL([[maybe_unused]] int w, [[maybe_unused]] int h)
 {
-	PDRAW_UNUSED(w);
-	PDRAW_UNUSED(h);
-
 	/* TODO: w and h? */
 
 	struct pdraw_rect renderPos = {

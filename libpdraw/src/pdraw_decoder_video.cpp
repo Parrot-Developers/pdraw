@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_vdec
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_decoder_video.hpp"
 #include "pdraw_session.hpp"
@@ -43,6 +42,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <unistd.h>
 
 #include <vector>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -75,6 +76,8 @@ VideoDecoder::VideoDecoder(Session *session,
 
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+
 	/* Supported input formats */
 	supportedInputFormatsCount =
 		vdec_get_all_supported_input_formats(&supportedInputFormats);
@@ -98,9 +101,7 @@ VideoDecoder::~VideoDecoder()
 		PDRAW_LOGW("decoder is still running");
 
 	/* Remove any leftover idle callbacks */
-	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
+	mSession->getPompLoop()->idleRemove(this);
 
 	if (mVdec != nullptr) {
 		ret = vdec_destroy(mVdec);
@@ -150,7 +151,7 @@ int VideoDecoder::start()
 	size_t vpsSize = 0;
 	size_t spsSize = 0;
 	size_t ppsSize = 0;
-	InputPort *port = nullptr;
+	const InputPort *port = nullptr;
 	struct vdec_config cfg = {};
 	Channel *c = nullptr;
 	CodedVideoChannel *channel = nullptr;
@@ -200,9 +201,10 @@ int VideoDecoder::start()
 	cfg.implem = vdec_get_auto_implem_by_coded_format(&mInputMedia->format);
 	if (cfg.implem == VDEC_DECODER_IMPLEM_AUTO) {
 		Sink::unlock();
-		char *str = vdef_coded_format_to_str(&mInputMedia->format);
-		PDRAW_LOGE("no implementation found for format %s", str);
-		free(str);
+		PDRAW_LOGE(
+			"no implementation found "
+			"for format " VDEF_CODED_FORMAT_TO_STR_FMT,
+			VDEF_CODED_FORMAT_TO_STR_ARG(&mInputMedia->format));
 		ret = -EPROTO;
 		goto error;
 	}
@@ -358,6 +360,12 @@ int VideoDecoder::stop()
 
 	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
+	if (mState == State::CREATED) {
+		/* Skip flush/drain for unstarted elements to prevent them from
+		 * getting stuck in CREATED and blocking session stop */
+		setState(State::STOPPED);
+		return 0;
+	}
 	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: decoder is not started", __func__);
 		return -EPROTO;
@@ -396,20 +404,22 @@ int VideoDecoder::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
-		ret = mInputBufferQueue->getCount();
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("queue::getCount", -ret);
-			return ret;
-		} else if (ret > 0) {
-			setFlushingState(FlushingState::UNFLUSHED);
-			break;
+		if (mInputBufferQueue != nullptr) {
+			ret = mInputBufferQueue->getCount();
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("queue::getCount", -ret);
+				return ret;
+			} else if (ret > 0) {
+				setFlushingState(FlushingState::UNFLUSHED);
+				break;
+			}
 		}
 		PDRAW_LOGD("decoder is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -557,10 +567,9 @@ void VideoDecoder::completeFlush()
 }
 
 
-void VideoDecoder::idleCompleteFlush(void *userdata)
+void VideoDecoder::idleCompleteFlush()
 {
-	auto *self = static_cast<VideoDecoder *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -594,8 +603,11 @@ int VideoDecoder::tryStop()
 	}
 	Source::unlock();
 
-	/* Stop the decoder */
-	if (mVdec != nullptr) {
+	/* Stop the decoder
+	 * tryStop() can be re-entered while STOPPING; guard against issuing
+	 * vdec_stop() more than once (see VideoScaler/vscale_libyuv). */
+	if ((mVdec != nullptr) && (!mVdecStopIssued)) {
+		mVdecStopIssued = true;
 		ret = vdec_stop(mVdec);
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("vdec_stop", -ret);
@@ -728,17 +740,17 @@ void VideoDecoder::completeResync()
 }
 
 
-int VideoDecoder::createOutputMedia(const struct vdef_raw_frame *frameInfo,
-				    const RawVideoMedia::Frame &frame)
+int VideoDecoder::createOutputMedia(
+	const struct vdef_raw_frame *frameInfo,
+	[[maybe_unused]] const RawVideoMedia::Frame &frame)
 {
-	PDRAW_UNUSED(frame);
 
 	int ret;
 
 	Source::lock();
 
 	try {
-		mOutputMedia = make_unique<RawVideoMedia>(mSession);
+		mOutputMedia = std::make_unique<RawVideoMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -759,8 +771,7 @@ int VideoDecoder::createOutputMedia(const struct vdef_raw_frame *frameInfo,
 	vdef_frame_to_format_info(&frameInfo->info, &mOutputMedia->info);
 	mOutputMedia->info.framerate = mInputMedia->info.framerate;
 	mOutputMedia->sessionMeta = mInputMedia->sessionMeta;
-	mOutputMedia->playbackType = mInputMedia->playbackType;
-	mOutputMedia->duration = mInputMedia->duration;
+	mOutputMedia->copyPropertiesFrom(mInputMedia);
 
 	Source::unlock();
 
@@ -776,14 +787,9 @@ void VideoDecoder::onCodedVideoChannelQueue(
 	CodedVideoChannel *channel,
 	struct mbuf_coded_video_frame *frame)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
-	if (frame == nullptr) {
-		PDRAW_LOG_ERRNO("frame", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_IF(frame == nullptr, EINVAL);
+
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("frame input: decoder is not started");
 		return;
@@ -808,10 +814,7 @@ void VideoDecoder::onCodedVideoChannelQueue(
 
 void VideoDecoder::onChannelFlush(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("flushing input channel");
 	mInputChannelFlushPending = true;
@@ -824,10 +827,7 @@ void VideoDecoder::onChannelFlush(Channel *channel)
 
 void VideoDecoder::onChannelDrain(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("draining input channel");
 	mInputChannelFlushPending = true;
@@ -840,10 +840,7 @@ void VideoDecoder::onChannelDrain(Channel *channel)
 
 void VideoDecoder::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -861,10 +858,7 @@ void VideoDecoder::onChannelFlushed(Channel *channel)
 
 void VideoDecoder::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -882,10 +876,7 @@ void VideoDecoder::onChannelDrained(Channel *channel)
 
 void VideoDecoder::onChannelTeardown(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("tearing down input channel");
 
@@ -897,10 +888,7 @@ void VideoDecoder::onChannelTeardown(Channel *channel)
 
 void VideoDecoder::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -913,10 +901,7 @@ void VideoDecoder::onChannelSessionMetaUpdate(Channel *channel)
 {
 	struct vmeta_session tmpSessionMeta;
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 	if (mInputMedia == nullptr) {
@@ -942,12 +927,11 @@ void VideoDecoder::onChannelSessionMetaUpdate(Channel *channel)
 }
 
 
-void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
+void VideoDecoder::frameOutputCb([[maybe_unused]] struct vdec_decoder *dec,
 				 int status,
 				 struct mbuf_raw_video_frame *out_frame,
 				 void *userdata)
 {
-	PDRAW_UNUSED(dec);
 
 	int ret;
 	auto *self = static_cast<VideoDecoder *>(userdata);
@@ -965,14 +949,9 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 		return;
 	}
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
-	if (out_frame == nullptr) {
-		PDRAW_LOG_ERRNO("out_frame", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
+	PDRAW_LOG_ERRNO_RETURN_IF(out_frame == nullptr, EINVAL);
+
 	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("frame output: decoder is not started");
 		return;
@@ -1088,16 +1067,13 @@ void VideoDecoder::frameOutputCb(struct vdec_decoder *dec,
 }
 
 
-void VideoDecoder::flushCb(struct vdec_decoder *dec, void *userdata)
+void VideoDecoder::flushCb([[maybe_unused]] struct vdec_decoder *dec,
+			   void *userdata)
 {
-	PDRAW_UNUSED(dec);
 
 	auto *self = static_cast<VideoDecoder *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("decoder is flushed");
 	self->mVdecFlushPending = false;
@@ -1106,16 +1082,13 @@ void VideoDecoder::flushCb(struct vdec_decoder *dec, void *userdata)
 }
 
 
-void VideoDecoder::stopCb(struct vdec_decoder *dec, void *userdata)
+void VideoDecoder::stopCb([[maybe_unused]] struct vdec_decoder *dec,
+			  void *userdata)
 {
-	PDRAW_UNUSED(dec);
 
 	auto *self = static_cast<VideoDecoder *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("decoder is stopped");
 	self->mVdecStopPending = false;

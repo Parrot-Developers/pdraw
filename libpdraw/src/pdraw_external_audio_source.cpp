@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_external_audio_source
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_external_audio_source.hpp"
 #include "pdraw_session.hpp"
 
 #include <time.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 constexpr const char *PDRAW_EXT_AUDIO_SOURCE_ANCILLARY_KEY_INPUT_TIME =
 	"pdraw.audiosource.input_time";
@@ -60,6 +61,11 @@ ExternalAudioSource::ExternalAudioSource(
 {
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+	mCallOnMediaAddedHandler.set([this] { callOnMediaAdded(); });
+	mCallAudioSourceFlushedHandler.set(
+		[this] { callAudioSourceFlushed(); });
+
 	setState(State::CREATED);
 }
 
@@ -75,9 +81,9 @@ ExternalAudioSource::~ExternalAudioSource()
 	mAudioSourceListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	if (mFrameQueue != nullptr) {
 		err = mFrameQueue->flush();
@@ -88,8 +94,14 @@ ExternalAudioSource::~ExternalAudioSource()
 			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
 	}
 
-	if (mOutputMedia != nullptr)
+	if (mOutputMedia != nullptr) {
 		PDRAW_LOGW("output media was not properly removed");
+		/* Tear down output channels first, else a still-attached
+		 * sink's Media* is left dangling by mOutputMedia.reset(). */
+		(void)teardownOutputChannels(mOutputMedia.get());
+		(void)removeOutputPort(mOutputMedia.get());
+		mOutputMedia.reset();
+	}
 }
 
 
@@ -133,7 +145,7 @@ int ExternalAudioSource::start()
 	Source::lock();
 
 	try {
-		mOutputMedia = make_unique<AudioMedia>(mSession);
+		mOutputMedia = std::make_unique<AudioMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -151,8 +163,23 @@ int ExternalAudioSource::start()
 	}
 
 	mOutputMedia->format = mParams.audio.format;
-	mOutputMedia->playbackType = mParams.playback_type;
-	mOutputMedia->duration = mParams.duration;
+	mOutputMedia->setPlaybackType(mParams.playback_type);
+	mOutputMedia->setDuration(mParams.duration);
+	if ((mOutputMedia->format.encoding == ADEF_ENCODING_AAC_LC) &&
+	    (mParams.audio.aac_lc.asclen > 0)) {
+		/* Only set when the caller actually provided one: an AAC-LC
+		 * source is still valid without an upfront ASC (e.g. frames
+		 * carry their own ADTS header) -- only a muxer track requires
+		 * it (see AudioMedia::setAacAsc(), which itself rejects an
+		 * empty ASC). */
+		ret = mOutputMedia->setAacAsc(mParams.audio.aac_lc.asc,
+					      mParams.audio.aac_lc.asclen);
+		if (ret < 0) {
+			Source::unlock();
+			PDRAW_LOG_ERRNO("media->setAacAsc", -ret);
+			goto error;
+		}
+	}
 
 	Source::unlock();
 
@@ -161,10 +188,10 @@ int ExternalAudioSource::start()
 		 * callstack as a direct call could ultimately be blocking
 		 * in a pdraw-backend application calling another pdraw-backend
 		 * function from the onMediaAdded listener function */
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), callOnMediaAdded, this, this);
+		ret = mSession->getPompLoop()->idleAdd(
+			&mCallOnMediaAddedHandler, this);
 		if (ret < 0) {
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 			goto error;
 		}
 	}
@@ -212,10 +239,9 @@ int ExternalAudioSource::stop()
 }
 
 
-void ExternalAudioSource::idleCompleteFlush(void *userdata)
+void ExternalAudioSource::idleCompleteFlush()
 {
-	auto *self = static_cast<ExternalAudioSource *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -305,10 +331,7 @@ exit:
 
 void ExternalAudioSource::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -341,10 +364,10 @@ int ExternalAudioSource::flush(bool discard)
 		}
 		PDRAW_LOGD("audio source is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -440,12 +463,10 @@ void ExternalAudioSource::completeFlush()
 
 	if (mState != State::STOPPING) {
 		/* Signal to the application that flushing is done */
-		err = pomp_loop_idle_add_with_cookie(mSession->getLoop(),
-						     callAudioSourceFlushed,
-						     this,
-						     this);
+		err = mSession->getPompLoop()->idleAdd(
+			&mCallAudioSourceFlushedHandler, this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	} else {
 		setFlushingState(FlushingState::FLUSHED);
 	}
@@ -456,10 +477,7 @@ void ExternalAudioSource::completeFlush()
 
 void ExternalAudioSource::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -477,10 +495,7 @@ void ExternalAudioSource::onChannelFlushed(Channel *channel)
 
 void ExternalAudioSource::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -528,9 +543,9 @@ int ExternalAudioSource::process()
 }
 
 
-void ExternalAudioSource::queueEventCb(struct pomp_evt *evt, void *userdata)
+void ExternalAudioSource::queueEventCb([[maybe_unused]] struct pomp_evt *evt,
+				       void *userdata)
 {
-	PDRAW_UNUSED(evt);
 
 	auto *self = static_cast<ExternalAudioSource *>(userdata);
 
@@ -709,38 +724,32 @@ out:
 
 
 /* Listener call from an idle function */
-void ExternalAudioSource::callOnMediaAdded(void *userdata)
+void ExternalAudioSource::callOnMediaAdded()
 {
-	auto *self = static_cast<ExternalAudioSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if (self->mOutputMedia == nullptr) {
+	if (mOutputMedia == nullptr) {
 		PDRAW_LOGW("%s: output media not found", __func__);
 		return;
 	}
 
-	if (self->Source::mListener) {
-		self->Source::mListener->onOutputMediaAdded(
-			self, self->mOutputMedia.get(), self->getAudioSource());
+	if (Source::mListener) {
+		Source::mListener->onOutputMediaAdded(
+			this, mOutputMedia.get(), getAudioSource());
 	}
 }
 
 
 /* Listener call from an idle function */
-void ExternalAudioSource::callAudioSourceFlushed(void *userdata)
+void ExternalAudioSource::callAudioSourceFlushed()
 {
-	auto *self = static_cast<ExternalAudioSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	setFlushingState(FlushingState::FLUSHED);
 
-	self->setFlushingState(FlushingState::FLUSHED);
-
-	if (self->mAudioSourceListener != nullptr) {
-		if (self->mFlushDiscard) {
-			self->mAudioSourceListener->onAudioSourceFlushed(
-				self->mSession, self->getAudioSource());
+	if (mAudioSourceListener != nullptr) {
+		if (mFlushDiscard) {
+			mAudioSourceListener->onAudioSourceFlushed(
+				mSession, getAudioSource());
 		} else {
-			self->mAudioSourceListener->onAudioSourceDrained(
-				self->mSession, self->getAudioSource());
+			mAudioSourceListener->onAudioSourceDrained(
+				mSession, getAudioSource());
 		}
 	}
 }
@@ -778,7 +787,7 @@ struct mbuf_audio_frame_queue *AudioSourceWrapper::getQueue()
 	if (isElementStopped())
 		return nullptr;
 
-	mbuf::Queue *queue = mSource->getQueue();
+	const mbuf::Queue *queue = mSource->getQueue();
 	if (queue == nullptr)
 		return nullptr;
 	queue->getCQueue(&ret);

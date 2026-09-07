@@ -1,6 +1,6 @@
 /**
  * Parrot Drones Audio and Video Vector library
- * RTMP stream muxer
+ * RTSP stream muxer
  *
  * Copyright (c) 2018 Parrot Drones SAS
  * Copyright (c) 2016 Aurelien Barre
@@ -44,14 +44,19 @@
 
 namespace Pdraw {
 
+/* Abstract base class for RTSP stream muxer video media.
+ * Transport-specific behaviour (UDP sockets vs. libmux proxy) is provided
+ * by the concrete subclasses VideoMediaNet and VideoMediaMux, defined in
+ * pdraw_muxer_stream_rtsp_net.hpp and pdraw_muxer_stream_rtsp_mux.hpp. */
 class RtspStreamMuxer::VideoMedia : public Loggable {
+	PDRAW_DISABLE_COPY(VideoMedia)
+
 public:
-	VideoMedia(RtspStreamMuxer *muxer,
-		   enum pdraw_muxer_rtsp_transport transport);
+	explicit VideoMedia(RtspStreamMuxer *muxer);
 
 	~VideoMedia() override;
 
-	bool hasMedia(Media *media) const
+	bool hasMedia(const Media *media) const
 	{
 		return media == mVideoMedia;
 	}
@@ -61,9 +66,37 @@ public:
 		mVideoMedia = nullptr;
 	}
 
-	int startRtpAvp();
+	/* Pure virtual transport interface (implemented by Net / Mux) */
 
-	int stopRtpAvp();
+	virtual int startRtpAvp() = 0;
+
+	virtual int stopRtpAvp();
+
+	virtual enum rtsp_lower_transport getLowerTransport() const = 0;
+
+	virtual uint16_t getLocalStreamPort() const = 0;
+
+	virtual uint16_t getLocalControlPort() const = 0;
+
+	virtual uint16_t getRemoteStreamPort() const = 0;
+
+	virtual uint16_t getRemoteControlPort() const = 0;
+
+	virtual void setRemoteStreamPort(uint16_t port) = 0;
+
+	virtual void setRemoteControlPort(uint16_t port) = 0;
+
+	/* Virtual with default (overridden by Mux to provide the
+	 * parrot-link-type: mux header extension) */
+	virtual const struct rtsp_header_ext *getHeaderExt() const
+	{
+		return nullptr;
+	}
+
+	virtual size_t getHeaderExtCount() const
+	{
+		return 0;
+	}
 
 	int setup(const std::string &controlUrl, Media *media);
 
@@ -71,9 +104,9 @@ public:
 
 	int processFrame(struct mbuf_coded_video_frame *in_frame);
 
-	void flush(bool discard = true);
+	void flush(bool discard = true) const;
 
-	inline void drain()
+	inline void drain() const
 	{
 		return flush(false);
 	}
@@ -84,10 +117,6 @@ public:
 
 	void setTearingDown();
 
-	void setRemoteStreamPort(uint16_t port);
-
-	void setRemoteControlPort(uint16_t port);
-
 	void setSsrc(uint32_t ssrc)
 	{
 		mSsrc = ssrc;
@@ -96,11 +125,6 @@ public:
 	bool isTearingDown() const
 	{
 		return mTearingDown;
-	}
-
-	enum rtsp_lower_transport getLowerTransport() const
-	{
-		return mLowerTransport;
 	}
 
 	const std::string &getControlUrl() const
@@ -113,36 +137,6 @@ public:
 		return mControlUrl.c_str();
 	}
 
-	uint16_t getLocalStreamPort() const
-	{
-		return mStrm.localPort;
-	}
-
-	uint16_t getLocalControlPort() const
-	{
-		return mCtrl.localPort;
-	}
-
-	uint16_t getRemoteStreamPort() const
-	{
-		return mStrm.remotePort;
-	}
-
-	uint16_t getRemoteControlPort() const
-	{
-		return mCtrl.remotePort;
-	}
-
-	const struct rtsp_header_ext *getHeaderExt() const
-	{
-		return nullptr;
-	}
-
-	size_t getHeaderExtCount() const
-	{
-		return 0;
-	}
-
 	const struct VideoMediaStats &getStats() const
 	{
 		return mStats;
@@ -150,26 +144,50 @@ public:
 
 	int notifyReadyToSend();
 
-	int processDataPkt(struct tpkt_packet *pkt);
+	int processDataPkt(struct tpkt_packet *pkt) const;
 
 	int processCtrlPkt(struct tpkt_packet *pkt);
 
-private:
+	/* Send RESYNC upstream to force an IDR from the encoder.
+	 * Call when mRecording becomes true so the first frame Wowza sees is
+	 * always an IDR (the encoder's original IDR may have been produced
+	 * before mRecording was set, leaving only P-frames in the queue). */
+	void requestResync();
+
+protected:
+	/* Transport socket accessors - override to expose the actual
+	 * tskt_socket* used by this transport variant.  processList() and the
+	 * sendCtrlCb vstrm_sender callback call these instead of accessing
+	 * socket members directly. The nullptr default is relied upon by
+	 * VideoMediaMuxTcp (TCP-interleaved: RTP flows over the RTSP TCP
+	 * socket, no raw tskt_socket of its own); it is never dereferenced
+	 * for that variant since sendPkt()/processList() both check
+	 * getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP before touching the
+	 * socket. Keep as virtual-with-default, not pure virtual. */
+	virtual struct tskt_socket *getStreamSocket() const
+	{
+		return nullptr;
+	}
+
+	virtual struct tskt_socket *getControlSocket() const
+	{
+		return nullptr;
+	}
+
+	/* Called from setup(); must be overridden by each transport variant.
+	 * May return -EINPROGRESS for async setup (e.g. Mux proxy open). */
+	virtual int prepareSetup() = 0;
+
+	/* Common helpers available to subclasses */
 	int createSender();
 
 	int destroySender();
 
-	int createSockets();
-
-	struct tpkt_packet *newRxPkt();
-
-	void setRxPkt(struct tpkt_packet *newPkt);
-
-	int prepareSetup();
-
 	void finishSetup();
 
 	void finishTeardown();
+
+	int processList(struct tpkt_list *newList);
 
 	int sendPkt(struct tpkt_packet *pkt,
 		    uint16_t channel,
@@ -179,24 +197,16 @@ private:
 	int updateStats(const struct rtcp_pkt_receiver_report *rr = nullptr,
 			uint32_t rtd = UINT32_MAX);
 
-	/* tskt cbs */
-	static void dataCb(int fd, uint32_t events, void *userdata);
-
-	static void ctrlCb(int fd, uint32_t events, void *userdata);
-
-	/* vstrm_sender cbs */
-	static int sendDataCb(struct vstrm_sender *stream,
-			      struct tpkt_packet *pkt,
-			      bool marker,
-			      void *userdata);
-
+private:
+	/* vstrm_sender callback - registered once in createSender().
+	 * sendCtrlCb reaches the concrete socket through the virtual
+	 * getControlSocket(). Data (RTP) packets are no longer sent through a
+	 * vstrm_sender callback: vstrm_sender_send_frame() returns them in a
+	 * tpkt_list that processList() sends directly (see processFrame() /
+	 * notifyReadyToSend()). */
 	static int sendCtrlCb(struct vstrm_sender *stream,
 			      struct tpkt_packet *pkt,
 			      void *userdata);
-
-	static int monitorSendDataReadyCb(struct vstrm_sender *stream,
-					  int enable,
-					  void *userdata);
 
 	static void
 	videoStatsCb(struct vstrm_sender *stream,
@@ -213,29 +223,20 @@ private:
 			      const char *reason,
 			      void *userdata);
 
-	static void rtpFrameDispose(struct vstrm_frame *vframe);
-
-	struct SocketPair {
-		struct tskt_socket *sock;
-		uint16_t localPort;
-		uint16_t remotePort;
-	};
-
+protected:
 	RtspStreamMuxer *mMuxer = nullptr;
-	const enum rtsp_lower_transport mLowerTransport =
-		RTSP_LOWER_TRANSPORT_UDP;
+
+private:
 	struct vstrm_sender *mSender = nullptr;
 	std::string mControlUrl{};
 	bool mTearingDown = false;
 	uint32_t mSsrc = 0;
 	struct sdp_media *mSdpMedia = nullptr;
 	Media *mVideoMedia = nullptr;
-	SocketPair mStrm{};
-	SocketPair mCtrl{};
 	bool mPendingTearDown = false;
 	bool mSynchronized = false;
-	struct tpkt_packet *mRxPkt = nullptr;
-	size_t mRxBufLen = 0;
+	bool mNetdownLogged = false;
+	struct tpkt_list *mList = nullptr;
 	struct VideoMediaStats mStats {
 	};
 	static const struct vstrm_sender_cbs mSenderCbs;

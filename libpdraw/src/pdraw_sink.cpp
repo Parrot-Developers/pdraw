@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_sink
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_session.hpp"
 #include "pdraw_sink.hpp"
 
 #include <errno.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -48,7 +49,7 @@ Sink::Sink(const Session *session,
 	   int rawVideoMediaFormatCapsCount,
 	   const struct adef_format *audioMediaFormatCaps,
 	   int audioMediaFormatCapsCount) :
-		mLoop(session ? session->getLoop() : nullptr),
+		mLoop(session ? session->getPompLoop() : nullptr),
 		mMaxInputMedias(maxInputMedias),
 		mCodedVideoMediaFormatCaps(codedVideoMediaFormatCaps),
 		mCodedVideoMediaFormatCapsCount(codedVideoMediaFormatCapsCount),
@@ -62,7 +63,7 @@ Sink::Sink(const Session *session,
 
 Sink::~Sink()
 {
-	int ret = removeInputMedias();
+	int ret = removeInputMediasImpl("Sink");
 	if (ret < 0)
 		ULOG_ERRNO("removeInputMedias", -ret);
 
@@ -88,7 +89,7 @@ void Sink::unlock()
 
 unsigned int Sink::getInputMediaCount()
 {
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	auto ret = static_cast<unsigned int>(mInputPorts.size());
 	return ret;
 }
@@ -96,7 +97,7 @@ unsigned int Sink::getInputMediaCount()
 
 Media *Sink::getInputMedia(unsigned int index)
 {
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	Media *ret = (index < mInputPorts.size()) ? mInputPorts.at(index).media
 						  : nullptr;
 	return ret;
@@ -105,7 +106,7 @@ Media *Sink::getInputMedia(unsigned int index)
 
 Media *Sink::findInputMedia(const Media *media)
 {
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	Media *ret = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -123,12 +124,9 @@ Media *Sink::findInputMedia(const Media *media)
 
 Sink::InputPort *Sink::getInputPort(const Media *media)
 {
-	if (media == nullptr) {
-		ULOG_ERRNO("media", EINVAL);
-		return nullptr;
-	}
+	ULOG_ERRNO_RETURN_VAL_IF(media == nullptr, EINVAL, nullptr);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	InputPort *ret = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -154,7 +152,7 @@ int Sink::addInputMedia(Media *media)
 	if (media->isTearingDown())
 		return -EPERM;
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	if (getInputPort(media) != nullptr) {
 		return -EEXIST;
 	}
@@ -183,7 +181,7 @@ int Sink::addInputMedia(Media *media)
 		std::unique_ptr<CodedVideoChannel> channel;
 		port.media = cvmedia;
 		try {
-			channel = make_unique<CodedVideoChannel>(
+			channel = std::make_unique<CodedVideoChannel>(
 				this, this, this, mLoop);
 		} catch (const std::bad_alloc &) {
 			ULOGE("failed to create channel");
@@ -210,7 +208,7 @@ int Sink::addInputMedia(Media *media)
 		std::unique_ptr<RawVideoChannel> channel;
 		port.media = rvmedia;
 		try {
-			channel = make_unique<RawVideoChannel>(
+			channel = std::make_unique<RawVideoChannel>(
 				this, this, this, mLoop);
 		} catch (const std::bad_alloc &) {
 			ULOGE("failed to create channel");
@@ -236,7 +234,7 @@ int Sink::addInputMedia(Media *media)
 		std::unique_ptr<AudioChannel> channel;
 		port.media = amedia;
 		try {
-			channel = make_unique<AudioChannel>(
+			channel = std::make_unique<AudioChannel>(
 				this, this, this, mLoop);
 		} catch (const std::bad_alloc &) {
 			ULOGE("failed to create channel");
@@ -269,7 +267,7 @@ int Sink::removeInputMedia(Media *media)
 	if (media == nullptr)
 		return -EINVAL;
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	bool found = false;
 	auto p = mInputPorts.begin();
 
@@ -297,15 +295,33 @@ int Sink::removeInputMedia(Media *media)
 }
 
 
-int Sink::removeInputMedias()
+void Sink::clearInputMedia(const Media *media)
 {
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	if (media == nullptr)
+		return;
+	std::scoped_lock lock(mMutex);
+	for (auto &p : mInputPorts) {
+		if (p.media == media) {
+			p.media = nullptr;
+			return;
+		}
+	}
+}
+
+
+int Sink::removeInputMediasImpl(const char *name)
+{
+	std::scoped_lock lock(mMutex);
 	auto p = mInputPorts.begin();
 
 	while (p != mInputPorts.end()) {
-		ULOGI("%s: unlink media name=%s",
-		      getName().c_str(),
-		      p->media->getName().c_str());
+		/* p->media may be null if clearInputMedia() was called earlier
+		 * (source freed the media before this sink was destroyed). */
+		if (p->media != nullptr) {
+			ULOGI("%s: unlink media name=%s",
+			      name,
+			      p->media->getName().c_str());
+		}
 		int ret = p->channel->unlink();
 		if (ret < 0)
 			ULOG_ERRNO("channel->unlink", -ret);
@@ -319,19 +335,19 @@ int Sink::removeInputMedias()
 }
 
 
+int Sink::removeInputMedias()
+{
+	return removeInputMediasImpl(getName().c_str());
+}
+
+
 Channel *Sink::getInputChannel(const Media *media)
 {
-	if (media == nullptr) {
-		ULOG_ERRNO("media", EINVAL);
-		return nullptr;
-	}
+	ULOG_ERRNO_RETURN_VAL_IF(media == nullptr, EINVAL, nullptr);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
-	InputPort *port = getInputPort(media);
-	if (port == nullptr) {
-		ULOG_ERRNO("port", ENOENT);
-		return nullptr;
-	}
+	std::scoped_lock lock(mMutex);
+	const InputPort *port = getInputPort(media);
+	ULOG_ERRNO_RETURN_VAL_IF(port == nullptr, ENOENT, nullptr);
 
 	Channel *ret = port->channel.get();
 	return ret;
@@ -341,14 +357,8 @@ Channel *Sink::getInputChannel(const Media *media)
 void Sink::onCodedVideoChannelQueue(CodedVideoChannel *channel,
 				    struct mbuf_coded_video_frame *frame)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-	if (frame == nullptr) {
-		ULOG_ERRNO("frame", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_IF(frame == nullptr, EINVAL);
 
 	mbuf::Queue *queue = channel->getQueue(this);
 	if (queue == nullptr)
@@ -364,14 +374,9 @@ void Sink::onCodedVideoChannelQueue(CodedVideoChannel *channel,
 void Sink::onRawVideoChannelQueue(RawVideoChannel *channel,
 				  struct mbuf_raw_video_frame *frame)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-	if (frame == nullptr) {
-		ULOG_ERRNO("frame", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_IF(frame == nullptr, EINVAL);
+
 	mbuf::Queue *queue = channel->getQueue(this);
 	if (queue == nullptr)
 		return;
@@ -386,14 +391,8 @@ void Sink::onRawVideoChannelQueue(RawVideoChannel *channel,
 void Sink::onAudioChannelQueue(AudioChannel *channel,
 			       struct mbuf_audio_frame *frame)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
-	if (frame == nullptr) {
-		ULOG_ERRNO("frame", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_IF(frame == nullptr, EINVAL);
 
 	mbuf::Queue *queue = channel->getQueue(this);
 	if (queue == nullptr)
@@ -408,12 +407,9 @@ void Sink::onAudioChannelQueue(AudioChannel *channel,
 
 void Sink::onChannelTeardown(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 
 	Media *media = nullptr;
 	auto p = mInputPorts.begin();
@@ -427,10 +423,7 @@ void Sink::onChannelTeardown(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	int ret = removeInputMedia(media);
 	if (ret < 0) {
@@ -442,12 +435,9 @@ void Sink::onChannelTeardown(Channel *channel)
 
 void Sink::onChannelSos(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -460,10 +450,7 @@ void Sink::onChannelSos(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel SOS media name=%s (channel owner=%p)",
 	      getName().c_str(),
@@ -477,12 +464,9 @@ void Sink::onChannelSos(Channel *channel)
 
 void Sink::onChannelEos(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -495,10 +479,7 @@ void Sink::onChannelEos(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel EOS media name=%s (channel owner=%p)",
 	      getName().c_str(),
@@ -512,12 +493,9 @@ void Sink::onChannelEos(Channel *channel)
 
 void Sink::onChannelReconfigure(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -530,10 +508,7 @@ void Sink::onChannelReconfigure(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel reconfigure media name=%s (channel owner=%p)",
 	      getName().c_str(),
@@ -547,12 +522,9 @@ void Sink::onChannelReconfigure(Channel *channel)
 
 void Sink::onChannelResolutionChange(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -565,10 +537,7 @@ void Sink::onChannelResolutionChange(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel resolution change media name=%s (channel owner=%p)",
 	      getName().c_str(),
@@ -582,12 +551,9 @@ void Sink::onChannelResolutionChange(Channel *channel)
 
 void Sink::onChannelFramerateChange(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -600,10 +566,7 @@ void Sink::onChannelFramerateChange(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel framerate change media name=%s (channel owner=%p)",
 	      getName().c_str(),
@@ -617,12 +580,9 @@ void Sink::onChannelFramerateChange(Channel *channel)
 
 void Sink::onChannelTimeout(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -635,10 +595,7 @@ void Sink::onChannelTimeout(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel timeout media name=%s (channel owner=%p)",
 	      getName().c_str(),
@@ -652,12 +609,9 @@ void Sink::onChannelTimeout(Channel *channel)
 
 void Sink::onChannelPhotoTrigger(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -670,10 +624,7 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel photo_trigger "
 	      "media name=%s (channel owner=%p)",
@@ -688,12 +639,9 @@ void Sink::onChannelPhotoTrigger(Channel *channel)
 
 void Sink::onChannelSessionMetaUpdate(Channel *channel)
 {
-	if (channel == nullptr) {
-		ULOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	const Media *media = nullptr;
 	auto p = mInputPorts.begin();
 
@@ -706,10 +654,7 @@ void Sink::onChannelSessionMetaUpdate(Channel *channel)
 		break;
 	}
 
-	if (media == nullptr) {
-		ULOG_ERRNO("media", ENOENT);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(media == nullptr, ENOENT);
 
 	ULOGD("%s: channel session_meta_update "
 	      "media name=%s (channel owner=%p)",
@@ -723,15 +668,14 @@ void Sink::onChannelSessionMetaUpdate(Channel *channel)
 
 
 void Sink::onChannelDownstreamEvent(Channel *channel,
-				    const struct pomp_msg *event)
+				    const pomp::Message &event)
 {
 	ULOGD("%s: channel downstream event %s",
 	      getName().c_str(),
 	      Channel::getDownstreamEventStr(
-		      static_cast<Channel::DownstreamEvent>(
-			      pomp_msg_get_id(event))));
+		      static_cast<Channel::DownstreamEvent>(event.getId())));
 
-	switch (static_cast<Channel::DownstreamEvent>(pomp_msg_get_id(event))) {
+	switch (static_cast<Channel::DownstreamEvent>(event.getId())) {
 	case Channel::DownstreamEvent::FLUSH:
 		onChannelFlush(channel);
 		break;
@@ -766,7 +710,7 @@ void Sink::onChannelDownstreamEvent(Channel *channel,
 		onChannelSessionMetaUpdate(channel);
 		break;
 	default:
-		ULOG_ERRNO("event id %d", ENOSYS, pomp_msg_get_id(event));
+		ULOG_ERRNO("event id %d", ENOSYS, event.getId());
 		break;
 	}
 }

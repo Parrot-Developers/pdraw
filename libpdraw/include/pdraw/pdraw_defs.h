@@ -50,15 +50,7 @@
 
 #include <inttypes.h>
 #include <sys/types.h>
-#ifdef _WIN32
-#	ifndef __iovec_defined
-#		define __iovec_defined 1
-struct iovec {
-	void *iov_base;
-	size_t iov_len;
-};
-#	endif
-#else
+#ifndef _WIN32
 #	include <sys/uio.h>
 #endif
 
@@ -74,10 +66,20 @@ struct iovec {
 #include <video-scale/vscale_core.h>
 
 
+#ifdef _WIN32
+#	ifndef __iovec_defined
+#		define __iovec_defined 1
+struct iovec {
+	void *iov_base;
+	size_t iov_len;
+};
+#	endif
+#endif
+
+
 /* Forward declarations */
 struct json_object;
 struct mux_ctx;
-struct iovec;
 
 
 /* Absolute maximum value of playback speed for records; if the requested
@@ -363,6 +365,17 @@ struct pdraw_muxer_dng_lsc_params {
 	uint32_t height;
 	uint32_t count;
 	enum vdef_raw_pix_order format;
+};
+
+
+/* Muxer metadata parameters (discriminated union: type selects the
+ * active union member) */
+struct pdraw_muxer_metadata_params {
+	enum pdraw_muxer_metadata_type type;
+	union {
+		/* For PDRAW_MUXER_METADATA_TYPE_DNG_LSC */
+		struct pdraw_muxer_dng_lsc_params dng_lsc;
+	};
 };
 
 

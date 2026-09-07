@@ -33,6 +33,7 @@
 #include "pdraw_element.hpp"
 
 #include <inttypes.h>
+#include <memory>
 
 #include <media-buffers/mbuf_queue.hpp>
 #include <media-buffers/mbuf_raw_video_frame.h>
@@ -108,7 +109,7 @@ private:
 
 	static void stopCb(struct vscale_scaler *scaler, void *userdata);
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	IPdraw::IVideoScaler *mScaler{};
 	IPdraw::IVideoScaler::Listener *mScalerListener{};
@@ -116,13 +117,15 @@ private:
 	std::unique_ptr<RawVideoMedia> mOutputMedia{};
 	struct mbuf_pool *mInputBufferPool{};
 	std::unique_ptr<mbuf::Queue> mInputBufferQueue;
-	struct vscale_config *mScalerConfig{};
+	unique_c_ptr<vscale_config> mScalerConfig;
 	std::string mScalerName{};
 	struct vscale_scaler *mVscale{};
 	bool mInputChannelFlushPending{};
 	bool mOutputChannelDrainRequired{};
 	bool mVscaleFlushPending{};
 	bool mVscaleStopPending{};
+	bool mVscaleStopIssued{};
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
 	static const struct vscale_cbs mScalerCbs;
 };
 
@@ -152,7 +155,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mScaler == nullptr);

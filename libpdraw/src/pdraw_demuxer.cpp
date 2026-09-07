@@ -30,13 +30,15 @@
 
 #define ULOG_TAG pdraw_demuxer
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_demuxer.hpp"
 #include "pdraw_demuxer_record.hpp"
 #include "pdraw_demuxer_stream_mux.hpp"
 #include "pdraw_demuxer_stream_net.hpp"
 #include "pdraw_session.hpp"
+#include "pdraw_utils.hpp"
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -55,6 +57,16 @@ Demuxer::Demuxer(Session *session,
 		mDemuxer(wrapper), mDemuxerListener(demuxerListener),
 		mParams(*params)
 {
+	mWatchdogTimerHandler.set([this] { onWatchdogTimer(); });
+	mCallOpenResponseHandler.set([this] { callOpenResponse(); });
+	mCallCloseResponseHandler.set([this] { callCloseResponse(); });
+	mCallOnUnrecoverableErrorHandler.set(
+		[this] { callOnUnrecoverableError(); });
+	mCallReadyToPlayHandler.set([this] { callReadyToPlay(); });
+	mCallEndOfRangeHandler.set([this] { callEndOfRange(); });
+	mCallPlayResponseHandler.set([this] { callPlayResponse(); });
+	mCallPauseResponseHandler.set([this] { callPauseResponse(); });
+	mCallSeekResponseHandler.set([this] { callSeekResponse(); });
 }
 
 
@@ -68,18 +80,11 @@ Demuxer::~Demuxer()
 	clearMediaList();
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
-	if (mWatchdogTimer != nullptr) {
-		err = pomp_timer_clear(mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(mWatchdogTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-	}
+	mWatchdogTimer.reset();
 }
 
 
@@ -221,10 +226,10 @@ void Demuxer::openResponse(int status)
 		return;
 	}
 	mOpenRespStatusArgs.push(status);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callOpenResponse, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCallOpenResponseHandler,
+						   this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	mCalledOpenResp = true;
 }
 
@@ -232,10 +237,10 @@ void Demuxer::openResponse(int status)
 void Demuxer::closeResponse(int status)
 {
 	mCloseRespStatusArgs.push(status);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callCloseResponse, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCallCloseResponseHandler,
+						   this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -252,10 +257,10 @@ void Demuxer::onUnrecoverableError(int error)
 
 	mUnrecoverableError = true;
 
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callOnUnrecoverableError, this, this);
+	int err = mSession->getPompLoop()->idleAdd(
+		&mCallOnUnrecoverableErrorHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -268,20 +273,20 @@ void Demuxer::readyToPlay(bool ready)
 	mReadyToPlay = ready;
 
 	mReadyToPlayReadyArgs.push(ready);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callReadyToPlay, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCallReadyToPlayHandler,
+						   this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
 void Demuxer::onEndOfRange(uint64_t timestamp)
 {
 	mEndOfRangeTimestampArgs.push(timestamp);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callEndOfRange, this, this);
+	int err =
+		mSession->getPompLoop()->idleAdd(&mCallEndOfRangeHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -290,10 +295,10 @@ void Demuxer::playResponse(int status, uint64_t timestamp, float speed)
 	mPlayRespStatusArgs.push(status);
 	mPlayRespTimestampArgs.push(timestamp);
 	mPlayRespSpeedArgs.push(speed);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callPlayResponse, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCallPlayResponseHandler,
+						   this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -301,10 +306,10 @@ void Demuxer::pauseResponse(int status, uint64_t timestamp)
 {
 	mPauseRespStatusArgs.push(status);
 	mPauseRespTimestampArgs.push(timestamp);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callPauseResponse, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCallPauseResponseHandler,
+						   this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -313,10 +318,10 @@ void Demuxer::seekResponse(int status, uint64_t timestamp, float speed)
 	mSeekRespStatusArgs.push(status);
 	mSeekRespTimestampArgs.push(timestamp);
 	mSeekRespSpeedArgs.push(speed);
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), callSeekResponse, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCallSeekResponseHandler,
+						   this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 }
 
 
@@ -357,11 +362,7 @@ void Demuxer::clearMediaList()
 	mSelectedMedias.clear();
 	mDefaultMedias.clear();
 
-	for (size_t i = 0; i < mMediaListSize; i++) {
-		free(const_cast<char *>(mMediaList[i].name));
-		free(const_cast<char *>(mMediaList[i].uri));
-	}
-	free(mMediaList);
+	pdraw_demuxerMediaListFree(mMediaList, mMediaListSize);
 	mMediaList = nullptr;
 	mMediaListSize = 0;
 }
@@ -395,31 +396,26 @@ const char *Demuxer::getCommandStr(Demuxer::Command cmd)
 }
 
 
-void Demuxer::watchdogTimerCb(struct pomp_timer *timer, void *userdata)
+void Demuxer::onWatchdogTimer()
 {
-	PDRAW_UNUSED(timer);
-
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
 	PDRAW_LOGE("pending operation (%s) timed out",
-		   getCommandStr(self->mPendingCmd));
+		   getCommandStr(mPendingCmd));
 
-	switch (self->mPendingCmd) {
+	switch (mPendingCmd) {
 	case Command::PLAY:
-		self->playResponse(-ETIMEDOUT, 0, 0);
+		playResponse(-ETIMEDOUT, 0, 0);
 		break;
 	case Command::PAUSE:
 	case Command::PAUSE_NEXT:
-		self->pauseResponse(-ETIMEDOUT, 0);
+		pauseResponse(-ETIMEDOUT, 0);
 		break;
 	case Command::SEEK:
-		self->seekResponse(-ETIMEDOUT, 0, 0);
+		seekResponse(-ETIMEDOUT, 0, 0);
 		break;
 	default:
 		PDRAW_LOGW("unsupported operation (%s)",
-			   getCommandStr(self->mPendingCmd));
-		self->clearPendingCommand();
+			   getCommandStr(mPendingCmd));
+		clearPendingCommand();
 		break;
 	}
 }
@@ -436,20 +432,21 @@ int Demuxer::setPendingCommand(Demuxer::Command cmd)
 		return -EBUSY;
 	}
 
-	if (mWatchdogTimer == nullptr) {
-		mWatchdogTimer = pomp_timer_new(
-			mSession->getLoop(), watchdogTimerCb, this);
-		if (mWatchdogTimer == nullptr) {
+	if (!mWatchdogTimer) {
+		try {
+			mWatchdogTimer = std::make_unique<pomp::Timer>(
+				mSession->getPompLoop(),
+				&mWatchdogTimerHandler);
+		} catch (const std::bad_alloc &) {
 			ret = -ENOMEM;
-			PDRAW_LOGE("pomp_timer_new failed");
+			PDRAW_LOGE("pomp::Timer allocation failed");
 			goto error;
 		}
 	}
 
-	ret = pomp_timer_set(mWatchdogTimer,
-			     DEMUXER_PENDING_COMMAND_TIMEOUT_MS);
+	ret = mWatchdogTimer->set(DEMUXER_PENDING_COMMAND_TIMEOUT_MS);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_timer_set", -ret);
+		PDRAW_LOG_ERRNO("pomp::Timer::set", -ret);
 		goto error;
 	}
 
@@ -464,182 +461,153 @@ error:
 
 void Demuxer::clearPendingCommand()
 {
-	int err = pomp_timer_clear(mWatchdogTimer);
+	int err = mWatchdogTimer->clear();
 	if (err < 0) {
-		PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+		PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 	}
 	mPendingCmd = Command::NONE;
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callOpenResponse(void *userdata)
+void Demuxer::callOpenResponse()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int status = mOpenRespStatusArgs.front();
+	mOpenRespStatusArgs.pop();
 
-	int status = self->mOpenRespStatusArgs.front();
-	self->mOpenRespStatusArgs.pop();
-
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->demuxerOpenResponse(
-		self->mSession, self->mDemuxer, status);
+	mDemuxerListener->demuxerOpenResponse(mSession, mDemuxer, status);
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callCloseResponse(void *userdata)
+void Demuxer::callCloseResponse()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int status = mCloseRespStatusArgs.front();
+	mCloseRespStatusArgs.pop();
 
-	int status = self->mCloseRespStatusArgs.front();
-	self->mCloseRespStatusArgs.pop();
-
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->demuxerCloseResponse(
-		self->mSession, self->mDemuxer, status);
+	mDemuxerListener->demuxerCloseResponse(mSession, mDemuxer, status);
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callOnUnrecoverableError(void *userdata)
+void Demuxer::callOnUnrecoverableError()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->onDemuxerUnrecoverableError(self->mSession,
-							    self->mDemuxer);
+	mDemuxerListener->onDemuxerUnrecoverableError(mSession, mDemuxer);
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callReadyToPlay(void *userdata)
+void Demuxer::callReadyToPlay()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	bool ready = mReadyToPlayReadyArgs.front();
+	mReadyToPlayReadyArgs.pop();
 
-	bool ready = self->mReadyToPlayReadyArgs.front();
-	self->mReadyToPlayReadyArgs.pop();
-
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->demuxerReadyToPlay(
-		self->mSession, self->mDemuxer, ready);
+	mDemuxerListener->demuxerReadyToPlay(mSession, mDemuxer, ready);
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callEndOfRange(void *userdata)
+void Demuxer::callEndOfRange()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	uint64_t timestamp = mEndOfRangeTimestampArgs.front();
+	mEndOfRangeTimestampArgs.pop();
 
-	uint64_t timestamp = self->mEndOfRangeTimestampArgs.front();
-	self->mEndOfRangeTimestampArgs.pop();
-
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->onDemuxerEndOfRange(
-		self->mSession, self->mDemuxer, timestamp);
+	mDemuxerListener->onDemuxerEndOfRange(mSession, mDemuxer, timestamp);
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callPlayResponse(void *userdata)
+void Demuxer::callPlayResponse()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int status = mPlayRespStatusArgs.front();
+	uint64_t timestamp = mPlayRespTimestampArgs.front();
+	float speed = mPlayRespSpeedArgs.front();
+	mPlayRespStatusArgs.pop();
+	mPlayRespTimestampArgs.pop();
+	mPlayRespSpeedArgs.pop();
 
-	int status = self->mPlayRespStatusArgs.front();
-	uint64_t timestamp = self->mPlayRespTimestampArgs.front();
-	float speed = self->mPlayRespSpeedArgs.front();
-	self->mPlayRespStatusArgs.pop();
-	self->mPlayRespTimestampArgs.pop();
-	self->mPlayRespSpeedArgs.pop();
-
-	if (self->mPendingCmd == Command::NONE) {
+	if (mPendingCmd == Command::NONE) {
 		PDRAW_LOGE("%s: no pending command", __func__);
-	} else if (self->mPendingCmd != Command::PLAY) {
+	} else if (mPendingCmd != Command::PLAY) {
 		PDRAW_LOGE("%s: unexpected pending command (%s)",
 			   __func__,
-			   getCommandStr(self->mPendingCmd));
+			   getCommandStr(mPendingCmd));
 	}
-	self->clearPendingCommand();
+	clearPendingCommand();
 
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->demuxerPlayResponse(
-		self->mSession, self->mDemuxer, status, timestamp, speed);
+	mDemuxerListener->demuxerPlayResponse(
+		mSession, mDemuxer, status, timestamp, speed);
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callPauseResponse(void *userdata)
+void Demuxer::callPauseResponse()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int status = mPauseRespStatusArgs.front();
+	uint64_t timestamp = mPauseRespTimestampArgs.front();
+	mPauseRespStatusArgs.pop();
+	mPauseRespTimestampArgs.pop();
 
-	int status = self->mPauseRespStatusArgs.front();
-	uint64_t timestamp = self->mPauseRespTimestampArgs.front();
-	self->mPauseRespStatusArgs.pop();
-	self->mPauseRespTimestampArgs.pop();
-
-	if (self->mPendingCmd == Command::NONE) {
+	if (mPendingCmd == Command::NONE) {
 		PDRAW_LOGE("%s: no pending command", __func__);
-	} else if ((self->mPendingCmd != Command::PAUSE) &&
-		   (self->mPendingCmd != Command::PAUSE_NEXT)) {
+	} else if ((mPendingCmd != Command::PAUSE) &&
+		   (mPendingCmd != Command::PAUSE_NEXT)) {
 		PDRAW_LOGE("%s: unexpected pending command (%s)",
 			   __func__,
-			   getCommandStr(self->mPendingCmd));
+			   getCommandStr(mPendingCmd));
 	}
-	self->clearPendingCommand();
+	clearPendingCommand();
 
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->demuxerPauseResponse(
-		self->mSession, self->mDemuxer, status, timestamp);
+	mDemuxerListener->demuxerPauseResponse(
+		mSession, mDemuxer, status, timestamp);
 }
 
 
 /* Listener call from an idle function */
-void Demuxer::callSeekResponse(void *userdata)
+void Demuxer::callSeekResponse()
 {
-	auto *self = static_cast<Demuxer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	int status = mSeekRespStatusArgs.front();
+	uint64_t timestamp = mSeekRespTimestampArgs.front();
+	float speed = mSeekRespSpeedArgs.front();
+	mSeekRespStatusArgs.pop();
+	mSeekRespTimestampArgs.pop();
+	mSeekRespSpeedArgs.pop();
 
-	int status = self->mSeekRespStatusArgs.front();
-	uint64_t timestamp = self->mSeekRespTimestampArgs.front();
-	float speed = self->mSeekRespSpeedArgs.front();
-	self->mSeekRespStatusArgs.pop();
-	self->mSeekRespTimestampArgs.pop();
-	self->mSeekRespSpeedArgs.pop();
-
-	if (self->mPendingCmd == Command::NONE) {
+	if (mPendingCmd == Command::NONE) {
 		PDRAW_LOGE("%s: no pending command", __func__);
-	} else if (self->mPendingCmd != Command::SEEK) {
+	} else if (mPendingCmd != Command::SEEK) {
 		PDRAW_LOGE("%s: unexpected pending command (%s)",
 			   __func__,
-			   getCommandStr(self->mPendingCmd));
+			   getCommandStr(mPendingCmd));
 	}
-	self->clearPendingCommand();
+	clearPendingCommand();
 
-	if (self->mDemuxerListener == nullptr)
+	if (mDemuxerListener == nullptr)
 		return;
 
-	self->mDemuxerListener->demuxerSeekResponse(
-		self->mSession, self->mDemuxer, status, timestamp, speed);
+	mDemuxerListener->demuxerSeekResponse(
+		mSession, mDemuxer, status, timestamp, speed);
 }
 
 
@@ -650,6 +618,7 @@ DemuxerWrapper::DemuxerWrapper(Session *session,
 			       IPdraw::IDemuxer::Listener *listener)
 {
 	std::string ext;
+	std::unique_ptr<Demuxer> impl;
 
 	if (url.length() < 4) {
 		ULOGE("%s: invalid URL length", __func__);
@@ -658,28 +627,51 @@ DemuxerWrapper::DemuxerWrapper(Session *session,
 	ext = url.substr(url.length() - 4, 4);
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-	if ((mux != nullptr) && (url.substr(0, 7) == "rtsp://")) {
+	try {
+		if ((mux != nullptr) && (url.substr(0, 7) == "rtsp://")) {
 #ifdef BUILD_LIBMUX
-		mElement = mDemuxer = new StreamDemuxerMux(session,
-							   session,
-							   session,
-							   this,
-							   listener,
-							   url,
-							   mux,
-							   params);
+			impl = std::make_unique<StreamDemuxerMux>(session,
+								  session,
+								  session,
+								  this,
+								  listener,
+								  url,
+								  mux,
+								  params);
 #else /* BUILD_LIBMUX */
-		ULOGE("%s: libmux is not supported", __func__);
+			ULOGE("%s: libmux is not supported", __func__);
 #endif /* BUILD_LIBMUX */
-	} else if ((url.substr(0, 7) == "rtsp://") ||
-		   (url.substr(0, 8) == "rtsps://")) {
-		mElement = mDemuxer = new StreamDemuxerNet(
-			session, session, session, this, listener, url, params);
-	} else if (ext == ".mp4") {
-		mElement = mDemuxer = new RecordDemuxer(
-			session, session, session, this, listener, url, params);
-	} else {
-		ULOGE("%s: unsupported URL ('%s')", __func__, url.c_str());
+		} else if ((url.substr(0, 7) == "rtsp://") ||
+			   (url.substr(0, 8) == "rtsps://")) {
+			impl = std::make_unique<StreamDemuxerNet>(session,
+								  session,
+								  session,
+								  this,
+								  listener,
+								  url,
+								  params);
+		} else if (ext == ".mp4" || ext == ".m4a") {
+			impl = std::make_unique<RecordDemuxer>(session,
+							       session,
+							       session,
+							       this,
+							       listener,
+							       url,
+							       params);
+		} else {
+			ULOGE("%s: unsupported URL ('%s')",
+			      __func__,
+			      url.c_str());
+		}
+	} catch (const std::bad_alloc &) {
+		ULOGE("%s: failed to allocate demuxer", __func__);
+	}
+
+	/* Ownership is transferred to Session::mElements immediately after
+	 * construction via unique_ptr<Element>(wrapper->getElement()) */
+	if (impl) {
+		mDemuxer = impl.get();
+		mElement = impl.release();
 	}
 }
 
@@ -692,21 +684,30 @@ DemuxerWrapper::DemuxerWrapper(Session *session,
 			       uint16_t remoteStreamPort,
 			       uint16_t remoteControlPort,
 			       const struct pdraw_demuxer_params *params,
-			       IPdraw::IDemuxer::Listener *listener) :
-		ElementWrapper(new StreamDemuxerNet(session,
-						    session,
-						    session,
-						    this,
-						    listener,
-						    localAddr,
-						    localStreamPort,
-						    localControlPort,
-						    remoteAddr,
-						    remoteStreamPort,
-						    remoteControlPort,
-						    params)),
-		mDemuxer(static_cast<StreamDemuxerNet *>(mElement))
+			       IPdraw::IDemuxer::Listener *listener)
 {
+	try {
+		auto impl =
+			std::make_unique<StreamDemuxerNet>(session,
+							   session,
+							   session,
+							   this,
+							   listener,
+							   localAddr,
+							   localStreamPort,
+							   localControlPort,
+							   remoteAddr,
+							   remoteStreamPort,
+							   remoteControlPort,
+							   params);
+		/* Ownership is transferred to Session::mElements immediately
+		 * after construction via unique_ptr<Element>(wrapper->
+		 * getElement()) */
+		mDemuxer = impl.get();
+		mElement = impl.release();
+	} catch (const std::bad_alloc &) {
+		ULOGE("%s: failed to allocate demuxer", __func__);
+	}
 }
 
 

@@ -47,6 +47,14 @@ public:
 
 	~PngRecordMuxer() override = default;
 
+	const char *getThreadName() const override
+	{
+		static constexpr char name[] = "pdraw_recmx_png";
+		static_assert(sizeof(name) <= 16,
+			      "Thread name is too long for pthread_setname_np");
+		return name;
+	}
+
 protected:
 	class PngMuxerMedia;
 

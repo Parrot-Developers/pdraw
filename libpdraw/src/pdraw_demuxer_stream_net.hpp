@@ -82,7 +82,7 @@ private:
 
 		int startRtpAvp() override;
 
-		int stopRtpAvp() override;
+		int stopRtpAvp() final;
 
 		int sendCtrl(struct vstrm_receiver *stream,
 			     struct tpkt_packet *pkt) override;
@@ -112,6 +112,8 @@ private:
 		int processCtrlPkt(struct tpkt_packet *pkt) override;
 
 	private:
+		void initStreamPorts();
+
 		int createSockets();
 
 		struct tpkt_packet *newRxPkt();

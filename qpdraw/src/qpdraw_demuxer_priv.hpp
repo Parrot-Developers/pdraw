@@ -33,7 +33,7 @@
 #include <pdraw/pdraw_backend.hpp>
 #include <pdraw/qpdraw_demuxer.hpp>
 
-using namespace Pdraw;
+using Pdraw::IPdraw;
 
 namespace QPdraw {
 namespace Internal {

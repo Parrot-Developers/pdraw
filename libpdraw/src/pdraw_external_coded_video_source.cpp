@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_external_coded_video_source
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_external_coded_video_source.hpp"
 #include "pdraw_session.hpp"
 
 #include <time.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 constexpr const char *PDRAW_EXT_CODED_VIDEO_SOURCE_ANCILLARY_KEY_INPUT_TIME =
 	"pdraw.codedvideosource.input_time";
@@ -60,6 +61,11 @@ ExternalCodedVideoSource::ExternalCodedVideoSource(
 {
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+	mCallOnMediaAddedHandler.set([this] { callOnMediaAdded(); });
+	mCallVideoSourceFlushedHandler.set(
+		[this] { callVideoSourceFlushed(); });
+
 	setState(State::CREATED);
 }
 
@@ -75,9 +81,9 @@ ExternalCodedVideoSource::~ExternalCodedVideoSource()
 	mVideoSourceListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	if (mFrameQueue != nullptr) {
 		err = mFrameQueue->flush();
@@ -88,8 +94,14 @@ ExternalCodedVideoSource::~ExternalCodedVideoSource()
 			PDRAW_LOG_ERRNO("queue::detachFromLoop", -err);
 	}
 
-	if (mOutputMedia != nullptr)
+	if (mOutputMedia != nullptr) {
 		PDRAW_LOGW("output media was not properly removed");
+		/* Tear down output channels first, else a still-attached
+		 * sink's Media* is left dangling by mOutputMedia.reset(). */
+		(void)teardownOutputChannels(mOutputMedia.get());
+		(void)removeOutputPort(mOutputMedia.get());
+		mOutputMedia.reset();
+	}
 }
 
 
@@ -134,7 +146,7 @@ int ExternalCodedVideoSource::start()
 	Source::lock();
 
 	try {
-		mOutputMedia = make_unique<CodedVideoMedia>(mSession);
+		mOutputMedia = std::make_unique<CodedVideoMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -154,8 +166,8 @@ int ExternalCodedVideoSource::start()
 	mOutputMedia->format = mParams.video.coded.format;
 	mOutputMedia->info = mParams.video.coded.info;
 	mOutputMedia->sessionMeta = mParams.session_meta;
-	mOutputMedia->playbackType = mParams.playback_type;
-	mOutputMedia->duration = mParams.duration;
+	mOutputMedia->setPlaybackType(mParams.playback_type);
+	mOutputMedia->setDuration(mParams.duration);
 	switch (mOutputMedia->format.encoding) {
 	case VDEF_ENCODING_H264:
 		ret = mOutputMedia->setPs(nullptr,
@@ -194,10 +206,10 @@ int ExternalCodedVideoSource::start()
 		 * callstack as a direct call could ultimately be blocking
 		 * in a pdraw-backend application calling another pdraw-backend
 		 * function from the onMediaAdded listener function */
-		err = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), callOnMediaAdded, this, this);
+		err = mSession->getPompLoop()->idleAdd(
+			&mCallOnMediaAddedHandler, this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	}
 
 	return 0;
@@ -243,10 +255,9 @@ int ExternalCodedVideoSource::stop()
 }
 
 
-void ExternalCodedVideoSource::idleCompleteFlush(void *userdata)
+void ExternalCodedVideoSource::idleCompleteFlush()
 {
-	auto *self = static_cast<ExternalCodedVideoSource *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -336,10 +347,7 @@ exit:
 
 void ExternalCodedVideoSource::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -372,10 +380,10 @@ int ExternalCodedVideoSource::flush(bool discard)
 		}
 		PDRAW_LOGD("video source is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -506,12 +514,10 @@ void ExternalCodedVideoSource::completeFlush()
 
 	if (mState != State::STOPPING) {
 		/* Signal to the application that flushing is done */
-		err = pomp_loop_idle_add_with_cookie(mSession->getLoop(),
-						     callVideoSourceFlushed,
-						     this,
-						     this);
+		err = mSession->getPompLoop()->idleAdd(
+			&mCallVideoSourceFlushedHandler, this);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	} else {
 		setFlushingState(FlushingState::FLUSHED);
 	}
@@ -522,10 +528,7 @@ void ExternalCodedVideoSource::completeFlush()
 
 void ExternalCodedVideoSource::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -543,10 +546,7 @@ void ExternalCodedVideoSource::onChannelFlushed(Channel *channel)
 
 void ExternalCodedVideoSource::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -594,10 +594,10 @@ int ExternalCodedVideoSource::process()
 }
 
 
-void ExternalCodedVideoSource::queueEventCb(struct pomp_evt *evt,
-					    void *userdata)
+void ExternalCodedVideoSource::queueEventCb(
+	[[maybe_unused]] struct pomp_evt *evt,
+	void *userdata)
 {
-	PDRAW_UNUSED(evt);
 
 	auto *self = static_cast<ExternalCodedVideoSource *>(userdata);
 
@@ -765,6 +765,8 @@ int ExternalCodedVideoSource::processFrame(struct mbuf_coded_video_frame *frame)
 	out_meta.playTimestamp = info.info.capture_timestamp;
 	out_meta.captureTimestamp = info.info.capture_timestamp;
 	out_meta.localTimestamp = info.info.capture_timestamp;
+	out_meta.isSync = ((info.type == VDEF_CODED_FRAME_TYPE_IDR) ||
+			   (info.type == VDEF_CODED_FRAME_TYPE_P_IR_START));
 
 	ret = mbuf_coded_video_frame_add_ancillary_buffer(
 		frame,
@@ -802,38 +804,32 @@ out:
 
 
 /* Listener call from an idle function */
-void ExternalCodedVideoSource::callOnMediaAdded(void *userdata)
+void ExternalCodedVideoSource::callOnMediaAdded()
 {
-	auto *self = static_cast<ExternalCodedVideoSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	if (self->mOutputMedia == nullptr) {
+	if (mOutputMedia == nullptr) {
 		PDRAW_LOGW("%s: output media not found", __func__);
 		return;
 	}
 
-	if (self->Source::mListener) {
-		self->Source::mListener->onOutputMediaAdded(
-			self, self->mOutputMedia.get(), self->getVideoSource());
+	if (Source::mListener) {
+		Source::mListener->onOutputMediaAdded(
+			this, mOutputMedia.get(), getVideoSource());
 	}
 }
 
 
 /* Listener call from an idle function */
-void ExternalCodedVideoSource::callVideoSourceFlushed(void *userdata)
+void ExternalCodedVideoSource::callVideoSourceFlushed()
 {
-	auto *self = static_cast<ExternalCodedVideoSource *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
+	setFlushingState(FlushingState::FLUSHED);
 
-	self->setFlushingState(FlushingState::FLUSHED);
-
-	if (self->mVideoSourceListener != nullptr) {
-		if (self->mFlushDiscard) {
-			self->mVideoSourceListener->onCodedVideoSourceFlushed(
-				self->mSession, self->getVideoSource());
+	if (mVideoSourceListener != nullptr) {
+		if (mFlushDiscard) {
+			mVideoSourceListener->onCodedVideoSourceFlushed(
+				mSession, getVideoSource());
 		} else {
-			self->mVideoSourceListener->onCodedVideoSourceDrained(
-				self->mSession, self->getVideoSource());
+			mVideoSourceListener->onCodedVideoSourceDrained(
+				mSession, getVideoSource());
 		}
 	}
 }
@@ -872,7 +868,7 @@ struct mbuf_coded_video_frame_queue *CodedVideoSourceWrapper::getQueue()
 	if (isElementStopped())
 		return nullptr;
 
-	mbuf::Queue *queue = mSource->getQueue();
+	const mbuf::Queue *queue = mSource->getQueue();
 	if (queue == nullptr)
 		return nullptr;
 	queue->getCQueue(&ret);

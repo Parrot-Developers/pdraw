@@ -30,25 +30,27 @@
 
 #define ULOG_TAG pdraw_recmux_jfif
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_jfif.hpp"
 #include "pdraw_muxer_record_jfif_media.hpp"
 
 #ifdef BUILD_LIBJFIF
-
 #	include <array>
+#endif
+
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#ifdef BUILD_LIBJFIF
 
 namespace Pdraw {
 
 
-constexpr size_t NB_SUPPORTED_CODED_FORMATS = 1;
-static std::array<vdef_coded_format, NB_SUPPORTED_CODED_FORMATS>
-	supportedCodedFormats;
-static std::once_flag supportedFormatsOnceFlag;
-static void initializeSupportedFormats()
+static const std::array<vdef_coded_format, 1> &getSupportedCodedFormats()
 {
-	supportedCodedFormats[0] = vdef_jpeg_jfif;
+	static const std::array<vdef_coded_format, 1> formats = {{
+		vdef_jpeg_jfif,
+	}};
+	return formats;
 }
 
 
@@ -65,12 +67,11 @@ JfifRecordMuxer::JfifRecordMuxer(Session *session,
 				 fileName,
 				 params)
 {
-	std::call_once(supportedFormatsOnceFlag, initializeSupportedFormats);
-
 	Element::setClassName(__func__);
 
-	setCodedVideoMediaFormatCaps(supportedCodedFormats.data(),
-				     supportedCodedFormats.size());
+	setCodedVideoMediaFormatCaps(
+		getSupportedCodedFormats().data(),
+		static_cast<int>(getSupportedCodedFormats().size()));
 }
 
 
@@ -81,7 +82,7 @@ JfifRecordMuxer::JfifRecordMuxer::createMedia(const MuxerMediaConfig &cfg)
 	try {
 		switch (cfg.type) {
 		case Media::Type::CODED_VIDEO:
-			return make_unique<JfifMuxerMedia>(this, cfg);
+			return std::make_unique<JfifMuxerMedia>(this, cfg);
 		default:
 			PDRAW_LOGE("unsupported media type: %d",
 				   static_cast<int>(cfg.type));
@@ -126,7 +127,7 @@ void JfifRecordMuxer::onInternalStopThread()
 int JfifRecordMuxer::onBeforeAddMuxerMedias()
 {
 	struct jfif_mux_config config = {};
-	config.filemode = 0644;
+	config.filemode = mFileMode;
 	snprintf(config.xmptk, sizeof(config.xmptk), "Pdraw_JfifRecordMuxer");
 	config.flags = 0;
 

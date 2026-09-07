@@ -10,7 +10,7 @@ LOCAL_MODULE := qpdraw
 LOCAL_CATEGORY_PATH := libs
 LOCAL_DESCRIPTION := PDrAW Qt library
 LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/include
-LOCAL_CXXFLAGS := -std=c++11
+LOCAL_CXXFLAGS := -std=c++17
 
 LOCAL_SRC_FILES := \
 	$(call all-cpp-files-under,src)

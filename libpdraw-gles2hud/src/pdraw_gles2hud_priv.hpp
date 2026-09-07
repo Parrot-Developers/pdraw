@@ -39,7 +39,12 @@
 #include <ulog.h>
 #include <video-metadata/vmeta.h>
 
+#include <array>
 #include <cmath>
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include <Eigen/Eigen>
 
@@ -92,9 +97,9 @@
 #define PDRAW_GLES2HUD_DEFAULT_VFOV (49.)
 
 
-extern const int hud_icons_width;
-extern const int hud_icons_height;
-extern const uint8_t hud_icons[];
+static constexpr int hud_icons_width = 212;
+static constexpr int hud_icons_height = 210;
+extern const std::array<uint8_t, hud_icons_width * hud_icons_height> hud_icons;
 
 
 namespace profont_36 {
@@ -133,24 +138,24 @@ struct file_header {
 		float descent;
 		float linegap;
 	} norm;
-	glyph_info glyphs[256];
+	std::array<glyph_info, 256> glyphs;
 };
 
-extern file_header font;
-extern int image_width;
-extern int image_height;
-extern unsigned char image[];
+extern const file_header font;
+static constexpr int image_width = 256;
+static constexpr int image_height = 202;
+extern const std::array<unsigned char, image_width * image_height> image;
 
 } /* namespace profont_36 */
 
 
-enum pdraw_gles2hud_text_align {
-	PDRAW_GLES2HUD_TEXT_ALIGN_LEFT = 0,
-	PDRAW_GLES2HUD_TEXT_ALIGN_TOP = 0,
-	PDRAW_GLES2HUD_TEXT_ALIGN_CENTER = 1,
-	PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE = 1,
-	PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT = 2,
-	PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM = 2,
+enum class TextAlign {
+	LEFT = 0,
+	TOP = 0,
+	CENTER = 1,
+	MIDDLE = 1,
+	RIGHT = 2,
+	BOTTOM = 2,
 };
 
 
@@ -193,7 +198,7 @@ void pdraw_gles2hud_draw_line(const struct pdraw_gles2hud *self,
 			      float y1,
 			      float x2,
 			      float y2,
-			      const float color[4],
+			      const std::array<float, 4> &color,
 			      float line_width);
 
 
@@ -202,7 +207,7 @@ void pdraw_gles2hud_draw_rect(const struct pdraw_gles2hud *self,
 			      float y1,
 			      float x2,
 			      float y2,
-			      const float color[4],
+			      const std::array<float, 4> &color,
 			      float line_width);
 
 
@@ -211,7 +216,7 @@ void pdraw_gles2hud_draw_filled_rect(const struct pdraw_gles2hud *self,
 				     float y1,
 				     float x2,
 				     float y2,
-				     const float color[4]);
+				     const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_arc(const struct pdraw_gles2hud *self,
@@ -222,7 +227,7 @@ void pdraw_gles2hud_draw_arc(const struct pdraw_gles2hud *self,
 			     float start_angle,
 			     float span_angle,
 			     int num_segments,
-			     const float color[4],
+			     const std::array<float, 4> &color,
 			     float line_width);
 
 
@@ -232,7 +237,7 @@ void pdraw_gles2hud_draw_ellipse(const struct pdraw_gles2hud *self,
 				 float rx,
 				 float ry,
 				 int num_segments,
-				 const float color[4],
+				 const std::array<float, 4> &color,
 				 float line_width);
 
 
@@ -242,7 +247,7 @@ void pdraw_gles2hud_draw_filled_ellipse(const struct pdraw_gles2hud *self,
 					float rx,
 					float ry,
 					int num_segments,
-					const float color[4]);
+					const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_icon(const struct pdraw_gles2hud *self,
@@ -252,10 +257,21 @@ void pdraw_gles2hud_draw_icon(const struct pdraw_gles2hud *self,
 			      float size,
 			      float scalew,
 			      float scaleh,
-			      const float color[4]);
+			      const std::array<float, 4> &color);
 
 
-void pdraw_gles2hud_get_text_dimensions(const char *str,
+template <typename... Args> std::string fmtstr(const char *fmt, Args... args)
+{
+	std::array<char, 64> buf;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+	snprintf(buf.data(), buf.size(), fmt, args...);
+#pragma GCC diagnostic pop
+	return buf.data();
+}
+
+
+void pdraw_gles2hud_get_text_dimensions(const std::string &str,
 					float size,
 					float scalew,
 					float scaleh,
@@ -264,15 +280,15 @@ void pdraw_gles2hud_get_text_dimensions(const char *str,
 
 
 void pdraw_gles2hud_draw_text(const struct pdraw_gles2hud *self,
-			      const char *str,
+			      const std::string &str,
 			      float x,
 			      float y,
 			      float size,
 			      float scalew,
 			      float scaleh,
-			      enum pdraw_gles2hud_text_align halign,
-			      enum pdraw_gles2hud_text_align valign,
-			      const float color[4]);
+			      TextAlign halign,
+			      TextAlign valign,
+			      const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_vumeter(const struct pdraw_gles2hud *self,
@@ -284,69 +300,69 @@ void pdraw_gles2hud_draw_vumeter(const struct pdraw_gles2hud *self,
 				 float val_max,
 				 float critical_min,
 				 float critical_max,
-				 const float color[4],
-				 const float critical_color[4]);
+				 const std::array<float, 4> &color,
+				 const std::array<float, 4> &critical_color);
 
 
 void pdraw_gles2hud_draw_artificial_horizon(const struct pdraw_gles2hud *self,
 					    const struct vmeta_euler *drone,
 					    const struct vmeta_euler *frame,
-					    const float color[4]);
+					    const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_roll(const struct pdraw_gles2hud *self,
 			      float drone_roll,
-			      const float color[4]);
+			      const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_heading(const struct pdraw_gles2hud *self,
 				 float drone_yaw,
 				 float horizontal_speed,
 				 float speed_psi,
-				 const float color[4]);
+				 const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_altitude(const struct pdraw_gles2hud *self,
 				  double altitude,
 				  float ground_distance,
 				  float down_speed,
-				  const float color[4]);
+				  const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_speed(const struct pdraw_gles2hud *self,
 			       float horizontal_speed,
-			       const float color[4]);
+			       const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_controller_radar(const struct pdraw_gles2hud *self,
 					  double distance,
 					  float controller_radar_angle,
-					  const float color[4]);
+					  const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_record_timeline(const struct pdraw_gles2hud *self,
 					 uint64_t current_time,
 					 uint64_t duration,
-					 const float color[4]);
+					 const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_cot(const struct pdraw_gles2hud *self,
 			     float x,
 			     float y,
-			     const float color[4]);
+			     const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_flight_path_vector(const struct pdraw_gles2hud *self,
 					    const struct vmeta_euler *frame,
 					    float speed_theta,
 					    float speed_psi,
-					    const float color[4]);
+					    const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_framing_grid(const struct pdraw_gles2hud *self,
 				      const struct pdraw_rect *render_pos,
 				      const struct pdraw_rect *content_pos,
-				      const float color[4]);
+				      const std::array<float, 4> &color);
 
 
 void pdraw_gles2hud_draw_histograms(

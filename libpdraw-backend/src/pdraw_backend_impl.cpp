@@ -38,13 +38,11 @@
 
 #define ULOG_TAG pdraw_backend
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_backend);
 
 #include "pdraw_backend_impl.hpp"
 
-#ifdef _WIN32
-#	define PIPE_BUF 4096
-#endif /* _WIN32 */
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 
 namespace PdrawBackend {
 
@@ -99,10 +97,10 @@ bool PdrawBackend::isElementReadyToPlay(T *self, PdrawBackend *backend)
 template <typename T>
 int PdrawBackend::playElement(T *self, PdrawBackend *backend)
 {
-	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, false);
-	ULOG_ERRNO_RETURN_VAL_IF(backend == nullptr, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!backend->mStarted, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!self->hasElement(), EPROTO, false);
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(backend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!backend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!self->hasElement(), EPROTO);
 
 	auto func = [&self]() { return self->getElement()->play(); };
 	return backend->runOnLoop(func);
@@ -125,10 +123,10 @@ bool PdrawBackend::isElementPaused(T *self, PdrawBackend *backend)
 template <typename T>
 int PdrawBackend::pauseElement(T *self, PdrawBackend *backend)
 {
-	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, false);
-	ULOG_ERRNO_RETURN_VAL_IF(backend == nullptr, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!backend->mStarted, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!self->hasElement(), EPROTO, false);
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(backend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!backend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!self->hasElement(), EPROTO);
 
 	auto func = [&self]() { return self->getElement()->pause(); };
 	return backend->runOnLoop(func);
@@ -138,10 +136,10 @@ int PdrawBackend::pauseElement(T *self, PdrawBackend *backend)
 template <typename T>
 int PdrawBackend::closeElement(T *self, PdrawBackend *backend)
 {
-	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, false);
-	ULOG_ERRNO_RETURN_VAL_IF(backend == nullptr, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!backend->mStarted, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!self->hasElement(), EPROTO, false);
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(backend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!backend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!self->hasElement(), EPROTO);
 
 	auto func = [&self]() { return self->getElement()->close(); };
 	return backend->runOnLoop(func);
@@ -164,10 +162,10 @@ int PdrawBackend::flushElement(T *self, PdrawBackend *backend)
 template <typename T>
 int PdrawBackend::elementQueueFlushed(T *self, PdrawBackend *backend)
 {
-	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, false);
-	ULOG_ERRNO_RETURN_VAL_IF(backend == nullptr, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!backend->mStarted, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!self->hasElement(), EPROTO, false);
+	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_ERR_IF(backend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!backend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!self->hasElement(), EPROTO);
 
 	auto func = [&self]() { return self->getElement()->queueFlushed(); };
 	return backend->runOnLoop(func);
@@ -191,9 +189,9 @@ template <typename T>
 int PdrawBackend::elementQueueDrained(T *self, PdrawBackend *backend)
 {
 	ULOG_ERRNO_RETURN_ERR_IF(self == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_VAL_IF(backend == nullptr, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!backend->mStarted, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!self->hasElement(), EPROTO, false);
+	ULOG_ERRNO_RETURN_ERR_IF(backend == nullptr, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!backend->mStarted, EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(!self->hasElement(), EPROTO);
 
 	auto func = [&self]() { return self->getElement()->queueDrained(); };
 	return backend->runOnLoop(func);
@@ -237,10 +235,10 @@ int PdrawBackend::getElementSessionMetadata(T *self,
 template <typename T>
 unsigned int PdrawBackend::getElementMediaId(T *self, PdrawBackend *backend)
 {
-	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, false);
-	ULOG_ERRNO_RETURN_VAL_IF(backend == nullptr, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!backend->mStarted, EPROTO, false);
-	ULOG_ERRNO_RETURN_VAL_IF(!self->hasElement(), EPROTO, false);
+	ULOG_ERRNO_RETURN_VAL_IF(self == nullptr, EINVAL, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(backend == nullptr, EPROTO, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(!backend->mStarted, EPROTO, 0);
+	ULOG_ERRNO_RETURN_VAL_IF(!self->hasElement(), EPROTO, 0);
 
 	auto func = [&self]() { return self->getElement()->getMediaId(); };
 	return backend->runOnLoop(func);
@@ -253,18 +251,16 @@ unsigned int PdrawBackend::getElementMediaId(T *self, PdrawBackend *backend)
 
 int createPdrawBackend(IPdraw::Listener *listener, IPdrawBackend **retObj)
 {
-	IPdrawBackend *self = nullptr;
-
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(listener == nullptr, EINVAL);
 
-	self = new PdrawBackend(listener);
-	if (self == nullptr) {
-		ULOGE("failed to create pdraw backend instance");
+	try {
+		auto backend = std::make_unique<PdrawBackend>(listener);
+		/* Ownership transferred to caller via public API raw pointer */
+		*retObj = backend.release();
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
 	}
-
-	*retObj = self;
 	return 0;
 }
 
@@ -282,24 +278,19 @@ PdrawBackend::~PdrawBackend()
 	mThreadShouldStop = true;
 
 	{
-		std::unique_lock<std::mutex> lock(mMutex);
-		if (mLoop != nullptr) {
-			err = pomp_loop_wakeup(mLoop);
+		std::scoped_lock lock(mMutex);
+		if (mLoop) {
+			err = mLoop->wakeup();
 			if (err < 0)
-				ULOG_ERRNO("pomp_loop_wakeup", -err);
+				ULOG_ERRNO("pomp::Loop::wakeup", -err);
 		}
 	}
 
-	if (mLoopThreadLaunched) {
-		err = pthread_join(mLoopThread, nullptr);
-		if (err != 0)
-			ULOG_ERRNO("pthread_join", err);
+	if (mLoopThreadLaunched && mLoopThread.joinable()) {
+		mLoopThread.join();
 		mLoopThreadLaunched = false;
 	}
-	if (mPdraw != nullptr) {
-		delete mPdraw;
-		mPdraw = nullptr;
-	}
+	mPdraw.reset();
 	mStarted = false;
 }
 
@@ -310,14 +301,14 @@ int PdrawBackend::start()
 
 	ULOG_ERRNO_RETURN_ERR_IF(mListener == nullptr, EPROTO);
 
-	std::unique_lock<std::mutex> lock(mMutex);
+	std::unique_lock lock(mMutex);
 	mRetValReady = false;
 
-	res = pthread_create(
-		&mLoopThread, nullptr, &loopThread, static_cast<void *>(this));
-	if (res != 0) {
-		ULOG_ERRNO("pthread_create", res);
-		return -res;
+	try {
+		mLoopThread = std::thread(&PdrawBackend::loopThread, this);
+	} catch (const std::system_error &e) {
+		ULOG_ERRNO("std::thread", e.code().value());
+		return -e.code().value();
 	}
 
 	mLoopThreadLaunched = true;
@@ -343,7 +334,7 @@ int PdrawBackend::stop()
 	int res = runOnLoop(func);
 
 	{
-		std::unique_lock<std::recursive_mutex> lock(mApiMutex);
+		std::scoped_lock lock(mApiMutex);
 		mStarted = false;
 	}
 
@@ -355,7 +346,7 @@ struct pomp_loop *PdrawBackend::getLoop()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(!mStarted, EPROTO, nullptr);
 
-	return mLoop;
+	return mLoop->get();
 }
 
 
@@ -632,14 +623,28 @@ int PdrawBackend::createMuxer(const std::string &url,
 			      IPdraw::IMuxer::Listener *listener,
 			      IPdraw::IMuxer **retObj)
 {
+	return createMuxer(url, nullptr, {}, params, listener, retObj);
+}
+
+
+int PdrawBackend::createMuxer(const std::string &url,
+			      struct mux_ctx *mux,
+			      const std::string &remoteHost,
+			      const struct pdraw_muxer_params *params,
+			      IPdraw::IMuxer::Listener *listener,
+			      IPdraw::IMuxer **retObj)
+{
 	ULOG_ERRNO_RETURN_ERR_IF(url.length() > MAX_STR_LEN, ENOBUFS);
+	ULOG_ERRNO_RETURN_ERR_IF(mux != nullptr && remoteHost.empty(), EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	auto func = [this, &url, params, listener, retObj]() {
-		return doCreateMuxer(url, params, listener, retObj);
-	};
+	auto func =
+		[this, &url, &mux, &remoteHost, params, listener, retObj]() {
+			return doCreateMuxer(
+				url, mux, remoteHost, params, listener, retObj);
+		};
 	return runOnLoop(func);
 }
 
@@ -687,21 +692,20 @@ int PdrawBackend::Muxer::setThumbnail(enum pdraw_muxer_thumbnail_type type,
 };
 
 
-int PdrawBackend::Muxer::setFileMetadata(enum pdraw_muxer_metadata_type type,
-					 const uint8_t *data,
-					 size_t size,
-					 const void *params,
-					 size_t paramsSize)
+int PdrawBackend::Muxer::setFileMetadata(
+	const struct pdraw_muxer_metadata_params *params,
+	const uint8_t *data,
+	size_t size)
 {
 	ULOG_ERRNO_RETURN_ERR_IF(mBackend == nullptr, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!hasElement(), EPROTO);
+	ULOG_ERRNO_RETURN_ERR_IF(params == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(data == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(size == 0, EINVAL);
 
-	auto func = [this, type, data, size, params, paramsSize]() {
-		return getElement()->setFileMetadata(
-			type, data, size, params, paramsSize);
+	auto func = [this, params, data, size]() {
+		return getElement()->setFileMetadata(params, data, size);
 	};
 	return mBackend->runOnLoop(func);
 };
@@ -783,54 +787,59 @@ int PdrawBackend::createVideoRenderer(
 	IPdraw::IVideoRenderer **retObj)
 {
 	int res = 0;
-	PdrawBackend::VideoRenderer *renderer = nullptr;
 	IPdraw::IVideoRenderer *rnd = nullptr;
-	std::pair<std::map<IPdraw::IVideoRenderer *,
-			   videoRendererAndListener>::iterator,
-		  bool>
-		inserted;
 
 	ULOG_ERRNO_RETURN_ERR_IF(retObj == nullptr, EINVAL);
 	ULOG_ERRNO_RETURN_ERR_IF(!mStarted, EPROTO);
 
-	std::unique_lock<std::recursive_mutex> apiLock(mApiMutex);
-
-	renderer = new PdrawBackend::VideoRenderer(
-		this, renderPos, params, listener);
-	if (renderer == nullptr)
-		goto out;
-
-	mPendingVideoRendererAndListener = {
-		.e = renderer,
-		.l = listener,
-	};
-
-	res = mPdraw->createVideoRenderer(
-		mediaId, renderPos, params, this, &rnd);
-	if (res < 0) {
-		ULOG_ERRNO("pdraw->createVideoRenderer", -res);
-		delete renderer;
-		renderer = nullptr;
-		goto out;
-	}
-	renderer->setElement(rnd);
+	std::scoped_lock apiLock(mApiMutex);
 
 	{
-		std::unique_lock<std::mutex> lock(mMapsMutex);
-		inserted = mVideoRendererListenersMap.insert(
-			std::pair<IPdraw::IVideoRenderer *,
-				  videoRendererAndListener>(
-				renderer->getElement(),
-				mPendingVideoRendererAndListener));
-		if (inserted.second == false) {
-			ULOGW("failed to insert the video renderer listener "
-			      "in the map");
+		std::unique_ptr<PdrawBackend::VideoRenderer> renderer;
+		try {
+			renderer =
+				std::make_unique<PdrawBackend::VideoRenderer>(
+					this, renderPos, params, listener);
+		} catch (const std::bad_alloc &) {
+			res = -ENOMEM;
+			goto out;
 		}
+
+		mPendingVideoRendererAndListener = {
+			.e = renderer.get(),
+			.l = listener,
+		};
+
+		res = mPdraw->createVideoRenderer(
+			mediaId, renderPos, params, this, &rnd);
+		if (res < 0) {
+			ULOG_ERRNO("pdraw->createVideoRenderer", -res);
+			/* renderer destroyed automatically */
+			goto out;
+		}
+		renderer->setElement(rnd);
+
+		{
+			std::scoped_lock lock(mMapsMutex);
+
+			auto [it, inserted] =
+				mVideoRendererListenersMap.try_emplace(
+					renderer->getElement(),
+					mPendingVideoRendererAndListener);
+			if (!inserted) {
+				ULOGW("failed to insert the video renderer "
+				      "listener in the map");
+			}
+		}
+
+		/* Ownership transferred to caller via public API raw pointer */
+		*retObj = renderer.release();
 	}
 
 out:
 	mPendingVideoRendererAndListener = {};
-	*retObj = renderer;
+	if (res < 0)
+		*retObj = nullptr;
 
 	return res;
 }
@@ -847,10 +856,10 @@ PdrawBackend::VideoRenderer::~VideoRenderer()
 	if (!hasElement())
 		return;
 
-	std::unique_lock<std::recursive_mutex> apiLock(mBackend->mApiMutex);
+	std::scoped_lock apiLock(mBackend->mApiMutex);
 
 	{
-		std::unique_lock<std::mutex> lock(mBackend->mMapsMutex);
+		std::scoped_lock lock(mBackend->mMapsMutex);
 		erased = mBackend->mVideoRendererListenersMap.erase(
 			getElement());
 		if (erased != 1) {
@@ -872,7 +881,7 @@ int PdrawBackend::VideoRenderer::resize(const struct pdraw_rect *renderPos)
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!hasElement(), EPROTO);
 
-	std::unique_lock<std::recursive_mutex> lock(mBackend->mApiMutex);
+	std::scoped_lock lock(mBackend->mApiMutex);
 	res = getElement()->resize(renderPos);
 	return res;
 }
@@ -887,7 +896,7 @@ int PdrawBackend::VideoRenderer::setMediaId(unsigned int mediaId)
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!hasElement(), EPROTO);
 
-	std::unique_lock<std::recursive_mutex> lock(mBackend->mApiMutex);
+	std::scoped_lock lock(mBackend->mApiMutex);
 	res = getElement()->setMediaId(mediaId);
 	return res;
 }
@@ -902,7 +911,7 @@ unsigned int PdrawBackend::VideoRenderer::getMediaId()
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!hasElement(), EPROTO);
 
-	std::unique_lock<std::recursive_mutex> lock(mBackend->mApiMutex);
+	std::scoped_lock lock(mBackend->mApiMutex);
 	res = getElement()->getMediaId();
 	return res;
 }
@@ -918,7 +927,7 @@ int PdrawBackend::VideoRenderer::setParams(
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!hasElement(), EPROTO);
 
-	std::unique_lock<std::recursive_mutex> lock(mBackend->mApiMutex);
+	std::scoped_lock lock(mBackend->mApiMutex);
 	res = getElement()->setParams(params);
 	return res;
 }
@@ -934,7 +943,7 @@ int PdrawBackend::VideoRenderer::getParams(
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!hasElement(), EPROTO);
 
-	std::unique_lock<std::recursive_mutex> lock(mBackend->mApiMutex);
+	std::scoped_lock lock(mBackend->mApiMutex);
 	res = getElement()->getParams(params);
 	return res;
 }
@@ -951,7 +960,7 @@ int PdrawBackend::VideoRenderer::render(struct pdraw_rect *contentPos,
 	ULOG_ERRNO_RETURN_ERR_IF(!mBackend->mStarted, EPROTO);
 	ULOG_ERRNO_RETURN_ERR_IF(!hasElement(), EPROTO);
 
-	std::unique_lock<std::recursive_mutex> lock(mBackend->mApiMutex);
+	std::scoped_lock lock(mBackend->mApiMutex);
 	res = getElement()->render(contentPos, viewMat, projMat);
 	return res;
 }
@@ -1725,14 +1734,13 @@ int PdrawBackend::dumpPipeline(const std::string &fileName)
 
 void PdrawBackend::stopResponse(IPdraw *pdraw, int status)
 {
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 	mListener->stopResponse(this, status);
 	mThreadShouldStop = true;
 	if (mLoop) {
-		int err = pomp_loop_wakeup(mLoop);
+		int err = mLoop->wakeup();
 		if (err < 0)
-			ULOG_ERRNO("pomp_loop_wakeup", -err);
+			ULOG_ERRNO("pomp::Loop::wakeup", -err);
 	}
 }
 
@@ -1743,14 +1751,13 @@ void PdrawBackend::onMediaAdded(IPdraw *pdraw,
 {
 	bool found = false;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (elementUserData == nullptr)
 		goto cb;
 
 	{
-		std::unique_lock<std::mutex> lock(mMapsMutex);
+		std::scoped_lock lock(mMapsMutex);
 		found = tryResolveElementUserData(elementUserData,
 						  mDemuxerListenersMap) ||
 			tryResolveElementUserData(elementUserData,
@@ -1789,14 +1796,13 @@ void PdrawBackend::onMediaRemoved(IPdraw *pdraw,
 {
 	bool found = false;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (elementUserData == nullptr)
 		goto cb;
 
 	{
-		std::unique_lock<std::mutex> lock(mMapsMutex);
+		std::scoped_lock lock(mMapsMutex);
 		if (tryResolveElementUserData(elementUserData,
 					      mDemuxerListenersMap) ||
 		    tryResolveElementUserData(elementUserData,
@@ -1838,8 +1844,7 @@ cb:
 
 void PdrawBackend::onSocketCreated(IPdraw *pdraw, int fd)
 {
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 	mListener->onSocketCreated(this, fd);
 }
 
@@ -1850,8 +1855,7 @@ void PdrawBackend::demuxerOpenResponse(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -1872,8 +1876,7 @@ void PdrawBackend::demuxerCloseResponse(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -1893,8 +1896,7 @@ void PdrawBackend::onDemuxerUnrecoverableError(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -1917,8 +1919,7 @@ int PdrawBackend::demuxerSelectMedia(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -1940,8 +1941,7 @@ void PdrawBackend::demuxerReadyToPlay(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -1962,8 +1962,7 @@ void PdrawBackend::onDemuxerEndOfRange(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -1986,8 +1985,7 @@ void PdrawBackend::demuxerPlayResponse(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -2009,8 +2007,7 @@ void PdrawBackend::demuxerPauseResponse(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -2033,8 +2030,7 @@ void PdrawBackend::demuxerSeekResponse(IPdraw *pdraw,
 {
 	demuxerAndListener dl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(demuxer,
 				    dl,
@@ -2057,8 +2053,7 @@ void PdrawBackend::onMuxerConnectionStateChanged(
 {
 	muxerAndListener ml;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(muxer,
 				    ml,
@@ -2120,8 +2115,7 @@ void PdrawBackend::onMuxerUnrecoverableError(IPdraw *pdraw,
 {
 	muxerAndListener ml;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(muxer,
 				    ml,
@@ -2142,8 +2136,7 @@ void PdrawBackend::muxerCloseResponse(IPdraw *pdraw,
 {
 	muxerAndListener ml;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(muxer,
 				    ml,
@@ -2165,8 +2158,7 @@ void PdrawBackend::onVideoRendererMediaAdded(
 {
 	videoRendererAndListener rl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(renderer,
 				    rl,
@@ -2189,8 +2181,7 @@ void PdrawBackend::onVideoRendererMediaRemoved(
 {
 	videoRendererAndListener rl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(renderer,
 				    rl,
@@ -2210,8 +2201,7 @@ void PdrawBackend::onVideoRenderReady(IPdraw *pdraw,
 {
 	videoRendererAndListener rl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(renderer,
 				    rl,
@@ -2298,8 +2288,7 @@ void PdrawBackend::onAudioRendererMediaAdded(
 {
 	audioRendererAndListener rl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(renderer,
 				    rl,
@@ -2321,8 +2310,7 @@ void PdrawBackend::onAudioRendererMediaRemoved(
 {
 	audioRendererAndListener rl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(renderer,
 				    rl,
@@ -2345,8 +2333,7 @@ void PdrawBackend::vipcSourceReadyToPlay(
 {
 	vipcSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2366,8 +2353,7 @@ void PdrawBackend::vipcSourcePlayResponse(IPdraw *pdraw,
 {
 	vipcSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2387,8 +2373,7 @@ void PdrawBackend::vipcSourcePauseResponse(IPdraw *pdraw,
 {
 	vipcSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2411,8 +2396,7 @@ bool PdrawBackend::vipcSourceFramerateChanged(
 {
 	vipcSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2436,8 +2420,7 @@ void PdrawBackend::vipcSourceConfigured(IPdraw *pdraw,
 {
 	vipcSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2458,8 +2441,7 @@ void PdrawBackend::vipcSourceFrameReady(IPdraw *pdraw,
 {
 	vipcSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2481,8 +2463,7 @@ bool PdrawBackend::vipcSourceEndOfStream(
 {
 	vipcSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2502,8 +2483,7 @@ void PdrawBackend::onCodedVideoSourceFlushed(IPdraw *pdraw,
 {
 	codedVideoSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2523,8 +2503,7 @@ void PdrawBackend::onCodedVideoSourceDrained(IPdraw *pdraw,
 {
 	codedVideoSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2544,8 +2523,7 @@ void PdrawBackend::onRawVideoSourceFlushed(IPdraw *pdraw,
 {
 	rawVideoSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2569,8 +2547,7 @@ void PdrawBackend::onCodedVideoSinkMediaAdded(
 		it;
 	codedVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2595,8 +2572,7 @@ void PdrawBackend::onCodedVideoSinkMediaRemoved(
 		it;
 	codedVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2616,8 +2592,7 @@ void PdrawBackend::onRawVideoSourceDrained(IPdraw *pdraw,
 {
 	rawVideoSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2637,8 +2612,7 @@ void PdrawBackend::onCodedVideoSinkFlush(IPdraw *pdraw,
 {
 	codedVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2658,8 +2632,7 @@ void PdrawBackend::onCodedVideoSinkDrain(IPdraw *pdraw,
 {
 	codedVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2681,8 +2654,7 @@ void PdrawBackend::onCodedVideoSinkSessionMetaUpdate(
 {
 	codedVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2702,8 +2674,7 @@ void PdrawBackend::onRawVideoSinkFlush(IPdraw *pdraw,
 {
 	rawVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2723,8 +2694,7 @@ void PdrawBackend::onRawVideoSinkDrain(IPdraw *pdraw,
 {
 	rawVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2745,8 +2715,7 @@ void PdrawBackend::onRawVideoSinkMediaAdded(Pdraw::IPdraw *pdraw,
 {
 	rawVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2769,8 +2738,7 @@ void PdrawBackend::onRawVideoSinkMediaRemoved(
 {
 	rawVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2792,8 +2760,7 @@ void PdrawBackend::onRawVideoSinkSessionMetaUpdate(
 {
 	rawVideoSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2816,8 +2783,7 @@ void PdrawBackend::alsaSourceReadyToPlay(
 {
 	alsaSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2837,8 +2803,7 @@ void PdrawBackend::alsaSourcePlayResponse(IPdraw *pdraw,
 {
 	alsaSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2858,8 +2823,7 @@ void PdrawBackend::alsaSourcePauseResponse(IPdraw *pdraw,
 {
 	alsaSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2880,8 +2844,7 @@ void PdrawBackend::alsaSourceFrameReady(IPdraw *pdraw,
 {
 	alsaSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2901,8 +2864,7 @@ void PdrawBackend::onAudioSourceFlushed(IPdraw *pdraw,
 {
 	audioSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2922,8 +2884,7 @@ void PdrawBackend::onAudioSourceDrained(IPdraw *pdraw,
 {
 	audioSourceAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(source,
 				    sl,
@@ -2945,8 +2906,7 @@ void PdrawBackend::onAudioSinkMediaAdded(Pdraw::IPdraw *pdraw,
 	std::map<IPdraw::IAudioSink *, audioSinkAndListener>::iterator it;
 	audioSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2969,8 +2929,7 @@ void PdrawBackend::onAudioSinkMediaRemoved(Pdraw::IPdraw *pdraw,
 	std::map<IPdraw::IAudioSink *, audioSinkAndListener>::iterator it;
 	audioSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -2989,8 +2948,7 @@ void PdrawBackend::onAudioSinkFlush(IPdraw *pdraw, IPdraw::IAudioSink *sink)
 {
 	audioSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -3009,8 +2967,7 @@ void PdrawBackend::onAudioSinkDrain(IPdraw *pdraw, IPdraw::IAudioSink *sink)
 {
 	audioSinkAndListener sl;
 
-	if (pthread_self() != mLoopThread)
-		ULOGW("%s not called from the loop thread", __func__);
+	PDRAW_CHECK_LOOP_THREAD();
 
 	if (!findElementAndListener(sink,
 				    sl,
@@ -3121,9 +3078,15 @@ void PdrawBackend::audioEncoderFramePreRelease(IPdraw *pdraw,
 }
 
 
-void *PdrawBackend::loopThread(void *ptr)
+void PdrawBackend::checkLoopThread(const char *func) const
 {
-	auto *self = static_cast<PdrawBackend *>(ptr);
+	if (std::this_thread::get_id() != mLoopThread.get_id())
+		ULOGW("%s not called from the loop thread", func);
+}
+
+
+void PdrawBackend::loopThread(PdrawBackend *self)
+{
 	int res = 0;
 	int err;
 
@@ -3140,16 +3103,20 @@ void *PdrawBackend::loopThread(void *ptr)
 #endif
 
 	{
-		std::unique_lock<std::mutex> lock(self->mMutex);
+		std::scoped_lock lock(self->mMutex);
 
-		self->mLoop = pomp_loop_new();
-		if (self->mLoop == nullptr) {
+		IPdraw *pdraw = nullptr;
+
+		try {
+			self->mLoop = std::make_unique<pomp::Loop>();
+		} catch (const std::bad_alloc &) {
 			res = -ENOMEM;
-			ULOG_ERRNO("pomp_loop_new", -res);
+			ULOG_ERRNO("pomp::Loop::new", -res);
 			goto error;
 		}
 
-		res = createPdraw(self->mLoop, self, &self->mPdraw);
+		res = createPdraw(self->mLoop->get(), self, &pdraw);
+		self->mPdraw.reset(pdraw);
 		if (res < 0) {
 			ULOG_ERRNO("createPdraw", -res);
 			goto error;
@@ -3167,28 +3134,17 @@ error:
 
 	if (res == 0) {
 		while (!self->mThreadShouldStop) {
-			err = pomp_loop_wait_and_process(self->mLoop, -1);
+			err = self->mLoop->waitAndProcess(-1);
 			if (err < 0)
-				ULOG_ERRNO("pomp_loop_wait_and_process", -err);
+				ULOG_ERRNO("pomp::Loop::waitAndProcess", -err);
 		}
 	}
 
 	{
-		std::unique_lock<std::mutex> lock(self->mMutex);
-		if (self->mPdraw != nullptr) {
-			delete self->mPdraw;
-			self->mPdraw = nullptr;
-		}
-		if (self->mLoop != nullptr) {
-			err = pomp_loop_destroy(self->mLoop);
-			if (err < 0)
-				ULOG_ERRNO("pomp_loop_destroy", -err);
-			if (res == 0)
-				res = err;
-			self->mLoop = nullptr;
-		}
+		std::scoped_lock lock(self->mMutex);
+		self->mPdraw.reset();
+		self->mLoop.reset();
 	}
-	return reinterpret_cast<void *>(static_cast<intptr_t>(res));
 }
 
 
@@ -3197,21 +3153,21 @@ int PdrawBackend::doCreateDemuxer(const std::string &url,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj)
 {
-	auto *demuxer = new PdrawBackend::Demuxer(this, listener);
-	if (!demuxer)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::Demuxer>(this, listener),
+			listener,
+			retObj,
+			mPendingDemuxerAndListener,
+			mDemuxerListenersMap,
+			[this, &url, &params](IPdraw::IDemuxer **internal) {
+				return mPdraw->createDemuxer(
+					url, params, this, internal);
+			},
+			DEMUXER);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		demuxer,
-		listener,
-		retObj,
-		mPendingDemuxerAndListener,
-		mDemuxerListenersMap,
-		[this, &url, &params](IPdraw::IDemuxer **internal) {
-			return mPdraw->createDemuxer(
-				url, params, this, internal);
-		},
-		DEMUXER);
+	}
 }
 
 
@@ -3225,35 +3181,35 @@ int PdrawBackend::doCreateDemuxer(const std::string &localAddr,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj)
 {
-	auto *demuxer = new PdrawBackend::Demuxer(this, listener);
-	if (!demuxer)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::Demuxer>(this, listener),
+			listener,
+			retObj,
+			mPendingDemuxerAndListener,
+			mDemuxerListenersMap,
+			[this,
+			 &localAddr,
+			 localStreamPort,
+			 localControlPort,
+			 &remoteAddr,
+			 remoteStreamPort,
+			 remoteControlPort,
+			 &params](IPdraw::IDemuxer **internal) {
+				return mPdraw->createDemuxer(localAddr,
+							     localStreamPort,
+							     localControlPort,
+							     remoteAddr,
+							     remoteStreamPort,
+							     remoteControlPort,
+							     params,
+							     this,
+							     internal);
+			},
+			DEMUXER);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		demuxer,
-		listener,
-		retObj,
-		mPendingDemuxerAndListener,
-		mDemuxerListenersMap,
-		[this,
-		 &localAddr,
-		 localStreamPort,
-		 localControlPort,
-		 &remoteAddr,
-		 remoteStreamPort,
-		 remoteControlPort,
-		 &params](IPdraw::IDemuxer **internal) {
-			return mPdraw->createDemuxer(localAddr,
-						     localStreamPort,
-						     localControlPort,
-						     remoteAddr,
-						     remoteStreamPort,
-						     remoteControlPort,
-						     params,
-						     this,
-						     internal);
-		},
-		DEMUXER);
+	}
 }
 
 
@@ -3263,21 +3219,22 @@ int PdrawBackend::doCreateDemuxer(const std::string &url,
 				  IPdraw::IDemuxer::Listener *listener,
 				  IPdraw::IDemuxer **retObj)
 {
-	auto *demuxer = new PdrawBackend::Demuxer(this, listener);
-	if (!demuxer)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::Demuxer>(this, listener),
+			listener,
+			retObj,
+			mPendingDemuxerAndListener,
+			mDemuxerListenersMap,
+			[this, &url, &mux, &params](
+				IPdraw::IDemuxer **internal) {
+				return mPdraw->createDemuxer(
+					url, mux, params, this, internal);
+			},
+			DEMUXER);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		demuxer,
-		listener,
-		retObj,
-		mPendingDemuxerAndListener,
-		mDemuxerListenersMap,
-		[this, &url, &mux, &params](IPdraw::IDemuxer **internal) {
-			return mPdraw->createDemuxer(
-				url, mux, params, this, internal);
-		},
-		DEMUXER);
+	}
 }
 
 
@@ -3286,20 +3243,38 @@ int PdrawBackend::doCreateMuxer(const std::string &url,
 				IPdraw::IMuxer::Listener *listener,
 				IPdraw::IMuxer **retObj)
 {
-	auto *muxer = new PdrawBackend::Muxer(this, url, listener);
-	if (!muxer)
-		return -ENOMEM;
+	return doCreateMuxer(url, nullptr, {}, params, listener, retObj);
+}
 
-	return internalElementCreate(
-		muxer,
-		listener,
-		retObj,
-		mPendingMuxerAndListener,
-		mMuxerListenersMap,
-		[this, &url, &params](IPdraw::IMuxer **internal) {
-			return mPdraw->createMuxer(url, params, this, internal);
-		},
-		MUXER);
+
+int PdrawBackend::doCreateMuxer(const std::string &url,
+				struct mux_ctx *mux,
+				const std::string &remoteHost,
+				const struct pdraw_muxer_params *params,
+				IPdraw::IMuxer::Listener *listener,
+				IPdraw::IMuxer **retObj)
+{
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::Muxer>(
+				this, url, listener),
+			listener,
+			retObj,
+			mPendingMuxerAndListener,
+			mMuxerListenersMap,
+			[this, &url, &mux, &remoteHost, &params](
+				IPdraw::IMuxer **internal) {
+				return mPdraw->createMuxer(url,
+							   mux,
+							   remoteHost,
+							   params,
+							   this,
+							   internal);
+			},
+			MUXER);
+	} catch (const std::bad_alloc &) {
+		return -ENOMEM;
+	}
 }
 
 
@@ -3308,20 +3283,22 @@ int PdrawBackend::doCreateVipcSource(
 	IPdraw::IVipcSource::Listener *listener,
 	IPdraw::IVipcSource **retObj)
 {
-	auto *source = new PdrawBackend::VipcSource(this, listener);
-	if (!source)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::VipcSource>(this,
+								   listener),
+			listener,
+			retObj,
+			mPendingVipcSourceAndListener,
+			mVipcSourceListenersMap,
+			[this, &params](IPdraw::IVipcSource **internal) {
+				return mPdraw->createVipcSource(
+					params, this, internal);
+			},
+			VIPC_SOURCE);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		source,
-		listener,
-		retObj,
-		mPendingVipcSourceAndListener,
-		mVipcSourceListenersMap,
-		[this, &params](IPdraw::IVipcSource **internal) {
-			return mPdraw->createVipcSource(params, this, internal);
-		},
-		VIPC_SOURCE);
+	}
 }
 
 
@@ -3330,21 +3307,22 @@ int PdrawBackend::doCreateCodedVideoSource(
 	IPdraw::ICodedVideoSource::Listener *listener,
 	IPdraw::ICodedVideoSource **retObj)
 {
-	auto *source = new PdrawBackend::CodedVideoSource(this, listener);
-	if (!source)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::CodedVideoSource>(
+				this, listener),
+			listener,
+			retObj,
+			mPendingCodedVideoSourceAndListener,
+			mCodedVideoSourceListenersMap,
+			[this, &params](IPdraw::ICodedVideoSource **internal) {
+				return mPdraw->createCodedVideoSource(
+					params, this, internal);
+			},
+			CODED_VIDEO_SOURCE);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		source,
-		listener,
-		retObj,
-		mPendingCodedVideoSourceAndListener,
-		mCodedVideoSourceListenersMap,
-		[this, &params](IPdraw::ICodedVideoSource **internal) {
-			return mPdraw->createCodedVideoSource(
-				params, this, internal);
-		},
-		CODED_VIDEO_SOURCE);
+	}
 }
 
 
@@ -3353,21 +3331,22 @@ int PdrawBackend::doCreateRawVideoSource(
 	IPdraw::IRawVideoSource::Listener *listener,
 	IPdraw::IRawVideoSource **retObj)
 {
-	auto *source = new PdrawBackend::RawVideoSource(this, listener);
-	if (!source)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::RawVideoSource>(
+				this, listener),
+			listener,
+			retObj,
+			mPendingRawVideoSourceAndListener,
+			mRawVideoSourceListenersMap,
+			[this, &params](IPdraw::IRawVideoSource **internal) {
+				return mPdraw->createRawVideoSource(
+					params, this, internal);
+			},
+			RAW_VIDEO_SOURCE);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		source,
-		listener,
-		retObj,
-		mPendingRawVideoSourceAndListener,
-		mRawVideoSourceListenersMap,
-		[this, &params](IPdraw::IRawVideoSource **internal) {
-			return mPdraw->createRawVideoSource(
-				params, this, internal);
-		},
-		RAW_VIDEO_SOURCE);
+	}
 }
 
 
@@ -3377,22 +3356,23 @@ int PdrawBackend::doCreateCodedVideoSink(
 	IPdraw::ICodedVideoSink::Listener *listener,
 	IPdraw::ICodedVideoSink **retObj)
 {
-	auto *sink = new PdrawBackend::CodedVideoSink(
-		this, mediaId, params, listener);
-	if (!sink)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::CodedVideoSink>(
+				this, mediaId, params, listener),
+			listener,
+			retObj,
+			mPendingCodedVideoSinkAndListener,
+			mCodedVideoSinkListenersMap,
+			[this, mediaId, &params](
+				IPdraw::ICodedVideoSink **internal) {
+				return mPdraw->createCodedVideoSink(
+					mediaId, params, this, internal);
+			},
+			CODED_VIDEO_SINK);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		sink,
-		listener,
-		retObj,
-		mPendingCodedVideoSinkAndListener,
-		mCodedVideoSinkListenersMap,
-		[this, mediaId, &params](IPdraw::ICodedVideoSink **internal) {
-			return mPdraw->createCodedVideoSink(
-				mediaId, params, this, internal);
-		},
-		CODED_VIDEO_SINK);
+	}
 }
 
 
@@ -3402,22 +3382,23 @@ int PdrawBackend::doCreateRawVideoSink(
 	IPdraw::IRawVideoSink::Listener *listener,
 	IPdraw::IRawVideoSink **retObj)
 {
-	auto *sink =
-		new PdrawBackend::RawVideoSink(this, mediaId, params, listener);
-	if (!sink)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::RawVideoSink>(
+				this, mediaId, params, listener),
+			listener,
+			retObj,
+			mPendingRawVideoSinkAndListener,
+			mRawVideoSinkListenersMap,
+			[this, mediaId, &params](
+				IPdraw::IRawVideoSink **internal) {
+				return mPdraw->createRawVideoSink(
+					mediaId, params, this, internal);
+			},
+			RAW_VIDEO_SINK);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		sink,
-		listener,
-		retObj,
-		mPendingRawVideoSinkAndListener,
-		mRawVideoSinkListenersMap,
-		[this, mediaId, &params](IPdraw::IRawVideoSink **internal) {
-			return mPdraw->createRawVideoSink(
-				mediaId, params, this, internal);
-		},
-		RAW_VIDEO_SINK);
+	}
 }
 
 
@@ -3426,20 +3407,22 @@ int PdrawBackend::doCreateAlsaSource(
 	IPdraw::IAlsaSource::Listener *listener,
 	IPdraw::IAlsaSource **retObj)
 {
-	auto *source = new PdrawBackend::AlsaSource(this, listener);
-	if (!source)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::AlsaSource>(this,
+								   listener),
+			listener,
+			retObj,
+			mPendingAlsaSourceAndListener,
+			mAlsaSourceListenersMap,
+			[this, &params](IPdraw::IAlsaSource **internal) {
+				return mPdraw->createAlsaSource(
+					params, this, internal);
+			},
+			ALSA_SOURCE);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		source,
-		listener,
-		retObj,
-		mPendingAlsaSourceAndListener,
-		mAlsaSourceListenersMap,
-		[this, &params](IPdraw::IAlsaSource **internal) {
-			return mPdraw->createAlsaSource(params, this, internal);
-		},
-		ALSA_SOURCE);
+	}
 }
 
 
@@ -3448,21 +3431,22 @@ int PdrawBackend::doCreateAudioSource(
 	IPdraw::IAudioSource::Listener *listener,
 	IPdraw::IAudioSource **retObj)
 {
-	auto *source = new PdrawBackend::AudioSource(this, listener);
-	if (!source)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::AudioSource>(this,
+								    listener),
+			listener,
+			retObj,
+			mPendingAudioSourceAndListener,
+			mAudioSourceListenersMap,
+			[this, &params](IPdraw::IAudioSource **internal) {
+				return mPdraw->createAudioSource(
+					params, this, internal);
+			},
+			AUDIO_SOURCE);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		source,
-		listener,
-		retObj,
-		mPendingAudioSourceAndListener,
-		mAudioSourceListenersMap,
-		[this, &params](IPdraw::IAudioSource **internal) {
-			return mPdraw->createAudioSource(
-				params, this, internal);
-		},
-		AUDIO_SOURCE);
+	}
 }
 
 
@@ -3470,20 +3454,22 @@ int PdrawBackend::doCreateAudioSink(unsigned int mediaId,
 				    IPdraw::IAudioSink::Listener *listener,
 				    IPdraw::IAudioSink **retObj)
 {
-	auto *sink = new PdrawBackend::AudioSink(this, mediaId, listener);
-	if (!sink)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::AudioSink>(
+				this, mediaId, listener),
+			listener,
+			retObj,
+			mPendingAudioSinkAndListener,
+			mAudioSinkListenersMap,
+			[this, mediaId](IPdraw::IAudioSink **internal) {
+				return mPdraw->createAudioSink(
+					mediaId, this, internal);
+			},
+			AUDIO_SINK);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		sink,
-		listener,
-		retObj,
-		mPendingAudioSinkAndListener,
-		mAudioSinkListenersMap,
-		[this, mediaId](IPdraw::IAudioSink **internal) {
-			return mPdraw->createAudioSink(mediaId, this, internal);
-		},
-		AUDIO_SINK);
+	}
 }
 
 
@@ -3493,21 +3479,23 @@ int PdrawBackend::doCreateAudioRenderer(
 	IPdraw::IAudioRenderer::Listener *listener,
 	IPdraw::IAudioRenderer **retObj)
 {
-	auto *renderer = new PdrawBackend::AudioRenderer(this, listener);
-	if (!renderer)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::AudioRenderer>(this,
+								      listener),
+			listener,
+			retObj,
+			mPendingAudioRendererAndListener,
+			mAudioRendererListenersMap,
+			[this, mediaId, &params](
+				IPdraw::IAudioRenderer **internal) {
+				return mPdraw->createAudioRenderer(
+					mediaId, params, this, internal);
+			},
+			AUDIO_RENDERER);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		renderer,
-		listener,
-		retObj,
-		mPendingAudioRendererAndListener,
-		mAudioRendererListenersMap,
-		[this, mediaId, &params](IPdraw::IAudioRenderer **internal) {
-			return mPdraw->createAudioRenderer(
-				mediaId, params, this, internal);
-		},
-		AUDIO_RENDERER);
+	}
 }
 
 
@@ -3517,22 +3505,22 @@ int PdrawBackend::doCreateVideoEncoder(
 	IPdraw::IVideoEncoder::Listener *listener,
 	IPdraw::IVideoEncoder **retObj)
 {
-	auto *encoder =
-		new PdrawBackend::VideoEncoder(this, mediaId, params, listener);
-	if (!encoder)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::VideoEncoder>(
+				this, mediaId, params, listener),
+			listener,
+			retObj,
+			mPendingVideoEncoderAndListener,
+			mVideoEncoderListenersMap,
+			[this, mediaId, &params](IPdraw::IVideoEncoder **out) {
+				return mPdraw->createVideoEncoder(
+					mediaId, params, this, out);
+			},
+			VIDEO_ENCODER);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		encoder,
-		listener,
-		retObj,
-		mPendingVideoEncoderAndListener,
-		mVideoEncoderListenersMap,
-		[this, mediaId, &params](IPdraw::IVideoEncoder **out) {
-			return mPdraw->createVideoEncoder(
-				mediaId, params, this, out);
-		},
-		VIDEO_ENCODER);
+	}
 }
 
 
@@ -3541,22 +3529,23 @@ int PdrawBackend::doCreateVideoScaler(unsigned int mediaId,
 				      IPdraw::IVideoScaler::Listener *listener,
 				      IPdraw::IVideoScaler **retObj)
 {
-	auto *scaler =
-		new PdrawBackend::VideoScaler(this, mediaId, params, listener);
-	if (!scaler)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::VideoScaler>(
+				this, mediaId, params, listener),
+			listener,
+			retObj,
+			mPendingVideoScalerAndListener,
+			mVideoScalerListenersMap,
+			[this, mediaId, &params](
+				IPdraw::IVideoScaler **internal) {
+				return mPdraw->createVideoScaler(
+					mediaId, params, this, internal);
+			},
+			VIDEO_SCALER);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		scaler,
-		listener,
-		retObj,
-		mPendingVideoScalerAndListener,
-		mVideoScalerListenersMap,
-		[this, mediaId, &params](IPdraw::IVideoScaler **internal) {
-			return mPdraw->createVideoScaler(
-				mediaId, params, this, internal);
-		},
-		VIDEO_SCALER);
+	}
 }
 
 
@@ -3566,23 +3555,23 @@ int PdrawBackend::doCreateAudioEncoder(
 	IPdraw::IAudioEncoder::Listener *listener,
 	IPdraw::IAudioEncoder **retObj)
 {
-	auto *encoder =
-		new PdrawBackend::AudioEncoder(this, mediaId, params, listener);
-	if (!encoder)
+	try {
+		return internalElementCreate(
+			std::make_unique<PdrawBackend::AudioEncoder>(
+				this, mediaId, params, listener),
+			listener,
+			retObj,
+			mPendingAudioEncoderAndListener,
+			mAudioEncoderListenersMap,
+			[this, mediaId, &params, &listener](
+				IPdraw::IAudioEncoder **internal) {
+				return mPdraw->createAudioEncoder(
+					mediaId, params, listener, internal);
+			},
+			AUDIO_ENCODER);
+	} catch (const std::bad_alloc &) {
 		return -ENOMEM;
-
-	return internalElementCreate(
-		encoder,
-		listener,
-		retObj,
-		mPendingAudioEncoderAndListener,
-		mAudioEncoderListenersMap,
-		[this, mediaId, &params, &listener](
-			IPdraw::IAudioEncoder **internal) {
-			return mPdraw->createAudioEncoder(
-				mediaId, params, listener, internal);
-		},
-		AUDIO_ENCODER);
+	}
 }
 
 

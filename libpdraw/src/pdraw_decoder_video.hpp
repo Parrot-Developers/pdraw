@@ -102,7 +102,7 @@ private:
 
 	static void stopCb(struct vdec_decoder *dec, void *userdata);
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	static std::vector<uint8_t>
 	preparePsVector(const uint8_t *ps,
@@ -119,6 +119,8 @@ private:
 	bool mResyncPending = false;
 	bool mVdecFlushPending = false;
 	bool mVdecStopPending = false;
+	bool mVdecStopIssued = false;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
 	static const struct vdec_cbs mDecoderCbs;
 };
 

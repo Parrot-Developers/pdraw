@@ -30,56 +30,24 @@
 
 #define ULOG_TAG pdraw_recmux_dng_media
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_dng.hpp"
 #include "pdraw_muxer_record_dng_media.hpp"
 
 #ifdef BUILD_LIBDNG_PARROT
-
 #	include <media-buffers/mbuf_raw_video_frame.h>
+#endif
+
+ULOG_DECLARE_TAG(ULOG_TAG);
+
+#ifdef BUILD_LIBDNG_PARROT
+
 
 namespace Pdraw {
 
 
 #	define PDRAW_CHECK_MUXER_WRITER_THREAD(expectWriter)                  \
 		mDngMuxer->logThreadCheckWarning(__func__, expectWriter)
-
-
-void DngRecordMuxer::DngMuxerMedia::photoMetaWriteFileCb(
-	enum pmeta_defs_dest dest,
-	const struct pmeta_defs_exif_def *exifDef,
-	const struct pmeta_defs_xmp_def *xmpDef,
-	const char *value,
-	void *userdata)
-{
-	auto *mux = static_cast<struct dng_mux *>(userdata);
-
-	ULOG_ERRNO_RETURN_IF(mux == nullptr, EINVAL);
-	ULOG_ERRNO_RETURN_IF(value == nullptr, EINVAL);
-
-	int res = -EINVAL;
-	const char *errKey = "unknown";
-
-	switch (dest) {
-	case PMETA_DEFS_DEST_EXIF:
-		ULOG_ERRNO_RETURN_IF(exifDef == nullptr, EINVAL);
-		res = dng_mux_add_exif(mux, exifDef, value);
-		errKey = exifDef->tag_name;
-		break;
-	case PMETA_DEFS_DEST_XMP:
-		ULOG_ERRNO_RETURN_IF(xmpDef == nullptr, EINVAL);
-		res = dng_mux_add_xmp(mux, xmpDef, value);
-		errKey = xmpDef->full_key;
-		break;
-	default:
-		ULOGE("unsupported metadata destination: %d", dest);
-		return;
-	}
-
-	if (res < 0)
-		ULOG_ERRNO("dng_mux insertion failed for '%s'", -res, errKey);
-}
 
 
 DngRecordMuxer::DngMuxerMedia::DngMuxerMedia(DngRecordMuxer *muxer,
@@ -103,98 +71,58 @@ int DngRecordMuxer::DngMuxerMedia::setup(
 }
 
 
-/* Called on the writer thread */
-int DngRecordMuxer::DngMuxerMedia::processFrame(
-	struct mbuf_raw_video_frame *frame)
+int DngRecordMuxer::DngMuxerMedia::internalAddExif(
+	const struct pmeta_defs_exif_def *exifDef,
+	const char *value)
 {
-	int res = 0;
-	const void *buf = nullptr;
-	size_t len;
-	struct vdef_raw_frame info = {};
-	struct vmeta_frame *metadata = nullptr;
+	return dng_mux_add_exif(mDngMuxer->mDngMux, exifDef, value);
+}
 
-	PDRAW_CHECK_MUXER_WRITER_THREAD(true);
 
-	if (mDngMuxer->mDngMux == nullptr)
-		return -EPROTO;
+int DngRecordMuxer::DngMuxerMedia::internalAddXmp(
+	const struct pmeta_defs_xmp_def *xmpDef,
+	const char *value)
+{
+	return dng_mux_add_xmp(mDngMuxer->mDngMux, xmpDef, value);
+}
 
-	res = mbuf_raw_video_frame_get_frame_info(frame, &info);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_frame_info", -res);
-		return res;
-	}
 
-	struct dng_mux_format dngFormat {
-		.width = info.info.resolution.width,
-		.height = info.info.resolution.height,
-		.stride = static_cast<unsigned int>(info.plane_stride[0]),
-		.bayer_phase = mapVdefToDngPhase(info.format.pix_order),
-		.bit_depth = info.format.pix_size,
-	};
-
-	res = dng_mux_set_format(mDngMuxer->mDngMux, &dngFormat);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("dng_mux_set_format", -res);
-		return res;
-	}
-
+void DngRecordMuxer::DngMuxerMedia::internalClearMetadata()
+{
 	dng_mux_clear_metadata(mDngMuxer->mDngMux);
+}
 
-	res = vmeta_session_photo_write(
-		&mSessionMeta,
-		&DngRecordMuxer::DngMuxerMedia::photoMetaWriteFileCb,
-		mDngMuxer->mDngMux);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("vmeta_session_photo_write", -res);
-	}
 
-	res = mbuf_raw_video_frame_get_packed_buffer(frame, &buf, &len);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_packed_buffer", -res);
-		return res;
-	}
-
-	res = mbuf_raw_video_frame_get_metadata(frame, &metadata);
-	if (res == 0 && metadata != nullptr) {
-		updateMetadata(metadata);
-		res = vmeta_frame_photo_write(
-			metadata,
-			&DngRecordMuxer::DngMuxerMedia::photoMetaWriteFileCb,
-			mDngMuxer->mDngMux);
-		if (res < 0) {
-			PDRAW_LOG_ERRNO("vmeta_frame_photo_write", -res);
-		}
-	} else if (res < 0 && res != -ENOENT) {
-		PDRAW_LOG_ERRNO("mbuf_raw_video_frame_get_metadata", -res);
-	}
-
-	struct iovec iov[1];
+int DngRecordMuxer::DngMuxerMedia::internalSerialize(
+	const uint8_t *buf,
+	size_t len,
+	std::vector<struct iovec> &iov,
+	uint8_t **headerBuf)
+{
 	int iovcnt = 0;
-	uint8_t *headerBuf = nullptr;
-
-	res = dng_mux_serialize_iov(mDngMuxer->mDngMux,
-				    (const uint8_t *)buf,
-				    len,
-				    iov,
-				    &iovcnt,
-				    &headerBuf);
-	if (res < 0) {
-		PDRAW_LOG_ERRNO("dng_mux_serialize", -res);
-	} else {
-		res = mDngMuxer->saveToDiskIov(
-			iov, iovcnt, mDngMuxer->mStats.record.raw_video_frames);
-
-		if (headerBuf)
-			free(headerBuf);
-	}
-
-	if (metadata)
-		vmeta_frame_unref(metadata);
-	if (buf)
-		mbuf_raw_video_frame_release_packed_buffer(frame, buf);
-
+	iov.resize(1);
+	int res = dng_mux_serialize_iov(
+		mDngMuxer->mDngMux, buf, len, iov.data(), &iovcnt, headerBuf);
+	if (res >= 0)
+		iov.resize(iovcnt);
 	return res;
 }
+
+
+int DngRecordMuxer::DngMuxerMedia::internalSetupFormat(
+	const struct vdef_raw_frame *info)
+{
+	struct dng_mux_format dngFormat {
+		.width = info->info.resolution.width,
+		.height = info->info.resolution.height,
+		.stride = static_cast<unsigned int>(info->plane_stride[0]),
+		.bayer_phase = mapVdefToDngPhase(info->format.pix_order),
+		.bit_depth = info->format.pix_size,
+	};
+
+	return dng_mux_set_format(mDngMuxer->mDngMux, &dngFormat);
+}
+
 
 } /* namespace Pdraw */
 

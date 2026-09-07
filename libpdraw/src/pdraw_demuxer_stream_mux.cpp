@@ -30,20 +30,22 @@
 
 #define ULOG_TAG pdraw_dmxstrmmux
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_demuxer_stream_mux.hpp"
 #include "pdraw_session.hpp"
 
+#ifdef BUILD_LIBMUX
+#	include <sys/time.h>
+#	include <time.h>
+#	include <futils/futils.h>
+#	include <libmux-arsdk.h>
+#endif
+
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 constexpr size_t DEFAULT_RX_BUFFER_SIZE = 1500;
 
 #ifdef BUILD_LIBMUX
-
-#	include <sys/time.h>
-#	include <time.h>
-
-#	include <futils/futils.h>
-#	include <libmux-arsdk.h>
 
 namespace Pdraw {
 
@@ -93,7 +95,7 @@ StreamDemuxerMux::~StreamDemuxerMux()
 std::unique_ptr<StreamDemuxer::VideoMedia>
 StreamDemuxerMux::createVideoMedia(enum rtsp_lower_transport transport)
 {
-	return make_unique<VideoMediaMux>(this);
+	return std::make_unique<VideoMediaMux>(this);
 }
 
 
@@ -112,21 +114,19 @@ bool StreamDemuxerMux::setMux(struct mux_ctx *mux)
 
 
 StreamDemuxerMux::VideoMediaMux::VideoMediaMux(StreamDemuxerMux *demuxer) :
-		VideoMedia(demuxer), mDemuxerMux(demuxer), mStreamSock(nullptr),
-		mStreamProxy(nullptr), mStreamProxyOpened(false),
-		mControlSock(nullptr), mControlProxy(nullptr),
-		mControlProxyOpened(false), mRxPkt(nullptr), mRxBufLen(0)
+		VideoMedia(demuxer), mDemuxerMux(demuxer)
 {
+	mCallFinishSetupHandler.set([this]() { finishSetup(); });
 }
 
 
 StreamDemuxerMux::VideoMediaMux::~VideoMediaMux()
 {
 	stopRtpAvp();
-	struct pomp_loop *loop = mDemuxerMux->mSession->getLoop();
-	int err = pomp_loop_idle_remove(loop, callFinishSetup, this);
+	int err = mDemuxerMux->mSession->getPompLoop()->idleRemove(
+		&mCallFinishSetupHandler);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 }
 
 
@@ -349,15 +349,13 @@ int StreamDemuxerMux::VideoMediaMux::processCtrlPkt(struct tpkt_packet *pkt)
 }
 
 
-void StreamDemuxerMux::VideoMediaMux::legacyDataCb(struct mux_ctx *ctx,
-						   uint32_t chanid,
-						   enum mux_channel_event event,
-						   struct pomp_buffer *buf,
-						   void *userdata)
+void StreamDemuxerMux::VideoMediaMux::legacyDataCb(
+	[[maybe_unused]] struct mux_ctx *ctx,
+	[[maybe_unused]] uint32_t chanid,
+	[[maybe_unused]] enum mux_channel_event event,
+	struct pomp_buffer *buf,
+	void *userdata)
 {
-	PDRAW_UNUSED(ctx);
-	PDRAW_UNUSED(chanid);
-	PDRAW_UNUSED(event);
 
 	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
@@ -401,15 +399,13 @@ out:
 }
 
 
-void StreamDemuxerMux::VideoMediaMux::legacyCtrlCb(struct mux_ctx *ctx,
-						   uint32_t chanid,
-						   enum mux_channel_event event,
-						   struct pomp_buffer *buf,
-						   void *userdata)
+void StreamDemuxerMux::VideoMediaMux::legacyCtrlCb(
+	[[maybe_unused]] struct mux_ctx *ctx,
+	[[maybe_unused]] uint32_t chanid,
+	[[maybe_unused]] enum mux_channel_event event,
+	struct pomp_buffer *buf,
+	void *userdata)
 {
-	PDRAW_UNUSED(ctx);
-	PDRAW_UNUSED(chanid);
-	PDRAW_UNUSED(event);
 
 	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
@@ -561,12 +557,10 @@ struct tpkt_packet *StreamDemuxerMux::VideoMediaMux::newRxPkt()
 }
 
 
-void StreamDemuxerMux::VideoMediaMux::dataCb(int fd,
-					     uint32_t events,
+void StreamDemuxerMux::VideoMediaMux::dataCb([[maybe_unused]] int fd,
+					     [[maybe_unused]] uint32_t events,
 					     void *userdata)
 {
-	PDRAW_UNUSED(fd);
-	PDRAW_UNUSED(events);
 
 	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
@@ -616,12 +610,10 @@ void StreamDemuxerMux::VideoMediaMux::dataCb(int fd,
 }
 
 
-void StreamDemuxerMux::VideoMediaMux::ctrlCb(int fd,
-					     uint32_t events,
+void StreamDemuxerMux::VideoMediaMux::ctrlCb([[maybe_unused]] int fd,
+					     [[maybe_unused]] uint32_t events,
 					     void *userdata)
 {
-	PDRAW_UNUSED(fd);
-	PDRAW_UNUSED(events);
 
 	auto *self = static_cast<VideoMediaMux *>(userdata);
 	int res;
@@ -671,18 +663,11 @@ void StreamDemuxerMux::VideoMediaMux::ctrlCb(int fd,
 }
 
 
-void StreamDemuxerMux::VideoMediaMux::callFinishSetup(void *userdata)
+void StreamDemuxerMux::VideoMediaMux::proxyOpenCb(
+	struct mux_ip_proxy *proxy,
+	[[maybe_unused]] uint16_t localPort,
+	void *userdata)
 {
-	auto *self = static_cast<VideoMediaMux *>(userdata);
-	self->finishSetup();
-}
-
-
-void StreamDemuxerMux::VideoMediaMux::proxyOpenCb(struct mux_ip_proxy *proxy,
-						  uint16_t localPort,
-						  void *userdata)
-{
-	PDRAW_UNUSED(localPort);
 
 	int err;
 
@@ -697,13 +682,13 @@ void StreamDemuxerMux::VideoMediaMux::proxyOpenCb(struct mux_ip_proxy *proxy,
 	}
 
 	if (self->mStreamProxyOpened && self->mControlProxyOpened) {
-		struct pomp_loop *loop = self->mDemuxerMux->mSession->getLoop();
-		err = pomp_loop_idle_remove(loop, callFinishSetup, self);
+		pomp::Loop *loop = self->mDemuxerMux->mSession->getPompLoop();
+		err = loop->idleRemove(&self->mCallFinishSetupHandler);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_remove", -err);
-		err = pomp_loop_idle_add(loop, callFinishSetup, self);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
+		err = loop->idleAdd(&self->mCallFinishSetupHandler);
 		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add", -err);
+			PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -err);
 	}
 }
 
@@ -723,11 +708,10 @@ void StreamDemuxerMux::VideoMediaMux::proxyCloseCb(struct mux_ip_proxy *proxy,
 }
 
 
-void StreamDemuxerMux::VideoMediaMux::proxyUpdateCb(struct mux_ip_proxy *proxy,
-						    void *userdata)
+void StreamDemuxerMux::VideoMediaMux::proxyUpdateCb(
+	[[maybe_unused]] struct mux_ip_proxy *proxy,
+	[[maybe_unused]] void *userdata)
 {
-	PDRAW_UNUSED(proxy);
-	PDRAW_UNUSED(userdata);
 
 	/* TODO ? */
 }
@@ -737,7 +721,7 @@ void StreamDemuxerMux::VideoMediaMux::proxyFailedCb(struct mux_ip_proxy *proxy,
 						    int err,
 						    void *userdata)
 {
-	auto *self = static_cast<VideoMediaMux *>(userdata);
+	const auto *self = static_cast<VideoMediaMux *>(userdata);
 	const char *name = "unknown";
 	if (proxy == self->mStreamProxy)
 		name = "stream";

@@ -32,7 +32,7 @@
 
 #include <inttypes.h>
 
-#include <libpomp.h>
+#include <libpomp.hpp>
 
 
 namespace Pdraw {
@@ -46,11 +46,11 @@ public:
 
 	~VideoPresStats() = default;
 
-	/* Write video presentation statistics to a pomp_msg */
-	int writeMsg(struct pomp_msg *msg, uint32_t msgid) const;
+	/* Write video presentation statistics to a pomp::Message */
+	int writeMsg(pomp::Message &msg, uint32_t msgid) const;
 
-	/* Read video presentation statistics from a pomp_msg */
-	int readMsg(const struct pomp_msg *msg);
+	/* Read video presentation statistics from a pomp::Message */
+	int readMsg(const pomp::Message &msg);
 
 	/* Timestamp associated with the video statistics (us, monotonic);
 	 * This must be set on the receiver side to a monotonic timestamp on

@@ -41,8 +41,6 @@
 #include <h264/h264.h>
 #include <h265/h265.h>
 #include <libmp4.h>
-#include <libpomp.h>
-
 constexpr size_t DEMUXER_RECORD_CODED_VIDEO_MEDIA_OUTPUT_BUFFER_COUNT = 30;
 constexpr size_t DEMUXER_RECORD_RAW_VIDEO_MEDIA_OUTPUT_BUFFER_COUNT = 30;
 constexpr size_t DEMUXER_RECORD_AUDIO_MEDIA_OUTPUT_BUFFER_COUNT = 60;
@@ -103,9 +101,7 @@ private:
 
 		bool hasMedia(const Media *media) const;
 
-		Media *getMedia(unsigned int index) const;
-
-		unsigned int getMediaCount() const
+		size_t getMediaCount() const
 		{
 			return mMedias.size();
 		}
@@ -266,9 +262,10 @@ private:
 		bool mDestroyAfterFlush = false;
 
 	private:
-		static void timerCb(struct pomp_timer *timer, void *userdata);
+		void onTimer();
 
-		struct pomp_timer *mTimer;
+		pomp::Timer::HandlerFunc mTimerHandler;
+		std::unique_ptr<pomp::Timer> mTimer;
 	};
 
 	class DemuxerCodedVideoMedia : public DemuxerMedia {
@@ -284,7 +281,7 @@ private:
 	private:
 		int setupMedia(const struct mp4_track_info *tkinfo) override;
 
-		void teardownMedia() override;
+		void teardownMedia() final;
 
 		int processSample(struct mp4_track_sample *sample,
 				  bool *silent,
@@ -360,7 +357,7 @@ private:
 	private:
 		int setupMedia(const struct mp4_track_info *tkinfo) override;
 
-		void teardownMedia() override;
+		void teardownMedia() final;
 
 		int processSample(struct mp4_track_sample *sample,
 				  bool *silent,
@@ -390,7 +387,7 @@ private:
 	private:
 		int setupMedia(const struct mp4_track_info *tkinfo) override;
 
-		void teardownMedia() override;
+		void teardownMedia() final;
 
 		int processSample(struct mp4_track_sample *sample,
 				  bool *silent,
@@ -409,9 +406,9 @@ private:
 
 	int completeStart();
 
-	static void idleCompleteStart(void *userdata);
+	void idleCompleteStart();
 
-	int selectReferenceTrack();
+	int selectReferenceTrack() const;
 
 	int processSelectedMedias();
 
@@ -466,6 +463,7 @@ private:
 	float mSpeed = 1.f;
 	int mChannelsFlushing = 0;
 	enum pdraw_playback_mode mPlaybackMode = PDRAW_PLAYBACK_MODE_REALTIME;
+	pomp::Loop::IdleHandlerFunc mCompleteStartHandler;
 };
 
 } /* namespace Pdraw */

@@ -86,7 +86,7 @@ public:
 
 	int addInputMedia(Media *media) override;
 
-	int removeInputMedia(Media *media) override;
+	int removeInputMedia(Media *media) final;
 
 private:
 	int flush(bool discard = true);
@@ -128,38 +128,16 @@ private:
 			 uint64_t *ntpRawUnskewedDelta,
 			 uint64_t *playDelta);
 
-	static void naluEndCb(struct h264_ctx *ctx,
-			      enum h264_nalu_type type,
-			      const uint8_t *buf,
-			      size_t len,
-			      const struct h264_nalu_header *nh,
-			      void *userdata);
-
-	static void sliceCb(struct h264_ctx *ctx,
-			    const uint8_t *buf,
-			    size_t len,
-			    const struct h264_slice_header *sh,
-			    void *userdata);
-
-	static void spsCb(struct h264_ctx *ctx,
-			  const uint8_t *buf,
-			  size_t len,
-			  const struct h264_sps *sps,
-			  void *userdata);
-
-	static void
-	seiRecoveryPointCb(struct h264_ctx *ctx,
-			   const uint8_t *buf,
-			   size_t len,
-			   const struct h264_sei_recovery_point *sei,
-			   void *userdata);
-
-	static void idleFlushDone(void *userdata);
+	void idleFlushDone();
 
 	/* Video sink listener calls from idle functions */
-	static void callVideoSinkFlush(void *userdata);
+	void callVideoSinkFlush();
 
-	static void idleRenewMedia(void *userdata);
+	void idleRenewMedia();
+
+	pomp::Loop::IdleHandlerFunc mFlushDoneHandler;
+	pomp::Loop::IdleHandlerFunc mCallVideoSinkFlushHandler;
+	pomp::Loop::IdleHandlerFunc mRenewMediaHandler;
 
 	IPdraw::ICodedVideoSink *mVideoSink = nullptr;
 	IPdraw::ICodedVideoSink::Listener *mVideoSinkListener = nullptr;
@@ -221,7 +199,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() || mSink == nullptr);
 	}

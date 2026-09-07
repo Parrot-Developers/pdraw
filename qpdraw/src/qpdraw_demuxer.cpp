@@ -51,7 +51,7 @@ IPdraw *QPdrawDemuxerPriv::getPdrawInternal()
 {
 	ULOG_ERRNO_RETURN_VAL_IF(mParent == nullptr, EPROTO, nullptr);
 	ULOG_ERRNO_RETURN_VAL_IF(mParent->parent() == nullptr, EPROTO, nullptr);
-	auto *qpdraw = reinterpret_cast<QPdraw *>(mParent->parent());
+	auto *qpdraw = qobject_cast<QPdraw *>(mParent->parent());
 	ULOG_ERRNO_RETURN_VAL_IF(qpdraw == nullptr, EPROTO, nullptr);
 	return reinterpret_cast<IPdraw *>(qpdraw->getInternal());
 }
@@ -294,49 +294,40 @@ uint64_t QPdrawDemuxerPriv::getCurrentTime()
 }
 
 
-void QPdrawDemuxerPriv::demuxerOpenResponse(IPdraw *pdraw,
-					    IPdraw::IDemuxer *demuxer,
-					    int status)
+void QPdrawDemuxerPriv::demuxerOpenResponse(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
+	int status)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->openResponse(status);
 }
 
 
-void QPdrawDemuxerPriv::demuxerCloseResponse(IPdraw *pdraw,
-					     IPdraw::IDemuxer *demuxer,
-					     int status)
+void QPdrawDemuxerPriv::demuxerCloseResponse(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
+	int status)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->closeResponse(status);
 }
 
 
-void QPdrawDemuxerPriv::onDemuxerUnrecoverableError(IPdraw *pdraw,
-						    IPdraw::IDemuxer *demuxer)
+void QPdrawDemuxerPriv::onDemuxerUnrecoverableError(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->onUnrecoverableError();
 }
 
 
 int QPdrawDemuxerPriv::demuxerSelectMedia(
-	IPdraw *pdraw,
-	IPdraw::IDemuxer *demuxer,
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
 	const struct pdraw_demuxer_media *medias,
 	size_t count,
 	uint32_t selectedMedias)
 {
 	int ret = -ENOSYS;
-
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
 
 	emit mParent->demuxerSelectMedia(
 		medias, (unsigned int)count, selectedMedias, &ret);
@@ -345,62 +336,52 @@ int QPdrawDemuxerPriv::demuxerSelectMedia(
 }
 
 
-void QPdrawDemuxerPriv::demuxerReadyToPlay(IPdraw *pdraw,
-					   IPdraw::IDemuxer *demuxer,
-					   bool ready)
+void QPdrawDemuxerPriv::demuxerReadyToPlay(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
+	bool ready)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->readyToPlay(ready);
 }
 
 
-void QPdrawDemuxerPriv::onDemuxerEndOfRange(IPdraw *pdraw,
-					    IPdraw::IDemuxer *demuxer,
-					    uint64_t timestamp)
+void QPdrawDemuxerPriv::onDemuxerEndOfRange(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
+	uint64_t timestamp)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->onEndOfRange(timestamp);
 }
 
 
-void QPdrawDemuxerPriv::demuxerPlayResponse(IPdraw *pdraw,
-					    IPdraw::IDemuxer *demuxer,
-					    int status,
-					    uint64_t timestamp,
-					    float speed)
+void QPdrawDemuxerPriv::demuxerPlayResponse(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
+	int status,
+	uint64_t timestamp,
+	float speed)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->playResponse(status, timestamp, speed);
 }
 
 
-void QPdrawDemuxerPriv::demuxerPauseResponse(IPdraw *pdraw,
-					     IPdraw::IDemuxer *demuxer,
-					     int status,
-					     uint64_t timestamp)
+void QPdrawDemuxerPriv::demuxerPauseResponse(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
+	int status,
+	uint64_t timestamp)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->pauseResponse(status, timestamp);
 }
 
 
-void QPdrawDemuxerPriv::demuxerSeekResponse(IPdraw *pdraw,
-					    IPdraw::IDemuxer *demuxer,
-					    int status,
-					    uint64_t timestamp,
-					    float speed)
+void QPdrawDemuxerPriv::demuxerSeekResponse(
+	[[maybe_unused]] IPdraw *pdraw,
+	[[maybe_unused]] IPdraw::IDemuxer *demuxer,
+	int status,
+	uint64_t timestamp,
+	float speed)
 {
-	PDRAW_UNUSED(pdraw);
-	PDRAW_UNUSED(demuxer);
-
 	emit mParent->seekResponse(status, timestamp, speed);
 }
 
@@ -409,7 +390,7 @@ void QPdrawDemuxerPriv::demuxerSeekResponse(IPdraw *pdraw,
 
 QPdrawDemuxer::QPdrawDemuxer(QPdraw *parent) :
 		QObject(parent),
-		mPriv(make_unique<Internal::QPdrawDemuxerPriv>(this))
+		mPriv(std::make_unique<Internal::QPdrawDemuxerPriv>(this))
 {
 	qRegisterMetaType<pdraw_demuxer_media>("pdraw_demuxer_media");
 }

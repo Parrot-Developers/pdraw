@@ -30,13 +30,13 @@
 
 #define ULOG_TAG pdraw_recmux_media
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_isobmff.hpp"
 #include "pdraw_muxer_record_isobmff_media.hpp"
 
 #include <futils/futils.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 

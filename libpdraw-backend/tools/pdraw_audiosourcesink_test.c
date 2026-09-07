@@ -36,7 +36,6 @@
 
 #define ULOG_TAG pdraw_audiosourcesink_test
 #include <ulog.h>
-ULOG_DECLARE_TAG(pdraw_audiosourcesink_test);
 
 #include <audio-defs/adefs.h>
 #include <audio-raw/araw.h>
@@ -44,6 +43,7 @@ ULOG_DECLARE_TAG(pdraw_audiosourcesink_test);
 #include <media-buffers/mbuf_mem_generic.h>
 #include <pdraw/pdraw_backend.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 #define UNUSED(x) (void)(x)
 
@@ -219,10 +219,11 @@ static void media_added_cb(struct pdraw_backend *pdraw,
 
 	ULOGI("%s id=%d", __func__, info->id);
 
-	if (element_userdata != self->source_element_userdata) {
+	if (element_userdata != self->source) {
 		pthread_mutex_unlock(&self->mutex);
 		return;
 	}
+	self->source_element_userdata = element_userdata;
 	if (info->type != PDRAW_MEDIA_TYPE_AUDIO) {
 		pthread_mutex_unlock(&self->mutex);
 		return;
@@ -414,8 +415,8 @@ int main(int argc, char **argv)
 {
 	int res;
 	int status = EXIT_SUCCESS;
-	char *input = NULL;
-	char *output = NULL;
+	const char *input = NULL;
+	const char *output = NULL;
 	struct pdraw_backend_app *self = NULL;
 	struct pdraw_audio_source_params source_params = {0};
 	struct araw_reader_config reader_config = {0};
@@ -437,7 +438,6 @@ int main(int argc, char **argv)
 		case 'h':
 			usage(argc, argv);
 			exit(EXIT_SUCCESS);
-			break;
 
 		case 'f':
 			res = adef_format_from_str(optarg,
@@ -456,7 +456,6 @@ int main(int argc, char **argv)
 		default:
 			usage(argc, argv);
 			exit(EXIT_FAILURE);
-			break;
 		}
 	}
 
@@ -547,7 +546,6 @@ int main(int argc, char **argv)
 		status = EXIT_FAILURE;
 		goto out;
 	}
-	self->source_element_userdata = self->source;
 	while (!self->media_added)
 		pthread_cond_wait(&self->cond, &self->mutex);
 	self->media_added = false;

@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_vscale
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_scaler_video.hpp"
 #include "pdraw_session.hpp"
@@ -40,6 +39,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <unistd.h>
 
 #include <vector>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -76,6 +77,8 @@ VideoScaler::VideoScaler(Session *session,
 
 	Element::setClassName(__func__);
 
+	mCompleteFlushHandler.set([this] { idleCompleteFlush(); });
+
 	/* Supported input formats */
 	supportedInputFormatsCount = vscale_get_supported_input_formats(
 		VSCALE_SCALER_IMPLEM_AUTO, &supportedInputFormats);
@@ -88,10 +91,9 @@ VideoScaler::VideoScaler(Session *session,
 
 	if (params != nullptr) {
 		/* Scaler params deep copy */
-		mScalerConfig = static_cast<struct vscale_config *>(
-			malloc(sizeof(*mScalerConfig)));
-		if (mScalerConfig == nullptr) {
-			PDRAW_LOG_ERRNO("malloc", ENOMEM);
+		mScalerConfig = make_c_struct<unique_c_ptr<vscale_config>>();
+		if (!mScalerConfig) {
+			PDRAW_LOG_ERRNO("calloc", ENOMEM);
 		} else {
 			*mScalerConfig = *params;
 			if (params->name != nullptr) {
@@ -119,9 +121,7 @@ VideoScaler::~VideoScaler()
 	mScalerListener = nullptr;
 
 	/* Remove any leftover idle callbacks */
-	ret = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -ret);
+	mSession->getPompLoop()->idleRemove(this);
 
 	if (mVscale != nullptr) {
 		ret = vscale_destroy(mVscale);
@@ -131,8 +131,6 @@ VideoScaler::~VideoScaler()
 
 	if (mOutputMedia != nullptr)
 		PDRAW_LOGW("output media was not properly removed");
-
-	free(mScalerConfig);
 }
 
 
@@ -141,7 +139,7 @@ int VideoScaler::start()
 	int ret = 0;
 	int err;
 	Media *media = nullptr;
-	InputPort *port = nullptr;
+	const InputPort *port = nullptr;
 	Channel *c = nullptr;
 	RawVideoChannel *channel = nullptr;
 
@@ -186,18 +184,17 @@ int VideoScaler::start()
 	}
 
 	/* Initialize the scaler */
-	if (mScalerConfig != nullptr) {
+	if (mScalerConfig) {
 		/* The configuration was provided through the constructor;
 		 * simply override the input config */
 		mScalerConfig->input.format = mInputMedia->format;
 		mScalerConfig->input.info = mInputMedia->info;
 	} else {
-		mScalerConfig = static_cast<struct vscale_config *>(
-			calloc(1, sizeof(*mScalerConfig)));
-		if (mScalerConfig == nullptr) {
+		mScalerConfig = make_c_struct<unique_c_ptr<vscale_config>>();
+		if (!mScalerConfig) {
 			Sink::unlock();
 			ret = -ENOMEM;
-			PDRAW_LOG_ERRNO("malloc", -ret);
+			PDRAW_LOG_ERRNO("calloc", -ret);
 			goto error;
 		}
 		mScalerConfig->implem = VSCALE_SCALER_IMPLEM_AUTO;
@@ -208,7 +205,7 @@ int VideoScaler::start()
 		mScalerConfig->output.info.resolution.height = 720; /* TODO */
 	}
 	ret = vscale_new(mSession->getLoop(),
-			 mScalerConfig,
+			 mScalerConfig.get(),
 			 &mScalerCbs,
 			 this,
 			 &mVscale);
@@ -262,6 +259,12 @@ int VideoScaler::stop()
 
 	if ((mState == State::STOPPED) || (mState == State::STOPPING))
 		return 0;
+	if (mState == State::CREATED) {
+		/* Skip flush/drain for unstarted elements to prevent them from
+		 * getting stuck in CREATED and blocking session stop */
+		setState(State::STOPPED);
+		return 0;
+	}
 	if ((mState != State::STARTING) && (mState != State::STARTED)) {
 		PDRAW_LOGE("%s: scaler is not started", __func__);
 		return -EPROTO;
@@ -303,20 +306,22 @@ int VideoScaler::flush(bool discard)
 	case FlushingState::FLUSHING:
 		return -EALREADY;
 	case FlushingState::FLUSHED:
-		ret = mInputBufferQueue->getCount();
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("queue::getCount", -ret);
-			return ret;
-		} else if (ret > 0) {
-			setFlushingState(FlushingState::UNFLUSHED);
-			break;
+		if (mInputBufferQueue != nullptr) {
+			ret = mInputBufferQueue->getCount();
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("queue::getCount", -ret);
+				return ret;
+			} else if (ret > 0) {
+				setFlushingState(FlushingState::UNFLUSHED);
+				break;
+			}
 		}
 		PDRAW_LOGD("scaler is already %s, nothing to do",
 			   discard ? "flushed" : "drained");
-		ret = pomp_loop_idle_add_with_cookie(
-			mSession->getLoop(), &idleCompleteFlush, this, this);
+		ret = mSession->getPompLoop()->idleAdd(&mCompleteFlushHandler,
+						       this);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+			PDRAW_LOG_ERRNO("Loop::idleAdd", -ret);
 		else
 			setFlushingState(FlushingState::FLUSHING, discard);
 		return ret;
@@ -461,10 +466,9 @@ void VideoScaler::completeFlush()
 }
 
 
-void VideoScaler::idleCompleteFlush(void *userdata)
+void VideoScaler::idleCompleteFlush()
 {
-	auto *self = static_cast<VideoScaler *>(userdata);
-	self->completeFlush();
+	completeFlush();
 }
 
 
@@ -517,12 +521,18 @@ int VideoScaler::tryStop()
 	}
 	Source::unlock();
 
-	/* Stop the scaler */
+	/* Stop the scaler
+	 * tryStop() can be re-entered while STOPPING, but vscale_stop() must
+	 * only be issued once: vscale_libyuv's worker thread exits after its
+	 * first stop request and never processes a second one. */
 	if (mVscale != nullptr) {
-		ret = vscale_stop(mVscale);
-		if (ret < 0) {
-			PDRAW_LOG_ERRNO("vscale_stop", -ret);
-			return ret;
+		if (!mVscaleStopIssued) {
+			mVscaleStopIssued = true;
+			ret = vscale_stop(mVscale);
+			if (ret < 0) {
+				PDRAW_LOG_ERRNO("vscale_stop", -ret);
+				return ret;
+			}
 		}
 	} else {
 		mVscaleStopPending = false;
@@ -569,17 +579,17 @@ exit:
 }
 
 
-int VideoScaler::createOutputMedia(const struct vdef_raw_frame *frameInfo,
-				   const RawVideoMedia::Frame &frame)
+int VideoScaler::createOutputMedia(
+	const struct vdef_raw_frame *frameInfo,
+	[[maybe_unused]] const RawVideoMedia::Frame &frame)
 {
-	PDRAW_UNUSED(frame);
 
 	int ret;
 
 	Source::lock();
 
 	try {
-		mOutputMedia = make_unique<RawVideoMedia>(mSession);
+		mOutputMedia = std::make_unique<RawVideoMedia>(mSession);
 	} catch (const std::bad_alloc &) {
 		Source::unlock();
 		PDRAW_LOGE("output media allocation failed");
@@ -600,8 +610,7 @@ int VideoScaler::createOutputMedia(const struct vdef_raw_frame *frameInfo,
 	vdef_frame_to_format_info(&frameInfo->info, &mOutputMedia->info);
 	mOutputMedia->info.framerate = mInputMedia->info.framerate;
 	mOutputMedia->sessionMeta = mInputMedia->sessionMeta;
-	mOutputMedia->playbackType = mInputMedia->playbackType;
-	mOutputMedia->duration = mInputMedia->duration;
+	mOutputMedia->copyPropertiesFrom(mInputMedia);
 
 	Source::unlock();
 
@@ -617,14 +626,9 @@ void VideoScaler::onRawVideoChannelQueue(RawVideoChannel *channel,
 					 struct mbuf_raw_video_frame *frame)
 {
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
-	if (frame == nullptr) {
-		PDRAW_LOG_ERRNO("frame", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
+	ULOG_ERRNO_RETURN_IF(frame == nullptr, EINVAL);
+
 	if (mState != State::STARTED) {
 		PDRAW_LOGE("frame input: scaler is not started");
 		return;
@@ -649,10 +653,7 @@ void VideoScaler::onRawVideoChannelQueue(RawVideoChannel *channel,
 
 void VideoScaler::onChannelFlush(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("flushing input channel");
 	mInputChannelFlushPending = true;
@@ -665,10 +666,7 @@ void VideoScaler::onChannelFlush(Channel *channel)
 
 void VideoScaler::onChannelDrain(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("draining input channel");
 	mInputChannelFlushPending = true;
@@ -681,10 +679,7 @@ void VideoScaler::onChannelDrain(Channel *channel)
 
 void VideoScaler::onChannelFlushed(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -702,10 +697,7 @@ void VideoScaler::onChannelFlushed(Channel *channel)
 
 void VideoScaler::onChannelDrained(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -723,10 +715,7 @@ void VideoScaler::onChannelDrained(Channel *channel)
 
 void VideoScaler::onChannelTeardown(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	PDRAW_LOGD("tearing down input channel");
 
@@ -738,10 +727,7 @@ void VideoScaler::onChannelTeardown(Channel *channel)
 
 void VideoScaler::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Source::onChannelUnlink(channel);
 
@@ -754,10 +740,7 @@ void VideoScaler::onChannelSessionMetaUpdate(Channel *channel)
 {
 	struct vmeta_session tmpSessionMeta;
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	Sink::lock();
 	if (mInputMedia == nullptr) {
@@ -783,12 +766,11 @@ void VideoScaler::onChannelSessionMetaUpdate(Channel *channel)
 }
 
 
-void VideoScaler::frameOutputCb(struct vscale_scaler *scaler,
+void VideoScaler::frameOutputCb([[maybe_unused]] struct vscale_scaler *scaler,
 				int status,
 				struct mbuf_raw_video_frame *out_frame,
 				void *userdata)
 {
-	PDRAW_UNUSED(scaler);
 
 	int ret;
 	auto *self = static_cast<VideoScaler *>(userdata);
@@ -803,14 +785,9 @@ void VideoScaler::frameOutputCb(struct vscale_scaler *scaler,
 		return;
 	}
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
-	if (out_frame == nullptr) {
-		PDRAW_LOG_ERRNO("out_frame", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
+	PDRAW_LOG_ERRNO_RETURN_IF(out_frame == nullptr, EINVAL);
+
 	if (self->mState != State::STARTED) {
 		PDRAW_LOGE("frame output: scaler is not started");
 		return;
@@ -911,16 +888,13 @@ void VideoScaler::frameOutputCb(struct vscale_scaler *scaler,
 }
 
 
-void VideoScaler::flushCb(struct vscale_scaler *scaler, void *userdata)
+void VideoScaler::flushCb([[maybe_unused]] struct vscale_scaler *scaler,
+			  void *userdata)
 {
-	PDRAW_UNUSED(scaler);
 
 	auto *self = static_cast<VideoScaler *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("scaler is flushed");
 	self->mVscaleFlushPending = false;
@@ -929,16 +903,13 @@ void VideoScaler::flushCb(struct vscale_scaler *scaler, void *userdata)
 }
 
 
-void VideoScaler::stopCb(struct vscale_scaler *scaler, void *userdata)
+void VideoScaler::stopCb([[maybe_unused]] struct vscale_scaler *scaler,
+			 void *userdata)
 {
-	PDRAW_UNUSED(scaler);
 
 	auto *self = static_cast<VideoScaler *>(userdata);
 
-	if (userdata == nullptr) {
-		PDRAW_LOG_ERRNO("userdata", EINVAL);
-		return;
-	}
+	PDRAW_LOG_ERRNO_RETURN_IF(userdata == nullptr, EINVAL);
 
 	PDRAW_LOGD("scaler is stopped");
 	self->mVscaleStopPending = false;

@@ -30,12 +30,13 @@
 
 #define ULOG_TAG pdraw_channel_coded_video
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_channel_coded_video.hpp"
 #include "pdraw_media.hpp"
 
 #include <errno.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -44,7 +45,7 @@ CodedVideoChannel::CodedVideoChannel(
 	Sink *owner,
 	SinkListener *sinkListener,
 	CodedVideoSinkListener *codedVideoSinkListener,
-	struct pomp_loop *loop) :
+	pomp::Loop *loop) :
 		Channel(owner, sinkListener, loop),
 		mCodedVideoSinkListener(codedVideoSinkListener)
 {
@@ -91,10 +92,7 @@ int CodedVideoChannel::queue(mbuf_coded_video_frame *frame)
 {
 	if (frame == nullptr)
 		return -EINVAL;
-	if (mCodedVideoSinkListener == nullptr) {
-		ULOGE("invalid sink listener");
-		return -EPROTO;
-	}
+	ULOG_ERRNO_RETURN_ERR_IF(mCodedVideoSinkListener == nullptr, EPROTO);
 
 	mCodedVideoSinkListener->onCodedVideoChannelQueue(this, frame);
 	return 0;

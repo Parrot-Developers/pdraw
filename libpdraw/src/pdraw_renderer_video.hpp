@@ -62,7 +62,7 @@ public:
 
 	virtual void completeStop() = 0;
 
-	static VideoRenderer *
+	static std::unique_ptr<VideoRenderer>
 	create(Session *session,
 	       Element::Listener *listener,
 	       VideoRendererWrapper *wrapper,
@@ -92,7 +92,9 @@ protected:
 	std::mutex mListenerMutex{};
 
 private:
-	static void idleCompleteStop(void *userdata);
+	void idleCompleteStop();
+
+	pomp::Loop::IdleHandlerFunc mCompleteStopHandler;
 };
 
 
@@ -137,7 +139,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mRenderer == nullptr);

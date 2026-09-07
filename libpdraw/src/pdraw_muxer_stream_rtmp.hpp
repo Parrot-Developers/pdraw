@@ -80,7 +80,7 @@ private:
 
 	int internalStart() override;
 
-	int internalStop() override;
+	int internalStop() final;
 
 	int configure();
 
@@ -111,7 +111,7 @@ private:
 		bool *doReconnect,
 		int *reconnectionCount);
 
-	static void fakeAudioTimerCb(struct pomp_timer *timer, void *userdata);
+	void onFakeAudioTimer();
 
 	static void onSocketCreated(int fd, void *userdata);
 
@@ -125,14 +125,13 @@ private:
 	static void
 	dataUnrefCb(uint8_t *data, void *buffer_userdata, void *userdata);
 
-	static void connectionWatchdogCb(struct pomp_timer *timer,
-					 void *userdata);
+	void onConnectionWatchdog();
 
-	static void reconnectionTimerCb(struct pomp_timer *timer,
-					void *userdata);
+	void onReconnectionTimer();
 
 	std::string mUrl{};
-	struct pomp_timer *mDummyAudioTimer = nullptr;
+	pomp::Timer::HandlerFunc mDummyAudioTimerHandler;
+	std::unique_ptr<pomp::Timer> mDummyAudioTimer;
 	bool mDummyAudioStarted = false;
 	struct rtmp_client *mRtmpClient = nullptr;
 	size_t mSocketTxBufferSize = 0;
@@ -154,11 +153,13 @@ private:
 	struct pdraw_muxer_stats mStats {
 	};
 	std::vector<uint8_t> mVideoAvcc{};
-	struct pomp_timer *mConnectionWatchdog = nullptr;
+	pomp::Timer::HandlerFunc mConnectionWatchdogHandler;
+	std::unique_ptr<pomp::Timer> mConnectionWatchdog;
 	bool mHasBeenConnected = false;
 	int mReconnectionCount = 0;
 	int mReconnectionMaxCount = MUXER_STREAM_RTMP_RECONNECTION_MAX_COUNT;
-	struct pomp_timer *mReconnectionTimer = nullptr;
+	pomp::Timer::HandlerFunc mReconnectionTimerHandler;
+	std::unique_ptr<pomp::Timer> mReconnectionTimer;
 
 	static const struct rtmp_callbacks mRtmpCbs;
 	static const std::array<uint8_t, 5> mDummyAudioSpecificConfig;

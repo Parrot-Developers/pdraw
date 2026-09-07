@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_rtmpmuxer
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_stream_rtmp.hpp"
 #include "pdraw_session.hpp"
@@ -43,6 +42,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #	include <media-buffers/mbuf_mem_generic.h>
 #	include <array>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
 
 
@@ -50,12 +51,12 @@ constexpr size_t MUXER_STREAM_RTMP_CONNECTION_TIMEOUT_MS = 10000;
 constexpr size_t MUXER_STREAM_RTMP_RECONNECTION_TIMER_MS = 2000;
 
 
-constexpr size_t NB_SUPPORTED_FORMATS = 1;
-static std::array<vdef_coded_format, NB_SUPPORTED_FORMATS> supportedFormats;
-static pthread_once_t supportedFormatsIsInit = PTHREAD_ONCE_INIT;
-static void initializeSupportedFormats()
+static const std::array<vdef_coded_format, 1> &getSupportedFormats()
 {
-	supportedFormats[0] = vdef_h264_avcc;
+	static const std::array<vdef_coded_format, 1> formats = {{
+		vdef_h264_avcc,
+	}};
+	return formats;
 }
 
 
@@ -141,13 +142,16 @@ RtmpStreamMuxer::RtmpStreamMuxer(Session *session,
 		mUrl(url), mAudioSampleRate(mDummyAudioSampleRate),
 		mAudioSampleSize(mDummyAudioSampleSize)
 {
-	(void)pthread_once(&supportedFormatsIsInit, initializeSupportedFormats);
-
 	Element::setClassName(__func__);
-	setCodedVideoMediaFormatCaps(supportedFormats.data(),
-				     supportedFormats.size());
+	setCodedVideoMediaFormatCaps(
+		getSupportedFormats().data(),
+		static_cast<int>(getSupportedFormats().size()));
 
 	mStats.type = PDRAW_MUXER_TYPE_RTMP;
+
+	mDummyAudioTimerHandler.set([this] { onFakeAudioTimer(); });
+	mConnectionWatchdogHandler.set([this] { onConnectionWatchdog(); });
+	mReconnectionTimerHandler.set([this] { onReconnectionTimer(); });
 }
 
 
@@ -231,11 +235,11 @@ int RtmpStreamMuxer::setDynParams(
 {
 	PDRAW_LOG_ERRNO_RETURN_ERR_IF(dyn_params == nullptr, EINVAL);
 
-	uint32_t newSize = dyn_params->socket_tx_buffer_size;
+	size_t newSize = dyn_params->socket_tx_buffer_size;
 
 	if (newSize != 0 && mRtmpClient != nullptr) {
-		int ret =
-			rtmp_client_set_socket_txbuf_size(mRtmpClient, newSize);
+		int ret = rtmp_client_set_socket_txbuf_size(
+			mRtmpClient, static_cast<uint32_t>(newSize));
 		if (ret < 0) {
 			PDRAW_LOG_ERRNO("rtmp_client_set_socket_txbuf_size",
 					-ret);
@@ -277,29 +281,32 @@ int RtmpStreamMuxer::internalStart()
 	int res;
 
 	/* Create the dummy audio timer */
-	mDummyAudioTimer =
-		pomp_timer_new(mSession->getLoop(), fakeAudioTimerCb, this);
-	if (mDummyAudioTimer == nullptr) {
+	try {
+		mDummyAudioTimer = std::make_unique<pomp::Timer>(
+			mSession->getPompLoop(), &mDummyAudioTimerHandler);
+	} catch (const std::bad_alloc &) {
 		res = -ENOMEM;
-		PDRAW_LOG_ERRNO("pomp_timer_new", -res);
+		PDRAW_LOG_ERRNO("pomp::Timer allocation failed", -res);
 		return res;
 	}
 
 	/* Create the connection watchdog */
-	mConnectionWatchdog = pomp_timer_new(
-		mSession->getLoop(), &connectionWatchdogCb, this);
-	if (mConnectionWatchdog == nullptr) {
+	try {
+		mConnectionWatchdog = std::make_unique<pomp::Timer>(
+			mSession->getPompLoop(), &mConnectionWatchdogHandler);
+	} catch (const std::bad_alloc &) {
 		res = -ENOMEM;
-		PDRAW_LOG_ERRNO("pomp_timer_new", -res);
+		PDRAW_LOG_ERRNO("pomp::Timer allocation failed", -res);
 		return res;
 	}
 
 	/* Create the reconnection timer */
-	mReconnectionTimer =
-		pomp_timer_new(mSession->getLoop(), &reconnectionTimerCb, this);
-	if (mReconnectionTimer == nullptr) {
+	try {
+		mReconnectionTimer = std::make_unique<pomp::Timer>(
+			mSession->getPompLoop(), &mReconnectionTimerHandler);
+	} catch (const std::bad_alloc &) {
 		res = -ENOMEM;
-		PDRAW_LOG_ERRNO("pomp_timer_new", -res);
+		PDRAW_LOG_ERRNO("pomp::Timer allocation failed", -res);
 		return res;
 	}
 
@@ -334,37 +341,13 @@ int RtmpStreamMuxer::internalStop()
 	int err;
 
 	/* Free the dummy audio timer */
-	if (mDummyAudioTimer != nullptr) {
-		err = pomp_timer_clear(mDummyAudioTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(mDummyAudioTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		mDummyAudioTimer = nullptr;
-	}
+	mDummyAudioTimer.reset();
 
 	/* Free the connection watchdog */
-	if (mConnectionWatchdog != nullptr) {
-		err = pomp_timer_clear(mConnectionWatchdog);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(mConnectionWatchdog);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		mConnectionWatchdog = nullptr;
-	}
+	mConnectionWatchdog.reset();
 
 	/* Free the connection timer */
-	if (mReconnectionTimer != nullptr) {
-		err = pomp_timer_clear(mReconnectionTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(mReconnectionTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		mReconnectionTimer = nullptr;
-	}
+	mReconnectionTimer.reset();
 
 	/* Free the RTMP client */
 	if (mRtmpClient != nullptr) {
@@ -517,10 +500,9 @@ int RtmpStreamMuxer::processMedia(const CodedVideoMedia *media)
 }
 
 
-int RtmpStreamMuxer::processFrame(const CodedVideoMedia *media,
+int RtmpStreamMuxer::processFrame([[maybe_unused]] const CodedVideoMedia *media,
 				  struct mbuf_coded_video_frame *in_frame)
 {
-	PDRAW_UNUSED(media);
 
 	int res;
 	struct mbuf_mem *mem = nullptr;
@@ -609,9 +591,9 @@ int RtmpStreamMuxer::processFrame(const CodedVideoMedia *media,
 
 	if (!mDummyAudioStarted) {
 		mDummyAudioTimestamp = ts;
-		res = pomp_timer_set(mDummyAudioTimer, 1);
+		res = mDummyAudioTimer->set(1);
 		if (res < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_set", -res);
+			PDRAW_LOG_ERRNO("pomp::Timer::set", -res);
 		else
 			mDummyAudioStarted = true;
 	}
@@ -716,34 +698,29 @@ RtmpStreamMuxer::rtmpStateToMuxerConnectionState(RtmpStreamMuxer::RtmpState val)
 }
 
 
-void RtmpStreamMuxer::fakeAudioTimerCb(struct pomp_timer *timer, void *userdata)
+void RtmpStreamMuxer::onFakeAudioTimer()
 {
-	PDRAW_UNUSED(timer);
-
 	int res;
-	auto *self = static_cast<RtmpStreamMuxer *>(userdata);
 
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	res = rtmp_client_send_audio_data(self->mRtmpClient,
+	res = rtmp_client_send_audio_data(mRtmpClient,
 					  mDummyAudioSample.data(),
 					  mDummyAudioSample.size(),
-					  self->mDummyAudioTimestamp,
+					  mDummyAudioTimestamp,
 					  nullptr);
 	if (res < 0) {
 		if (res != -EAGAIN)
 			PDRAW_LOG_ERRNO("rtmp_client_send_audio_data", -res);
 		else
-			self->mStats.rtmp.dropped_audio_frames++;
+			mStats.rtmp.dropped_audio_frames++;
 	} else {
-		self->mStats.rtmp.pending_audio_frames = res;
+		mStats.rtmp.pending_audio_frames = res;
 	}
 
-	self->mDummyAudioTimestamp += 23;
+	mDummyAudioTimestamp += 23;
 
-	res = pomp_timer_set(timer, 23);
+	res = mDummyAudioTimer->set(23);
 	if (res < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_set", -res);
+		PDRAW_LOG_ERRNO("pomp::Timer::set", -res);
 }
 
 
@@ -806,10 +783,9 @@ int RtmpStreamMuxer::scheduleReconnection()
 	}
 
 	/* Schedule next attempt */
-	ret = pomp_timer_set(mReconnectionTimer,
-			     MUXER_STREAM_RTMP_RECONNECTION_TIMER_MS);
+	ret = mReconnectionTimer->set(MUXER_STREAM_RTMP_RECONNECTION_TIMER_MS);
 	if (ret < 0)
-		PDRAW_LOG_ERRNO("pomp_timer_set", -ret);
+		PDRAW_LOG_ERRNO("pomp::Timer::set", -ret);
 
 	return ret;
 }
@@ -849,10 +825,7 @@ void RtmpStreamMuxer::connectionStateCb(
 		    (self->mState == State::STARTED)) {
 			self->mConfigured = false;
 			if (self->mDummyAudioTimer != nullptr) {
-				err = pomp_timer_clear(self->mDummyAudioTimer);
-				if (err < 0)
-					PDRAW_LOG_ERRNO("pomp_timer_clear",
-							-err);
+				(void)self->mDummyAudioTimer->clear();
 				self->mDummyAudioStarted = false;
 			}
 			/* Only reconnect if ever connected */
@@ -877,11 +850,10 @@ void RtmpStreamMuxer::connectionStateCb(
 		if ((self->mState == State::STARTING) ||
 		    (self->mState == State::STARTED)) {
 			/* Arm the connection watchdog */
-			err = pomp_timer_set(
-				self->mConnectionWatchdog,
+			err = self->mConnectionWatchdog->set(
 				MUXER_STREAM_RTMP_CONNECTION_TIMEOUT_MS);
 			if (err < 0)
-				PDRAW_LOG_ERRNO("pomp_timer_set", -err);
+				PDRAW_LOG_ERRNO("pomp::Timer::set", -err);
 			self->setRtmpState(RtmpState::CONNECTING);
 		}
 		break;
@@ -890,12 +862,14 @@ void RtmpStreamMuxer::connectionStateCb(
 		if ((self->mState == State::STARTING) ||
 		    (self->mState == State::STARTED)) {
 			/* Disarm the connection watchdog */
-			err = pomp_timer_clear(self->mConnectionWatchdog);
+			err = self->mConnectionWatchdog->clear();
 			if (err < 0)
-				PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
+				PDRAW_LOG_ERRNO("pomp::Timer::clear", -err);
 			self->setRtmpState(RtmpState::CONNECTED);
 		}
-		if (!self->mConfigured)
+		/* Without a video media, configure() would send bogus data
+		 * and permanently mark mConfigured, blocking the real call. */
+		if ((!self->mConfigured) && (self->mVideoMedia != nullptr))
 			(void)self->configure();
 		break;
 	default:
@@ -929,9 +903,8 @@ void RtmpStreamMuxer::peerBwChangedCb(uint32_t bandwidth, void *userdata)
 
 void RtmpStreamMuxer::dataUnrefCb(uint8_t *data,
 				  void *buffer_userdata,
-				  void *userdata)
+				  [[maybe_unused]] void *userdata)
 {
-	PDRAW_UNUSED(userdata);
 
 	auto *frame =
 		static_cast<struct mbuf_coded_video_frame *>(buffer_userdata);
@@ -944,21 +917,13 @@ void RtmpStreamMuxer::dataUnrefCb(uint8_t *data,
 }
 
 
-void RtmpStreamMuxer::connectionWatchdogCb(struct pomp_timer *timer,
-					   void *userdata)
+void RtmpStreamMuxer::onConnectionWatchdog()
 {
-	PDRAW_UNUSED(timer);
-
-	auto *self = static_cast<RtmpStreamMuxer *>(userdata);
-
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
 	PDRAW_LOGW("timeout while connecting");
 
-	if (self->mRtmpClient != nullptr) {
+	if (mRtmpClient != nullptr) {
 		int err = rtmp_client_disconnect(
-			self->mRtmpClient,
-			RTMP_CLIENT_DISCONNECTION_REASON_TIMEOUT);
+			mRtmpClient, RTMP_CLIENT_DISCONNECTION_REASON_TIMEOUT);
 		if (err < 0)
 			PDRAW_LOG_ERRNO("rtmp_client_disconnect", -err);
 	}
@@ -998,55 +963,48 @@ void RtmpStreamMuxer::getReconnectionStrategy(
 }
 
 
-void RtmpStreamMuxer::reconnectionTimerCb(struct pomp_timer *timer,
-					  void *userdata)
+void RtmpStreamMuxer::onReconnectionTimer()
 {
-	PDRAW_UNUSED(timer);
-
 	int err;
-	auto *self = static_cast<RtmpStreamMuxer *>(userdata);
 	bool doReconnect = false;
 	int reconnectionCount = 0;
 
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-
-	getReconnectionStrategy(self->mRtmpDisconnectionReason,
-				&doReconnect,
-				&reconnectionCount);
+	getReconnectionStrategy(
+		mRtmpDisconnectionReason, &doReconnect, &reconnectionCount);
 
 	if (!doReconnect)
 		goto abort;
 
-	self->mReconnectionCount++;
-	self->mReconnectionMaxCount = reconnectionCount;
+	mReconnectionCount++;
+	mReconnectionMaxCount = reconnectionCount;
 
-	if (self->mReconnectionCount > self->mReconnectionMaxCount)
+	if (mReconnectionCount > mReconnectionMaxCount)
 		goto abort;
 
 	PDRAW_LOGI("reconnecting (%d/%d)",
-		   self->mReconnectionCount,
-		   self->mReconnectionMaxCount);
+		   mReconnectionCount,
+		   mReconnectionMaxCount);
 
-	if (self->mRtmpConnectionState != RTMP_CLIENT_CONN_STATE_DISCONNECTED) {
+	if (mRtmpConnectionState != RTMP_CLIENT_CONN_STATE_DISCONNECTED) {
 		PDRAW_LOGW("reconnection already pending");
 		return;
 	}
 
-	err = self->reconnect();
+	err = reconnect();
 	if (err < 0)
 		PDRAW_LOG_ERRNO("reconnect", -err);
 	else
 		return;
 
-	err = self->scheduleReconnection();
+	err = scheduleReconnection();
 	if (err < 0)
 		PDRAW_LOG_ERRNO("scheduleReconnection", -err);
 	else
 		return;
 
 abort:
-	self->setRtmpState(RtmpState::DISCONNECTED);
-	self->onUnrecoverableError(0);
+	setRtmpState(RtmpState::DISCONNECTED);
+	onUnrecoverableError(0);
 }
 
 } /* namespace Pdraw */

@@ -28,7 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_gles2hud_priv.h"
+#include "pdraw_gles2hud_priv.hpp"
 
 
 /**
@@ -38,12 +38,12 @@
 
 namespace profont_36 {
 
-file_header font = {
+const file_header font = {
 	256,
 	202,
 	{27, -9, 18},
 	{0.134f, -0.045f, 0.089f},
-	{
+	{{
 		{
 			/* */
 			{0, 0, 0, 0, 0, 0, 0},
@@ -2860,12 +2860,10 @@ file_header font = {
 			 0.000f,
 			 0.000f},
 		},
-	},
+	}},
 };
 
-int image_width = 256;
-int image_height = 202;
-unsigned char image[] = {
+const std::array<unsigned char, image_width *image_height> image = {{
 	// gray-scale image
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
@@ -6561,6 +6559,6 @@ unsigned char image[] = {
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-};
+}};
 
 } /* namespace profont_36 */

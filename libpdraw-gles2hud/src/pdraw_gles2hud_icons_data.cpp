@@ -28,13 +28,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_gles2hud_priv.h"
+#include "pdraw_gles2hud_priv.hpp"
 
 
-const int hud_icons_width = 212;
-const int hud_icons_height = 210;
-
-const uint8_t hud_icons[] = {
+const std::array<uint8_t, hud_icons_width *hud_icons_height> hud_icons = {{
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
@@ -3215,4 +3212,4 @@ const uint8_t hud_icons[] = {
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
 	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-};
+}};

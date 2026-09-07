@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_media
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_media.hpp"
 
@@ -39,15 +38,17 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <h264/h264.h>
 #include <h265/h265.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
 
 
 std::atomic<unsigned int> Media::mIdCounter(0);
 
 
-Media::Media(Session *session, Type t) :
-		type(t), id(++mIdCounter), mSession(session),
-		mName(std::string(__func__) + "#" + std::to_string(id))
+Media::Media([[maybe_unused]] Session *session, Type t) :
+		mType(t), mId(++mIdCounter),
+		mName(std::string(__func__) + "#" + std::to_string(mId))
 
 {
 }
@@ -61,13 +62,13 @@ const std::string &Media::getName() const
 
 void Media::setClassName(const std::string &name)
 {
-	mName = name + "#" + std::to_string(id);
+	mName = name + "#" + std::to_string(mId);
 }
 
 
 void Media::setClassName(const char *name)
 {
-	mName = std::string(name) + "#" + std::to_string(id);
+	mName = std::string(name) + "#" + std::to_string(mId);
 }
 
 
@@ -77,7 +78,7 @@ const std::string &Media::getPath() const
 }
 
 
-void Media::setPath(const std::string &path)
+void Media::setPath(std::string_view path)
 {
 	mPath = path;
 }
@@ -129,11 +130,11 @@ void RawVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	*minfo = {};
 
 	minfo->type = PDRAW_MEDIA_TYPE_VIDEO;
-	minfo->id = id;
+	minfo->id = mId;
 	minfo->name = strdup(getName().c_str());
 	minfo->path = strdup(getPath().c_str());
-	minfo->playback_type = playbackType;
-	minfo->duration = duration;
+	minfo->playback_type = mPlaybackType;
+	minfo->duration = mDuration;
 	minfo->video.format = VDEF_FRAME_TYPE_RAW;
 	minfo->video.session_meta = &sessionMeta;
 	minfo->video.raw.format = format;
@@ -289,11 +290,11 @@ void CodedVideoMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	*minfo = {};
 
 	minfo->type = PDRAW_MEDIA_TYPE_VIDEO;
-	minfo->id = id;
+	minfo->id = mId;
 	minfo->name = strdup(getName().c_str());
 	minfo->path = strdup(getPath().c_str());
-	minfo->playback_type = playbackType;
-	minfo->duration = duration;
+	minfo->playback_type = mPlaybackType;
+	minfo->duration = mDuration;
 	minfo->video.format = VDEF_FRAME_TYPE_CODED;
 	minfo->video.session_meta = &sessionMeta;
 	minfo->video.coded.format = format;
@@ -394,11 +395,11 @@ void AudioMedia::fillMediaInfo(struct pdraw_media_info *minfo)
 	*minfo = {};
 
 	minfo->type = PDRAW_MEDIA_TYPE_AUDIO;
-	minfo->id = id;
+	minfo->id = mId;
 	minfo->name = strdup(getName().c_str());
 	minfo->path = strdup(getPath().c_str());
-	minfo->playback_type = playbackType;
-	minfo->duration = duration;
+	minfo->playback_type = mPlaybackType;
+	minfo->duration = mDuration;
 	minfo->audio.format = format;
 	if (format.encoding == ADEF_ENCODING_AAC_LC) {
 		if (sizeof(minfo->audio.aac_lc.asc) < mAacAsc.size())

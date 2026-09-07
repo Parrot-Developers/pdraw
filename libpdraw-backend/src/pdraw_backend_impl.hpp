@@ -30,8 +30,6 @@
 
 #pragma once
 
-#include <pthread.h>
-
 #include <atomic>
 #include <condition_variable>
 #include <functional>
@@ -39,27 +37,15 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include <futils/futils.h>
-#include <libpomp.h>
+#include <libpomp.hpp>
 #include <pdraw/pdraw_backend.hpp>
 
 
-#if __cplusplus >= 201402L
-using std::make_unique;
-#else
-template <typename T, typename... Args>
-std::unique_ptr<T> make_unique(Args &&...args)
-{
-	return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
-}
-#endif
-
-
-#ifndef PDRAW_UNUSED
-#	define PDRAW_UNUSED(x) (void)(x)
-#endif
+#define PDRAW_CHECK_LOOP_THREAD() checkLoopThread(__func__)
 
 
 /* Disable copy constructor and assignment operator */
@@ -70,6 +56,15 @@ private:                                                                       \
 
 
 namespace PdrawBackend {
+
+template <typename T> class IPostCreatable {
+public:
+	virtual void postCreate(T *impl) noexcept = 0;
+
+protected:
+	~IPostCreatable() = default;
+};
+
 
 template <typename T> struct ElementAndListener {
 	T *e;
@@ -88,6 +83,8 @@ template <typename T> struct ElementAndListener {
 
 
 template <typename T> class ElementWithListener {
+	PDRAW_DISABLE_COPY(ElementWithListener)
+
 public:
 	explicit ElementWithListener(typename T::Listener *l) :
 			mElementAndListener{
@@ -99,6 +96,7 @@ public:
 
 	void setElement(T *n)
 	{
+		mOwnedElement.reset(n);
 		mElementAndListener.setElement(n);
 	}
 
@@ -109,7 +107,7 @@ public:
 
 	void resetElement()
 	{
-		delete mElementAndListener.e;
+		mOwnedElement.reset();
 		mElementAndListener.setElement(nullptr);
 	}
 
@@ -119,6 +117,9 @@ public:
 	}
 
 private:
+	/* Owns the inner element; mElementAndListener holds a non-owning
+	 * view so it remains copyable for use in maps and pending structs */
+	std::unique_ptr<T> mOwnedElement;
 	ElementAndListener<T> mElementAndListener;
 };
 
@@ -220,12 +221,11 @@ public:
 		      public ElementWithListener<IPdraw::IMuxer> {
 	public:
 		Muxer(PdrawBackend *backend,
-		      const std::string &url,
+		      [[maybe_unused]] std::string_view url,
 		      IPdraw::IMuxer::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(url);
 		}
 
 		~Muxer() override;
@@ -238,11 +238,10 @@ public:
 				 const uint8_t *data,
 				 size_t size) override;
 
-		int setFileMetadata(enum pdraw_muxer_metadata_type type,
-				    const uint8_t *data,
-				    size_t size,
-				    const void *params,
-				    size_t paramsSize) override;
+		int setFileMetadata(
+			const struct pdraw_muxer_metadata_params *params,
+			const uint8_t *data,
+			size_t size) override;
 
 		int addChapter(uint64_t timestamp, const char *name) override;
 
@@ -267,15 +266,15 @@ public:
 			  public ElementWithListener<IPdraw::IVideoRenderer> {
 	public:
 		/* Called on the rendering thread */
-		VideoRenderer(PdrawBackend *backend,
-			      const struct pdraw_rect *renderPos,
-			      const struct pdraw_video_renderer_params *params,
-			      IPdraw::IVideoRenderer::Listener *listener) :
+		VideoRenderer(
+			PdrawBackend *backend,
+			[[maybe_unused]] const struct pdraw_rect *renderPos,
+			[[maybe_unused]] const struct
+			pdraw_video_renderer_params *params,
+			IPdraw::IVideoRenderer::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(renderPos);
-			PDRAW_UNUSED(params);
 		}
 
 		/* Called on the rendering thread */
@@ -402,15 +401,15 @@ public:
 			: public IPdraw::ICodedVideoSink,
 			  public ElementWithListener<IPdraw::ICodedVideoSink> {
 	public:
-		CodedVideoSink(PdrawBackend *backend,
-			       unsigned int mediaId,
-			       const struct pdraw_video_sink_params *params,
-			       IPdraw::ICodedVideoSink::Listener *listener) :
+		CodedVideoSink(
+			PdrawBackend *backend,
+			[[maybe_unused]] unsigned int mediaId,
+			[[maybe_unused]] const struct pdraw_video_sink_params
+				*params,
+			IPdraw::ICodedVideoSink::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(mediaId);
-			PDRAW_UNUSED(params);
 		}
 
 		~CodedVideoSink() override;
@@ -434,15 +433,15 @@ public:
 	class RawVideoSink : public IPdraw::IRawVideoSink,
 			     public ElementWithListener<IPdraw::IRawVideoSink> {
 	public:
-		RawVideoSink(PdrawBackend *backend,
-			     unsigned int mediaId,
-			     const struct pdraw_video_sink_params *params,
-			     IPdraw::IRawVideoSink::Listener *listener) :
+		RawVideoSink(
+			PdrawBackend *backend,
+			[[maybe_unused]] unsigned int mediaId,
+			[[maybe_unused]] const struct pdraw_video_sink_params
+				*params,
+			IPdraw::IRawVideoSink::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(mediaId);
-			PDRAW_UNUSED(params);
 		}
 
 		~RawVideoSink() override;
@@ -511,12 +510,11 @@ public:
 			  public ElementWithListener<IPdraw::IAudioSink> {
 	public:
 		AudioSink(PdrawBackend *backend,
-			  unsigned int mediaId,
+			  [[maybe_unused]] unsigned int mediaId,
 			  IPdraw::IAudioSink::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(mediaId);
 		}
 
 		~AudioSink() override;
@@ -566,14 +564,12 @@ public:
 			     public ElementWithListener<IPdraw::IVideoEncoder> {
 	public:
 		VideoEncoder(PdrawBackend *backend,
-			     unsigned int mediaId,
-			     const struct venc_config *params,
+			     [[maybe_unused]] unsigned int mediaId,
+			     [[maybe_unused]] const struct venc_config *params,
 			     IPdraw::IVideoEncoder::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(mediaId);
-			PDRAW_UNUSED(params);
 		}
 
 		~VideoEncoder() override;
@@ -592,14 +588,12 @@ public:
 			    public ElementWithListener<IPdraw::IVideoScaler> {
 	public:
 		VideoScaler(PdrawBackend *backend,
-			    unsigned int mediaId,
-			    const struct vscale_config *params,
+			    [[maybe_unused]] unsigned int mediaId,
+			    [[maybe_unused]] const struct vscale_config *params,
 			    IPdraw::IVideoScaler::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(mediaId);
-			PDRAW_UNUSED(params);
 		}
 
 		~VideoScaler() override;
@@ -612,14 +606,12 @@ public:
 			     public ElementWithListener<IPdraw::IAudioEncoder> {
 	public:
 		AudioEncoder(PdrawBackend *backend,
-			     unsigned int mediaId,
-			     const struct aenc_config *params,
+			     [[maybe_unused]] unsigned int mediaId,
+			     [[maybe_unused]] const struct aenc_config *params,
 			     IPdraw::IAudioEncoder::Listener *listener) :
 				ElementWithListener(listener),
 				mBackend(backend)
 		{
-			PDRAW_UNUSED(mediaId);
-			PDRAW_UNUSED(params);
 		}
 
 		~AudioEncoder() override;
@@ -660,6 +652,13 @@ public:
 			  IPdraw::IDemuxer **retObj) override;
 
 	int createMuxer(const std::string &url,
+			const struct pdraw_muxer_params *params,
+			IPdraw::IMuxer::Listener *listener,
+			IPdraw::IMuxer **retObj) override;
+
+	int createMuxer(const std::string &url,
+			struct mux_ctx *mux,
+			const std::string &remoteHost,
 			const struct pdraw_muxer_params *params,
 			IPdraw::IMuxer::Listener *listener,
 			IPdraw::IMuxer **retObj) override;
@@ -1058,7 +1057,9 @@ private:
 				    IPdraw::IAudioEncoder *encoder,
 				    struct mbuf_audio_frame *frame) override;
 
-	static void *loopThread(void *ptr);
+	void checkLoopThread(const char *func) const;
+
+	static void loopThread(PdrawBackend *self);
 
 	int doCreateDemuxer(const std::string &url,
 			    const struct pdraw_demuxer_params *params,
@@ -1082,6 +1083,13 @@ private:
 			    IPdraw::IDemuxer **retObj);
 
 	int doCreateMuxer(const std::string &url,
+			  const struct pdraw_muxer_params *params,
+			  IPdraw::IMuxer::Listener *listener,
+			  IPdraw::IMuxer **retObj);
+
+	int doCreateMuxer(const std::string &url,
+			  struct mux_ctx *mux,
+			  const std::string &remoteHost,
 			  const struct pdraw_muxer_params *params,
 			  IPdraw::IMuxer::Listener *listener,
 			  IPdraw::IMuxer **retObj);
@@ -1145,7 +1153,7 @@ private:
 
 	template <typename Func>
 	inline auto runOnLoop(Func &&func) ->
-		typename std::result_of<Func()>::type;
+		typename std::invoke_result_t<Func>;
 
 	inline void setRetValue();
 
@@ -1168,7 +1176,7 @@ private:
 		  typename PendingStructT,
 		  typename MapT,
 		  typename CreateFunc>
-	int internalElementCreate(WrapperT *wrapper,
+	int internalElementCreate(std::unique_ptr<WrapperT> wrapper,
 				  ListenerT *listener,
 				  InterfaceT **retObj,
 				  PendingStructT &pending,
@@ -1191,22 +1199,22 @@ private:
 
 	std::recursive_mutex mApiMutex{};
 	std::mutex mMutex{};
-	std::condition_variable_any mCond;
-	pthread_t mLoopThread;
+	std::condition_variable mCond;
+	std::thread mLoopThread;
 	bool mLoopThreadLaunched = false;
 	std::atomic_bool mThreadShouldStop{false};
-	struct pomp_loop *mLoop = nullptr;
+	std::unique_ptr<pomp::Loop> mLoop;
 	bool mStarted = false;
 	bool mRetValReady = false;
 	int mRetStatus = 0;
-	IPdraw *mPdraw = nullptr;
+	std::unique_ptr<IPdraw> mPdraw;
 	IPdraw::Listener *mListener = nullptr;
 	std::mutex mMapsMutex{};
 	bool mMapsMutexCreated = false;
 	std::map<IPdraw::IDemuxer *, demuxerAndListener> mDemuxerListenersMap{};
 	demuxerAndListener mPendingDemuxerAndListener{};
 	std::map<IPdraw::IMuxer *, muxerAndListener> mMuxerListenersMap{};
-	muxerAndListener mPendingMuxerAndListener;
+	muxerAndListener mPendingMuxerAndListener{};
 	std::map<IPdraw::IVideoRenderer *, videoRendererAndListener>
 		mVideoRendererListenersMap{};
 	videoRendererAndListener mPendingVideoRendererAndListener{};
@@ -1249,7 +1257,7 @@ private:
 	struct {
 		void *internal;
 		void *external;
-	} mPendingRemovedElementUserdata;
+	} mPendingRemovedElementUserdata{};
 };
 
 
@@ -1259,7 +1267,7 @@ template <typename WrapperT,
 	  typename PendingStructT,
 	  typename MapT,
 	  typename CreateFunc>
-int PdrawBackend::internalElementCreate(WrapperT *wrapper,
+int PdrawBackend::internalElementCreate(std::unique_ptr<WrapperT> wrapper,
 					ListenerT *listener,
 					InterfaceT **retObj,
 					PendingStructT &pending,
@@ -1273,7 +1281,7 @@ int PdrawBackend::internalElementCreate(WrapperT *wrapper,
 
 	/* Fill pending */
 	pending = {
-		.e = wrapper,
+		.e = wrapper.get(),
 		.l = listener,
 	};
 
@@ -1281,7 +1289,7 @@ int PdrawBackend::internalElementCreate(WrapperT *wrapper,
 	res = createFunc(&internal);
 	if (res < 0) {
 		ULOG_ERRNO("failed to create %s", -res, elementName);
-		delete wrapper;
+		/* wrapper destroyed automatically */
 		return res;
 	}
 
@@ -1290,7 +1298,7 @@ int PdrawBackend::internalElementCreate(WrapperT *wrapper,
 
 	/* Insert into listeners map */
 	{
-		std::unique_lock<std::mutex> lock(mMapsMutex);
+		std::scoped_lock lock(mMapsMutex);
 		inserted = map.insert(
 			std::make_pair(wrapper->getElement(), pending));
 		if (!inserted.second)
@@ -1298,9 +1306,12 @@ int PdrawBackend::internalElementCreate(WrapperT *wrapper,
 			      elementName);
 	}
 
-	/* Cleanup + return */
+	/* Ownership transferred to caller via public API raw pointer */
 	pending = {};
-	*retObj = wrapper;
+	WrapperT *rawWrapper = wrapper.release();
+	*retObj = rawWrapper;
+	if (auto *pc = dynamic_cast<IPostCreatable<InterfaceT> *>(listener))
+		pc->postCreate(rawWrapper);
 	return 0;
 }
 
@@ -1309,11 +1320,10 @@ template <typename KeyT, typename StructT>
 bool PdrawBackend::tryResolveElementUserData(void *&elementUserData,
 					     std::map<KeyT, StructT> &map) const
 {
-	static_assert(std::is_pointer<KeyT>::value,
-		      "KeyT must be a pointer type");
+	static_assert(std::is_pointer_v<KeyT>, "KeyT must be a pointer type");
 
-	auto it = map.find(static_cast<KeyT>(elementUserData));
-	if (it != map.end()) {
+	if (auto it = map.find(static_cast<KeyT>(elementUserData));
+	    it != map.end()) {
 		elementUserData = it->second.e;
 		return true;
 	}
@@ -1321,41 +1331,17 @@ bool PdrawBackend::tryResolveElementUserData(void *&elementUserData,
 }
 
 
-template <typename T>
-typename std::enable_if<std::is_void<T>::value, void>::type
-dispatchReturnOnError(int)
+template <typename T> T dispatchReturnOnError(int err)
 {
-	return;
-}
-
-
-template <typename T>
-typename std::enable_if<std::is_integral<T>::value &&
-				std::is_signed<T>::value &&
-				!std::is_pointer<T>::value,
-			T>::type
-dispatchReturnOnError(int err)
-{
-	return static_cast<T>(err);
-}
-
-
-template <typename T>
-typename std::enable_if<std::is_integral<T>::value && !std::is_signed<T>::value,
-			T>::type
-dispatchReturnOnError(int)
-{
-	return static_cast<T>(0);
-}
-
-
-template <typename T>
-typename std::enable_if<std::is_pointer<T>::value &&
-				!std::is_same<T, int>::value,
-			T>::type
-dispatchReturnOnError(int)
-{
-	return nullptr;
+	if constexpr (std::is_void_v<T>) {
+		return;
+	} else if constexpr (std::is_pointer_v<T>) {
+		return nullptr;
+	} else if constexpr (std::is_signed_v<T>) {
+		return static_cast<T>(err);
+	} else {
+		return static_cast<T>(0);
+	}
 }
 
 
@@ -1369,36 +1355,47 @@ dispatchReturnOnError(int)
  */
 template <typename Func>
 inline auto PdrawBackend::runOnLoop(Func &&func) ->
-	typename std::result_of<Func()>::type
+	typename std::invoke_result_t<Func>
 {
-	std::unique_lock<std::recursive_mutex> apiLock(mApiMutex);
+	std::scoped_lock apiLock(mApiMutex);
 
 	/* Raw return type of the provided callable */
-	using RawReturnType = typename std::result_of<Func()>::type;
+	using RawReturnType = typename std::invoke_result_t<Func>;
 	/* Decayed return type (remove references and cv-qualifiers) */
-	using ReturnType = typename std::decay<RawReturnType>::type;
+	using ReturnType = typename std::decay_t<RawReturnType>;
 
 	/* Enforce that only supported return types are allowed */
-	static_assert(std::is_void<ReturnType>::value ||
-			      std::is_pointer<ReturnType>::value ||
-			      std::is_integral<ReturnType>::value,
+	static_assert(std::is_void_v<ReturnType> ||
+			      std::is_pointer_v<ReturnType> ||
+			      std::is_integral_v<ReturnType>,
 		      "runOnLoop: unsupported return type");
 
 	/* If we are already on the loop thread, execute directly */
-	if (pthread_self() == mLoopThread)
+	if (std::this_thread::get_id() == mLoopThread.get_id())
 		return func();
 
-	std::unique_lock<std::mutex> lock(mMutex);
+	std::unique_lock lock(mMutex);
 
 	struct SharedState {
 		/* Function and return value */
 		std::packaged_task<RawReturnType()> task;
 		/* Indicates when execution has finished */
 		std::atomic<bool> done{false};
-		SharedState(Func &&f) : task(std::move<Func>(f)) {}
+		explicit SharedState(Func &&f) : task(std::move<Func>(f)) {}
 	};
 
-	auto state = std::make_shared<SharedState>(std::forward<Func>(func));
+	std::shared_ptr<SharedState> state;
+	std::unique_ptr<pomp::Loop::IdleHandlerFunc> handler;
+
+	try {
+		state = std::make_shared<SharedState>(std::forward<Func>(func));
+		handler = std::make_unique<pomp::Loop::IdleHandlerFunc>();
+	} catch (const std::bad_alloc &) {
+		int err = -ENOMEM;
+		ULOG_ERRNO("failed to allocate memory", -err);
+		return dispatchReturnOnError<ReturnType>(err);
+	}
+
 	std::future<RawReturnType> res = state->task.get_future();
 
 	/* Wrapper executed on the loop thread.
@@ -1409,20 +1406,11 @@ inline auto PdrawBackend::runOnLoop(Func &&func) ->
 		this->mCond.notify_all();
 	};
 
-	/* Adapter callback compatible with pomp_loop_idle_add().
-	 * Owns a heap-allocated std::function and deletes it after execution */
-	auto pompCallback = [](void *userdata) {
-		auto f = static_cast<std::function<void()> *>(userdata);
-		(*f)();
-		delete f;
-	};
+	handler->set([wrapper]() { wrapper(); });
 
-	auto *fHolder = new std::function<void()>(wrapper);
-
-	int err = pomp_loop_idle_add(mLoop, pompCallback, fHolder);
+	int err = mLoop->idleAdd(handler.get());
 	if (err < 0) {
-		delete fHolder;
-		ULOG_ERRNO("pomp_loop_idle_add", -err);
+		ULOG_ERRNO("pomp::Loop::idleAdd", -err);
 		return dispatchReturnOnError<ReturnType>(err);
 	}
 
@@ -1451,7 +1439,7 @@ bool PdrawBackend::findElementAndListener(KeyT key,
 					  const char *elementName) const
 {
 	{
-		std::unique_lock<std::mutex> lock(mutex);
+		std::scoped_lock lock(mutex);
 		auto it = map.find(key);
 		out = (it == map.end()) ? pending : it->second;
 	}

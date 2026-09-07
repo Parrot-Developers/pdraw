@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_dmxrec
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_demuxer_record.hpp"
 #include "pdraw_session.hpp"
@@ -47,6 +46,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <media-buffers/mbuf_ancillary_data.h>
 #include <video-streaming/vstrm.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 namespace Pdraw {
 
@@ -68,6 +69,8 @@ RecordDemuxer::RecordDemuxer(Session *session,
 {
 	Element::setClassName(__func__);
 
+	mCompleteStartHandler.set([this] { idleCompleteStart(); });
+
 	setState(State::CREATED);
 
 	if (params != nullptr)
@@ -83,9 +86,9 @@ RecordDemuxer::~RecordDemuxer()
 		PDRAW_LOGW("demuxer is still running");
 
 	/* Remove any leftover idle callbacks */
-	err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
+	err = mSession->getPompLoop()->idleRemove(this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleRemove", -err);
 
 	destroyAllMedias();
 
@@ -156,10 +159,9 @@ int RecordDemuxer::fetchSessionMetadata(unsigned int trackId,
 
 bool RecordDemuxer::isMediaTrack(const struct mp4_track_info *tkinfo,
 				 char **keys,
-				 char **values,
+				 [[maybe_unused]] char **values,
 				 int count)
 {
-	PDRAW_UNUSED(values);
 
 	int c = 0;
 
@@ -210,10 +212,9 @@ int RecordDemuxer::start()
 		return ret;
 	}
 
-	ret = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleCompleteStart, this, this);
+	ret = mSession->getPompLoop()->idleAdd(&mCompleteStartHandler, this);
 	if (ret < 0) {
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -ret);
+		PDRAW_LOG_ERRNO("pomp::Loop::idleAdd", -ret);
 		return ret;
 	}
 
@@ -385,21 +386,15 @@ exit:
 		setState(State::CREATED);
 	}
 
-	for (i = 0; i < newMediaListSize; i++) {
-		free(const_cast<char *>(newMediaList[i].name));
-		free(const_cast<char *>(newMediaList[i].uri));
-	}
-	free(newMediaList);
+	pdraw_demuxerMediaListFree(newMediaList, newMediaListSize);
 
 	return ret;
 }
 
 
-void RecordDemuxer::idleCompleteStart(void *userdata)
+void RecordDemuxer::idleCompleteStart()
 {
-	auto *self = static_cast<RecordDemuxer *>(userdata);
-
-	(void)self->completeStart();
+	(void)completeStart();
 }
 
 
@@ -577,10 +572,7 @@ void RecordDemuxer::onChannelFlushed(Channel *channel)
 {
 	bool destroyMedia = false;
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -616,10 +608,7 @@ void RecordDemuxer::onChannelDrained(Channel *channel)
 {
 	bool destroyMedia = false;
 
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -685,10 +674,7 @@ void RecordDemuxer::completeFlush()
 
 void RecordDemuxer::onChannelUnlink(Channel *channel)
 {
-	if (channel == nullptr) {
-		PDRAW_LOG_ERRNO("channel", EINVAL);
-		return;
-	}
+	ULOG_ERRNO_RETURN_IF(channel == nullptr, EINVAL);
 
 	const Media *media = getOutputMediaFromChannel(channel);
 	if (media == nullptr) {
@@ -795,7 +781,7 @@ int RecordDemuxer::play(float speed)
 		      getPendingCommand() == Command::PAUSE_NEXT) &&
 		     (speed == 0.)))
 			return -EALREADY;
-		/* fall-through */
+		[[fallthrough]];
 	default:
 		PDRAW_LOGE("%s: another operation (%s) is pending",
 			   __func__,
@@ -906,7 +892,7 @@ int RecordDemuxer::next()
 	case Command::PAUSE_NEXT:
 		if (!mWasRunningOnce)
 			break;
-		/* fall-through */
+		[[fallthrough]];
 	case Command::SEEK:
 	default:
 		PDRAW_LOGE("%s: another operation (%s) is pending",
@@ -1054,7 +1040,7 @@ int RecordDemuxer::getChapterList(struct pdraw_chapter **chapterList,
 }
 
 
-int RecordDemuxer::selectReferenceTrack()
+int RecordDemuxer::selectReferenceTrack() const
 {
 	const DemuxerMedia *prevRefMedia = nullptr;
 	const DemuxerMedia *refMedia = nullptr;
@@ -1133,19 +1119,19 @@ int RecordDemuxer::processSelectedMedias()
 			try {
 				switch (tk.type) {
 				case MP4_TRACK_TYPE_VIDEO:
-					media = make_unique<
+					media = std::make_unique<
 						RecordDemuxer::
 							DemuxerCodedVideoMedia>(
 						this);
 					break;
 				case MP4_TRACK_TYPE_METADATA:
-					media = make_unique<
+					media = std::make_unique<
 						RecordDemuxer::
 							DemuxerRawVideoMedia>(
 						this);
 					break;
 				case MP4_TRACK_TYPE_AUDIO:
-					media = make_unique<
+					media = std::make_unique<
 						RecordDemuxer::
 							DemuxerAudioMedia>(
 						this);
@@ -1168,7 +1154,7 @@ int RecordDemuxer::processSelectedMedias()
 			PDRAW_LOGI("media '%s' not set up, setting up",
 				   s->name);
 			mMedias.push_back(std::move(media));
-			auto &mediaPtr = mMedias.back();
+			const auto &mediaPtr = mMedias.back();
 			mediaListChanged = true;
 			if (mRunning) {
 				/* Play newly setup medias */
@@ -1237,6 +1223,8 @@ stop:
 RecordDemuxer::DemuxerMedia::DemuxerMedia(RecordDemuxer *demuxer) :
 		mDemuxer(demuxer)
 {
+	mTimerHandler.set([this] { onTimer(); });
+
 	std::string name = demuxer->getName() + "#DemuxerMedia";
 	Loggable::setName(name);
 }
@@ -1244,42 +1232,23 @@ RecordDemuxer::DemuxerMedia::DemuxerMedia(RecordDemuxer *demuxer) :
 
 RecordDemuxer::DemuxerMedia::~DemuxerMedia()
 {
-	int ret;
-
-	if (mTimer != nullptr) {
-		ret = pomp_timer_clear(mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -ret);
-		ret = pomp_timer_destroy(mTimer);
-		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -ret);
-	}
+	mTimer.reset();
 }
 
 
 bool RecordDemuxer::DemuxerMedia::hasMedia(const Media *media) const
 {
-	return std::find_if(mMedias.begin(),
-			    mMedias.end(),
-			    [media](const std::unique_ptr<Media> &m) {
-				    return m.get() == media;
-			    }) != mMedias.end();
-}
-
-
-Media *RecordDemuxer::DemuxerMedia::getMedia(unsigned int index) const
-{
-	if (index >= mMedias.size())
-		return nullptr;
-
-	return mMedias[index].get();
+	return std::any_of(mMedias.begin(),
+			   mMedias.end(),
+			   [media](const std::unique_ptr<Media> &m) {
+				   return m.get() == media;
+			   });
 }
 
 
 int RecordDemuxer::DemuxerMedia::setup(const struct mp4_track_info *tkinfo)
 {
 	int ret;
-	int err;
 
 	std::string name =
 		mDemuxer->getName() + "#track#" + std::to_string(tkinfo->id);
@@ -1299,10 +1268,12 @@ int RecordDemuxer::DemuxerMedia::setup(const struct mp4_track_info *tkinfo)
 	}
 
 	/* Create the demux timer */
-	mTimer = pomp_timer_new(mDemuxer->mSession->getLoop(), timerCb, this);
-	if (mTimer == nullptr) {
+	try {
+		mTimer = std::make_unique<pomp::Timer>(
+			mDemuxer->mSession->getPompLoop(), &mTimerHandler);
+	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
-		PDRAW_LOG_ERRNO("pomp_timer_new", -ret);
+		PDRAW_LOG_ERRNO("pomp::Timer", -ret);
 		goto error;
 	}
 
@@ -1315,15 +1286,7 @@ int RecordDemuxer::DemuxerMedia::setup(const struct mp4_track_info *tkinfo)
 	return 0;
 
 error:
-	if (mTimer != nullptr) {
-		err = pomp_timer_clear(mTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_clear", -err);
-		err = pomp_timer_destroy(mTimer);
-		if (err < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_destroy", -err);
-		mTimer = nullptr;
-	}
+	mTimer.reset();
 	return ret;
 }
 
@@ -1338,7 +1301,7 @@ void RecordDemuxer::DemuxerMedia::play()
 		mPendingSeekToNextSample = true;
 		mPendingSeekExact = true;
 		mPendingPlay = true;
-		pomp_timer_set(mTimer, 1);
+		mTimer->set(1);
 	} else {
 		PDRAW_LOGW("%s: mPendingSeekExact not reset", __func__);
 	}
@@ -1355,7 +1318,7 @@ void RecordDemuxer::DemuxerMedia::previous()
 		mPendingSeekInPlay = false;
 		mPendingSeekToNextSample = false;
 		mPendingSeekExact = true;
-		pomp_timer_set(mTimer, 1);
+		mTimer->set(1);
 	} else {
 		PDRAW_LOGW("%s: mPendingSeekExact not reset", __func__);
 	}
@@ -1372,7 +1335,7 @@ void RecordDemuxer::DemuxerMedia::next()
 		mPendingSeekInPlay = false;
 		mPendingSeekToNextSample = true;
 		mPendingSeekExact = true;
-		pomp_timer_set(mTimer, 1);
+		mTimer->set(1);
 	} else {
 		PDRAW_LOGW("%s: mPendingSeekExact not reset", __func__);
 	}
@@ -1399,7 +1362,7 @@ void RecordDemuxer::DemuxerMedia::seekTo(uint64_t timestamp, bool exact)
 	mPendingSeekExact = exact;
 	mPendingSeekToPrevSample = false;
 	mPendingSeekToNextSample = false;
-	pomp_timer_set(mTimer, 1);
+	mTimer->set(1);
 }
 
 
@@ -1486,25 +1449,25 @@ void RecordDemuxer::DemuxerMedia::sendDownstreamEvent(
 }
 
 
-void RecordDemuxer::DemuxerMedia::channelFlushed(const Channel *channel)
+void RecordDemuxer::DemuxerMedia::channelFlushed(
+	[[maybe_unused]] const Channel *channel)
 {
-	PDRAW_UNUSED(channel);
 
 	completeFlush();
 }
 
 
-void RecordDemuxer::DemuxerMedia::channelDrained(const Channel *channel)
+void RecordDemuxer::DemuxerMedia::channelDrained(
+	[[maybe_unused]] const Channel *channel)
 {
-	PDRAW_UNUSED(channel);
 
 	completeFlush();
 }
 
 
-void RecordDemuxer::DemuxerMedia::channelUnlink(const Channel *channel)
+void RecordDemuxer::DemuxerMedia::channelUnlink(
+	[[maybe_unused]] const Channel *channel)
 {
-	PDRAW_UNUSED(channel);
 
 	mDemuxer->Source::lock();
 
@@ -1526,7 +1489,7 @@ void RecordDemuxer::DemuxerMedia::channelUnlink(const Channel *channel)
 
 void RecordDemuxer::DemuxerMedia::stop()
 {
-	(void)pomp_timer_clear(mTimer);
+	(void)mTimer->clear();
 
 	setRunning(false);
 	mDemuxer->onMediaRunningStateChanged();
@@ -1555,9 +1518,34 @@ void RecordDemuxer::DemuxerMedia::teardownMedia()
 			mDemuxer->Source::mListener->onOutputMediaRemoved(
 				mDemuxer, m->get(), mDemuxer->getDemuxer());
 		}
+		/* Initiate teardown of any channels still attached (e.g.
+		 * AudioDecoder or VideoDecoder when the session is destroyed
+		 * without a prior close()). teardown() sends TEARDOWN to the
+		 * sink asynchronously — it does NOT synchronously remove the
+		 * channel, so removeOutputPort() may still return -EBUSY. */
+		mDemuxer->teardownOutputChannels(m->get());
 		err = mDemuxer->removeOutputPort(m->get());
 		if (err < 0) {
 			PDRAW_LOG_ERRNO("removeOutputPort", -err);
+			if (err == -EBUSY) {
+				/* Channels are in async teardown: the port
+				 * cannot be removed now, but mMedias.clear()
+				 * below will free the media object.
+				 * 1. Null each attached Sink's InputPort::media
+				 *    before the media is freed, so that
+				 *    Sink::~Sink() → removeInputMediasImpl()
+				 *    does not dereference freed memory.
+				 * 2. Null the port's own media pointer so that
+				 *    Source::~Source() → removeOutputPorts()
+				 *    does not dereference freed memory.
+				 * Order matters: clearAttachedSinksInputMedia()
+				 * finds the port by media pointer, so it must
+				 * run before clearOutputPortMedia() nulls it.
+				 */
+				mDemuxer->clearAttachedSinksInputMedia(
+					m->get());
+				mDemuxer->clearOutputPortMedia(m->get());
+			}
 			m++;
 		} else {
 			m = mMedias.erase(m);
@@ -1567,10 +1555,8 @@ void RecordDemuxer::DemuxerMedia::teardownMedia()
 }
 
 
-void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
-					  void *userdata)
+void RecordDemuxer::DemuxerMedia::onTimer()
 {
-	auto *self = static_cast<DemuxerMedia *>(userdata);
 	int ret = 0;
 	bool retry = false;
 	bool silent = false;
@@ -1585,10 +1571,7 @@ void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 	uint64_t curTime = 0;
 	struct mp4_track_sample sample = {};
 
-	if (self == nullptr)
-		return;
-
-	RecordDemuxer *demuxer = self->mDemuxer;
+	RecordDemuxer *demuxer = mDemuxer;
 
 	if (demuxer->mState != State::STARTED) {
 		PDRAW_LOGE("%s: demuxer is not started", __func__);
@@ -1598,12 +1581,12 @@ void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 	speed = demuxer->mSpeed;
 
 	if (!demuxer->mRunning) {
-		self->mLastSampleDuration = 0;
-		self->mLastOutputError = 0;
+		mLastSampleDuration = 0;
+		mLastOutputError = 0;
 		return;
 	}
 
-	if (self->mTearingDown) {
+	if (mTearingDown) {
 		/* Media is tearing down, ignore frames */
 		return;
 	}
@@ -1612,28 +1595,28 @@ void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 	time_timespec_to_us(&ts, &curTime);
 
 	/* Seeking */
-	if ((self->mPendingSeekTs >= 0) || self->mPendingSeekToPrevSample ||
-	    self->mPendingSeekToNextSample) {
-		if (self->isReference()) {
-			if (self->mPendingSeekTs >= 0) {
+	if ((mPendingSeekTs >= 0) || mPendingSeekToPrevSample ||
+	    mPendingSeekToNextSample) {
+		if (isReference()) {
+			if (mPendingSeekTs >= 0) {
 				ret = mp4_demux_seek(
 					demuxer->mDemux,
-					(uint64_t)self->mPendingSeekTs,
+					(uint64_t)mPendingSeekTs,
 					MP4_SEEK_METHOD_PREVIOUS_SYNC);
 				if (ret < 0)
 					PDRAW_LOG_ERRNO("mp4_demux_seek", -ret);
-			} else if (self->mPendingSeekToPrevSample) {
+			} else if (mPendingSeekToPrevSample) {
 				ret = mp4_demux_seek_to_track_prev_sample(
-					demuxer->mDemux, self->mTrackId);
+					demuxer->mDemux, mTrackId);
 				if (ret < 0) {
 					PDRAW_LOG_ERRNO(
 						"mp4_demux_seek_to"
 						"_track_prev_sample",
 						-ret);
 				}
-			} else if (self->mPendingSeekToNextSample) {
+			} else if (mPendingSeekToNextSample) {
 				ret = mp4_demux_seek_to_track_next_sample(
-					demuxer->mDemux, self->mTrackId, true);
+					demuxer->mDemux, mTrackId, true);
 				if (ret < 0) {
 					PDRAW_LOG_ERRNO(
 						"mp4_demux_seek_to"
@@ -1643,49 +1626,48 @@ void RecordDemuxer::DemuxerMedia::timerCb(struct pomp_timer *timer,
 			}
 		}
 		if (ret == 0) {
-			self->mLastSampleDuration = 0;
-			self->mLastOutputError = 0;
+			mLastSampleDuration = 0;
+			mLastOutputError = 0;
 		}
-		self->mSeekResponse = ret;
+		mSeekResponse = ret;
 		/* If not error, seek to next sample only finishes when
 		 * mPendingSeekExact goes back to false */
-		if (ret != 0 || !self->mPendingSeekExact) {
+		if (ret != 0 || !mPendingSeekExact) {
 			didSeek = true;
-			self->mPendingSeekExact = false;
+			mPendingSeekExact = false;
 		}
 	}
 
 	demuxer->Source::lock();
 
-	if (self->mSeekResponse == 0) {
-		ret = self->processSample(
+	if (mSeekResponse == 0) {
+		ret = processSample(
 			&sample, &silent, &retry, &didSeek, &waitFlush);
 		if (ret == -ENOENT) {
 			didSeek = true;
-			self->mPendingSeekExact = false;
+			mPendingSeekExact = false;
 		} else if ((demuxer->mPlaybackMode ==
 			    PDRAW_PLAYBACK_MODE_OFFLINE) &&
 			   (ret < 0) && waitFlush) {
 			waitFlush = false;
 			retry = true;
-			ret = 0;
 			goto out;
 		} else if (ret < 0)
 			goto out;
 	}
 
 	if (didSeek) {
-		if (!self->mPendingSeekInPlay) {
-			self->completeSeek();
-		} else if (self->mPendingPlay) {
-			self->mPlayResponse = self->mSeekResponse;
-			self->completePlay();
+		if (!mPendingSeekInPlay) {
+			completeSeek();
+		} else if (mPendingPlay) {
+			mPlayResponse = mSeekResponse;
+			completePlay();
 		}
 	}
 
 	if (demuxer->mFrameByFrame &&
 	    (!silent || (didSeek && (demuxer->mSeekResponse < 0)))) {
-		self->setRunning(false);
+		setRunning(false);
 		demuxer->onMediaRunningStateChanged();
 	}
 
@@ -1696,14 +1678,24 @@ out:
 		uint64_t nextSampleTime;
 		/* Flush */
 		demuxer->flush();
-		/* Reset the mPendingSeekExact flag */
-		self->mPendingSeekExact = false;
+		/* Reset so this seek isn't replayed on the next pass (it
+		 * would undo the NEXT_SYNC reposition below); mPendingSeekExact
+		 * stays set so processSample() can still complete this seek. */
+		mPendingSeekTs = -1;
+		mPendingSeekToPrevSample = false;
+		mPendingSeekToNextSample = false;
 		/* Seek to next sync sample */
 		ret = mp4_demux_get_track_next_sample_time(
-			demuxer->mDemux, self->mTrackId, &nextSampleTime);
+			demuxer->mDemux, mTrackId, &nextSampleTime);
 		if (ret != 0) {
 			PDRAW_LOG_ERRNO("mp4_demux_get_track_next_sample_time",
 					-ret);
+			/* No later pass will run: resolve a pending seek now */
+			if (mPendingSeek) {
+				mSeekResponse = ret;
+				mPendingSeekExact = false;
+				completeSeek();
+			}
 			demuxer->Source::unlock();
 			return;
 		}
@@ -1712,30 +1704,30 @@ out:
 				     MP4_SEEK_METHOD_NEXT_SYNC);
 		if (ret != 0)
 			PDRAW_LOG_ERRNO("mp4_demux_seek", -ret);
-		/* Stop the timer */
-		waitMs = 0;
+		/* Re-arm (like "retry" below) when an exact seek is pending:
+		 * completeFlush() -> play() won't restart it otherwise. */
+		waitMs = mPendingSeekExact ? 5 : 0;
 	} else if (retry) {
 		waitMs = 5;
 	} else if (demuxer->mRunning) {
 		/* Schedule the next sample */
-		uint64_t nextSampleDts = mp4_sample_time_to_usec(
-			sample.next_dts, self->mTimescale);
+		uint64_t nextSampleDts =
+			mp4_sample_time_to_usec(sample.next_dts, mTimescale);
 
 		/* If error > 0 we are late, if error < 0 we are early */
-		error = ((self->mLastSampleOutputTime == 0) ||
-			 (self->mLastSampleDuration == 0) || (speed == 0.) ||
+		error = ((mLastSampleOutputTime == 0) ||
+			 (mLastSampleDuration == 0) || (speed == 0.) ||
 			 (speed >= PDRAW_PLAY_SPEED_MAX) || silent)
 				? 0
-				: curTime - self->mLastSampleOutputTime -
-					  self->mLastSampleDuration +
-					  self->mLastOutputError;
-		if (self->mLastSampleOutputTime) {
+				: curTime - mLastSampleOutputTime -
+					  mLastSampleDuration +
+					  mLastOutputError;
+		if (mLastSampleOutputTime) {
 			/* Average frame output rate
 			 * (sliding average, alpha = 1/2) */
-			self->mAvgOutputInterval +=
-				((int64_t)(curTime -
-					   self->mLastSampleOutputTime) -
-				 self->mAvgOutputInterval) >>
+			mAvgOutputInterval +=
+				((int64_t)(curTime - mLastSampleOutputTime) -
+				 mAvgOutputInterval) >>
 				1;
 		}
 
@@ -1746,13 +1738,13 @@ out:
 		} else if (speed < 0.) {
 			/* Negative speed => play backward */
 			nextSampleDts = mp4_sample_time_to_usec(
-				sample.prev_sync_dts, self->mTimescale);
+				sample.prev_sync_dts, mTimescale);
 			uint64_t pendingSeekTs = nextSampleDts;
 			uint64_t nextSyncSampleDts = nextSampleDts;
 			uint64_t wantedSampleDts;
-			duration = nextSampleDts -
-				   mp4_sample_time_to_usec(sample.dts,
-							   self->mTimescale);
+			duration =
+				nextSampleDts -
+				mp4_sample_time_to_usec(sample.dts, mTimescale);
 			if (speed != 0.)
 				duration = (int64_t)((float)duration / speed);
 			int64_t newDuration = duration;
@@ -1763,7 +1755,7 @@ out:
 				 * wait time */
 				ret = PREV_SAMPLE_TIME_BEFORE(
 					demuxer->mDemux,
-					self->mTrackId,
+					mTrackId,
 					wantedSampleDts,
 					1,
 					&nextSyncSampleDts);
@@ -1775,10 +1767,10 @@ out:
 				}
 				if (nextSyncSampleDts > 0) {
 					pendingSeekTs = nextSyncSampleDts;
-					newDuration = nextSyncSampleDts -
-						      mp4_sample_time_to_usec(
-							      sample.dts,
-							      self->mTimescale);
+					newDuration =
+						nextSyncSampleDts -
+						mp4_sample_time_to_usec(
+							sample.dts, mTimescale);
 					if (speed != 0.) {
 						newDuration = static_cast<
 							int64_t>(
@@ -1807,9 +1799,9 @@ out:
 			uint64_t pendingSeekTs = 0;
 			uint64_t nextSyncSampleDts = nextSampleDts;
 			uint64_t wantedSampleDts;
-			duration = nextSampleDts -
-				   mp4_sample_time_to_usec(sample.dts,
-							   self->mTimescale);
+			duration =
+				nextSampleDts -
+				mp4_sample_time_to_usec(sample.dts, mTimescale);
 			if (speed != 0.)
 				duration = (int64_t)((float)duration / speed);
 			int64_t newDuration = duration;
@@ -1820,7 +1812,7 @@ out:
 				 * wait time */
 				ret = NEXT_SAMPLE_TIME_AFTER(
 					demuxer->mDemux,
-					self->mTrackId,
+					mTrackId,
 					wantedSampleDts,
 					1,
 					&nextSyncSampleDts);
@@ -1832,10 +1824,10 @@ out:
 				}
 				if (nextSyncSampleDts > 0) {
 					pendingSeekTs = nextSyncSampleDts;
-					newDuration = nextSyncSampleDts -
-						      mp4_sample_time_to_usec(
-							      sample.dts,
-							      self->mTimescale);
+					newDuration =
+						nextSyncSampleDts -
+						mp4_sample_time_to_usec(
+							sample.dts, mTimescale);
 					if (speed != 0.) {
 						newDuration = static_cast<
 							int64_t>(
@@ -1849,8 +1841,7 @@ out:
 				}
 			}
 			if ((pendingSeekTs > 0) &&
-			    (newDuration - error <
-			     2 * self->mAvgOutputInterval)) {
+			    (newDuration - error < 2 * mAvgOutputInterval)) {
 				/* Only seek if the resulting wait time
 				 * is less than twice the average frame
 				 * output rate */
@@ -1860,7 +1851,7 @@ out:
 					(float)(nextSyncSampleDts -
 						mp4_sample_time_to_usec(
 							sample.dts,
-							self->mTimescale)) /
+							mTimescale)) /
 						1000.);
 				duration = newDuration;
 				nextSampleDts = nextSyncSampleDts;
@@ -1894,20 +1885,19 @@ out:
 			if (waitMs == 0)
 				waitMs = 1;
 		} else if (demuxer->mRunning && !demuxer->mFrameByFrame) {
-			self->sendDownstreamEvent(
-				Channel::DownstreamEvent::EOS);
-			self->mFirstSample = true;
+			sendDownstreamEvent(Channel::DownstreamEvent::EOS);
+			mFirstSample = true;
 
-			self->drain();
-			self->setRunning(false);
+			drain();
+			setRunning(false);
 			demuxer->onMediaRunningStateChanged();
 			/* Notify of the end of range */
 			/* TODO: signal once, not for all medias */
 			demuxer->onEndOfRange(demuxer->mCurrentTime);
 		}
-		self->mLastSampleOutputTime = curTime;
-		self->mLastSampleDuration = duration;
-		self->mLastOutputError = error;
+		mLastSampleOutputTime = curTime;
+		mLastSampleDuration = duration;
+		mLastOutputError = error;
 
 #if 0
 		/* TODO: remove debug */
@@ -1918,9 +1908,9 @@ out:
 			   (silent) ? " (silent)" : "");
 #endif
 	} else {
-		self->mLastSampleOutputTime = curTime;
-		self->mLastSampleDuration = 0;
-		self->mLastOutputError = 0;
+		mLastSampleOutputTime = curTime;
+		mLastSampleDuration = 0;
+		mLastOutputError = 0;
 	}
 
 	demuxer->Source::unlock();
@@ -1929,9 +1919,9 @@ out:
 		if ((demuxer->mPlaybackMode == PDRAW_PLAYBACK_MODE_OFFLINE) &&
 		    !retry)
 			waitMs = 1;
-		ret = pomp_timer_set(timer, waitMs);
+		ret = mTimer->set(waitMs);
 		if (ret < 0)
-			PDRAW_LOG_ERRNO("pomp_timer_set", -ret);
+			PDRAW_LOG_ERRNO("pomp::Timer::set", -ret);
 	}
 }
 

@@ -28,10 +28,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_gles2hud_priv.h"
+#include "pdraw_gles2hud_priv.hpp"
 
 
-void pdraw_gles2hud_get_text_dimensions(const char *str,
+void pdraw_gles2hud_get_text_dimensions(const std::string &str,
 					float size,
 					float scalew,
 					float scaleh,
@@ -43,7 +43,7 @@ void pdraw_gles2hud_get_text_dimensions(const char *str,
 
 	const profont_36::file_header *glyph_info = &profont_36::font;
 	float cx = 0.;
-	const char *c = str;
+	const char *c = str.c_str();
 	while (*c != '\0') {
 		if (*c == '\n') {
 			break;
@@ -56,7 +56,6 @@ void pdraw_gles2hud_get_text_dimensions(const char *str,
 	}
 	w = cx;
 	h = glyph_info->norm.ascent + glyph_info->norm.descent;
-	/* + glyph_info->norm.linegap; */
 	w *= size * scalew;
 	h *= size * scaleh;
 
@@ -68,51 +67,51 @@ void pdraw_gles2hud_get_text_dimensions(const char *str,
 
 
 void pdraw_gles2hud_draw_text(const struct pdraw_gles2hud *self,
-			      const char *str,
+			      const std::string &str,
 			      float x,
 			      float y,
 			      float size,
 			      float scalew,
 			      float scaleh,
-			      enum pdraw_gles2hud_text_align halign,
-			      enum pdraw_gles2hud_text_align valign,
-			      const float color[4])
+			      TextAlign halign,
+			      TextAlign valign,
+			      const std::array<float, 4> &color)
 {
 	float w;
 	float h;
-	float vertices[8];
-	float texcoords[8];
+	std::array<float, 8> vertices;
+	std::array<float, 8> texcoords;
 	const profont_36::file_header *glyph_info = &profont_36::font;
 
 	pdraw_gles2hud_get_text_dimensions(str, size, scalew, scaleh, &w, &h);
 
 	switch (halign) {
 	default:
-	case PDRAW_GLES2HUD_TEXT_ALIGN_LEFT:
+	case TextAlign::LEFT:
 		break;
-	case PDRAW_GLES2HUD_TEXT_ALIGN_CENTER:
+	case TextAlign::CENTER:
 		x -= w / 2;
 		break;
-	case PDRAW_GLES2HUD_TEXT_ALIGN_RIGHT:
+	case TextAlign::RIGHT:
 		x -= w;
 		break;
 	}
 
 	switch (valign) {
 	default:
-	case PDRAW_GLES2HUD_TEXT_ALIGN_TOP:
+	case TextAlign::TOP:
 		y -= h;
 		break;
-	case PDRAW_GLES2HUD_TEXT_ALIGN_MIDDLE:
+	case TextAlign::MIDDLE:
 		y -= h / 2;
 		break;
-	case PDRAW_GLES2HUD_TEXT_ALIGN_BOTTOM:
+	case TextAlign::BOTTOM:
 		break;
 	}
 
-	GLCHK(glUniform4fv(self->tex_color_handle, 1, color));
+	GLCHK(glUniform4fv(self->tex_color_handle, 1, color.data()));
 
-	const char *c = str;
+	const char *c = str.c_str();
 	float cx = 0.;
 	while (*c != '\0') {
 		if (*c == '\n')
@@ -144,13 +143,13 @@ void pdraw_gles2hud_draw_text(const struct pdraw_gles2hud *self,
 					    GL_FLOAT,
 					    false,
 					    0,
-					    vertices));
+					    vertices.data()));
 		GLCHK(glVertexAttribPointer(self->tex_texcoord_handle,
 					    2,
 					    GL_FLOAT,
 					    false,
 					    0,
-					    texcoords));
+					    texcoords.data()));
 		GLCHK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
 
 		cx += g.norm.advance * size * scalew;

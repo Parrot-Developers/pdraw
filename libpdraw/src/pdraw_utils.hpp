@@ -47,7 +47,9 @@
 #include <Eigen/Eigen>
 
 #include <atomic>
+#include <cstddef>
 #include <memory>
+#include <string_view>
 
 
 /* Disable copy constructor and assignment operator */
@@ -103,22 +105,6 @@ private:                                                                       \
 
 
 #define PDRAW_STATIC_ASSERT(x) typedef char __STATIC_ASSERT__[(x) ? 1 : -1]
-
-
-#ifndef PDRAW_UNUSED
-#	define PDRAW_UNUSED(x) (void)(x)
-#endif
-
-
-#if __cplusplus >= 201402L
-using std::make_unique;
-#else
-template <typename T, typename... Args>
-std::unique_ptr<T> make_unique(Args &&...args)
-{
-	return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
-}
-#endif
 
 
 void pdraw_gaussianDistribution(float *samples,
@@ -279,6 +265,48 @@ static inline int xstrcmp(const char *s1, const char *s2)
 }
 
 
+struct FreeDeleter {
+	void operator()(void *p) const noexcept
+	{
+		std::free(p);
+	}
+};
+
+template <typename T> using unique_c_ptr = std::unique_ptr<T, FreeDeleter>;
+
+/* Declares a NameDeleter struct and NamePtr type alias for a C type with a
+ * custom free function. Usage: DECLARE_UNIQUE_C_PTR(struct foo, Foo, foo_free)
+ * then use FooPtr as the unique_ptr type. */
+#define DECLARE_UNIQUE_C_PTR(Type, Name, FreeFunc)                             \
+	struct Name##Deleter {                                                 \
+		void operator()(Type *p) const noexcept                        \
+		{                                                              \
+			if (p)                                                 \
+				(void)FreeFunc(p);                             \
+		}                                                              \
+	};                                                                     \
+	using Name##Ptr = std::unique_ptr<Type, Name##Deleter>
+
+DECLARE_UNIQUE_C_PTR(struct pdraw_media_info, MediaInfo, pdraw_mediaInfoFree);
+DECLARE_UNIQUE_C_PTR(struct pdraw_vipc_source_params,
+		     VipcSourceParams,
+		     pdraw_vipcSourceParamsFree);
+DECLARE_UNIQUE_C_PTR(struct pdraw_muxer_params,
+		     MuxerParams,
+		     pdraw_muxerParamsFree);
+DECLARE_UNIQUE_C_PTR(struct pdraw_muxer_media_params,
+		     MuxerMediaParams,
+		     pdraw_muxerMediaParamsFree);
+
+/* Allocates a zero-initialized C struct and wraps it in a unique_ptr.
+ * Returns a null PtrType on allocation failure (no throw). */
+template <typename PtrType> static inline PtrType make_c_struct() noexcept
+{
+	using T = typename PtrType::element_type;
+	return PtrType(static_cast<T *>(calloc(1, sizeof(T))));
+}
+
+
 static inline unsigned int pdraw_gcd(unsigned int a, unsigned int b)
 {
 	while (b != 0) {
@@ -287,6 +315,14 @@ static inline unsigned int pdraw_gcd(unsigned int a, unsigned int b)
 		b = t;
 	}
 	return a;
+}
+
+
+template <typename EnumType>
+EnumType extractNaluType(uint8_t rawByte, uint8_t mask, uint8_t shift = 0)
+{
+	const auto byteVal = (std::byte{rawByte} >> shift) & std::byte{mask};
+	return static_cast<EnumType>(std::to_integer<uint8_t>(byteVal));
 }
 
 
@@ -318,7 +354,7 @@ public:
 protected:
 	Loggable();
 
-	void setName(const std::string &name);
+	void setName(std::string_view name);
 
 	void setName(const char *name);
 

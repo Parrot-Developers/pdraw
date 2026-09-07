@@ -175,7 +175,7 @@ PDRAW_GLES2HUD_API int pdraw_gles2hud_destroy(struct pdraw_gles2hud *self);
  * @return 0 on success, negative errno value in case of error
  */
 PDRAW_GLES2HUD_API int
-pdraw_gles2hud_get_config(struct pdraw_gles2hud *self,
+pdraw_gles2hud_get_config(const struct pdraw_gles2hud *self,
 			  struct pdraw_gles2hud_config *config);
 
 

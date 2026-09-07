@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_rndaud
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_renderer_audio.hpp"
 #if defined(PDRAW_USE_ALSA)
@@ -40,47 +39,49 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include <errno.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
 
-AudioRenderer *
-AudioRenderer::create(Session *session,
-		      Element::Listener *listener,
-		      AudioRendererWrapper *wrapper,
-		      IPdraw::IAudioRenderer::Listener *rndListener,
-		      unsigned int mediaId,
-		      const struct pdraw_audio_renderer_params *params)
+std::unique_ptr<AudioRenderer> AudioRenderer::create(
+	[[maybe_unused]] Session *session,
+	[[maybe_unused]] Element::Listener *listener,
+	[[maybe_unused]] AudioRendererWrapper *wrapper,
+	[[maybe_unused]] IPdraw::IAudioRenderer::Listener *rndListener,
+	[[maybe_unused]] unsigned int mediaId,
+	[[maybe_unused]] const struct pdraw_audio_renderer_params *params)
 {
 #if defined(PDRAW_USE_ALSA)
-	return new AlsaAudioRenderer(session,
-				     listener,
-				     wrapper,
-				     rndListener,
-				     static_cast<uint32_t>(Media::Type::AUDIO),
-				     mediaId,
-				     params);
+	try {
+		return std::make_unique<AlsaAudioRenderer>(
+			session,
+			listener,
+			wrapper,
+			rndListener,
+			static_cast<uint32_t>(Media::Type::AUDIO),
+			mediaId,
+			params);
+	} catch (const std::bad_alloc &) {
+		ULOGE("%s: failed to allocate renderer", __func__);
+		return nullptr;
+	}
 #else
-	PDRAW_UNUSED(session);
-	PDRAW_UNUSED(listener);
-	PDRAW_UNUSED(wrapper);
-	PDRAW_UNUSED(rndListener);
-	PDRAW_UNUSED(mediaId);
-	PDRAW_UNUSED(params);
-
 	ULOGE("no audio renderer implementation found");
 	return nullptr;
 #endif /* PDRAW_USE_ALSA */
 }
 
 
-AudioRenderer::AudioRenderer(Session *session,
-			     Element::Listener *listener,
-			     AudioRendererWrapper *wrapper,
-			     IPdraw::IAudioRenderer::Listener *rndListener,
-			     uint32_t mediaTypeCaps,
-			     const struct adef_format *audioMediaFormatCaps,
-			     int audioMediaFormatCapsCount,
-			     unsigned int mediaId,
-			     const struct pdraw_audio_renderer_params *params) :
+AudioRenderer::AudioRenderer(
+	Session *session,
+	Element::Listener *listener,
+	AudioRendererWrapper *wrapper,
+	IPdraw::IAudioRenderer::Listener *rndListener,
+	[[maybe_unused]] uint32_t mediaTypeCaps,
+	const struct adef_format *audioMediaFormatCaps,
+	int audioMediaFormatCapsCount,
+	[[maybe_unused]] unsigned int mediaId,
+	[[maybe_unused]] const struct pdraw_audio_renderer_params *params) :
 		SinkElement(session,
 			    listener,
 			    wrapper,
@@ -93,43 +94,37 @@ AudioRenderer::AudioRenderer(Session *session,
 			    audioMediaFormatCapsCount),
 		mRenderer(wrapper), mRendererListener(rndListener)
 {
-	PDRAW_UNUSED(mediaTypeCaps);
-	PDRAW_UNUSED(mediaId);
-	PDRAW_UNUSED(params);
+
+	mCompleteStopHandler.set([this] { idleCompleteStop(); });
 }
 
 
 AudioRenderer::~AudioRenderer()
 {
 	/* Remove any leftover idle callbacks */
-	int err = pomp_loop_idle_remove_by_cookie(mSession->getLoop(), this);
-	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_remove_by_cookie", -err);
+	mSession->getPompLoop()->idleRemove(this);
 }
 
 
 void AudioRenderer::removeRendererListener()
 {
-	std::unique_lock<std::mutex> lock(mListenerMutex);
+	std::scoped_lock lock(mListenerMutex);
 	mRendererListener = nullptr;
 }
 
 
 void AudioRenderer::asyncCompleteStop()
 {
-	int err = pomp_loop_idle_add_with_cookie(
-		mSession->getLoop(), idleCompleteStop, this, this);
+	int err = mSession->getPompLoop()->idleAdd(&mCompleteStopHandler, this);
 	if (err < 0)
-		PDRAW_LOG_ERRNO("pomp_loop_idle_add_with_cookie", -err);
+		PDRAW_LOG_ERRNO("Loop::idleAdd", -err);
 }
 
 
 /* Listener call from an idle function */
-void AudioRenderer::idleCompleteStop(void *userdata)
+void AudioRenderer::idleCompleteStop()
 {
-	auto *self = static_cast<AudioRenderer *>(userdata);
-	PDRAW_LOG_ERRNO_RETURN_IF(self == nullptr, EINVAL);
-	self->completeStop();
+	completeStop();
 }
 
 
@@ -137,15 +132,12 @@ AudioRendererWrapper::AudioRendererWrapper(
 	Session *session,
 	unsigned int mediaId,
 	const struct pdraw_audio_renderer_params *params,
-	IPdraw::IAudioRenderer::Listener *listener) :
-		ElementWrapper(Pdraw::AudioRenderer::create(session,
-							    session,
-							    this,
-							    listener,
-							    mediaId,
-							    params)),
-		mRenderer(static_cast<Pdraw::AudioRenderer *>(mElement))
+	IPdraw::IAudioRenderer::Listener *listener)
 {
+	auto impl = Pdraw::AudioRenderer::create(
+		session, session, this, listener, mediaId, params);
+	mRenderer = impl.get();
+	mElement = impl.release();
 }
 
 

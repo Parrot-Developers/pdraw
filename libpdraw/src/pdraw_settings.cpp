@@ -30,23 +30,12 @@
 
 #define ULOG_TAG pdraw_settings
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_settings.hpp"
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
-
-
-void Settings::lock()
-{
-	mMutex.lock();
-}
-
-
-void Settings::unlock()
-{
-	mMutex.unlock();
-}
 
 
 void Settings::getFriendlyName(std::string *friendlyName)
@@ -54,14 +43,14 @@ void Settings::getFriendlyName(std::string *friendlyName)
 	if (friendlyName == nullptr)
 		return;
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	*friendlyName = mFriendlyName;
 }
 
 
 void Settings::setFriendlyName(const std::string &friendlyName)
 {
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	mFriendlyName = friendlyName;
 }
 
@@ -71,14 +60,14 @@ void Settings::getSerialNumber(std::string *serialNumber)
 	if (serialNumber == nullptr)
 		return;
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	*serialNumber = mSerialNumber;
 }
 
 
 void Settings::setSerialNumber(const std::string &serialNumber)
 {
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	mSerialNumber = serialNumber;
 }
 
@@ -88,14 +77,14 @@ void Settings::getSoftwareVersion(std::string *softwareVersion)
 	if (softwareVersion == nullptr)
 		return;
 
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	*softwareVersion = mSoftwareVersion;
 }
 
 
 void Settings::setSoftwareVersion(const std::string &softwareVersion)
 {
-	std::unique_lock<std::recursive_mutex> lock(mMutex);
+	std::scoped_lock lock(mMutex);
 	mSoftwareVersion = softwareVersion;
 }
 

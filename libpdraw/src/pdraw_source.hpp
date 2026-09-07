@@ -98,6 +98,26 @@ protected:
 
 	int removeOutputPort(const Media *media);
 
+	/* Null the media pointer of the output port for 'media' without
+	 * removing the port.  Called when removeOutputPort() returned -EBUSY
+	 * (channels still in async teardown) and the media object is about to
+	 * be freed, to prevent Source::~Source() → removeOutputPorts() from
+	 * dereferencing a dangling pointer. */
+	void clearOutputPortMedia(const Media *media);
+
+	/* Walk every channel in the output port for 'media' and:
+	 *  - null the owning Sink's InputPort::media pointer, so that
+	 *    Sink::~Sink() → removeInputMediasImpl() does not dereference
+	 *    freed media memory; and
+	 *  - null the channel's SourceListener pointer, so that
+	 *    Channel::unlink() does not dispatch into the freed source object.
+	 * Must be called before clearOutputPortMedia() (so the port can still
+	 * be found by media pointer) and before both the media object and the
+	 * source object are freed. */
+	void clearAttachedSinksInputMedia(const Media *media);
+
+	int teardownOutputChannels(const Media *media);
+
 	int removeOutputPorts();
 
 	int createOutputPortMemoryPool(const Media *media,
@@ -110,7 +130,7 @@ protected:
 				Channel::DownstreamEvent event);
 
 	void onChannelUpstreamEvent(Channel *channel,
-				    const struct pomp_msg *event) override;
+				    const pomp::Message &event) override;
 
 	virtual void onChannelUnlink(Channel *channel);
 
@@ -141,7 +161,7 @@ protected:
 	Listener *mListener = nullptr;
 
 private:
-	int removeOutputPorts(bool calledFromDtor);
+	int removeOutputPorts(const char *name);
 
 	int destroyOutputPortMemoryPool(OutputPort *port);
 };

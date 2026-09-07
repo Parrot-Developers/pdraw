@@ -101,12 +101,11 @@ private:
 	static bool inputFilter(struct mbuf_raw_video_frame *frame,
 				void *userdata);
 
-	static void idleCompleteFlush(void *userdata);
+	void idleCompleteFlush();
 
 	/* Video source listener calls from idle functions */
-	static void callOnMediaAdded(void *userdata);
-
-	static void callVideoSourceFlushed(void *userdata);
+	void callOnMediaAdded();
+	void callVideoSourceFlushed();
 
 	IPdraw::IRawVideoSource *mVideoSource = nullptr;
 	IPdraw::IRawVideoSource::Listener *mVideoSourceListener = nullptr;
@@ -115,6 +114,9 @@ private:
 	std::unique_ptr<mbuf::Queue> mFrameQueue;
 	std::unique_ptr<RawVideoMedia> mOutputMedia{};
 	uint64_t mLastTimestamp = UINT64_MAX;
+	pomp::Loop::IdleHandlerFunc mCompleteFlushHandler;
+	pomp::Loop::IdleHandlerFunc mCallOnMediaAddedHandler;
+	pomp::Loop::IdleHandlerFunc mCallVideoSourceFlushedHandler;
 };
 
 
@@ -154,7 +156,7 @@ public:
 	}
 
 private:
-	bool isElementStopped() const override
+	bool isElementStopped() const final
 	{
 		return (ElementWrapper::isElementStopped() ||
 			mSource == nullptr);

@@ -28,7 +28,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "pdraw_gles2hud_priv.h"
+#include "pdraw_gles2hud_priv.hpp"
 
 
 static const GLchar *const hud_vertex_shader =
@@ -132,9 +132,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glCompileShader(vertex_shader);
 	glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512];
-		glGetShaderInfoLog(vertex_shader, 512, nullptr, info_log);
-		ULOGE("vertex shader compilation failed '%s'", info_log);
+		std::array<GLchar, 512> info_log;
+		glGetShaderInfoLog(vertex_shader,
+				   info_log.size(),
+				   nullptr,
+				   info_log.data());
+		ULOGE("vertex shader compilation failed '%s'", info_log.data());
 		goto error;
 	}
 
@@ -148,9 +151,13 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glCompileShader(fragment_shader);
 	glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512];
-		glGetShaderInfoLog(fragment_shader, 512, nullptr, info_log);
-		ULOGE("fragment shader compilation failed '%s'", info_log);
+		std::array<GLchar, 512> info_log;
+		glGetShaderInfoLog(fragment_shader,
+				   info_log.size(),
+				   nullptr,
+				   info_log.data());
+		ULOGE("fragment shader compilation failed '%s'",
+		      info_log.data());
 		goto error;
 	}
 
@@ -160,9 +167,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glLinkProgram(self->program);
 	glGetProgramiv(self->program, GL_LINK_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512] = {};
-		glGetProgramInfoLog(self->program, 512, nullptr, info_log);
-		ULOGE("program link failed '%s'", info_log);
+		std::array<GLchar, 512> info_log = {};
+		glGetProgramInfoLog(self->program,
+				    info_log.size(),
+				    nullptr,
+				    info_log.data());
+		ULOGE("program link failed '%s'", info_log.data());
 		goto error;
 	}
 
@@ -189,9 +199,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glCompileShader(vertex_shader);
 	glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512];
-		glGetShaderInfoLog(vertex_shader, 512, nullptr, info_log);
-		ULOGE("vertex shader compilation failed '%s'", info_log);
+		std::array<GLchar, 512> info_log;
+		glGetShaderInfoLog(vertex_shader,
+				   info_log.size(),
+				   nullptr,
+				   info_log.data());
+		ULOGE("vertex shader compilation failed '%s'", info_log.data());
 		goto error;
 	}
 
@@ -205,9 +218,13 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glCompileShader(fragment_shader);
 	glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512];
-		glGetShaderInfoLog(fragment_shader, 512, nullptr, info_log);
-		ULOGE("fragment shader compilation failed '%s'", info_log);
+		std::array<GLchar, 512> info_log;
+		glGetShaderInfoLog(fragment_shader,
+				   info_log.size(),
+				   nullptr,
+				   info_log.data());
+		ULOGE("fragment shader compilation failed '%s'",
+		      info_log.data());
 		goto error;
 	}
 
@@ -217,9 +234,12 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	glLinkProgram(self->tex_program);
 	glGetProgramiv(self->tex_program, GL_LINK_STATUS, &success);
 	if (!success) {
-		GLchar info_log[512] = {};
-		glGetProgramInfoLog(self->tex_program, 512, nullptr, info_log);
-		ULOGE("program link failed '%s'", info_log);
+		std::array<GLchar, 512> info_log = {};
+		glGetProgramInfoLog(self->tex_program,
+				    info_log.size(),
+				    nullptr,
+				    info_log.data());
+		ULOGE("program link failed '%s'", info_log.data());
 		goto error;
 	}
 
@@ -242,7 +262,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	GLCHK();
 
 	self->icons_texunit = self->first_texunit;
-	res = pdraw_gles2hud_load_texture_from_buffer(hud_icons,
+	res = pdraw_gles2hud_load_texture_from_buffer(hud_icons.data(),
 						      hud_icons_width,
 						      hud_icons_height,
 						      self->icons_texunit);
@@ -253,7 +273,7 @@ int pdraw_gles2hud_create_programs(struct pdraw_gles2hud *self)
 	self->icons_texture = (GLuint)res;
 
 	self->text_texunit = self->first_texunit + 1;
-	res = pdraw_gles2hud_load_texture_from_buffer(profont_36::image,
+	res = pdraw_gles2hud_load_texture_from_buffer(profont_36::image.data(),
 						      profont_36::image_width,
 						      profont_36::image_height,
 						      self->text_texunit);

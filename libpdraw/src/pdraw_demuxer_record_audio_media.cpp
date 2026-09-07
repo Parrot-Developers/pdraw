@@ -163,7 +163,7 @@ int RecordDemuxer::DemuxerAudioMedia::setupMedia(
 	std::unique_ptr<AudioMedia> audioMedia = nullptr;
 
 	try {
-		audioMedia = make_unique<AudioMedia>(mDemuxer->mSession);
+		audioMedia = std::make_unique<AudioMedia>(mDemuxer->mSession);
 	} catch (const std::bad_alloc &) {
 		ret = -ENOMEM;
 		mDemuxer->Source::unlock();
@@ -184,14 +184,6 @@ int RecordDemuxer::DemuxerAudioMedia::setupMedia(
 	if (ret < 0) {
 		mDemuxer->Source::unlock();
 		PDRAW_LOG_ERRNO("addOutputPort", -ret);
-		return ret;
-	}
-
-	/* Set the output media info */
-	if (tkinfo->audio_codec != MP4_AUDIO_CODEC_AAC_LC) {
-		mDemuxer->Source::unlock();
-		ret = -EPROTO;
-		PDRAW_LOGE("invalid audio codec");
 		return ret;
 	}
 
@@ -221,8 +213,8 @@ int RecordDemuxer::DemuxerAudioMedia::setupMedia(
 	std::string path =
 		mDemuxer->Element::getName() + "$" + mAudioMedia->getName();
 	mAudioMedia->setPath(path);
-	mAudioMedia->playbackType = PDRAW_PLAYBACK_TYPE_REPLAY;
-	mAudioMedia->duration = mDemuxer->mDuration;
+	mAudioMedia->setPlaybackType(PDRAW_PLAYBACK_TYPE_REPLAY);
+	mAudioMedia->setDuration(mDemuxer->mDuration);
 
 	ret = mDemuxer->createOutputPortMemoryPool(
 		mAudioMedia,
@@ -281,11 +273,14 @@ int RecordDemuxer::DemuxerAudioMedia::processSample(
 		*waitFlush = true;
 		goto exit;
 	}
-	ret = mbuf_mem_get_data(
-		mCurrentMem, reinterpret_cast<void **>(&buf), &bufSize);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
-		goto exit;
+	{
+		void *rawBuf = nullptr;
+		ret = mbuf_mem_get_data(mCurrentMem, &rawBuf, &bufSize);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mbuf_mem_get_data", -ret);
+			goto exit;
+		}
+		buf = static_cast<uint8_t *>(rawBuf);
 	}
 
 	/* Get a sample size */

@@ -37,7 +37,6 @@
 #include <vector>
 
 #include <h264/h264.h>
-#include <libpomp.h>
 #include <libsdp.h>
 #include <rtsp/client.h>
 #include <rtsp/rtsp_url.hpp>
@@ -104,7 +103,7 @@ protected:
 
 		bool hasMedia(const Media *media) const;
 
-		unsigned int getMediaCount() const
+		size_t getMediaCount() const
 		{
 			return mVideoMedias.size();
 		}
@@ -265,7 +264,7 @@ protected:
 
 		void asyncCompleteSeek();
 
-		static void idleCompleteSeek(void *userdata);
+		void idleCompleteSeek();
 
 		void completeSeek();
 
@@ -318,17 +317,17 @@ protected:
 				      const char *reason,
 				      void *userdata);
 
-		static void frameTimeoutCb(struct pomp_timer *timer,
-					   void *userdata);
+		void onFrameTimeout();
 
-		static void rangeTimerCb(struct pomp_timer *timer,
-					 void *userdata);
+		void onRangeTimer();
 
 		std::vector<std::unique_ptr<CodedVideoMedia>> mVideoMedias{};
 		struct sdp_media *mSdpMedia = nullptr;
 		struct h264_reader *mH264Reader = nullptr;
-		struct pomp_timer *mFrameTimer = nullptr;
-		struct pomp_timer *mRangeTimer = nullptr;
+		pomp::Timer::HandlerFunc mFrameTimerHandler;
+		std::unique_ptr<pomp::Timer> mFrameTimer;
+		pomp::Timer::HandlerFunc mRangeTimerHandler;
+		std::unique_ptr<pomp::Timer> mRangeTimer;
 		uint32_t mSsrc = 0;
 		bool mFlushing = false;
 		bool mFlushDiscard = false;
@@ -359,6 +358,7 @@ protected:
 		bool mRtpPaused = true;
 		static const struct vstrm_receiver_cbs mReceiverCbs;
 		static const struct h264_ctx_cbs mH264Cbs;
+		pomp::Loop::IdleHandlerFunc mCompleteSeekHandler;
 	};
 
 	struct SetupRequest {
@@ -418,8 +418,8 @@ protected:
 
 	std::unique_ptr<RtspUrl> mUrl;
 	struct rtsp_client *mRtspClient = nullptr;
-	const char *mContentBase = nullptr;
-	const char *mShortContentBase = nullptr;
+	std::string mContentBase;
+	std::string mShortContentBase;
 	std::string mLocalAddr{};
 	std::string mRemoteAddr{};
 	SessionProtocol mSessionProtocol = SessionProtocol::NONE;
@@ -450,6 +450,8 @@ private:
 	void completeTeardown();
 
 	void tryCompleteStart(bool callOpenResp = true);
+
+	int stopNetwork();
 
 	void tryCompleteStop();
 
@@ -578,9 +580,9 @@ private:
 					 size_t ext_count,
 					 void *userdata);
 
-	static void idleRtspDisconnect(void *userdata);
-	static void idleEndOfRangeNotification(void *userdata);
-	static void idleCompleteTeardown(void *userdata);
+	void idleRtspDisconnect();
+	void idleEndOfRangeNotification();
+	void idleCompleteTeardown();
 
 	static void videoStatsDynCleaner(struct mbuf_ancillary_data *data,
 					 void *userdata);
@@ -591,7 +593,7 @@ private:
 	bool mNetworkReadyForStop = false;
 	bool mDescribeRetried = false;
 	RtspState mRtspState = RtspState::DISCONNECTED;
-	const char *mRtspSessionId = nullptr;
+	std::string mRtspSessionId;
 	bool mRunning = false;
 	/* Whether mRunning has been set to true at least once;
 	 * needed to handle the start_in_pause (PAUSE_NEXT) feature */
@@ -614,6 +616,9 @@ private:
 	bool mSeekingNetwork = false;
 	int mSeekResponse = false;
 	static const struct rtsp_client_cbs mRtspClientCbs;
+	pomp::Loop::IdleHandlerFunc mRtspDisconnectHandler;
+	pomp::Loop::IdleHandlerFunc mEndOfRangeNotificationHandler;
+	pomp::Loop::IdleHandlerFunc mCompleteTeardownHandler;
 };
 
 } /* namespace Pdraw */

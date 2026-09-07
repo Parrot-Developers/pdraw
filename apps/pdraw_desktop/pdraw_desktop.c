@@ -83,6 +83,8 @@ int pdraw_desktop_open(struct pdraw_desktop *self)
 			&self->demuxer);
 		if (res < 0)
 			ULOG_ERRNO("pdraw_be_demuxer_new_single_stream", -res);
+		self->media_count = 1;
+		self->video_media_count = 1;
 	}
 	return res;
 }
@@ -170,7 +172,7 @@ void pdraw_desktop_toggle_play_pause(struct pdraw_desktop *self)
 				res = pdraw_be_demuxer_play_with_speed(
 					self->pdraw,
 					self->demuxer,
-					self->speed * self->speed_sign);
+					self->speed * (float)self->speed_sign);
 				if (res < 0) {
 					ULOG_ERRNO(
 						"pdraw_be_demuxer_play"
@@ -217,7 +219,7 @@ void pdraw_desktop_toggle_speed_sign(struct pdraw_desktop *self)
 		res = pdraw_be_demuxer_play_with_speed(
 			self->pdraw,
 			self->demuxer,
-			self->speed * self->speed_sign);
+			self->speed * (float)self->speed_sign);
 		if (res < 0)
 			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
 	}
@@ -234,7 +236,7 @@ void pdraw_desktop_speed_down(struct pdraw_desktop *self)
 		res = pdraw_be_demuxer_play_with_speed(
 			self->pdraw,
 			self->demuxer,
-			self->speed * self->speed_sign);
+			self->speed * (float)self->speed_sign);
 		if (res < 0)
 			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
 	}
@@ -251,7 +253,7 @@ void pdraw_desktop_speed_up(struct pdraw_desktop *self)
 		res = pdraw_be_demuxer_play_with_speed(
 			self->pdraw,
 			self->demuxer,
-			self->speed * self->speed_sign);
+			self->speed * (float)self->speed_sign);
 		if (res < 0)
 			ULOG_ERRNO("pdraw_be_demuxer_play_with_speed", -res);
 	}
@@ -502,10 +504,9 @@ void pdraw_desktop_dump_pipeline(struct pdraw_desktop *self)
 void pdraw_desktop_change_scheduling_mode(struct pdraw_desktop *self)
 {
 	int err;
-	unsigned int i;
 	struct pdraw_video_renderer_params params;
 
-	for (i = 0; i < self->video_renderer_count; i++) {
+	for (unsigned int i = 0; i < self->video_renderer_count; i++) {
 		err = pdraw_be_video_renderer_get_params(
 			self->pdraw,
 			self->video_renderers[i].renderer,
@@ -585,12 +586,12 @@ void pdraw_desktop_toggle_demuxer_media(struct pdraw_desktop *self)
 		ULOGD("selected_list[%zu] = %d", i, selected_list[i]);
 
 	for (size_t i = 0; i < selected_list_count; i++) {
-		for (size_t j = 0; i < allowed_list_count; j++) {
-			int next_allowed_idx = (j + 1) % allowed_list_count;
+		for (size_t j = 0; j < allowed_list_count; j++) {
+			size_t next_allowed_idx = (j + 1) % allowed_list_count;
 			int next_allowed_media = allowed_list[next_allowed_idx];
-			if (((next_allowed_idx > (int)j) &&
+			if (((next_allowed_idx > j) &&
 			     (next_allowed_media > selected_list[i])) ||
-			    ((next_allowed_idx < (int)j) &&
+			    ((next_allowed_idx < j) &&
 			     (next_allowed_media < selected_list[i]))) {
 				ULOGD("updating selected_list[%zu] (=%d) to %d",
 				      i,
@@ -624,10 +625,9 @@ out:
 void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self)
 {
 	int err;
-	unsigned int i;
 	struct pdraw_video_renderer_params params;
 
-	for (i = 0; i < self->video_renderer_count; i++) {
+	for (unsigned int i = 0; i < self->video_renderer_count; i++) {
 		err = pdraw_be_video_renderer_get_params(
 			self->pdraw,
 			self->video_renderers[i].renderer,
@@ -661,7 +661,6 @@ void pdraw_desktop_change_fill_mode(struct pdraw_desktop *self)
 void pdraw_desktop_toggle_mb_status(struct pdraw_desktop *self)
 {
 	int err;
-	unsigned int i;
 	struct pdraw_video_renderer_params params;
 	uint32_t dbg_flags = 0;
 	const char *env_dbg_flags = getenv(PDRAW_VIDEO_RENDERER_DBG_FLAGS);
@@ -709,7 +708,7 @@ void pdraw_desktop_toggle_mb_status(struct pdraw_desktop *self)
 		      : "OFF");
 
 	/* Reload renderer params to apply changes */
-	for (i = 0; i < self->video_renderer_count; i++) {
+	for (unsigned int i = 0; i < self->video_renderer_count; i++) {
 		err = pdraw_be_video_renderer_get_params(
 			self->pdraw,
 			self->video_renderers[i].renderer,
@@ -739,7 +738,7 @@ stop_resp_cb(struct pdraw_backend *pdraw, int status, void *userdata)
 {
 	UNUSED(pdraw);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s)", __func__, status, strerror(-status));
 
@@ -801,7 +800,7 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 	UNUSED(pdraw);
 	UNUSED(element_userdata);
 
-	int index = -1;
+	size_t index = SIZE_MAX;
 	struct pdraw_desktop *self = userdata;
 	ULOGI("%s id=%d path=%s", __func__, info->id, info->path);
 	/* Cleanup any pending media */
@@ -817,7 +816,7 @@ static void media_removed_cb(struct pdraw_backend *pdraw,
 			break;
 		}
 	}
-	if (index < 0) {
+	if (index == SIZE_MAX) {
 		/* Replace oldest index */
 		index = (self->latest_removed_media_index + 1) %
 			SIZEOF_ARRAY(self->removed_medias);
@@ -962,7 +961,7 @@ static void unrecoverable_error_cb(struct pdraw_backend *pdraw,
 	UNUSED(pdraw);
 	UNUSED(demuxer);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s", __func__);
 
@@ -986,7 +985,7 @@ static int select_media_cb(struct pdraw_backend *pdraw,
 	int ids = 0;
 	char s[100];
 	char *str = s;
-	char *id_str = NULL;
+	const char *id_str = NULL;
 	char *temp = NULL;
 	unsigned int default_media_count = 0;
 	unsigned int default_video_media_count = 0;
@@ -1166,7 +1165,7 @@ static void ready_to_play_cb(struct pdraw_backend *pdraw,
 	UNUSED(pdraw);
 	UNUSED(demuxer);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s ready=%d", __func__, ready);
 
@@ -1200,7 +1199,7 @@ static void play_resp_cb(struct pdraw_backend *pdraw,
 	UNUSED(pdraw);
 	UNUSED(demuxer);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64 " speed=%f",
 	      __func__,
@@ -1225,7 +1224,7 @@ static void pause_resp_cb(struct pdraw_backend *pdraw,
 	UNUSED(pdraw);
 	UNUSED(demuxer);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64,
 	      __func__,
@@ -1250,7 +1249,7 @@ static void seek_resp_cb(struct pdraw_backend *pdraw,
 	UNUSED(pdraw);
 	UNUSED(demuxer);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s status=%d(%s) timestamp=%" PRIu64 " speed=%f",
 	      __func__,
@@ -1277,7 +1276,7 @@ source_ready_to_play_cb(struct pdraw_backend *pdraw,
 	UNUSED(source);
 	UNUSED(eos_reason);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
 
 	ULOGI("%s ready=%d", __func__, ready);
 
@@ -1389,7 +1388,8 @@ static int load_texture_cb(struct pdraw_backend *pdraw,
 	UNUSED(texture_width);
 	UNUSED(texture_height);
 
-	struct pdraw_desktop *self = userdata;
+	const struct pdraw_desktop *self = userdata;
+
 	return pdraw_desktop_ext_tex_load(self,
 					  pdraw,
 					  video_renderer,
@@ -1719,7 +1719,7 @@ static enum pdraw_video_renderer_fill_mode parse_fill_mode(const char *value)
 }
 
 
-static int parse_time_code(const char *optarg, float *timecode)
+static int parse_time_code(const char *time_str, float *timecode)
 {
 	int ret;
 	int h = 0;
@@ -1727,12 +1727,12 @@ static int parse_time_code(const char *optarg, float *timecode)
 	int n = 0;
 	float s = 0.;
 
-	if (optarg == NULL || timecode == NULL)
+	if (time_str == NULL || timecode == NULL)
 		return -EINVAL;
 
 	/* Format: ss.(ss) */
-	ret = sscanf(optarg, "%f%n", &s, &n);
-	if (ret == 1 && optarg[n] == '\0') {
+	ret = sscanf(time_str, "%f%n", &s, &n);
+	if (ret == 1 && time_str[n] == '\0') {
 		if (s < 0.f)
 			return -EINVAL;
 		*timecode = s;
@@ -1740,25 +1740,42 @@ static int parse_time_code(const char *optarg, float *timecode)
 	}
 
 	/* Format: mm:ss(.ss) */
-	ret = sscanf(optarg, "%d:%f%n", &m, &s, &n);
-	if (ret == 2 && optarg[n] == '\0') {
+	ret = sscanf(time_str, "%d:%f%n", &m, &s, &n);
+	if (ret == 2 && time_str[n] == '\0') {
 		if (!((m >= 0) && (s >= 0.f && s < 60.f)))
 			return -EINVAL;
-		*timecode = (m * 60) + s;
+		*timecode = ((float)m * 60.0f) + s;
 		return 0;
 	}
 
 	/* Format: hh:mm:ss(.ss) */
-	ret = sscanf(optarg, "%d:%d:%f%n", &h, &m, &s, &n);
-	if (ret == 3 && optarg[n] == '\0') {
+	ret = sscanf(time_str, "%d:%d:%f%n", &h, &m, &s, &n);
+	if (ret == 3 && time_str[n] == '\0') {
 		if (!((h >= 0) && (m >= 0 && m <= 59) &&
 		      (s >= 0.f && s < 60.f)))
 			return -EINVAL;
-		*timecode = (h * 60 * 60) + (m * 60) + s;
+		*timecode = ((float)h * 3600.0f) + ((float)m * 60.0f) + s;
 		return 0;
 	}
 
 	return -EINVAL;
+}
+
+
+static int parse_port(const char *str, uint16_t *port)
+{
+	char *endptr;
+	long val;
+
+	errno = 0;
+	val = strtol(str, &endptr, 10);
+
+	if (errno != 0 || endptr == str || *endptr != '\0' || val < 0 ||
+	    val > UINT16_MAX)
+		return -1;
+
+	*port = (uint16_t)val;
+	return 0;
 }
 
 
@@ -1771,6 +1788,7 @@ int main(int argc, char **argv)
 	struct pdraw_desktop *self = NULL;
 	int parsedint;
 	float parsedfloat;
+	uint16_t parsedport;
 	char *endptr = NULL;
 
 	welcome();
@@ -1832,19 +1850,23 @@ int main(int argc, char **argv)
 			break;
 
 		case 's':
-			self->local_stream_port = atoi(optarg);
-			break;
-
 		case 'c':
-			self->local_control_port = atoi(optarg);
-			break;
-
 		case 'S':
-			self->remote_stream_port = atoi(optarg);
-			break;
-
 		case 'C':
-			self->remote_control_port = atoi(optarg);
+			res = parse_port(optarg, &parsedport);
+			if (res < 0) {
+				usage(argv[0]);
+				status = EXIT_FAILURE;
+				goto out;
+			}
+			if (c == 's')
+				self->local_stream_port = parsedport;
+			else if (c == 'c')
+				self->local_control_port = parsedport;
+			else if (c == 'S')
+				self->remote_stream_port = parsedport;
+			else if (c == 'C')
+				self->remote_control_port = parsedport;
 			break;
 
 		case ARGS_ID_DEMUX:
@@ -1863,7 +1885,8 @@ int main(int argc, char **argv)
 				status = EXIT_FAILURE;
 				goto out;
 			}
-			self->start_time_us = (parsedfloat * 1000000.);
+			self->start_time_us =
+				(uint64_t)(parsedfloat * 1000000.0f);
 			break;
 
 		case 'F':
@@ -1917,7 +1940,7 @@ int main(int argc, char **argv)
 
 		case ARGS_ID_ZEBRAS:
 			self->enable_zebras = 1;
-			self->zebras_threshold = atof(optarg);
+			self->zebras_threshold = strtof(optarg, NULL);
 			if ((self->zebras_threshold < 0.f) ||
 			    (self->zebras_threshold > 1.f))
 				self->zebras_threshold = DEFAULT_ZEBRAS_THRES;

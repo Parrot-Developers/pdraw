@@ -94,6 +94,13 @@ public:
 
 	virtual int removeInputMedia(Media *media);
 
+	/* Null the media pointer in the InputPort matching 'media', without
+	 * unlinking the channel. Called by
+	 * Source::clearAttachedSinksInputMedia() just before the source media
+	 * object is freed (EBUSY teardown path), so that Sink::~Sink() →
+	 * removeInputMediasImpl() does not dereference freed memory. */
+	void clearInputMedia(const Media *media);
+
 	Channel *getInputChannel(const Media *media);
 
 protected:
@@ -147,7 +154,7 @@ protected:
 				 struct mbuf_audio_frame *frame) override;
 
 	void onChannelDownstreamEvent(Channel *channel,
-				      const struct pomp_msg *event) override;
+				      const pomp::Message &event) override;
 
 	virtual void onChannelFlush(Channel *channel) = 0;
 
@@ -171,7 +178,7 @@ protected:
 
 	virtual void onChannelSessionMetaUpdate(Channel *channel);
 
-	struct pomp_loop *mLoop = nullptr;
+	pomp::Loop *mLoop = nullptr;
 	std::recursive_mutex mMutex{};
 	unsigned int mMaxInputMedias = 0;
 	std::vector<InputPort> mInputPorts{};
@@ -181,6 +188,9 @@ protected:
 	int mRawVideoMediaFormatCapsCount = 0;
 	const struct adef_format *mAudioMediaFormatCaps = nullptr;
 	int mAudioMediaFormatCapsCount = 0;
+
+private:
+	int removeInputMediasImpl(const char *name);
 };
 
 } /* namespace Pdraw */

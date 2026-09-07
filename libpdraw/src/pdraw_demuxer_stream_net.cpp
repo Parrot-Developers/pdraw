@@ -30,7 +30,6 @@
 
 #define ULOG_TAG pdraw_dmxstrmnet
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_demuxer_stream_net.hpp"
 #include "pdraw_session.hpp"
@@ -44,6 +43,8 @@ ULOG_DECLARE_TAG(ULOG_TAG);
 #include <unistd.h>
 
 #include <futils/futils.h>
+
+ULOG_DECLARE_TAG(ULOG_TAG);
 
 constexpr size_t DEFAULT_RX_BUFFER_SIZE = 1500;
 
@@ -158,7 +159,7 @@ uint16_t StreamDemuxerNet::getSingleStreamLocalControlPort()
 std::unique_ptr<StreamDemuxer::VideoMedia>
 StreamDemuxerNet::createVideoMedia(enum rtsp_lower_transport transport)
 {
-	return make_unique<VideoMediaNet>(this, transport);
+	return std::make_unique<VideoMediaNet>(this, transport);
 }
 
 
@@ -166,9 +167,8 @@ StreamDemuxerNet::VideoMediaNet::VideoMediaNet(
 	StreamDemuxerNet *demuxer,
 	enum rtsp_lower_transport transport) :
 		VideoMedia(demuxer),
-		mDemuxerNet(demuxer)
+		mDemuxerNet(demuxer), mLowerTransport(transport)
 {
-	mLowerTransport = transport;
 }
 
 
@@ -263,6 +263,10 @@ int StreamDemuxerNet::VideoMediaNet::sendCtrl(struct vstrm_receiver *stream,
 	}
 
 	ULOG_ERRNO_RETURN_ERR_IF(mControlSock == nullptr, EINVAL);
+
+	/* Skip RTCP if no remote control port is configured */
+	if (tskt_socket_get_remote_port(mControlSock) == 0)
+		return 0;
 
 	/* Write data */
 	res = tskt_socket_write_pkt(mControlSock, pkt);
@@ -388,22 +392,52 @@ void StreamDemuxerNet::VideoMediaNet::setRemoteControlPort(uint16_t port)
 }
 
 
-int StreamDemuxerNet::VideoMediaNet::createSockets()
+void StreamDemuxerNet::VideoMediaNet::initStreamPorts()
 {
-	int res;
-	int err;
-	int rxBufSize;
-	if (getLowerTransport() != RTSP_LOWER_TRANSPORT_TCP) {
+	if (getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP) {
+		mLocalStreamPort = 0;
+		mLocalControlPort = 0;
+		return;
+	}
+
+	/* No-URL mode: apply pre-configured ports from demuxer
+	 * constructor, falling back to defaults if 0 */
+	if (mDemuxerNet->mUrl != nullptr) {
 		if (mLocalStreamPort == 0)
 			mLocalStreamPort =
 				DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
 		if (mLocalControlPort == 0)
 			mLocalControlPort =
 				DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
-	} else {
-		mLocalStreamPort = 0;
-		mLocalControlPort = 0;
+		return;
 	}
+
+	if (mLocalStreamPort == 0) {
+		mLocalStreamPort =
+			mDemuxerNet->mSingleLocalStreamPort
+				? mDemuxerNet->mSingleLocalStreamPort
+				: DEMUXER_STREAM_DEFAULT_LOCAL_STREAM_PORT;
+	}
+
+	if (mLocalControlPort == 0) {
+		mLocalControlPort =
+			mDemuxerNet->mSingleLocalControlPort
+				? mDemuxerNet->mSingleLocalControlPort
+				: DEMUXER_STREAM_DEFAULT_LOCAL_CONTROL_PORT;
+	}
+
+	mRemoteStreamPort = mDemuxerNet->mSingleRemoteStreamPort;
+	mRemoteControlPort = mDemuxerNet->mSingleRemoteControlPort;
+}
+
+
+int StreamDemuxerNet::VideoMediaNet::createSockets()
+{
+	int res;
+	int err;
+	int rxBufSize;
+
+	initStreamPorts();
 
 	/* Create the rx buffer */
 	mRxBufLen = DEFAULT_RX_BUFFER_SIZE;
@@ -418,14 +452,15 @@ int StreamDemuxerNet::VideoMediaNet::createSockets()
 	if (getLowerTransport() == RTSP_LOWER_TRANSPORT_TCP)
 		return 0;
 
-	/* Sockets will be created once address resolution is done */
-	if (!mDemuxerNet->mUrl->hasResolvedHost())
+	/* In URL mode, sockets will be created once addr resolution is done */
+	if (mDemuxerNet->mUrl != nullptr &&
+	    !mDemuxerNet->mUrl->hasResolvedHost())
 		return 0;
 
 	/* Create the sockets */
 	res = tskt_socket_new(mDemuxerNet->mLocalAddr.c_str(),
 			      &mLocalStreamPort,
-			      mDemuxerNet->mUrl->getResolvedHost().c_str(),
+			      mDemuxerNet->mRemoteAddr.c_str(),
 			      mRemoteStreamPort,
 			      nullptr,
 			      mDemuxerNet->mSession->getLoop(),
@@ -457,7 +492,7 @@ int StreamDemuxerNet::VideoMediaNet::createSockets()
 
 	res = tskt_socket_new(mDemuxerNet->mLocalAddr.c_str(),
 			      &mLocalControlPort,
-			      mDemuxerNet->mUrl->getResolvedHost().c_str(),
+			      mDemuxerNet->mRemoteAddr.c_str(),
 			      mRemoteControlPort,
 			      nullptr,
 			      mDemuxerNet->mSession->getLoop(),
@@ -542,12 +577,10 @@ int StreamDemuxerNet::VideoMediaNet::processCtrlPkt(struct tpkt_packet *pkt)
 }
 
 
-void StreamDemuxerNet::VideoMediaNet::dataCb(int fd,
-					     uint32_t events,
+void StreamDemuxerNet::VideoMediaNet::dataCb([[maybe_unused]] int fd,
+					     [[maybe_unused]] uint32_t events,
 					     void *userdata)
 {
-	PDRAW_UNUSED(fd);
-	PDRAW_UNUSED(events);
 
 	auto *self = static_cast<VideoMediaNet *>(userdata);
 	int res;
@@ -592,12 +625,10 @@ void StreamDemuxerNet::VideoMediaNet::dataCb(int fd,
 }
 
 
-void StreamDemuxerNet::VideoMediaNet::ctrlCb(int fd,
-					     uint32_t events,
+void StreamDemuxerNet::VideoMediaNet::ctrlCb([[maybe_unused]] int fd,
+					     [[maybe_unused]] uint32_t events,
 					     void *userdata)
 {
-	PDRAW_UNUSED(fd);
-	PDRAW_UNUSED(events);
 
 	auto *self = static_cast<VideoMediaNet *>(userdata);
 	int res;

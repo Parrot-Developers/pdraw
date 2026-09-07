@@ -48,7 +48,15 @@ public:
 		  const struct pdraw_muxer_media_params *params) override;
 
 protected:
-	int processFrame(struct mbuf_coded_video_frame *frame) override;
+	int internalSerialize(const uint8_t *buf,
+			      size_t len,
+			      std::vector<struct iovec> &iov,
+			      uint8_t **headerBuf) override;
+
+	const char *internalGetMimeType() const override
+	{
+		return vdef_get_encoding_mime_type(VDEF_ENCODING_PNG);
+	}
 
 	PngRecordMuxer *mPngMuxer = nullptr;
 };

@@ -34,6 +34,7 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,8 +44,8 @@
 #include <ulog.h>
 
 #ifdef _WIN32
-#	include <windows.h>
 #	include <winsock2.h>
+#	include <windows.h>
 #	undef near
 #	undef far
 #endif /* !_WIN32 */
@@ -141,13 +142,13 @@ struct pdraw_desktop {
 	struct pdraw_demuxer *demuxer;
 	char *demuxer_media_list;
 	struct pdraw_vipc_source *source;
-	unsigned int media_count;
-	unsigned int video_media_count;
+	size_t media_count;
+	size_t video_media_count;
 	unsigned int video_renderer_pending_media_id;
 	unsigned int removed_medias[MAX_RENDERERS];
-	unsigned int latest_removed_media_index;
+	size_t latest_removed_media_index;
 	struct pdraw_desktop_renderer video_renderers[MAX_RENDERERS];
-	unsigned int video_renderer_count;
+	size_t video_renderer_count;
 	struct pdraw_audio_renderer *audio_renderer;
 	int start_paused;
 	int start_paused_pending;
@@ -258,7 +259,7 @@ int pdraw_desktop_ui_destroy(struct pdraw_desktop *self);
 void pdraw_desktop_ui_send_quit_event(void);
 
 
-void pdraw_desktop_ui_send_user_event(struct pdraw_desktop *self,
+void pdraw_desktop_ui_send_user_event(const struct pdraw_desktop *self,
 				      enum pdraw_desktop_event event,
 				      void *data1,
 				      void *data2);
@@ -289,9 +290,9 @@ int pdraw_desktop_ext_tex_setup(struct pdraw_desktop *self);
 int pdraw_desktop_ext_tex_cleanup(struct pdraw_desktop *self);
 
 
-int pdraw_desktop_ext_tex_load(struct pdraw_desktop *self,
-			       struct pdraw_backend *pdraw,
-			       struct pdraw_video_renderer *renderer,
+int pdraw_desktop_ext_tex_load(const struct pdraw_desktop *self,
+			       const struct pdraw_backend *pdraw,
+			       const struct pdraw_video_renderer *renderer,
 			       const struct pdraw_media_info *media_info,
 			       struct mbuf_raw_video_frame *frame,
 			       const void *frame_userdata,

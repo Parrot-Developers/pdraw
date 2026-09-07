@@ -30,46 +30,55 @@
 
 #define ULOG_TAG pdraw_recmux_isobmff
 #include <ulog.h>
-ULOG_DECLARE_TAG(ULOG_TAG);
 
 #include "pdraw_muxer_record_isobmff.hpp"
 #include "pdraw_muxer_record_isobmff_media.hpp"
 #include "pdraw_session.hpp"
 
 #include <array>
+#include <memory>
 #include <time.h>
 
 #include <futils/futils.h>
 #include <libmp4.h>
 #include <media-buffers/mbuf_coded_video_frame.h>
 
+ULOG_DECLARE_TAG(ULOG_TAG);
+
 namespace Pdraw {
 
 
-constexpr size_t NB_SUPPORTED_CODED_FORMATS = 2;
-constexpr size_t NB_SUPPORTED_RAW_FORMATS = 2;
-constexpr size_t NB_SUPPORTED_AUDIO_FORMATS = 8;
-static std::array<vdef_coded_format, NB_SUPPORTED_CODED_FORMATS>
-	supportedCodedFormats;
-static std::array<vdef_raw_format, NB_SUPPORTED_RAW_FORMATS>
-	supportedRawFormats;
-static std::array<adef_format, NB_SUPPORTED_AUDIO_FORMATS>
-	supportedAudioFormats;
-static std::once_flag supportedFormatsOnceFlag;
-static void initializeSupportedFormats()
+static const std::array<vdef_coded_format, 2> &getSupportedCodedFormats()
 {
-	supportedCodedFormats[0] = vdef_h264_avcc;
-	supportedCodedFormats[1] = vdef_h265_hvcc;
-	supportedRawFormats[0] = vdef_raw8;
-	supportedRawFormats[1] = vdef_raw16;
-	supportedAudioFormats[0] = adef_pcm_16b_44100hz_mono;
-	supportedAudioFormats[1] = adef_pcm_16b_44100hz_stereo;
-	supportedAudioFormats[2] = adef_pcm_16b_48000hz_mono;
-	supportedAudioFormats[3] = adef_pcm_16b_48000hz_stereo;
-	supportedAudioFormats[4] = adef_aac_lc_16b_44100hz_mono_raw;
-	supportedAudioFormats[5] = adef_aac_lc_16b_44100hz_stereo_raw;
-	supportedAudioFormats[6] = adef_aac_lc_16b_48000hz_mono_raw;
-	supportedAudioFormats[7] = adef_aac_lc_16b_48000hz_stereo_raw;
+	static const std::array<vdef_coded_format, 2> formats = {{
+		vdef_h264_avcc,
+		vdef_h265_hvcc,
+	}};
+	return formats;
+}
+
+static const std::array<vdef_raw_format, 2> &getSupportedRawFormats()
+{
+	static const std::array<vdef_raw_format, 2> formats = {{
+		vdef_raw8,
+		vdef_raw16,
+	}};
+	return formats;
+}
+
+static const std::array<adef_format, 8> &getSupportedAudioFormats()
+{
+	static const std::array<adef_format, 8> formats = {{
+		adef_pcm_16b_44100hz_mono,
+		adef_pcm_16b_44100hz_stereo,
+		adef_pcm_16b_48000hz_mono,
+		adef_pcm_16b_48000hz_stereo,
+		adef_aac_lc_16b_44100hz_mono_raw,
+		adef_aac_lc_16b_44100hz_stereo_raw,
+		adef_aac_lc_16b_48000hz_mono_raw,
+		adef_aac_lc_16b_48000hz_stereo_raw,
+	}};
+	return formats;
 }
 
 
@@ -85,14 +94,13 @@ IsobmffRecordMuxer::IsobmffRecordMuxer(
 			    listener,
 			    wrapper,
 			    fileName,
-			    params)
+			    params),
+		mTablesSizeMb(params->tables_size_mb
+				      ? params->tables_size_mb
+				      : MP4_MUX_DEFAULT_TABLE_SIZE_MB),
+		mTablesSyncPeriodMs(params->tables_sync_period_ms)
 {
-	std::call_once(supportedFormatsOnceFlag, initializeSupportedFormats);
-
 	Element::setClassName(__func__);
-
-	mTablesSizeMb = params->tables_size_mb ? params->tables_size_mb
-					       : MP4_MUX_DEFAULT_TABLE_SIZE_MB;
 
 	mRecovery.mTablesFile = params->recovery.tables_file == nullptr
 					? ""
@@ -103,14 +111,16 @@ IsobmffRecordMuxer::IsobmffRecordMuxer(
 		params->recovery.allocate_space_for_tables_file;
 	mRecovery.enabled = !mRecovery.mTablesFile.empty();
 
-	setCodedVideoMediaFormatCaps(supportedCodedFormats.data(),
-				     supportedCodedFormats.size());
-	setRawVideoMediaFormatCaps(supportedRawFormats.data(),
-				   supportedRawFormats.size());
-	setAudioMediaFormatCaps(supportedAudioFormats.data(),
-				supportedAudioFormats.size());
+	setCodedVideoMediaFormatCaps(
+		getSupportedCodedFormats().data(),
+		static_cast<int>(getSupportedCodedFormats().size()));
+	setRawVideoMediaFormatCaps(
+		getSupportedRawFormats().data(),
+		static_cast<int>(getSupportedRawFormats().size()));
+	setAudioMediaFormatCaps(
+		getSupportedAudioFormats().data(),
+		static_cast<int>(getSupportedAudioFormats().size()));
 
-	mTablesSyncPeriodMs = params->tables_sync_period_ms;
 	mStats.type = PDRAW_MUXER_TYPE_RECORD;
 
 	mThreadSyncTimerHandle.set([this] { syncCb(); });
@@ -250,13 +260,14 @@ IsobmffRecordMuxer::IsobmffRecordMuxer::createMedia(const MuxerMediaConfig &cfg)
 	try {
 		switch (cfg.type) {
 		case Media::Type::CODED_VIDEO:
-			return make_unique<IsobmffMuxerCodedVideoMedia>(this,
-									cfg);
+			return std::make_unique<IsobmffMuxerCodedVideoMedia>(
+				this, cfg);
 		case Media::Type::RAW_VIDEO:
-			return make_unique<IsobmffMuxerRawVideoMedia>(this,
-								      cfg);
+			return std::make_unique<IsobmffMuxerRawVideoMedia>(this,
+									   cfg);
 		case Media::Type::AUDIO:
-			return make_unique<IsobmffMuxerAudioMedia>(this, cfg);
+			return std::make_unique<IsobmffMuxerAudioMedia>(this,
+									cfg);
 		default:
 			PDRAW_LOGE("unsupported media type: %d",
 				   static_cast<int>(cfg.type));
@@ -327,11 +338,9 @@ int IsobmffRecordMuxer::internalSetThumbnail(
 
 /* Called on the writer thread */
 int IsobmffRecordMuxer::internalSetFileMetadata(
-	enum pdraw_muxer_metadata_type type,
+	const struct pdraw_muxer_metadata_params *params,
 	const uint8_t *data,
-	size_t size,
-	const void *params,
-	size_t paramsSize)
+	size_t size)
 {
 	return -ENOSYS;
 }
@@ -370,7 +379,7 @@ int IsobmffRecordMuxer::onWriterLoopInit()
 
 	if (mRecovery.mSyncPeriodMs != 0) {
 		try {
-			mThreadSyncTimer = make_unique<pomp::Timer>(
+			mThreadSyncTimer = std::make_unique<pomp::Timer>(
 				getThreadLoop(), &mThreadSyncTimerHandle);
 		} catch (const std::bad_alloc &) {
 			ret = -ENOMEM;
@@ -387,7 +396,7 @@ int IsobmffRecordMuxer::onWriterLoopInit()
 
 	if (mThreadTablesSyncTimer == nullptr && mTablesSyncPeriodMs != 0) {
 		try {
-			mThreadTablesSyncTimer = make_unique<pomp::Timer>(
+			mThreadTablesSyncTimer = std::make_unique<pomp::Timer>(
 				getThreadLoop(), &mThreadTablesSyncTimerHandle);
 		} catch (const std::bad_alloc &) {
 			ret = -ENOMEM;
@@ -492,7 +501,7 @@ int IsobmffRecordMuxer::internalSetDynParams(
 	mTablesSyncPeriodMs = dyn_params->tables_sync_period_ms;
 	if (mTablesSyncPeriodMs != 0) {
 		try {
-			mThreadTablesSyncTimer = make_unique<pomp::Timer>(
+			mThreadTablesSyncTimer = std::make_unique<pomp::Timer>(
 				getThreadLoop(), &mThreadTablesSyncTimerHandle);
 		} catch (const std::bad_alloc &) {
 			err = -ENOMEM;
@@ -513,7 +522,7 @@ out:
 int IsobmffRecordMuxer::internalAddChapter(uint64_t timestamp, const char *name)
 {
 	int ret = 0;
-	uint8_t *buf = nullptr;
+	unique_c_ptr<uint8_t> buf;
 	unsigned int bufLen = 0;
 	int64_t dts = 0;
 
@@ -525,16 +534,12 @@ int IsobmffRecordMuxer::internalAddChapter(uint64_t timestamp, const char *name)
 			/* TODO: choose chapter name? */
 			PDRAW_LOGW(
 				"adding missing first chapter (00:00: Start)");
-			mPendingChapters.insert(
-				std::pair<uint64_t, std::string>(
-					0, std::string("Start")));
+			mPendingChapters.try_emplace(0, "Start");
 		}
 		ret = addChapters();
 		if (ret == -EAGAIN) {
 			/* Pend chapter and return */
-			mPendingChapters.insert(
-				std::pair<uint64_t, std::string>(
-					timestamp, std::string(name)));
+			mPendingChapters.try_emplace(timestamp, name);
 			return 0;
 		} else if (ret < 0) {
 			PDRAW_LOG_ERRNO("addChapters", -ret);
@@ -548,14 +553,18 @@ int IsobmffRecordMuxer::internalAddChapter(uint64_t timestamp, const char *name)
 		   (unsigned int)(timestamp / 10000) % 100,
 		   name);
 
-	ret = mp4_generate_chapter_sample(name, &buf, &bufLen);
-	if (ret < 0) {
-		PDRAW_LOG_ERRNO("mp4_generate_chapter_sample", -ret);
-		return ret;
+	{
+		uint8_t *rawBuf = nullptr;
+		ret = mp4_generate_chapter_sample(name, &rawBuf, &bufLen);
+		if (ret < 0) {
+			PDRAW_LOG_ERRNO("mp4_generate_chapter_sample", -ret);
+			return ret;
+		}
+		buf.reset(rawBuf);
 	}
 	dts = mp4_convert_timescale(timestamp, 1000000, DEFAULT_MP4_TIMESCALE);
 	struct mp4_mux_sample sample = {
-		.buffer = buf,
+		.buffer = buf.get(),
 		.len = bufLen,
 		.sync = 1,
 		.dts = dts,
@@ -564,7 +573,6 @@ int IsobmffRecordMuxer::internalAddChapter(uint64_t timestamp, const char *name)
 	if (ret < 0)
 		PDRAW_LOG_ERRNO("mp4_mux_track_add_sample", -ret);
 
-	free(buf);
 	return ret;
 }
 
@@ -680,8 +688,8 @@ int IsobmffRecordMuxer::addChapters()
 	}
 
 	/* Process pending chapters if needed */
-	for (const auto &c : mPendingChapters) {
-		int err = internalAddChapter(c.first, c.second.c_str());
+	for (const auto &[timestamp, title] : mPendingChapters) {
+		int err = internalAddChapter(timestamp, title.c_str());
 		if (err < 0)
 			PDRAW_LOG_ERRNO("internalAddChapter", -err);
 	}
@@ -712,7 +720,7 @@ void IsobmffRecordMuxer::mergeSessionMetadata()
 				track->getSessionMeta();
 			if (!trackMeta)
 				continue;
-			auto meta = make_unique<struct vmeta_session>();
+			auto meta = std::make_unique<struct vmeta_session>();
 			*meta = *trackMeta;
 			/* Set first_frame_sample_index/capture_ts */
 			if (!(track->getMediaType() ==
@@ -749,16 +757,14 @@ void IsobmffRecordMuxer::mergeSessionMetadata()
 		auto *track = static_cast<IsobmffMuxerMedia *>(trackBase.get());
 		if (!track->isVideo())
 			continue;
-		err = track->writeRecordingMetadata(sessionPtrs[sessionIdx++]);
+		err = track->writeRecordingMetadata(sessionPtrs[sessionIdx]);
+		sessionIdx++;
 		if (err < 0)
 			PDRAW_LOG_ERRNO("track->writeRecordingMetadata", -err);
 	}
 
-	if (fileSessionMeta.media_date == 0) {
-		/* Use the MP4 file creation date */
-		fileSessionMeta.media_date = mMediaDate;
-		fileSessionMeta.media_date_gmtoff = mMediaDateGmtOff;
-	}
+	sessionSetMediaDate(fileSessionMeta, false);
+
 	if (fileSessionMeta.title[0] == '\0') {
 		err = time_local_format(fileSessionMeta.media_date,
 					fileSessionMeta.media_date_gmtoff,
@@ -795,12 +801,12 @@ void IsobmffRecordMuxer::tablesSyncCb()
 
 
 /* Called on the writer thread */
-void IsobmffRecordMuxer::sessionMetaWriteFileCb(enum vmeta_record_type type,
-						const char *key,
-						const char *value,
-						void *userdata)
+void IsobmffRecordMuxer::sessionMetaWriteFileCb(
+	[[maybe_unused]] enum vmeta_record_type type,
+	const char *key,
+	const char *value,
+	void *userdata)
 {
-	PDRAW_UNUSED(type);
 
 	int res;
 	auto *self = static_cast<IsobmffRecordMuxer *>(userdata);

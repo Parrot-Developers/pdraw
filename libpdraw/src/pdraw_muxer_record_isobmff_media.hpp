@@ -57,7 +57,7 @@ public:
 
 	int addMetadata(enum vmeta_frame_type metaType);
 
-	int writeRecordingMetadata(struct vmeta_session *session);
+	int writeRecordingMetadata(const struct vmeta_session *session);
 
 	void setChapters(uint32_t id)
 	{
@@ -133,7 +133,7 @@ public:
 protected:
 	int processFrame(struct mbuf_coded_video_frame *frame);
 
-	std::array<const void *, MAX_NALUS_PER_FRAME> mNalusPtr{};
+	std::array<const uint8_t *, MAX_NALUS_PER_FRAME> mNalusPtr{};
 	std::array<size_t, MAX_NALUS_PER_FRAME> mNalusSize{};
 };
 

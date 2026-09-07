@@ -1,0 +1,11 @@
+# Only loaded when pdraw-vsink-test-opencv falls back to opencv2 (see
+# atom.mk). No prompt on purpose: forces the needed opencv2 submodules,
+# not user-toggleable.
+config PDRAW_VSINK_TEST_OPENCV
+	bool
+	default y
+	select OPENCV_WITH_JPEG
+	select OPENCV_BUILD_opencv_highgui
+	select OPENCV_BUILD_opencv_imgproc
+	select OPENCV_BUILD_opencv_objdetect
+	select OPENCV_INSTALL_HAAR_CASCADES_DATA
